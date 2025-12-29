@@ -3,15 +3,99 @@ from sqlalchemy.orm import Session
 from typing import List
 from ...core.database import get_db
 from ...core.security import get_current_user, require_roles
-from ...models.fatos import FatoAtletas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
+from ...models.fatos import FatoAtletas, FatoAtletasMetricas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
 from ...models.user import Usuario
 from ...schemas.fatos import (
+    AtletasMetricasCreate, AtletasMetricasUpdate, AtletasMetricasResponse,
     AtletasCanaisCreate, AtletasCanaisUpdate, AtletasCanaisResponse,
     AtletasKitsCreate, AtletasKitsUpdate, AtletasKitsResponse,
     AtletasCustosCreate, AtletasCustosUpdate, AtletasCustosResponse
 )
 
 router = APIRouter(prefix="/atletas-satelite", tags=["Atletas Satélite"])
+
+
+# === METRICAS (principal) ===
+@router.get("/metricas/", response_model=List[AtletasMetricasResponse])
+async def list_metricas(
+    fato_atletas_id: int = None,
+    cenario: str = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    query = db.query(FatoAtletasMetricas)
+    
+    if fato_atletas_id:
+        query = query.filter(FatoAtletasMetricas.fato_atletas_id == fato_atletas_id)
+    if cenario:
+        query = query.filter(FatoAtletasMetricas.cenario == cenario)
+    
+    return query.all()
+
+
+@router.post("/metricas/", response_model=AtletasMetricasResponse)
+async def create_metrica(
+    data: AtletasMetricasCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
+    if not fato:
+        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    
+    db_item = FatoAtletasMetricas(**data.model_dump())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.put("/metricas/{item_id}", response_model=AtletasMetricasResponse)
+async def update_metrica(
+    item_id: int,
+    data: AtletasMetricasUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    item = db.query(FatoAtletasMetricas).filter(FatoAtletasMetricas.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/metricas/{item_id}")
+async def delete_metrica(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+):
+    item = db.query(FatoAtletasMetricas).filter(FatoAtletasMetricas.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    db.delete(item)
+    db.commit()
+    return {"message": "Registro excluído"}
+
+
+@router.post("/metricas/bulk", response_model=List[AtletasMetricasResponse])
+async def create_metricas_bulk(
+    data: List[AtletasMetricasCreate],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    items = [FatoAtletasMetricas(**item.model_dump()) for item in data]
+    db.add_all(items)
+    db.commit()
+    for item in items:
+        db.refresh(item)
+    return items
 
 
 # === CANAIS ===

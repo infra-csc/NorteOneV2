@@ -96,9 +96,11 @@ cd frontend && npm run dev
 - GET/POST/PUT/DELETE /api/atletas/
 
 ### Atletas Satelite (Tabelas Normalizadas)
+- GET/POST/PUT/DELETE /api/atletas-satelite/metricas/ - Metricas principais (qtd_atletas, tkt_medio, inscricao, custo_kit)
 - GET/POST/PUT/DELETE /api/atletas-satelite/canais/ - Metricas por canal (SITE, GRUPOS, APPAI)
 - GET/POST/PUT/DELETE /api/atletas-satelite/kits/ - Metricas de kits (VIP, PLUS, SUPER, PRODUTO)
 - GET/POST/PUT/DELETE /api/atletas-satelite/custos/ - Custos operacionais (AGUA, ISOTONICO, HIDRATACAO, etc)
+- POST /api/atletas-satelite/metricas/bulk - Criacao em lote de metricas
 - POST /api/atletas-satelite/canais/bulk - Criacao em lote de canais
 - POST /api/atletas-satelite/kits/bulk - Criacao em lote de kits
 - POST /api/atletas-satelite/custos/bulk - Criacao em lote de custos
@@ -127,7 +129,11 @@ cd frontend && npm run dev
 - fato_atletas
 
 ### Tabelas Satelite de Atletas (Normalizadas)
-As metricas detalhadas de atletas foram normalizadas em 3 tabelas satelite para melhor organizacao e extensibilidade:
+As metricas detalhadas de atletas foram normalizadas em 4 tabelas satelite para melhor organizacao e extensibilidade:
+
+- **fato_atletas_metricas** - Metricas principais por cenario
+  - Campos: fato_atletas_id, cenario (ORCADO/PROJETADO/REALIZADO)
+  - Metricas: qtd_atletas, qtd_atletas_pago, qtd_atletas_cortesia, tkt_medio, inscricao, custo_kit_unitario
 
 - **fato_atletas_canais** - Metricas por canal de distribuicao
   - Campos: fato_atletas_id, canal (SITE/GRUPOS/APPAI), cenario (ORCADO/PROJETADO/REALIZADO)

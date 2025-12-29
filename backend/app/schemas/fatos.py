@@ -114,6 +114,36 @@ class AtletasResponse(AtletasBase):
         from_attributes = True
 
 
+# === Schemas para Atletas Metricas (principal) ===
+class AtletasMetricasBase(BaseModel):
+    fato_atletas_id: int
+    cenario: str  # ORCADO, PROJETADO, REALIZADO
+    qtd_atletas: int = 0
+    qtd_atletas_pago: int = 0
+    qtd_atletas_cortesia: int = 0
+    tkt_medio: Optional[Decimal] = None
+    inscricao: Optional[Decimal] = None
+    custo_kit_unitario: Optional[Decimal] = None
+
+class AtletasMetricasCreate(AtletasMetricasBase):
+    pass
+
+class AtletasMetricasUpdate(BaseModel):
+    qtd_atletas: Optional[int] = None
+    qtd_atletas_pago: Optional[int] = None
+    qtd_atletas_cortesia: Optional[int] = None
+    tkt_medio: Optional[Decimal] = None
+    inscricao: Optional[Decimal] = None
+    custo_kit_unitario: Optional[Decimal] = None
+
+class AtletasMetricasResponse(AtletasMetricasBase):
+    id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
 # === Schemas para Atletas Canais ===
 class AtletasCanaisBase(BaseModel):
     fato_atletas_id: int

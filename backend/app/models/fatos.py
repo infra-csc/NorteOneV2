@@ -119,6 +119,31 @@ class FatoAtletas(Base):
     )
 
 
+class FatoAtletasMetricas(Base):
+    """Métricas principais de atletas normalizadas por cenário"""
+    __tablename__ = "fato_atletas_metricas"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
+    
+    qtd_atletas = Column(Integer, default=0)
+    qtd_atletas_pago = Column(Integer, default=0)
+    qtd_atletas_cortesia = Column(Integer, default=0)
+    tkt_medio = Column(Numeric(10, 2))
+    inscricao = Column(Numeric(10, 2))
+    custo_kit_unitario = Column(Numeric(10, 2))
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    fato_atletas = relationship("FatoAtletas", backref="metricas")
+    
+    __table_args__ = (
+        UniqueConstraint('fato_atletas_id', 'cenario', name='uq_atletas_metricas'),
+    )
+
+
 class FatoAtletasCanais(Base):
     """Métricas de atletas por canal de distribuição (site, grupos, appai)"""
     __tablename__ = "fato_atletas_canais"

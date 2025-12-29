@@ -5,7 +5,7 @@ from app.core.database import SessionLocal, engine, Base
 from app.core.security import get_password_hash
 from app.models.dimensoes import DimTempo, DimCentroCusto, DimConta, DimProjeto, DimCategoriaAtleta
 from app.models.user import Usuario
-from app.models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
+from app.models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas, FatoAtletasMetricas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
 
 Base.metadata.create_all(bind=engine)
 
@@ -233,6 +233,35 @@ def seed_atletas(db: Session):
     db.commit()
 
 
+def seed_atletas_metricas(db: Session):
+    if db.query(FatoAtletasMetricas).first():
+        return
+    
+    atletas = db.query(FatoAtletas).all()
+    cenarios = ['ORCADO', 'PROJETADO', 'REALIZADO']
+    
+    import random
+    for atleta in atletas:
+        for cenario in cenarios:
+            qtd = random.randint(100, 500)
+            qtd_pago = int(qtd * random.uniform(0.7, 0.9))
+            qtd_cortesia = qtd - qtd_pago
+            tkt = Decimal(str(random.randint(80, 200)))
+            inscr = Decimal(str(qtd_pago)) * tkt
+            custo_kit = Decimal(str(random.randint(30, 60)))
+            db.add(FatoAtletasMetricas(
+                fato_atletas_id=atleta.id,
+                cenario=cenario,
+                qtd_atletas=qtd,
+                qtd_atletas_pago=qtd_pago,
+                qtd_atletas_cortesia=qtd_cortesia,
+                tkt_medio=tkt,
+                inscricao=inscr,
+                custo_kit_unitario=custo_kit
+            ))
+    db.commit()
+
+
 def seed_atletas_satelite(db: Session):
     if db.query(FatoAtletasCanais).first():
         return
@@ -312,6 +341,8 @@ def main():
         seed_dados_financeiros(db)
         print("Seeding atletas...")
         seed_atletas(db)
+        print("Seeding atletas metricas...")
+        seed_atletas_metricas(db)
         print("Seeding atletas satelite (canais, kits, custos)...")
         seed_atletas_satelite(db)
         print("Seed completed!")
