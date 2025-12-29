@@ -40,12 +40,13 @@ def decode_token(token: str) -> dict:
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     from ..models.user import Usuario
     payload = decode_token(token)
-    user_id: int = payload.get("sub")
-    if user_id is None:
+    user_id_str = payload.get("sub")
+    if user_id_str is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token invalido",
         )
+    user_id = int(user_id_str)
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if user is None:
         raise HTTPException(
