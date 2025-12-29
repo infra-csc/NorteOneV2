@@ -95,6 +95,14 @@ cd frontend && npm run dev
 - GET/POST/DELETE /api/realizado/
 - GET/POST/PUT/DELETE /api/atletas/
 
+### Atletas Satelite (Tabelas Normalizadas)
+- GET/POST/PUT/DELETE /api/atletas-satelite/canais/ - Metricas por canal (SITE, GRUPOS, APPAI)
+- GET/POST/PUT/DELETE /api/atletas-satelite/kits/ - Metricas de kits (VIP, PLUS, SUPER, PRODUTO)
+- GET/POST/PUT/DELETE /api/atletas-satelite/custos/ - Custos operacionais (AGUA, ISOTONICO, HIDRATACAO, etc)
+- POST /api/atletas-satelite/canais/bulk - Criacao em lote de canais
+- POST /api/atletas-satelite/kits/bulk - Criacao em lote de kits
+- POST /api/atletas-satelite/custos/bulk - Criacao em lote de custos
+
 ### Dashboard
 - GET /api/dashboard/resumo-geral
 - GET /api/dashboard/evolucao-mensal
@@ -118,7 +126,27 @@ cd frontend && npm run dev
 - fato_realizado
 - fato_atletas
 
+### Tabelas Satelite de Atletas (Normalizadas)
+As metricas detalhadas de atletas foram normalizadas em 3 tabelas satelite para melhor organizacao e extensibilidade:
+
+- **fato_atletas_canais** - Metricas por canal de distribuicao
+  - Campos: fato_atletas_id, canal (SITE/GRUPOS/APPAI), cenario (ORCADO/PROJETADO/REALIZADO)
+  - Metricas: qtd_atletas, tkt_medio, inscricao
+
+- **fato_atletas_kits** - Metricas de kits
+  - Campos: fato_atletas_id, tipo_kit (VIP/PLUS/SUPER/PRODUTO), cenario
+  - Metricas: qtd_kit, tkt_medio, inscricao, custo_unitario
+
+- **fato_atletas_custos** - Custos operacionais por atleta
+  - Campos: fato_atletas_id, tipo_custo (AGUA/ISOTONICO/HIDRATACAO/NUMERO_PEITO/CHIP/ALFINETE/IDENTIFICACAO), cenario
+  - Metricas: custo_unitario, qtd_por_atleta, custo_total
+
 ## Ultimas Modificacoes
+- 29/12/2024: Adicao de tabelas satelite para atletas
+  - Criacao de fato_atletas_canais, fato_atletas_kits, fato_atletas_custos
+  - Endpoints CRUD e bulk para as novas tabelas
+  - Normalizacao das 95 colunas pendentes em estrutura extensivel
+
 - 29/12/2024: Criacao do sistema completo
   - Backend FastAPI com todas as rotas
   - Frontend React com Tailwind CSS
