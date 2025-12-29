@@ -1,0 +1,560 @@
+Crie um sistema web completo para gerenciamento de Data Warehouse financeiro de uma empresa de eventos. O sistema será a "fonte única de verdade" (Single Source of Truth) para dados orçamentários, projeções e realizados.
+
+## Stack Tecnológica
+
+- **Backend:** Python com FastAPI
+- **Frontend:** React com TypeScript e Tailwind CSS
+- **Banco de Dados:** PostgreSQL
+- **ORM:** SQLAlchemy
+- **Autenticação:** JWT
+- **Gráficos:** Recharts ou Chart.js
+
+## Modelo de Dados
+
+### Tabelas Dimensionais
+
+```sql
+-- Dimensão Tempo
+CREATE TABLE DIM_TEMPO (
+    id SERIAL PRIMARY KEY,
+    data DATE UNIQUE NOT NULL,
+    dia INT,
+    mes INT,
+    trimestre INT,
+    semestre INT,
+    ano INT,
+    dia_semana VARCHAR(20),
+    nome_mes VARCHAR(20),
+    is_feriado BOOLEAN DEFAULT FALSE
+);
+
+-- Dimensão Centro de Custo
+CREATE TABLE DIM_CENTRO_CUSTO (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) UNIQUE NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    area VARCHAR(50),
+    gestor_responsavel VARCHAR(100),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP
+);
+
+-- Dimensão Conta Contábil
+CREATE TABLE DIM_CONTA (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) UNIQUE NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    tipo VARCHAR(20) CHECK (tipo IN ('RECEITA', 'DESPESA')),
+    grupo VARCHAR(50),
+    subgrupo VARCHAR(50),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Dimensão Projeto/Evento
+CREATE TABLE DIM_PROJETO (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) UNIQUE NOT NULL,
+    produto VARCHAR(50) NOT NULL,
+    modalidade VARCHAR(20) CHECK (modalidade IN ('BEACH', 'CICLISMO', 'CORRIDA', 'CULTURA', 'EDUCACAO' ,'E-SPORTS', 'FAMILIA', 'NATACAO', 'OBSTACULO', 'SAUDE', 'TRIATHLON')) NOT NULL,
+    tipo_evento VARCHAR(50) CHECK (tipo_evento IN ('PROPRIO', 'INCENTIVO', 'ORGANIZACAO', 'LICENCIADO')) NOT NULL,
+    evento VARCHAR(200) NOT NULL,
+    lei VARCHAR(50) CHECK (lei IN ('LIE', 'PIE', 'FIA', 'ICMS RJ','PROAC', 'PRONAC', 'ROUANET', 'ISS RJ')) NOT NULL,
+    cliente VARCHAR(100),
+    status VARCHAR(20) CHECK (status IN ('EM_ANDAMENTO', 'CONCLUIDO', 'CANCELADO')) NOT NULL,
+    data_evento DATE NOT NULL,
+    local_evento VARCHAR(150) NOT NULL,
+    cidade VARCHAR(100),
+    estado VARCHAR(50),
+    capacidade_maxima INT,
+    etapa INT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP
+);
+
+-- Dimensão Categoria de Atleta (NOVO)
+CREATE TABLE dim_categoria_atleta (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(20) UNIQUE NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    faixa_etaria VARCHAR(50),
+    genero VARCHAR(20) CHECK (genero IN ('MASCULINO', 'FEMININO', 'MISTO')),
+    modalidade VARCHAR(50),
+    is_pcd BOOLEAN DEFAULT FALSE,
+    valor_inscricao_padrao DECIMAL(10,2),
+    custo_kit_padrao DECIMAL(10,2),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Dimensão Usuário
+CREATE TABLE DIM_USUARIO (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    nome VARCHAR(100) NOT NULL,
+    senha_hash VARCHAR(255) NOT NULL,
+    perfil VARCHAR(20) CHECK (perfil IN ('ADMIN', 'GESTOR', 'ANALISTA', 'VISUALIZADOR')),
+    centro_custo_id INT REFERENCES DIM_CENTRO_CUSTO(id),
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+### Tabelas Fato
+
+```sql
+-- Fato Orçamento (Base referencial)
+CREATE TABLE FATO_ORCAMENTO (
+    id SERIAL PRIMARY KEY,
+    tempo_id INT REFERENCES DIM_TEMPO(id),
+    centro_custo_id INT REFERENCES DIM_CENTRO_CUSTO(id),
+    conta_id INT REFERENCES DIM_CONTA(id),
+    projeto_id INT REFERENCES DIM_PROJETO(id),
+    valor_orcado DECIMAL(15,2) NOT NULL,
+    quantidade_orcada DECIMAL(10,2),
+    versao_orcamento VARCHAR(20) DEFAULT 'V1',
+    ano_referencia INT NOT NULL,
+    created_by INT REFERENCES DIM_USUARIO(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP,
+    UNIQUE(tempo_id, centro_custo_id, conta_id, projeto_id, versao_orcamento)
+);
+
+-- Fato Projeção (Previsões dos gestores)
+CREATE TABLE FATO_PROJECAO (
+    id SERIAL PRIMARY KEY,
+    tempo_id INT REFERENCES DIM_TEMPO(id),
+    centro_custo_id INT REFERENCES DIM_CENTRO_CUSTO(id),
+    conta_id INT REFERENCES DIM_CONTA(id),
+    projeto_id INT REFERENCES DIM_PROJETO(id),
+    valor_projetado DECIMAL(15,2) NOT NULL,
+    quantidade_projetada DECIMAL(10,2),
+    versao INT DEFAULT 1,
+    justificativa TEXT,
+    status VARCHAR(20) CHECK (status IN ('RASCUNHO', 'SUBMETIDO', 'APROVADO', 'REJEITADO')) DEFAULT 'RASCUNHO',
+    created_by INT REFERENCES DIM_USUARIO(id),
+    approved_by INT REFERENCES DIM_USUARIO(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP
+);
+
+-- Fato Realizado (Dados reais)
+CREATE TABLE FATO_REALIZADO (
+    id SERIAL PRIMARY KEY,
+    tempo_id INT REFERENCES DIM_TEMPO(id),
+    centro_custo_id INT REFERENCES DIM_CENTRO_CUSTO(id),
+    conta_id INT REFERENCES DIM_CONTA(id),
+    projeto_id INT REFERENCES DIM_PROJETO(id),
+    valor_realizado DECIMAL(15,2) NOT NULL,
+    quantidade_realizada DECIMAL(10,2),
+    documento_referencia VARCHAR(50),
+    descricao TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Fato Atletas (NOVO - Controle de atletas por evento/categoria)
+CREATE TABLE fato_atletas (
+    id SERIAL PRIMARY KEY,
+    projeto_id INT REFERENCES DIM_PROJETO(id) NOT NULL,
+    categoria_atleta_id INT REFERENCES dim_categoria_atleta(id) NOT NULL,
+    tempo_id INT REFERENCES DIM_TEMPO(id),
+    qtd_atletas_orcado INT DEFAULT 0,
+    qtd_atletas_projetado INT DEFAULT 0,
+    qtd_atletas_realizado INT DEFAULT 0,
+    qtd_atletas_pago_orcado INT DEFAULT 0,
+    qtd_atletas_pago_projetado INT DEFAULT 0,
+    qtd_atletas_pago_realizado INT DEFAULT 0,
+    qtd_atletas_cortesia_orcado INT DEFAULT 0,
+    qtd_atletas_cortesia_projetado INT DEFAULT 0,
+    qtd_atletas_cortesia_realizado INT DEFAULT 0,
+    qtd_atletas_site_orcado INT DEFAULT 0,
+    qtd_atletas_site_projetado INT DEFAULT 0,
+    qtd_atletas_site_realizado INT DEFAULT 0,   
+    qtd_atletas_grupos_orcado INT DEFAULT 0,
+    qtd_atletas_grupos_projetado INT DEFAULT 0,
+    qtd_atletas_grupos_realizado INT DEFAULT 0,   
+    qtd_atletas_appai_orcado INT DEFAULT 0,
+    qtd_atletas_appai_projetado INT DEFAULT 0,
+    qtd_atletas_appai_realizado INT DEFAULT 0,  
+    qtd_kit_vip_orcado INT DEFAULT 0,
+    qtd_kit_vip_projetado INT DEFAULT 0,
+    qtd_kit_vip_realizado INT DEFAULT 0, 
+    qtd_kit_plus_orcado INT DEFAULT 0,
+    qtd_kit_plus_projetado INT DEFAULT 0,
+    qtd_kit_plus_realizado INT DEFAULT 0,
+    qtd_kit_super_orcado INT DEFAULT 0,
+    qtd_kit_super_projetado INT DEFAULT 0,
+    qtd_kit_super_realizado INT DEFAULT 0,   
+    tkt_medio_orcado DECIMAL(10,2),
+    tkt_medio_projetado DECIMAL(10,2),
+    tkt_medio_realizado DECIMAL(10,2),
+    inscricao_orcado DECIMAL(10,2),
+    inscricao_projetado DECIMAL(10,2),
+    inscricao_realizado DECIMAL(10,2),
+    tkt_medio_site_orcado DECIMAL(10,2),
+    tkt_medio_site_projetado DECIMAL(10,2),
+    tkt_medio_site_realizado DECIMAL(10,2),
+    inscricao_site_orcado DECIMAL(10,2),
+    inscricao_site_projetado DECIMAL(10,2),
+    inscricao_site_realizado DECIMAL(10,2),    
+    tkt_medio_grupos_orcado DECIMAL(10,2),
+    tkt_medio_grupos_projetado DECIMAL(10,2),
+    tkt_medio_grupos_realizado DECIMAL(10,2),
+    inscricao_grupos_orcado DECIMAL(10,2),
+    inscricao_grupos_projetado DECIMAL(10,2),
+    inscricao_grupos_realizado DECIMAL(10,2),   
+    tkt_medio_appai_orcado DECIMAL(10,2),
+    tkt_medio_appai_projetado DECIMAL(10,2),
+    tkt_medio_appai_realizado DECIMAL(10,2),
+    inscricao_appai_orcado DECIMAL(10,2),
+    inscricao_appai_projetado DECIMAL(10,2),
+    inscricao_appai_realizado DECIMAL(10,2), 
+    tkt_medio_kit_vip_orcado DECIMAL(10,2),
+    tkt_medio_kit_vip_projetado DECIMAL(10,2),
+    tkt_medio_kit_vip_realizado DECIMAL(10,2),
+    inscricao_kit_vip_orcado DECIMAL(10,2),
+    inscricao_kit_vip_projetado DECIMAL(10,2),
+    inscricao_kit_vip_realizado DECIMAL(10,2), 
+    tkt_medio_kit_plus_orcado DECIMAL(10,2),
+    tkt_medio_kit_plus_projetado DECIMAL(10,2),
+    tkt_medio_kit_plus_realizado DECIMAL(10,2),
+    inscricao_kit_plus_orcado DECIMAL(10,2),
+    inscricao_kit_plus_projetado DECIMAL(10,2),
+    inscricao_kit_plus_realizado DECIMAL(10,2), 
+    tkt_medio_kit_super_orcado DECIMAL(10,2),
+    tkt_medio_kit_super_projetado DECIMAL(10,2),
+    tkt_medio_kit_super_realizado DECIMAL(10,2),
+    inscricao_kit_super_orcado DECIMAL(10,2),
+    inscricao_kit_super_projetado DECIMAL(10,2),
+    inscricao_kit_super_realizado DECIMAL(10,2), 
+    valor_inscricao_unitario DECIMAL(10,2),
+    custo_kit_unitario_orcado DECIMAL(10,2),
+    custo_kit_unitario_projetado DECIMAL(10,2),
+    custo_kit_unitario_realizado DECIMAL(10,2),
+    custo_kit_produto_orcado DECIMAL(10,2),
+    custo_kit_produto_projetado DECIMAL(10,2),
+    custo_kit_produto_realizado DECIMAL(10,2),
+    custo_kit_vip_orcado DECIMAL(10,2),
+    custo_kit_vip_projetado DECIMAL(10,2),
+    custo_kit_vip_realizado DECIMAL(10,2),
+    custo_kit_plus_orcado DECIMAL(10,2),
+    custo_kit_plus_projetado DECIMAL(10,2),
+    custo_kit_plus_realizado DECIMAL(10,2),
+    custo_kit_super_orcado DECIMAL(10,2),
+    custo_kit_super_projetado DECIMAL(10,2),
+    custo_kit_super_realizado DECIMAL(10,2),
+    custo_agua_unitario_orcado DECIMAL(10,2),
+    custo_agua_unitario_projetado DECIMAL(10,2),
+    custo_agua_unitario_realizado DECIMAL(10,2),
+    qtd_copo_atleta_orcado DECIMAL(10,2),
+    qtd_copo_atleta_projetado DECIMAL(10,2),
+    qtd_copo_atleta_realizado DECIMAL(10,2),
+    custo_isotonico_unitario_orcado DECIMAL(10,2),
+    custo_isotonico_unitario_projetado DECIMAL(10,2),
+    custo_isotonico_unitario_realizado DECIMAL(10,2),
+    qtd_isotonico_atleta_orcado DECIMAL(10,2),
+    qtd_isotonico_atleta_projetado DECIMAL(10,2),
+    qtd_isotonico_atleta_realizado DECIMAL(10,2),
+    custo_kit_hidratacao_orcado DECIMAL(10,2),
+    custo_kit_hidratacao_projetado DECIMAL(10,2),
+    custo_kit_hidratacao_realizado DECIMAL(10,2),        
+    custo_numero_peito_unitario_orcado DECIMAL(10,2),
+    custo_numero_peito_unitario_projetado DECIMAL(10,2),
+    custo_numero_peito_unitario_realizado DECIMAL(10,2),
+    custo_chip_unitario_orcado DECIMAL(10,2),
+    custo_chip_unitario_projetado DECIMAL(10,2),
+    custo_chip_unitario_realizado DECIMAL(10,2),
+    custo_alfinete_unitario_orcado DECIMAL(10,2),
+    custo_alfinete_unitario_projetado DECIMAL(10,2),
+    custo_alfinete_unitario_realizado DECIMAL(10,2),
+    custo_kit_identificacao_orcado DECIMAL(10,2),
+    custo_kit_identificacao_projetado DECIMAL(10,2),
+    custo_kit_identificacao_realizado DECIMAL(10,2),  
+    versao_projecao INT DEFAULT 1,
+    observacao TEXT,
+    created_by INT REFERENCES dim_usuario(id),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP,
+    UNIQUE(projeto_id, categoria_atleta_id, tempo_id, versao_projecao)
+);
+
+-- View consolidada de atletas com métricas calculadas
+CREATE VIEW vw_atletas_consolidado AS
+SELECT 
+    fa.id,
+    p.codigo as projeto_codigo,
+    p.nome as projeto_nome,
+    p.tipo_evento,
+    ca.codigo as categoria_codigo,
+    ca.nome as categoria_nome,
+    ca.modalidade,
+    ca.faixa_etaria,
+    ca.genero,
+    t.data,
+    t.mes,
+    t.ano,
+    fa.qtd_atletas_orcado,
+    fa.qtd_atletas_projetado,
+    fa.qtd_atletas_realizado,
+    fa.valor_inscricao_unitario,
+    fa.custo_kit_unitario,
+    -- Métricas calculadas
+    (fa.qtd_atletas_orcado * fa.valor_inscricao_unitario) as receita_orcada,
+    (fa.qtd_atletas_projetado * fa.valor_inscricao_unitario) as receita_projetada,
+    (fa.qtd_atletas_realizado * fa.valor_inscricao_unitario) as receita_realizada,
+    (fa.qtd_atletas_orcado * fa.custo_kit_unitario) as custo_kit_orcado,
+    (fa.qtd_atletas_realizado * fa.custo_kit_unitario) as custo_kit_realizado,
+    CASE WHEN fa.qtd_atletas_orcado > 0 
+        THEN ROUND(((fa.qtd_atletas_realizado - fa.qtd_atletas_orcado)::DECIMAL / fa.qtd_atletas_orcado) * 100, 2)
+        ELSE 0 
+    END as variacao_orc_real_pct,
+    CASE WHEN fa.qtd_atletas_projetado > 0 
+        THEN ROUND(((fa.qtd_atletas_realizado - fa.qtd_atletas_projetado)::DECIMAL / fa.qtd_atletas_projetado) * 100, 2)
+        ELSE 0 
+    END as variacao_proj_real_pct
+FROM fato_atletas fa
+JOIN dim_projeto p ON fa.projeto_id = p.id
+JOIN dim_categoria_atleta ca ON fa.categoria_atleta_id = ca.id
+LEFT JOIN dim_tempo t ON fa.tempo_id = t.id;
+```
+
+## Módulos e Funcionalidades
+
+### 1. Autenticação e Autorização
+- Login com email/senha
+- JWT para sessões
+- Perfis de acesso: ADMIN (tudo), GESTOR (seu centro de custo), ANALISTA (cadastros), VISUALIZADOR (apenas consulta)
+- Tela de gerenciamento de usuários (apenas ADMIN)
+
+### 2. Cadastros (Dimensões)
+Telas CRUD completas para:
+- Centro de Custo (com campo de gestor responsável)
+- Contas Contábeis (com tipo receita/despesa e hierarquia grupo/subgrupo)
+- Projetos/Eventos (com status, cliente, datas)
+- Categorias de Atletas (modalidade, faixa etária, gênero, PCD, valores padrão)
+- Usuários (apenas ADMIN)
+
+### 3. Módulo Orçamento (Fase 1 - Base Referencial)
+- Upload de planilha Excel/CSV para carga em massa
+- Tela de entrada manual de orçamento por mês
+- Visualização do orçamento anual/mensal por centro de custo
+- Visualização do orçamento anual/mensal por projeto
+- Versionamento do orçamento (V1, V2, etc.)
+- Exportação para Excel
+
+### 4. Módulo Projeções (Fase 2)
+- Cada gestor vê apenas seu centro de custo
+- Entrada de projeção mensal com justificativa
+- Comparativo Orçado x Projetado
+- Histórico de versões das projeções
+- Workflow simples: Rascunho → Submetido → Aprovado/Rejeitado
+- Indicador visual de variação (verde se menor, vermelho se maior que orçado)
+
+### 5. Módulo Realizado (Fase 3)
+- Upload de arquivo com lançamentos realizados
+- Entrada manual de valores realizados
+- Dashboard de acompanhamento com:
+  - Orçado x Realizado (valores e %)
+  - Orçado x Projetado x Realizado
+  - Gráfico de evolução mensal
+- Alertas visuais para desvios > 10%
+- Drill-down por centro de custo, conta, projeto
+
+### 6. Módulo Atletas (NOVO - Controle de Participantes)
+Tela dedicada para gestão de atletas por evento:
+
+**6.1 Cadastro de Categorias de Atletas**
+- CRUD de categorias com: código, nome, faixa etária, gênero, modalidade, PCD
+- Valor padrão de inscrição e custo de kit por categoria
+- Exemplos de categorias: "Corrida 5K - Masculino Adulto", "Natação - Feminino Sub-17", "Ciclismo - PCD"
+
+**6.2 Planejamento de Atletas por Evento**
+- Selecionar evento e adicionar categorias participantes
+- Informar quantidade orçada de atletas por categoria
+- Definir valor de inscrição e custo de kit (pode herdar do padrão da categoria)
+- Calcular automaticamente receita orçada e custo de kits
+
+**6.3 Projeção de Atletas**
+- Gestor revisa as quantidades orçadas
+- Informa quantidade projetada com justificativa
+- Histórico de versões da projeção
+- Comparativo visual Orçado x Projetado
+
+**6.4 Realizado de Atletas**
+- Entrada da quantidade real de inscritos/participantes
+- Upload de lista de atletas (opcional, para reconciliação)
+- Atualização automática ou manual
+- Comparativo Orçado x Projetado x Realizado
+
+**6.5 Dashboard de Atletas**
+Cards principais:
+- Total de Atletas Orçados (ano/evento)
+- Total de Atletas Projetados
+- Total de Atletas Realizados
+- Variação % Orçado x Realizado
+- Receita Total (inscrições)
+- Custo Total (kits)
+
+Gráficos:
+- Barras: Orçado x Projetado x Realizado por evento
+- Pizza: Distribuição por modalidade
+- Pizza: Distribuição por faixa etária
+- Linha: Evolução de inscrições por mês
+- Tabela: Ranking de eventos por número de atletas
+
+Filtros:
+- Ano, Mês, Evento, Modalidade, Categoria, Faixa Etária
+
+### 7. Dashboard Consolidado (Fase 4)
+- Visão executiva com cards de resumo:
+  - Total Orçado (ano)
+  - Total Projetado (ano)
+  - Total Realizado (YTD)
+  - Total de Atletas (ano) 
+  - Variação Orçado x Realizado (%)
+  - Receita por Atleta (média)  
+- Gráfico de barras: Orçado x Projetado x Realizado por mês
+- Gráfico de barras: Atletas por evento
+- Gráfico de pizza: Distribuição por tipo (Receita x Despesa)
+- Gráfico de pizza: Atletas por modalidade
+- Ranking de maiores variações
+- Filtros por: Ano, Mês, Centro de Custo, Projeto, Modalidade
+- Exportação de relatório em PDF
+
+### 8. Relatórios
+- Relatório mensal por centro de custo
+- Relatório por projeto/evento (custos e atletas)
+- Relatório de atletas por categoria
+- Relatório de variações (desvios)
+- Relatório de receita de inscrições
+- Todos exportáveis para Excel e PDF
+
+## Interface e UX
+
+- Design limpo e profissional com tema claro (Incluir botão para alterar entre dark mode e light mode)
+- Sidebar com navegação entre módulos
+- Header com nome do usuário logado e logout
+- Breadcrumbs para navegação
+- Tabelas com paginação, busca e ordenação
+- Formulários com validação em tempo real
+- Loading states e feedback visual em ações
+- Responsivo para tablet (não precisa ser mobile-first)
+- Cores para indicadores: Verde (positivo/abaixo do orçado), Vermelho (negativo/acima do orçado), Amarelo (atenção)
+- Ícones temáticos esportivos onde apropriado
+
+## Tela Inicial (após login)
+
+O usuário cai direto no Dashboard Consolidado com os principais KPIs do período atual, incluindo resumo de atletas.
+
+## Dados de Exemplo
+
+Crie seeds com dados de exemplo:
+
+**Centros de Custo (5):**
+- Comercial, Produção, Administrativo, Marketing, Cenografia
+
+**Contas Contábeis (10):**
+- Receitas: Inscrições, Patrocínios, Venda de Produtos, Taxas, Outras Receitas
+- Despesas: Kits Atletas, Produção, Logística, Premiação, Infraestrutura
+
+**Categorias de Atletas (10):**
+- Corrida 5K - Masculino Adulto (R$ 120, kit R$ 45)
+- Corrida 5K - Feminino Adulto (R$ 120, kit R$ 45)
+- Corrida 10K - Masculino Adulto (R$ 150, kit R$ 50)
+- Corrida 10K - Feminino Adulto (R$ 150, kit R$ 50)
+- Corrida 21K - Masculino Adulto (R$ 200, kit R$ 60)
+- Corrida 21K - Feminino Adulto (R$ 200, kit R$ 60)
+- Kids Run - Misto Infantil (R$ 50, kit R$ 30)
+- Corrida PCD - Misto Adulto (R$ 80, kit R$ 50)
+- Ciclismo 50K - Masculino (R$ 180, kit R$ 55)
+- Ciclismo 50K - Feminino (R$ 180, kit R$ 55)
+
+**Projetos/Eventos (3):**
+- Maratona de São Paulo 2025 (Janeiro)
+- Desafio Ciclístico Sudeste (Março)
+- Corrida Noturna RJ (Maio)
+
+**Usuários:**
+- admin@cscdoesporte.com / admin123 (ADMIN)
+- gestor@cscdoesporte.com / gestor123 (GESTOR)
+
+**Dados de Orçamento, Projeção e Realizado:**
+- 6 meses de dados financeiros
+- Dados de atletas para os 3 eventos com variação entre orçado/projetado/realizado
+
+
+## Estrutura de Pastas Sugerida
+
+```
+/backend
+  /app
+    /api
+      /routes
+        auth.py
+        users.py
+        centros_custo.py
+        contas.py
+        projetos.py
+        categorias_atletas.py
+        orcamento.py
+        projecao.py
+        realizado.py
+        atletas.py
+        dashboard.py
+        relatorios.py
+    /core
+      config.py
+      security.py
+      database.py
+    /models
+      user.py
+      dimensoes.py
+      fatos.py
+      atletas.py
+    /schemas
+    /services
+  main.py
+  requirements.txt
+
+/frontend
+  /src
+    /components
+      /common
+      /charts
+      /tables
+      /forms
+    /pages
+      /auth
+      /cadastros
+      /orcamento
+      /projecao
+      /realizado
+      /atletas
+      /dashboard
+      /relatorios
+    /services
+    /hooks
+    /context
+    /types
+  package.json
+```
+
+## Prioridade de Desenvolvimento
+
+1. Setup do projeto (backend + frontend + banco)
+2. Autenticação (login/logout/JWT)
+3. Cadastros básicos (centro de custo, contas, projetos, categorias de atletas)
+4. Módulo Orçamento com upload de Excel
+5. Módulo Atletas - Cadastro e Planejamento
+6. Dashboard básico (financeiro + atletas)
+7. Módulo Projeções (financeiro + atletas)
+8. Módulo Realizado (financeiro + atletas)
+9. Dashboard completo com gráficos
+10. Relatórios e exportações
+
+Comece criando a estrutura do projeto e o módulo de autenticação.
+
+---
+
+## FIM DO PROMPT
