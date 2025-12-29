@@ -1,0 +1,210 @@
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: '/api',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+export const authService = {
+  login: async (email: string, password: string) => {
+    const formData = new URLSearchParams();
+    formData.append('username', email);
+    formData.append('password', password);
+    const response = await api.post('/auth/login', formData, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    return response.data;
+  },
+  getMe: async () => {
+    const response = await api.get('/auth/me');
+    return response.data;
+  }
+};
+
+export const dashboardService = {
+  getResumoGeral: async (ano: number) => {
+    const response = await api.get(`/dashboard/resumo-geral?ano=${ano}`);
+    return response.data;
+  },
+  getEvolucaoMensal: async (ano: number) => {
+    const response = await api.get(`/dashboard/evolucao-mensal?ano=${ano}`);
+    return response.data;
+  },
+  getDistribuicaoTipo: async (ano: number) => {
+    const response = await api.get(`/dashboard/distribuicao-tipo?ano=${ano}`);
+    return response.data;
+  },
+  getAtletasPorModalidade: async () => {
+    const response = await api.get('/dashboard/atletas-por-modalidade');
+    return response.data;
+  },
+  getAtletasPorProjeto: async () => {
+    const response = await api.get('/dashboard/atletas-por-projeto');
+    return response.data;
+  }
+};
+
+export const centrosCustoService = {
+  list: async () => {
+    const response = await api.get('/centros-custo/');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/centros-custo/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/centros-custo/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/centros-custo/${id}`);
+    return response.data;
+  }
+};
+
+export const contasService = {
+  list: async (tipo?: string) => {
+    const params = tipo ? `?tipo=${tipo}` : '';
+    const response = await api.get(`/contas/${params}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/contas/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/contas/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/contas/${id}`);
+    return response.data;
+  }
+};
+
+export const projetosService = {
+  list: async () => {
+    const response = await api.get('/projetos/');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/projetos/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/projetos/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/projetos/${id}`);
+    return response.data;
+  }
+};
+
+export const categoriasAtletasService = {
+  list: async () => {
+    const response = await api.get('/categorias-atletas/');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/categorias-atletas/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/categorias-atletas/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/categorias-atletas/${id}`);
+    return response.data;
+  }
+};
+
+export const usersService = {
+  list: async () => {
+    const response = await api.get('/users/');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/users/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/users/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/users/${id}`);
+    return response.data;
+  }
+};
+
+export const orcamentoService = {
+  list: async (params?: any) => {
+    const queryParams = new URLSearchParams(params).toString();
+    const response = await api.get(`/orcamento/?${queryParams}`);
+    return response.data;
+  },
+  getResumo: async (ano: number) => {
+    const response = await api.get(`/orcamento/resumo?ano=${ano}`);
+    return response.data;
+  },
+  getPorMes: async (ano: number) => {
+    const response = await api.get(`/orcamento/por-mes?ano=${ano}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/orcamento/', data);
+    return response.data;
+  }
+};
+
+export const atletasService = {
+  list: async (params?: any) => {
+    const queryParams = params ? new URLSearchParams(params).toString() : '';
+    const response = await api.get(`/atletas/?${queryParams}`);
+    return response.data;
+  },
+  getResumo: async (projeto_id?: number) => {
+    const params = projeto_id ? `?projeto_id=${projeto_id}` : '';
+    const response = await api.get(`/atletas/resumo${params}`);
+    return response.data;
+  },
+  getPorProjeto: async () => {
+    const response = await api.get('/atletas/por-projeto');
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/atletas/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/atletas/${id}`, data);
+    return response.data;
+  }
+};
+
+export default api;
