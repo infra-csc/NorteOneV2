@@ -5,7 +5,7 @@ from app.core.database import SessionLocal, engine, Base
 from app.core.security import get_password_hash
 from app.models.dimensoes import DimTempo, DimCentroCusto, DimConta, DimProjeto, DimCategoriaAtleta
 from app.models.user import Usuario
-from app.models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas
+from app.models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
 
 Base.metadata.create_all(bind=engine)
 
@@ -232,6 +232,67 @@ def seed_atletas(db: Session):
     
     db.commit()
 
+
+def seed_atletas_satelite(db: Session):
+    if db.query(FatoAtletasCanais).first():
+        return
+    
+    atletas = db.query(FatoAtletas).all()
+    
+    import random
+    canais = ['SITE', 'GRUPOS', 'APPAI']
+    tipos_kit = ['VIP', 'PLUS', 'SUPER', 'PRODUTO']
+    tipos_custo = ['AGUA', 'ISOTONICO', 'HIDRATACAO', 'NUMERO_PEITO', 'CHIP', 'ALFINETE', 'IDENTIFICACAO']
+    cenarios = ['ORCADO', 'PROJETADO', 'REALIZADO']
+    
+    for atleta in atletas:
+        for canal in canais:
+            for cenario in cenarios:
+                qtd = random.randint(50, 300)
+                tkt = Decimal(str(random.randint(80, 200)))
+                inscr = Decimal(str(qtd)) * tkt
+                db.add(FatoAtletasCanais(
+                    fato_atletas_id=atleta.id,
+                    canal=canal,
+                    cenario=cenario,
+                    qtd_atletas=qtd,
+                    tkt_medio=tkt,
+                    inscricao=inscr
+                ))
+        
+        for tipo_kit in tipos_kit:
+            for cenario in cenarios:
+                qtd = random.randint(20, 150)
+                tkt = Decimal(str(random.randint(100, 250)))
+                inscr = Decimal(str(qtd)) * tkt
+                custo = Decimal(str(random.randint(30, 80)))
+                db.add(FatoAtletasKits(
+                    fato_atletas_id=atleta.id,
+                    tipo_kit=tipo_kit,
+                    cenario=cenario,
+                    qtd_kit=qtd,
+                    tkt_medio=tkt,
+                    inscricao=inscr,
+                    custo_unitario=custo
+                ))
+        
+        for tipo_custo in tipos_custo:
+            for cenario in cenarios:
+                custo_unit = Decimal(str(random.uniform(0.5, 15))).quantize(Decimal('0.01'))
+                qtd_atleta = Decimal(str(random.uniform(0.5, 3))).quantize(Decimal('0.01'))
+                custo_total = custo_unit * qtd_atleta * Decimal(str(atleta.qtd_atletas_orcado or 100))
+                db.add(FatoAtletasCustos(
+                    fato_atletas_id=atleta.id,
+                    tipo_custo=tipo_custo,
+                    cenario=cenario,
+                    custo_unitario=custo_unit,
+                    qtd_por_atleta=qtd_atleta,
+                    custo_total=custo_total
+                ))
+    
+    db.commit()
+
+
 def main():
     db = SessionLocal()
     try:
@@ -251,6 +312,8 @@ def main():
         seed_dados_financeiros(db)
         print("Seeding atletas...")
         seed_atletas(db)
+        print("Seeding atletas satelite (canais, kits, custos)...")
+        seed_atletas_satelite(db)
         print("Seed completed!")
     finally:
         db.close()

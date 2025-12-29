@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, dashboard
+from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard
 
 Base.metadata.create_all(bind=engine)
 
@@ -25,6 +25,7 @@ app.include_router(orcamento.router, prefix="/api")
 app.include_router(projecao.router, prefix="/api")
 app.include_router(realizado.router, prefix="/api")
 app.include_router(atletas.router, prefix="/api")
+app.include_router(atletas_satelite.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 
 @app.get("/api/health")

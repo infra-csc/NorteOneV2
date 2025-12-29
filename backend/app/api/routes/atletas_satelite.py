@@ -1,0 +1,273 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+from ...core.database import get_db
+from ...core.security import get_current_user, require_roles
+from ...models.fatos import FatoAtletas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
+from ...models.user import Usuario
+from ...schemas.fatos import (
+    AtletasCanaisCreate, AtletasCanaisUpdate, AtletasCanaisResponse,
+    AtletasKitsCreate, AtletasKitsUpdate, AtletasKitsResponse,
+    AtletasCustosCreate, AtletasCustosUpdate, AtletasCustosResponse
+)
+
+router = APIRouter(prefix="/atletas-satelite", tags=["Atletas Satélite"])
+
+
+# === CANAIS ===
+@router.get("/canais/", response_model=List[AtletasCanaisResponse])
+async def list_canais(
+    fato_atletas_id: int = None,
+    canal: str = None,
+    cenario: str = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    query = db.query(FatoAtletasCanais)
+    
+    if fato_atletas_id:
+        query = query.filter(FatoAtletasCanais.fato_atletas_id == fato_atletas_id)
+    if canal:
+        query = query.filter(FatoAtletasCanais.canal == canal)
+    if cenario:
+        query = query.filter(FatoAtletasCanais.cenario == cenario)
+    
+    return query.all()
+
+
+@router.post("/canais/", response_model=AtletasCanaisResponse)
+async def create_canal(
+    data: AtletasCanaisCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
+    if not fato:
+        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    
+    db_item = FatoAtletasCanais(**data.model_dump())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.put("/canais/{item_id}", response_model=AtletasCanaisResponse)
+async def update_canal(
+    item_id: int,
+    data: AtletasCanaisUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    item = db.query(FatoAtletasCanais).filter(FatoAtletasCanais.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/canais/{item_id}")
+async def delete_canal(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+):
+    item = db.query(FatoAtletasCanais).filter(FatoAtletasCanais.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    db.delete(item)
+    db.commit()
+    return {"message": "Registro excluído"}
+
+
+# === KITS ===
+@router.get("/kits/", response_model=List[AtletasKitsResponse])
+async def list_kits(
+    fato_atletas_id: int = None,
+    tipo_kit: str = None,
+    cenario: str = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    query = db.query(FatoAtletasKits)
+    
+    if fato_atletas_id:
+        query = query.filter(FatoAtletasKits.fato_atletas_id == fato_atletas_id)
+    if tipo_kit:
+        query = query.filter(FatoAtletasKits.tipo_kit == tipo_kit)
+    if cenario:
+        query = query.filter(FatoAtletasKits.cenario == cenario)
+    
+    return query.all()
+
+
+@router.post("/kits/", response_model=AtletasKitsResponse)
+async def create_kit(
+    data: AtletasKitsCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
+    if not fato:
+        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    
+    db_item = FatoAtletasKits(**data.model_dump())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.put("/kits/{item_id}", response_model=AtletasKitsResponse)
+async def update_kit(
+    item_id: int,
+    data: AtletasKitsUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    item = db.query(FatoAtletasKits).filter(FatoAtletasKits.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/kits/{item_id}")
+async def delete_kit(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+):
+    item = db.query(FatoAtletasKits).filter(FatoAtletasKits.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    db.delete(item)
+    db.commit()
+    return {"message": "Registro excluído"}
+
+
+# === CUSTOS ===
+@router.get("/custos/", response_model=List[AtletasCustosResponse])
+async def list_custos(
+    fato_atletas_id: int = None,
+    tipo_custo: str = None,
+    cenario: str = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    query = db.query(FatoAtletasCustos)
+    
+    if fato_atletas_id:
+        query = query.filter(FatoAtletasCustos.fato_atletas_id == fato_atletas_id)
+    if tipo_custo:
+        query = query.filter(FatoAtletasCustos.tipo_custo == tipo_custo)
+    if cenario:
+        query = query.filter(FatoAtletasCustos.cenario == cenario)
+    
+    return query.all()
+
+
+@router.post("/custos/", response_model=AtletasCustosResponse)
+async def create_custo(
+    data: AtletasCustosCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
+    if not fato:
+        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    
+    db_item = FatoAtletasCustos(**data.model_dump())
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.put("/custos/{item_id}", response_model=AtletasCustosResponse)
+async def update_custo(
+    item_id: int,
+    data: AtletasCustosUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    item = db.query(FatoAtletasCustos).filter(FatoAtletasCustos.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(item, field, value)
+    
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/custos/{item_id}")
+async def delete_custo(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+):
+    item = db.query(FatoAtletasCustos).filter(FatoAtletasCustos.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    
+    db.delete(item)
+    db.commit()
+    return {"message": "Registro excluído"}
+
+
+# === BULK OPERATIONS ===
+@router.post("/canais/bulk", response_model=List[AtletasCanaisResponse])
+async def create_canais_bulk(
+    data: List[AtletasCanaisCreate],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    items = [FatoAtletasCanais(**item.model_dump()) for item in data]
+    db.add_all(items)
+    db.commit()
+    for item in items:
+        db.refresh(item)
+    return items
+
+
+@router.post("/kits/bulk", response_model=List[AtletasKitsResponse])
+async def create_kits_bulk(
+    data: List[AtletasKitsCreate],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    items = [FatoAtletasKits(**item.model_dump()) for item in data]
+    db.add_all(items)
+    db.commit()
+    for item in items:
+        db.refresh(item)
+    return items
+
+
+@router.post("/custos/bulk", response_model=List[AtletasCustosResponse])
+async def create_custos_bulk(
+    data: List[AtletasCustosCreate],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+):
+    items = [FatoAtletasCustos(**item.model_dump()) for item in data]
+    db.add_all(items)
+    db.commit()
+    for item in items:
+        db.refresh(item)
+    return items

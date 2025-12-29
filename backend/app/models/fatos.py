@@ -117,3 +117,73 @@ class FatoAtletas(Base):
     __table_args__ = (
         UniqueConstraint('projeto_id', 'categoria_atleta_id', 'tempo_id', 'versao_projecao', name='uq_atletas'),
     )
+
+
+class FatoAtletasCanais(Base):
+    """Métricas de atletas por canal de distribuição (site, grupos, appai)"""
+    __tablename__ = "fato_atletas_canais"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    canal = Column(String(50), nullable=False)  # SITE, GRUPOS, APPAI
+    cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
+    
+    qtd_atletas = Column(Integer, default=0)
+    tkt_medio = Column(Numeric(10, 2))
+    inscricao = Column(Numeric(10, 2))
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    fato_atletas = relationship("FatoAtletas", backref="canais")
+    
+    __table_args__ = (
+        UniqueConstraint('fato_atletas_id', 'canal', 'cenario', name='uq_atletas_canais'),
+    )
+
+
+class FatoAtletasKits(Base):
+    """Métricas de kits (vip, plus, super, produto)"""
+    __tablename__ = "fato_atletas_kits"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    tipo_kit = Column(String(50), nullable=False)  # VIP, PLUS, SUPER, PRODUTO
+    cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
+    
+    qtd_kit = Column(Integer, default=0)
+    tkt_medio = Column(Numeric(10, 2))
+    inscricao = Column(Numeric(10, 2))
+    custo_unitario = Column(Numeric(10, 2))
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    fato_atletas = relationship("FatoAtletas", backref="kits")
+    
+    __table_args__ = (
+        UniqueConstraint('fato_atletas_id', 'tipo_kit', 'cenario', name='uq_atletas_kits'),
+    )
+
+
+class FatoAtletasCustos(Base):
+    """Custos operacionais por atleta (hidratação, identificação, etc)"""
+    __tablename__ = "fato_atletas_custos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    tipo_custo = Column(String(50), nullable=False)  # AGUA, ISOTONICO, HIDRATACAO, NUMERO_PEITO, CHIP, ALFINETE, IDENTIFICACAO
+    cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
+    
+    custo_unitario = Column(Numeric(10, 2))
+    qtd_por_atleta = Column(Numeric(10, 2))
+    custo_total = Column(Numeric(10, 2))
+    
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    fato_atletas = relationship("FatoAtletas", backref="custos")
+    
+    __table_args__ = (
+        UniqueConstraint('fato_atletas_id', 'tipo_custo', 'cenario', name='uq_atletas_custos'),
+    )

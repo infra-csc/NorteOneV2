@@ -112,3 +112,80 @@ class AtletasResponse(AtletasBase):
     
     class Config:
         from_attributes = True
+
+
+# === Schemas para Atletas Canais ===
+class AtletasCanaisBase(BaseModel):
+    fato_atletas_id: int
+    canal: str  # SITE, GRUPOS, APPAI
+    cenario: str  # ORCADO, PROJETADO, REALIZADO
+    qtd_atletas: int = 0
+    tkt_medio: Optional[Decimal] = None
+    inscricao: Optional[Decimal] = None
+
+class AtletasCanaisCreate(AtletasCanaisBase):
+    pass
+
+class AtletasCanaisUpdate(BaseModel):
+    qtd_atletas: Optional[int] = None
+    tkt_medio: Optional[Decimal] = None
+    inscricao: Optional[Decimal] = None
+
+class AtletasCanaisResponse(AtletasCanaisBase):
+    id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+# === Schemas para Atletas Kits ===
+class AtletasKitsBase(BaseModel):
+    fato_atletas_id: int
+    tipo_kit: str  # VIP, PLUS, SUPER, PRODUTO
+    cenario: str  # ORCADO, PROJETADO, REALIZADO
+    qtd_kit: int = 0
+    tkt_medio: Optional[Decimal] = None
+    inscricao: Optional[Decimal] = None
+    custo_unitario: Optional[Decimal] = None
+
+class AtletasKitsCreate(AtletasKitsBase):
+    pass
+
+class AtletasKitsUpdate(BaseModel):
+    qtd_kit: Optional[int] = None
+    tkt_medio: Optional[Decimal] = None
+    inscricao: Optional[Decimal] = None
+    custo_unitario: Optional[Decimal] = None
+
+class AtletasKitsResponse(AtletasKitsBase):
+    id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
+
+
+# === Schemas para Atletas Custos ===
+class AtletasCustosBase(BaseModel):
+    fato_atletas_id: int
+    tipo_custo: str  # AGUA, ISOTONICO, HIDRATACAO, NUMERO_PEITO, CHIP, ALFINETE, IDENTIFICACAO
+    cenario: str  # ORCADO, PROJETADO, REALIZADO
+    custo_unitario: Optional[Decimal] = None
+    qtd_por_atleta: Optional[Decimal] = None
+    custo_total: Optional[Decimal] = None
+
+class AtletasCustosCreate(AtletasCustosBase):
+    pass
+
+class AtletasCustosUpdate(BaseModel):
+    custo_unitario: Optional[Decimal] = None
+    qtd_por_atleta: Optional[Decimal] = None
+    custo_total: Optional[Decimal] = None
+
+class AtletasCustosResponse(AtletasCustosBase):
+    id: int
+    created_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
