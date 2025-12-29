@@ -458,7 +458,7 @@ const Dashboard: React.FC = () => {
         <div className={cardClass}>
           <div className="flex items-center justify-between">
             <div>
-              <p className={textClass}>Atletas Orcados</p>
+              <p className={textClass}>Atletas Orçados</p>
               <p className={`text-2xl font-bold ${headingClass}`}>{resumo?.atletas.total_orcado?.toLocaleString() || 0}</p>
             </div>
             <div className="p-3 bg-purple-100 rounded-full">
