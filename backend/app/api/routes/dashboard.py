@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct
+from typing import Optional
 from ...core.database import get_db
 from ...core.security import get_current_user
 from ...models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas
@@ -46,67 +47,106 @@ async def get_filtros(
         "cidades": [{"value": c[0], "label": c[0]} for c in cidades]
     }
 
+def get_projeto_ids_for_filters(db: Session, produto: str = None, tipo_evento: str = None, 
+                                  projeto_id: int = None, modalidade: str = None, cidade: str = None):
+    if not any([produto, tipo_evento, projeto_id, modalidade, cidade]):
+        return None
+    
+    query = db.query(DimProjeto.id)
+    if produto:
+        query = query.filter(DimProjeto.produto == produto)
+    if tipo_evento:
+        query = query.filter(DimProjeto.tipo_evento == tipo_evento)
+    if projeto_id:
+        query = query.filter(DimProjeto.id == projeto_id)
+    if modalidade:
+        query = query.filter(DimProjeto.modalidade == modalidade)
+    if cidade:
+        query = query.filter(DimProjeto.cidade == cidade)
+    
+    return [p.id for p in query.all()]
+
 @router.get("/resumo-geral")
 async def get_resumo_geral(
     ano: int = 2025,
+    mes: Optional[int] = Query(None),
+    produto: Optional[str] = Query(None),
+    tipo_evento: Optional[str] = Query(None),
+    projeto_id: Optional[int] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    orcado_receita = db.query(func.sum(FatoOrcamento.valor_orcado)).join(
+    projeto_ids = get_projeto_ids_for_filters(db, produto, tipo_evento, projeto_id, modalidade, cidade)
+    
+    orc_receita_query = db.query(func.sum(FatoOrcamento.valor_orcado)).join(
         DimConta, FatoOrcamento.conta_id == DimConta.id
-    ).filter(
-        FatoOrcamento.ano_referencia == ano,
-        DimConta.tipo == 'RECEITA'
-    ).scalar() or 0
-
-    orcado_despesa = db.query(func.sum(FatoOrcamento.valor_orcado)).join(
+    ).filter(FatoOrcamento.ano_referencia == ano, DimConta.tipo == 'RECEITA')
+    
+    orc_despesa_query = db.query(func.sum(FatoOrcamento.valor_orcado)).join(
         DimConta, FatoOrcamento.conta_id == DimConta.id
-    ).filter(
-        FatoOrcamento.ano_referencia == ano,
-        DimConta.tipo == 'DESPESA'
-    ).scalar() or 0
+    ).filter(FatoOrcamento.ano_referencia == ano, DimConta.tipo == 'DESPESA')
+    
+    if mes:
+        orc_receita_query = orc_receita_query.join(DimTempo, FatoOrcamento.tempo_id == DimTempo.id).filter(DimTempo.mes == mes)
+        orc_despesa_query = orc_despesa_query.join(DimTempo, FatoOrcamento.tempo_id == DimTempo.id).filter(DimTempo.mes == mes)
+    
+    if projeto_ids is not None:
+        orc_receita_query = orc_receita_query.filter(FatoOrcamento.projeto_id.in_(projeto_ids))
+        orc_despesa_query = orc_despesa_query.filter(FatoOrcamento.projeto_id.in_(projeto_ids))
+    
+    orcado_receita = orc_receita_query.scalar() or 0
+    orcado_despesa = orc_despesa_query.scalar() or 0
 
-    projetado_receita = db.query(func.sum(FatoProjecao.valor_projetado)).join(
+    proj_receita_query = db.query(func.sum(FatoProjecao.valor_projetado)).join(
         DimConta, FatoProjecao.conta_id == DimConta.id
-    ).join(
-        DimTempo, FatoProjecao.tempo_id == DimTempo.id
-    ).filter(
-        DimTempo.ano == ano,
-        DimConta.tipo == 'RECEITA'
-    ).scalar() or 0
-
-    projetado_despesa = db.query(func.sum(FatoProjecao.valor_projetado)).join(
+    ).join(DimTempo, FatoProjecao.tempo_id == DimTempo.id).filter(DimTempo.ano == ano, DimConta.tipo == 'RECEITA')
+    
+    proj_despesa_query = db.query(func.sum(FatoProjecao.valor_projetado)).join(
         DimConta, FatoProjecao.conta_id == DimConta.id
-    ).join(
-        DimTempo, FatoProjecao.tempo_id == DimTempo.id
-    ).filter(
-        DimTempo.ano == ano,
-        DimConta.tipo == 'DESPESA'
-    ).scalar() or 0
+    ).join(DimTempo, FatoProjecao.tempo_id == DimTempo.id).filter(DimTempo.ano == ano, DimConta.tipo == 'DESPESA')
+    
+    if mes:
+        proj_receita_query = proj_receita_query.filter(DimTempo.mes == mes)
+        proj_despesa_query = proj_despesa_query.filter(DimTempo.mes == mes)
+    
+    if projeto_ids is not None:
+        proj_receita_query = proj_receita_query.filter(FatoProjecao.projeto_id.in_(projeto_ids))
+        proj_despesa_query = proj_despesa_query.filter(FatoProjecao.projeto_id.in_(projeto_ids))
+    
+    projetado_receita = proj_receita_query.scalar() or 0
+    projetado_despesa = proj_despesa_query.scalar() or 0
 
-    realizado_receita = db.query(func.sum(FatoRealizado.valor_realizado)).join(
+    real_receita_query = db.query(func.sum(FatoRealizado.valor_realizado)).join(
         DimConta, FatoRealizado.conta_id == DimConta.id
-    ).join(
-        DimTempo, FatoRealizado.tempo_id == DimTempo.id
-    ).filter(
-        DimTempo.ano == ano,
-        DimConta.tipo == 'RECEITA'
-    ).scalar() or 0
-
-    realizado_despesa = db.query(func.sum(FatoRealizado.valor_realizado)).join(
+    ).join(DimTempo, FatoRealizado.tempo_id == DimTempo.id).filter(DimTempo.ano == ano, DimConta.tipo == 'RECEITA')
+    
+    real_despesa_query = db.query(func.sum(FatoRealizado.valor_realizado)).join(
         DimConta, FatoRealizado.conta_id == DimConta.id
-    ).join(
-        DimTempo, FatoRealizado.tempo_id == DimTempo.id
-    ).filter(
-        DimTempo.ano == ano,
-        DimConta.tipo == 'DESPESA'
-    ).scalar() or 0
+    ).join(DimTempo, FatoRealizado.tempo_id == DimTempo.id).filter(DimTempo.ano == ano, DimConta.tipo == 'DESPESA')
+    
+    if mes:
+        real_receita_query = real_receita_query.filter(DimTempo.mes == mes)
+        real_despesa_query = real_despesa_query.filter(DimTempo.mes == mes)
+    
+    if projeto_ids is not None:
+        real_receita_query = real_receita_query.filter(FatoRealizado.projeto_id.in_(projeto_ids))
+        real_despesa_query = real_despesa_query.filter(FatoRealizado.projeto_id.in_(projeto_ids))
+    
+    realizado_receita = real_receita_query.scalar() or 0
+    realizado_despesa = real_despesa_query.scalar() or 0
 
-    atletas_resumo = db.query(
+    atletas_query = db.query(
         func.sum(FatoAtletas.qtd_atletas_orcado).label('orcado'),
         func.sum(FatoAtletas.qtd_atletas_projetado).label('projetado'),
         func.sum(FatoAtletas.qtd_atletas_realizado).label('realizado')
-    ).first()
+    )
+    
+    if projeto_ids is not None:
+        atletas_query = atletas_query.filter(FatoAtletas.projeto_id.in_(projeto_ids))
+    
+    atletas_resumo = atletas_query.first()
 
     total_orcado = float(orcado_receita) - float(orcado_despesa)
     total_realizado = float(realizado_receita) - float(realizado_despesa)
@@ -138,26 +178,35 @@ async def get_resumo_geral(
 @router.get("/evolucao-mensal")
 async def get_evolucao_mensal(
     ano: int = 2025,
+    produto: Optional[str] = Query(None),
+    tipo_evento: Optional[str] = Query(None),
+    projeto_id: Optional[int] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    orcado = db.query(
+    projeto_ids = get_projeto_ids_for_filters(db, produto, tipo_evento, projeto_id, modalidade, cidade)
+    
+    orc_query = db.query(
         DimTempo.mes,
         func.sum(FatoOrcamento.valor_orcado).label('total')
-    ).join(
-        DimTempo, FatoOrcamento.tempo_id == DimTempo.id
-    ).filter(
-        FatoOrcamento.ano_referencia == ano
-    ).group_by(DimTempo.mes).all()
+    ).join(DimTempo, FatoOrcamento.tempo_id == DimTempo.id).filter(FatoOrcamento.ano_referencia == ano)
+    
+    if projeto_ids is not None:
+        orc_query = orc_query.filter(FatoOrcamento.projeto_id.in_(projeto_ids))
+    
+    orcado = orc_query.group_by(DimTempo.mes).all()
 
-    realizado = db.query(
+    real_query = db.query(
         DimTempo.mes,
         func.sum(FatoRealizado.valor_realizado).label('total')
-    ).join(
-        DimTempo, FatoRealizado.tempo_id == DimTempo.id
-    ).filter(
-        DimTempo.ano == ano
-    ).group_by(DimTempo.mes).all()
+    ).join(DimTempo, FatoRealizado.tempo_id == DimTempo.id).filter(DimTempo.ano == ano)
+    
+    if projeto_ids is not None:
+        real_query = real_query.filter(FatoRealizado.projeto_id.in_(projeto_ids))
+    
+    realizado = real_query.group_by(DimTempo.mes).all()
 
     orcado_dict = {o.mes: float(o.total) for o in orcado}
     realizado_dict = {r.mes: float(r.total) for r in realizado}
@@ -176,49 +225,81 @@ async def get_evolucao_mensal(
 @router.get("/distribuicao-tipo")
 async def get_distribuicao_tipo(
     ano: int = 2025,
+    mes: Optional[int] = Query(None),
+    produto: Optional[str] = Query(None),
+    tipo_evento: Optional[str] = Query(None),
+    projeto_id: Optional[int] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    dados = db.query(
+    projeto_ids = get_projeto_ids_for_filters(db, produto, tipo_evento, projeto_id, modalidade, cidade)
+    
+    query = db.query(
         DimConta.tipo,
         func.sum(FatoRealizado.valor_realizado).label('total')
-    ).join(
-        DimConta, FatoRealizado.conta_id == DimConta.id
-    ).join(
-        DimTempo, FatoRealizado.tempo_id == DimTempo.id
-    ).filter(
-        DimTempo.ano == ano
-    ).group_by(DimConta.tipo).all()
+    ).join(DimConta, FatoRealizado.conta_id == DimConta.id
+    ).join(DimTempo, FatoRealizado.tempo_id == DimTempo.id
+    ).filter(DimTempo.ano == ano)
+    
+    if mes:
+        query = query.filter(DimTempo.mes == mes)
+    
+    if projeto_ids is not None:
+        query = query.filter(FatoRealizado.projeto_id.in_(projeto_ids))
+    
+    dados = query.group_by(DimConta.tipo).all()
 
     return [{"tipo": d.tipo, "total": float(d.total)} for d in dados]
 
 @router.get("/atletas-por-modalidade")
 async def get_atletas_por_modalidade(
+    produto: Optional[str] = Query(None),
+    tipo_evento: Optional[str] = Query(None),
+    projeto_id: Optional[int] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    dados = db.query(
+    projeto_ids = get_projeto_ids_for_filters(db, produto, tipo_evento, projeto_id, modalidade, cidade)
+    
+    query = db.query(
         DimCategoriaAtleta.modalidade,
         func.sum(FatoAtletas.qtd_atletas_realizado).label('total')
-    ).join(
-        DimCategoriaAtleta, FatoAtletas.categoria_atleta_id == DimCategoriaAtleta.id
-    ).group_by(DimCategoriaAtleta.modalidade).all()
+    ).join(DimCategoriaAtleta, FatoAtletas.categoria_atleta_id == DimCategoriaAtleta.id)
+    
+    if projeto_ids is not None:
+        query = query.filter(FatoAtletas.projeto_id.in_(projeto_ids))
+    
+    dados = query.group_by(DimCategoriaAtleta.modalidade).all()
 
-    return [{"modalidade": d.modalidade or "Não definida", "total": d.total or 0} for d in dados]
+    return [{"modalidade": d.modalidade or "Nao definida", "total": d.total or 0} for d in dados]
 
 @router.get("/atletas-por-projeto")
 async def get_atletas_por_projeto(
+    produto: Optional[str] = Query(None),
+    tipo_evento: Optional[str] = Query(None),
+    projeto_id: Optional[int] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    dados = db.query(
+    projeto_ids = get_projeto_ids_for_filters(db, produto, tipo_evento, projeto_id, modalidade, cidade)
+    
+    query = db.query(
         DimProjeto.evento,
         func.sum(FatoAtletas.qtd_atletas_orcado).label('orcado'),
         func.sum(FatoAtletas.qtd_atletas_projetado).label('projetado'),
         func.sum(FatoAtletas.qtd_atletas_realizado).label('realizado')
-    ).join(
-        DimProjeto, FatoAtletas.projeto_id == DimProjeto.id
-    ).group_by(DimProjeto.id, DimProjeto.evento).all()
+    ).join(DimProjeto, FatoAtletas.projeto_id == DimProjeto.id)
+    
+    if projeto_ids is not None:
+        query = query.filter(FatoAtletas.projeto_id.in_(projeto_ids))
+    
+    dados = query.group_by(DimProjeto.id, DimProjeto.evento).all()
 
     return [
         {

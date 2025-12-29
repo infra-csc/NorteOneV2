@@ -43,29 +43,56 @@ export const authService = {
   }
 };
 
+interface DashboardFilters {
+  ano?: number | null;
+  mes?: number | null;
+  produto?: string | null;
+  tipo_evento?: string | null;
+  projeto_id?: number | null;
+  modalidade?: string | null;
+  cidade?: string | null;
+}
+
+const buildFilterParams = (filters: DashboardFilters): string => {
+  const params = new URLSearchParams();
+  if (filters.ano) params.append('ano', filters.ano.toString());
+  if (filters.mes) params.append('mes', filters.mes.toString());
+  if (filters.produto) params.append('produto', filters.produto);
+  if (filters.tipo_evento) params.append('tipo_evento', filters.tipo_evento);
+  if (filters.projeto_id) params.append('projeto_id', filters.projeto_id.toString());
+  if (filters.modalidade) params.append('modalidade', filters.modalidade);
+  if (filters.cidade) params.append('cidade', filters.cidade);
+  return params.toString();
+};
+
 export const dashboardService = {
   getFiltros: async () => {
     const response = await api.get('/dashboard/filtros');
     return response.data;
   },
-  getResumoGeral: async (ano: number) => {
-    const response = await api.get(`/dashboard/resumo-geral?ano=${ano}`);
+  getResumoGeral: async (filters: DashboardFilters) => {
+    const params = buildFilterParams(filters);
+    const response = await api.get(`/dashboard/resumo-geral?${params}`);
     return response.data;
   },
-  getEvolucaoMensal: async (ano: number) => {
-    const response = await api.get(`/dashboard/evolucao-mensal?ano=${ano}`);
+  getEvolucaoMensal: async (filters: DashboardFilters) => {
+    const params = buildFilterParams(filters);
+    const response = await api.get(`/dashboard/evolucao-mensal?${params}`);
     return response.data;
   },
-  getDistribuicaoTipo: async (ano: number) => {
-    const response = await api.get(`/dashboard/distribuicao-tipo?ano=${ano}`);
+  getDistribuicaoTipo: async (filters: DashboardFilters) => {
+    const params = buildFilterParams(filters);
+    const response = await api.get(`/dashboard/distribuicao-tipo?${params}`);
     return response.data;
   },
-  getAtletasPorModalidade: async () => {
-    const response = await api.get('/dashboard/atletas-por-modalidade');
+  getAtletasPorModalidade: async (filters: DashboardFilters) => {
+    const params = buildFilterParams(filters);
+    const response = await api.get(`/dashboard/atletas-por-modalidade?${params}`);
     return response.data;
   },
-  getAtletasPorProjeto: async () => {
-    const response = await api.get('/dashboard/atletas-por-projeto');
+  getAtletasPorProjeto: async (filters: DashboardFilters) => {
+    const params = buildFilterParams(filters);
+    const response = await api.get(`/dashboard/atletas-por-projeto?${params}`);
     return response.data;
   }
 };

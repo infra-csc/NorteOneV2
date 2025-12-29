@@ -218,9 +218,11 @@ const Dashboard: React.FC = () => {
     return count;
   }, [filters]);
 
+  const [defaultAno, setDefaultAno] = useState<number>(2025);
+
   const clearAllFilters = () => {
     setFilters({
-      ano: 2025,
+      ano: defaultAno,
       mes: null,
       produto: null,
       tipoEvento: null,
@@ -236,7 +238,9 @@ const Dashboard: React.FC = () => {
         const data = await dashboardService.getFiltros();
         setFilterOptions(data);
         if (data.anos.length > 0) {
-          setFilters(prev => ({ ...prev, ano: data.anos[0].value }));
+          const firstAno = data.anos[0].value;
+          setDefaultAno(firstAno);
+          setFilters(prev => ({ ...prev, ano: firstAno }));
         }
       } catch (error) {
         console.error('Erro ao carregar filtros:', error);
@@ -251,11 +255,21 @@ const Dashboard: React.FC = () => {
       
       setLoading(true);
       try {
+        const apiFilters = {
+          ano: filters.ano,
+          mes: filters.mes,
+          produto: filters.produto,
+          tipo_evento: filters.tipoEvento,
+          projeto_id: filters.projeto,
+          modalidade: filters.modalidade,
+          cidade: filters.cidade
+        };
+        
         const [resumoData, evolucaoData, atletasProjetoData, atletasModalidadeData] = await Promise.all([
-          dashboardService.getResumoGeral(filters.ano),
-          dashboardService.getEvolucaoMensal(filters.ano),
-          dashboardService.getAtletasPorProjeto(),
-          dashboardService.getAtletasPorModalidade()
+          dashboardService.getResumoGeral(apiFilters),
+          dashboardService.getEvolucaoMensal(apiFilters),
+          dashboardService.getAtletasPorProjeto(apiFilters),
+          dashboardService.getAtletasPorModalidade(apiFilters)
         ]);
         setResumo(resumoData);
         setEvolucao(evolucaoData);
@@ -268,7 +282,7 @@ const Dashboard: React.FC = () => {
       }
     };
     loadData();
-  }, [filters.ano]);
+  }, [filters]);
 
   if (loading) {
     return (
