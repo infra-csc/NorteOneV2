@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 from ...core.database import get_db
 from ...core.security import get_current_user
 from ...models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas
@@ -8,6 +8,43 @@ from ...models.dimensoes import DimTempo, DimConta, DimProjeto, DimCategoriaAtle
 from ...models.user import Usuario
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+@router.get("/filtros")
+async def get_filtros(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    anos = db.query(distinct(DimTempo.ano)).order_by(DimTempo.ano.desc()).all()
+    meses = [
+        {"value": 1, "label": "Janeiro"},
+        {"value": 2, "label": "Fevereiro"},
+        {"value": 3, "label": "Marco"},
+        {"value": 4, "label": "Abril"},
+        {"value": 5, "label": "Maio"},
+        {"value": 6, "label": "Junho"},
+        {"value": 7, "label": "Julho"},
+        {"value": 8, "label": "Agosto"},
+        {"value": 9, "label": "Setembro"},
+        {"value": 10, "label": "Outubro"},
+        {"value": 11, "label": "Novembro"},
+        {"value": 12, "label": "Dezembro"},
+    ]
+    
+    produtos = db.query(distinct(DimProjeto.produto)).filter(DimProjeto.produto != None).all()
+    tipos_evento = db.query(distinct(DimProjeto.tipo_evento)).filter(DimProjeto.tipo_evento != None).all()
+    projetos = db.query(DimProjeto.id, DimProjeto.evento).all()
+    modalidades = db.query(distinct(DimProjeto.modalidade)).filter(DimProjeto.modalidade != None).all()
+    cidades = db.query(distinct(DimProjeto.cidade)).filter(DimProjeto.cidade != None).all()
+    
+    return {
+        "anos": [{"value": a[0], "label": str(a[0])} for a in anos] or [{"value": 2025, "label": "2025"}],
+        "meses": meses,
+        "produtos": [{"value": p[0], "label": p[0]} for p in produtos],
+        "tipos_evento": [{"value": t[0], "label": t[0]} for t in tipos_evento],
+        "projetos": [{"value": p.id, "label": p.evento} for p in projetos],
+        "modalidades": [{"value": m[0], "label": m[0]} for m in modalidades],
+        "cidades": [{"value": c[0], "label": c[0]} for c in cidades]
+    }
 
 @router.get("/resumo-geral")
 async def get_resumo_geral(

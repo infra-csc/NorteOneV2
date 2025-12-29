@@ -44,6 +44,10 @@ export const authService = {
 };
 
 export const dashboardService = {
+  getFiltros: async () => {
+    const response = await api.get('/dashboard/filtros');
+    return response.data;
+  },
   getResumoGeral: async (ano: number) => {
     const response = await api.get(`/dashboard/resumo-geral?ano=${ano}`);
     return response.data;
