@@ -7,7 +7,7 @@ import {
   UsersRound, Trophy, Zap, Target, TrendingUp, Sparkles,
   Image as ImageIcon, Building2, FileText, Search, Filter,
   ChevronDown, RotateCcw, Eye, BarChart3, ArrowUpRight, 
-  ArrowDownRight, Minus, Award, Hash, Briefcase, Scale
+  ArrowDownRight, Minus, Award, Hash, Briefcase, Landmark,UserStar,Scale,Component,LoaderPinwheel,
 } from 'lucide-react';
 
 const modalidades = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
@@ -650,7 +650,7 @@ const Projetos: React.FC = () => {
 
                     <div className={`flex items-center gap-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                       <div className={`p-1.5 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                        <Building2 className="w-4 h-4 text-amber-500" />
+                        <Component className="w-4 h-4 text-amber-500" />
                       </div>
                       <span className="text-sm font-medium">{projeto.tipo_evento}</span>
                     </div>
@@ -695,7 +695,7 @@ const Projetos: React.FC = () => {
                       {/* Grupo */}
                       <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200'}`}>
                         <div className="relative text-center">
-                          <UsersRound className="w-4 h-4 text-orange-500 mx-auto mb-1" />
+                          <Award className="w-4 h-4 text-orange-500 mx-auto mb-1" />
                           <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             {atletasGrupo.toLocaleString('pt-BR')}
                           </p>
@@ -839,7 +839,7 @@ const Projetos: React.FC = () => {
 
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <FileText className="w-5 h-5 text-purple-500" />
+                    <Scale className="w-5 h-5 text-purple-500" />
                     <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Lei</span>
                   </div>
                   <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -849,7 +849,7 @@ const Projetos: React.FC = () => {
 
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <Building2 className="w-5 h-5 text-amber-500" />
+                    <Component className="w-5 h-5 text-amber-500" />
                     <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tipo</span>
                   </div>
                   <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -872,7 +872,7 @@ const Projetos: React.FC = () => {
 
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <Award className="w-5 h-5 text-rose-500" />
+                    <UserStar className="w-5 h-5 text-rose-500" />
                     <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Cliente</span>
                   </div>
                   <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
@@ -922,7 +922,7 @@ const Projetos: React.FC = () => {
                   <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200'}`}>
                     <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/20 rounded-full blur-2xl" />
                     <div className="relative text-center">
-                      <Scale className="w-6 h-6 text-amber-500 mx-auto mb-2" />
+                      <Landmark className="w-6 h-6 text-amber-500 mx-auto mb-2" />
                       <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                         {(selectedProjeto.qtd_atletas_orcado || 0).toLocaleString('pt-BR')}
                       </p>
@@ -978,7 +978,7 @@ const Projetos: React.FC = () => {
                   <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200'}`}>
                     <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/20 rounded-full blur-2xl" />
                     <div className="relative text-center">
-                      <UsersRound className="w-6 h-6 text-orange-500 mx-auto mb-2" />
+                      <Award className="w-6 h-6 text-orange-500 mx-auto mb-2" />
                       <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                         {(selectedProjeto.atletas_grupo || 0).toLocaleString('pt-BR')}
                       </p>
