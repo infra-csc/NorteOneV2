@@ -29,6 +29,7 @@ const menuItems = [
   { path: '/cadastros/contas', icon: FileSpreadsheet, label: 'Contas' },
   { path: '/cadastros/projetos', icon: Target, label: 'Projetos' },
   { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas' },
+  { path: '/cadastros/cadastro', icon: CheckCircle, label: 'Cadastro' },
   { path: '/orcamento', icon: TrendingUp, label: 'Orcamento' },
   { path: '/atletas', icon: Users, label: 'Atletas' },
 ];

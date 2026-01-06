@@ -8,6 +8,7 @@ import CentrosCusto from './pages/cadastros/CentrosCusto';
 import Contas from './pages/cadastros/Contas';
 import Projetos from './pages/cadastros/Projetos';
 import CategoriasAtletas from './pages/cadastros/CategoriasAtletas';
+import Cadastro from './pages/cadastros/Cadastro';
 import Orcamento from './pages/Orcamento';
 import Atletas from './pages/Atletas';
 
@@ -37,6 +38,7 @@ function App() {
             <Route path="/cadastros/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
             <Route path="/cadastros/projetos" element={<PrivateRoute><Layout><Projetos /></Layout></PrivateRoute>} />
             <Route path="/cadastros/categorias-atletas" element={<PrivateRoute><Layout><CategoriasAtletas /></Layout></PrivateRoute>} />
+            <Route path="/cadastros/cadastro" element={<PrivateRoute><Layout><Cadastro /></Layout></PrivateRoute>} />
             <Route path="/orcamento" element={<PrivateRoute><Layout><Orcamento /></Layout></PrivateRoute>} />
             <Route path="/atletas" element={<PrivateRoute><Layout><Atletas /></Layout></PrivateRoute>} />
           </Routes>
