@@ -148,6 +148,16 @@ As metricas detalhadas de atletas foram normalizadas em 4 tabelas satelite para 
   - Metricas: custo_unitario, qtd_por_atleta, custo_total
 
 ## Ultimas Modificacoes
+- 06/01/2025: Correcao de valores zerados no modal de detalhes de projetos
+  - Endpoint /api/projetos/com-atletas agora retorna qtd_atletas_orcado e qtd_atletas_projetado
+  - Adicionadas subqueries para buscar atletas dos 3 cenarios (ORCADO, PROJETADO, REALIZADO)
+  - Schema ProjetoComAtletasResponse atualizado com os novos campos
+
+- 06/01/2025: Padronizacao do layout moderno em todas as telas
+  - Aplicado design consistente: fundo animado, cabecalhos gradiente, cards modernos
+  - Telas atualizadas: CentrosCusto, Contas, CategoriasAtletas, Orcamento, Atletas, Dashboard
+  - Suporte completo para temas claro/escuro
+
 - 29/12/2024: Adicao de tabelas satelite para atletas
   - Criacao de fato_atletas_canais, fato_atletas_kits, fato_atletas_custos
   - Endpoints CRUD e bulk para as novas tabelas
