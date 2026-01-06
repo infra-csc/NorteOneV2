@@ -8,7 +8,7 @@ const Orcamento: React.FC = () => {
   const [resumo, setResumo] = useState<any>(null);
   const [porMes, setPorMes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [ano, setAno] = useState(2025);
+  const [ano, setAno] = useState(2026);
 
   useEffect(() => {
     const loadData = async () => {
@@ -57,7 +57,7 @@ const Orcamento: React.FC = () => {
               </div>
               <div>
                 <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  Orcamento
+                  Orçamento
                   <span className="bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent"> {ano}</span>
                 </h1>
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -75,8 +75,8 @@ const Orcamento: React.FC = () => {
                 onChange={(e) => setAno(Number(e.target.value))} 
                 className={`bg-transparent font-semibold focus:outline-none ${isDark ? 'text-white' : 'text-gray-900'}`}
               >
+                <option value={2026}>2026</option>
                 <option value={2025}>2025</option>
-                <option value={2024}>2024</option>
               </select>
             </div>
           </div>

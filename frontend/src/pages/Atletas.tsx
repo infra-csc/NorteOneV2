@@ -56,7 +56,7 @@ const Atletas: React.FC = () => {
               </div>
               <div>
                 <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  Gestao de
+                  Gestão de
                   <span className="bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-500 bg-clip-text text-transparent"> Atletas</span>
                 </h1>
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>

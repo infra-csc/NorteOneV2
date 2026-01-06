@@ -316,7 +316,7 @@ const Dashboard: React.FC = () => {
                   <span className="bg-gradient-to-r from-indigo-400 via-purple-500 to-pink-500 bg-clip-text text-transparent"> Consolidado</span>
                 </h1>
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Visao geral do sistema financeiro
+                  Visão geral do sistema
                 </p>
               </div>
             </div>
