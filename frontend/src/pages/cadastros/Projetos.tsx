@@ -568,8 +568,6 @@ const Projetos: React.FC = () => {
             const atletasTotal = projeto.atletas_total || 0;
             const atletasSite = projeto.atletas_site || 0;
             const atletasGrupo = projeto.atletas_grupo || 0;
-            const atletasOrcado = projeto.qtd_atletas_orcado || 0;
-            const atletasProjetado = projeto.qtd_atletas_projetado || 0;
 
             return (
               <div 
@@ -667,33 +665,7 @@ const Projetos: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-2">
-                      {/* Orçado */}
-                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200'}`}>
-                        <div className="relative text-center">
-                          <Scale className="w-4 h-4 text-amber-500 mx-auto mb-1" />
-                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            {atletasOrcado.toLocaleString('pt-BR')}
-                          </p>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                            Orçado
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Projetado */}
-                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/30' : 'bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200'}`}>
-                        <div className="relative text-center">
-                          <Target className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
-                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            {atletasProjetado.toLocaleString('pt-BR')}
-                          </p>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
-                            Projetado
-                          </span>
-                        </div>
-                      </div>
-
+                    <div className="grid grid-cols-3 gap-2">
                       {/* Total/Realizado */}
                       <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
                         <div className="relative text-center">
