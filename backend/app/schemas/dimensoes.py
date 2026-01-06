@@ -121,6 +121,8 @@ class ProjetoComAtletasResponse(BaseModel):
     atletas_total: int = 0
     atletas_site: int = 0
     atletas_grupo: int = 0
+    qtd_atletas_orcado: int = 0
+    qtd_atletas_projetado: int = 0
 
     class Config:
         from_attributes = True

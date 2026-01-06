@@ -46,10 +46,11 @@ async def list_projetos_com_atletas(
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Lista projetos com quantidade de atletas por canal (SITE e GRUPOS) do cenário REALIZADO.
+    Lista projetos com quantidade de atletas por canal (SITE e GRUPOS) do cenário REALIZADO,
+    e totais de atletas ORCADO e PROJETADO.
     """
 
-    # Subquery para pegar atletas SITE
+    # Subquery para pegar atletas SITE (REALIZADO)
     subq_site = db.query(
         FatoAtletas.projeto_id,
         func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_site')
@@ -60,7 +61,7 @@ async def list_projetos_com_atletas(
         FatoAtletasCanais.cenario == 'REALIZADO'
     ).group_by(FatoAtletas.projeto_id).subquery()
 
-    # Subquery para pegar atletas GRUPOS
+    # Subquery para pegar atletas GRUPOS (REALIZADO)
     subq_grupo = db.query(
         FatoAtletas.projeto_id,
         func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_grupo')
@@ -71,15 +72,41 @@ async def list_projetos_com_atletas(
         FatoAtletasCanais.cenario == 'REALIZADO'
     ).group_by(FatoAtletas.projeto_id).subquery()
 
+    # Subquery para pegar total atletas ORCADO (soma de todos os canais)
+    subq_orcado = db.query(
+        FatoAtletas.projeto_id,
+        func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_orcado')
+    ).join(
+        FatoAtletasCanais, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
+    ).filter(
+        FatoAtletasCanais.cenario == 'ORCADO'
+    ).group_by(FatoAtletas.projeto_id).subquery()
+
+    # Subquery para pegar total atletas PROJETADO (soma de todos os canais)
+    subq_projetado = db.query(
+        FatoAtletas.projeto_id,
+        func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_projetado')
+    ).join(
+        FatoAtletasCanais, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
+    ).filter(
+        FatoAtletasCanais.cenario == 'PROJETADO'
+    ).group_by(FatoAtletas.projeto_id).subquery()
+
     # Query principal
     query = db.query(
         DimProjeto,
         func.coalesce(subq_site.c.qtd_site, 0).label('atletas_site'),
-        func.coalesce(subq_grupo.c.qtd_grupo, 0).label('atletas_grupo')
+        func.coalesce(subq_grupo.c.qtd_grupo, 0).label('atletas_grupo'),
+        func.coalesce(subq_orcado.c.qtd_orcado, 0).label('qtd_atletas_orcado'),
+        func.coalesce(subq_projetado.c.qtd_projetado, 0).label('qtd_atletas_projetado')
     ).outerjoin(
         subq_site, DimProjeto.id == subq_site.c.projeto_id
     ).outerjoin(
         subq_grupo, DimProjeto.id == subq_grupo.c.projeto_id
+    ).outerjoin(
+        subq_orcado, DimProjeto.id == subq_orcado.c.projeto_id
+    ).outerjoin(
+        subq_projetado, DimProjeto.id == subq_projetado.c.projeto_id
     )
 
     # Aplicar filtros
@@ -114,7 +141,7 @@ async def list_projetos_com_atletas(
 
     # Montar resposta
     projetos_com_atletas = []
-    for projeto, atletas_site, atletas_grupo in results:
+    for projeto, atletas_site, atletas_grupo, qtd_orcado, qtd_projetado in results:
         atletas_total = int(atletas_site or 0) + int(atletas_grupo or 0)
 
         projeto_dict = {
@@ -137,7 +164,9 @@ async def list_projetos_com_atletas(
             "created_at": projeto.created_at,
             "atletas_total": atletas_total,
             "atletas_site": int(atletas_site or 0),
-            "atletas_grupo": int(atletas_grupo or 0)
+            "atletas_grupo": int(atletas_grupo or 0),
+            "qtd_atletas_orcado": int(qtd_orcado or 0),
+            "qtd_atletas_projetado": int(qtd_projetado or 0)
         }
         projetos_com_atletas.append(projeto_dict)
 
