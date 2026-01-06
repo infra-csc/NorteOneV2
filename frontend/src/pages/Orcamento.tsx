@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { orcamentoService, centrosCustoService, contasService, projetosService } from '../services/api';
+import { orcamentoService } from '../services/api';
 import { useTheme } from '../context/ThemeContext';
-import { DollarSign, TrendingUp, TrendingDown, FileSpreadsheet } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, FileSpreadsheet, Calendar, Sparkles } from 'lucide-react';
 
 const Orcamento: React.FC = () => {
   const { isDark } = useTheme();
@@ -29,85 +29,139 @@ const Orcamento: React.FC = () => {
     loadData();
   }, [ano]);
 
-  const cardClass = `rounded-xl shadow-lg p-6 ${isDark ? 'bg-gray-800' : 'bg-white'}`;
-  const textClass = isDark ? 'text-gray-200' : 'text-gray-600';
-  const headingClass = isDark ? 'text-white' : 'text-gray-800';
-
   const formatCurrency = (value: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className={`text-2xl font-bold ${headingClass}`}>Orcamento {ano}</h1>
-        <select value={ano} onChange={(e) => setAno(Number(e.target.value))} className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'}`}>
-          <option value={2025}>2025</option>
-          <option value={2024}>2024</option>
-        </select>
+    <div className="min-h-screen">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-yellow-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-orange-500/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className={cardClass}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={textClass}>Total Receitas</p>
-              <p className="text-2xl font-bold text-green-500">{formatCurrency(resumo?.total_receitas || 0)}</p>
+      <div className="relative z-10 space-y-8 p-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/30">
+                <DollarSign className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Orcamento
+                  <span className="bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent"> {ano}</span>
+                </h1>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Acompanhe receitas e despesas
+                </p>
+              </div>
             </div>
-            <div className="p-3 bg-green-100 rounded-full"><TrendingUp className="w-6 h-6 text-green-600" /></div>
           </div>
-        </div>
-        <div className={cardClass}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={textClass}>Total Despesas</p>
-              <p className="text-2xl font-bold text-red-500">{formatCurrency(resumo?.total_despesas || 0)}</p>
-            </div>
-            <div className="p-3 bg-red-100 rounded-full"><TrendingDown className="w-6 h-6 text-red-600" /></div>
-          </div>
-        </div>
-        <div className={cardClass}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={textClass}>Resultado</p>
-              <p className={`text-2xl font-bold ${(resumo?.resultado || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>{formatCurrency(resumo?.resultado || 0)}</p>
-            </div>
-            <div className="p-3 bg-blue-100 rounded-full"><DollarSign className="w-6 h-6 text-blue-600" /></div>
-          </div>
-        </div>
-      </div>
 
-      <div className={cardClass}>
-        <h3 className={`text-lg font-semibold mb-4 ${headingClass}`}>
-          <FileSpreadsheet className="inline w-5 h-5 mr-2" />
-          Orcamento Mensal
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className={isDark ? 'bg-gray-700' : 'bg-gray-50'}>
-              <tr>
-                <th className={`px-4 py-3 text-left ${textClass}`}>Mes</th>
-                <th className={`px-4 py-3 text-right ${textClass}`}>Receitas</th>
-                <th className={`px-4 py-3 text-right ${textClass}`}>Despesas</th>
-                <th className={`px-4 py-3 text-right ${textClass}`}>Resultado</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
-              {porMes.map((item) => (
-                <tr key={item.mes} className={isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}>
-                  <td className={`px-4 py-3 ${headingClass}`}>{meses[item.mes - 1]}</td>
-                  <td className="px-4 py-3 text-right text-green-500">{formatCurrency(item.receitas || 0)}</td>
-                  <td className="px-4 py-3 text-right text-red-500">{formatCurrency(item.despesas || 0)}</td>
-                  <td className={`px-4 py-3 text-right font-medium ${(item.receitas - item.despesas) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {formatCurrency((item.receitas || 0) - (item.despesas || 0))}
-                  </td>
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 px-4 py-3 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+              <Calendar className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+              <select 
+                value={ano} 
+                onChange={(e) => setAno(Number(e.target.value))} 
+                className={`bg-transparent font-semibold focus:outline-none ${isDark ? 'text-white' : 'text-gray-900'}`}
+              >
+                <option value={2025}>2025</option>
+                <option value={2024}>2024</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`relative overflow-hidden rounded-2xl p-6 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-emerald-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative flex items-center justify-between">
+              <div>
+                <p className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Receitas</p>
+                <p className="text-3xl font-black text-emerald-400">{formatCurrency(resumo?.total_receitas || 0)}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-emerald-500/20">
+                <TrendingUp className="w-6 h-6 text-emerald-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-6 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-red-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative flex items-center justify-between">
+              <div>
+                <p className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Despesas</p>
+                <p className="text-3xl font-black text-red-400">{formatCurrency(resumo?.total_despesas || 0)}</p>
+              </div>
+              <div className="p-3 rounded-xl bg-red-500/20">
+                <TrendingDown className="w-6 h-6 text-red-400" />
+              </div>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-6 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative flex items-center justify-between">
+              <div>
+                <p className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Resultado</p>
+                <p className={`text-3xl font-black ${(resumo?.resultado || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {formatCurrency(resumo?.resultado || 0)}
+                </p>
+              </div>
+              <div className={`p-3 rounded-xl ${(resumo?.resultado || 0) >= 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+                <DollarSign className={`w-6 h-6 ${(resumo?.resultado || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500">
+              <FileSpreadsheet className="w-5 h-5 text-white" />
+            </div>
+            <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Orcamento Mensal
+            </h3>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-50/50'}>
+                <tr>
+                  <th className={`px-6 py-4 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Mes</th>
+                  <th className={`px-6 py-4 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Receitas</th>
+                  <th className={`px-6 py-4 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Despesas</th>
+                  <th className={`px-6 py-4 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Resultado</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-200/50'}`}>
+                {porMes.map((item) => {
+                  const resultado = (item.receitas || 0) - (item.despesas || 0);
+                  return (
+                    <tr key={item.mes} className={`${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50/50'} transition-colors`}>
+                      <td className={`px-6 py-4 font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{meses[item.mes - 1]}</td>
+                      <td className="px-6 py-4 text-right font-medium text-emerald-400">{formatCurrency(item.receitas || 0)}</td>
+                      <td className="px-6 py-4 text-right font-medium text-red-400">{formatCurrency(item.despesas || 0)}</td>
+                      <td className={`px-6 py-4 text-right font-bold ${resultado >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {formatCurrency(resultado)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

@@ -15,7 +15,10 @@ import {
   Filter,
   X,
   Search,
-  ChevronDown
+  ChevronDown,
+  LayoutDashboard,
+  Sparkles,
+  RotateCcw
 } from 'lucide-react';
 import {
   BarChart,
@@ -98,27 +101,27 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
 
   return (
     <div className="relative">
-      <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+      <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
         {label}
       </label>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2 text-left rounded-lg border flex items-center justify-between ${
+        className={`w-full px-4 py-3 text-left rounded-xl border flex items-center justify-between ${
           isDark 
-            ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600' 
-            : 'bg-white border-gray-300 text-gray-900 hover:bg-gray-50'
-        }`}
+            ? 'bg-gray-800 border-gray-700 text-white hover:bg-gray-700' 
+            : 'bg-gray-50 border-gray-200 text-gray-900 hover:bg-gray-100'
+        } transition-all`}
       >
         <span className={value ? '' : 'text-gray-400'}>{selectedLabel}</span>
         <ChevronDown className="w-4 h-4" />
       </button>
       
       {isOpen && (
-        <div className={`absolute z-50 w-full mt-1 rounded-lg shadow-lg border ${
-          isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
+        <div className={`absolute z-50 w-full mt-2 rounded-xl shadow-xl border ${
+          isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
         }`}>
-          <div className="p-2">
+          <div className="p-3">
             <div className="relative">
               <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               <input
@@ -126,11 +129,11 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar..."
-                className={`w-full pl-9 pr-3 py-2 rounded border ${
+                className={`w-full pl-10 pr-4 py-2 rounded-lg border ${
                   isDark 
                     ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
                     : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-500'
-                }`}
+                } focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}
               />
             </div>
           </div>
@@ -142,9 +145,9 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
                 setIsOpen(false);
                 setSearch('');
               }}
-              className={`w-full px-3 py-2 text-left ${
+              className={`w-full px-4 py-2 text-left ${
                 isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-500'
-              }`}
+              } transition-colors`}
             >
               -- Limpar --
             </button>
@@ -157,13 +160,13 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
                   setIsOpen(false);
                   setSearch('');
                 }}
-                className={`w-full px-3 py-2 text-left ${
+                className={`w-full px-4 py-2 text-left ${
                   value === option.value 
-                    ? 'bg-blue-500 text-white' 
+                    ? 'bg-indigo-500 text-white' 
                     : isDark 
                       ? 'hover:bg-gray-700 text-gray-200' 
                       : 'hover:bg-gray-100 text-gray-900'
-                }`}
+                } transition-colors`}
               >
                 {option.label}
               </button>
@@ -286,276 +289,333 @@ const Dashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
-  const cardClass = `p-6 rounded-xl shadow-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`;
-  const textClass = isDark ? 'text-gray-200' : 'text-gray-600';
-  const headingClass = isDark ? 'text-white' : 'text-gray-800';
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap justify-between items-center gap-4">
-        <h1 className={`text-2xl font-bold ${headingClass}`}>Dashboard Consolidado</h1>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-              isDark 
-                ? 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600' 
-                : 'bg-white border-gray-300 hover:bg-gray-50'
-            } ${activeFiltersCount > 0 ? 'ring-2 ring-blue-500' : ''}`}
-          >
-            <Filter className="w-4 h-4" />
-            <span>Filtros</span>
-            {activeFiltersCount > 0 && (
-              <span className="bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-                {activeFiltersCount}
-              </span>
-            )}
-          </button>
-          
-          {activeFiltersCount > 0 && (
-            <button
-              onClick={clearAllFilters}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                isDark 
-                  ? 'bg-red-900 border-red-700 text-red-200 hover:bg-red-800' 
-                  : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
-              }`}
-            >
-              <X className="w-4 h-4" />
-              <span>Limpar Filtros</span>
-            </button>
-          )}
-        </div>
+    <div className="min-h-screen">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-pink-500/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
-      {showFilters && (
-        <div className={`p-6 rounded-xl shadow-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`}>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-            <SearchableDropdown
-              label="Ano"
-              options={filterOptions.anos}
-              value={filters.ano}
-              onChange={(val) => setFilters(prev => ({ ...prev, ano: val as number }))}
-              placeholder="Selecione o ano"
-              isDark={isDark}
-            />
-            <SearchableDropdown
-              label="Mes"
-              options={filterOptions.meses}
-              value={filters.mes}
-              onChange={(val) => setFilters(prev => ({ ...prev, mes: val as number | null }))}
-              placeholder="Todos os meses"
-              isDark={isDark}
-            />
-            <SearchableDropdown
-              label="Produto"
-              options={filterOptions.produtos}
-              value={filters.produto}
-              onChange={(val) => setFilters(prev => ({ ...prev, produto: val as string | null }))}
-              placeholder="Todos os produtos"
-              isDark={isDark}
-            />
-            <SearchableDropdown
-              label="Tipo Evento"
-              options={filterOptions.tipos_evento}
-              value={filters.tipoEvento}
-              onChange={(val) => setFilters(prev => ({ ...prev, tipoEvento: val as string | null }))}
-              placeholder="Todos os tipos"
-              isDark={isDark}
-            />
-            <SearchableDropdown
-              label="Projeto"
-              options={filterOptions.projetos}
-              value={filters.projeto}
-              onChange={(val) => setFilters(prev => ({ ...prev, projeto: val as number | null }))}
-              placeholder="Todos os projetos"
-              isDark={isDark}
-            />
-            <SearchableDropdown
-              label="Modalidade"
-              options={filterOptions.modalidades}
-              value={filters.modalidade}
-              onChange={(val) => setFilters(prev => ({ ...prev, modalidade: val as string | null }))}
-              placeholder="Todas as modalidades"
-              isDark={isDark}
-            />
-            <SearchableDropdown
-              label="Cidade"
-              options={filterOptions.cidades}
-              value={filters.cidade}
-              onChange={(val) => setFilters(prev => ({ ...prev, cidade: val as string | null }))}
-              placeholder="Todas as cidades"
-              isDark={isDark}
-            />
-          </div>
-        </div>
-      )}
-
-      {isAdmin && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className={cardClass}>
-            <div className="flex items-center justify-between">
+      <div className="relative z-10 space-y-8 p-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/30">
+                <LayoutDashboard className="w-6 h-6 text-white" />
+              </div>
               <div>
-                <p className={textClass}>Orcado (Ano)</p>
-                <p className={`text-2xl font-bold ${headingClass}`}>{formatCurrency(resumo?.financeiro.orcado_resultado || 0)}</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-full">
-                <Target className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={textClass}>Projetado (Ano)</p>
-                <p className={`text-2xl font-bold ${headingClass}`}>{formatCurrency(resumo?.financeiro.projetado_resultado || 0)}</p>
-              </div>
-              <div className="p-3 bg-yellow-100 rounded-full">
-                <TrendingUp className="w-6 h-6 text-yellow-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={textClass}>Realizado (YTD)</p>
-                <p className={`text-2xl font-bold ${headingClass}`}>{formatCurrency(resumo?.financeiro.realizado_resultado || 0)}</p>
-              </div>
-              <div className="p-3 bg-green-100 rounded-full">
-                <DollarSign className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className={cardClass}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={textClass}>Variacao Orc x Real</p>
-                <p className={`text-2xl font-bold ${(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {resumo?.financeiro.variacao_percentual || 0}%
+                <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Dashboard
+                  <span className="bg-gradient-to-r from-indigo-400 via-purple-500 to-pink-500 bg-clip-text text-transparent"> Consolidado</span>
+                </h1>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Visao geral do sistema financeiro
                 </p>
               </div>
-              <div className={`p-3 rounded-full ${(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-                {(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 
-                  <TrendingUp className="w-6 h-6 text-green-600" /> : 
-                  <TrendingDown className="w-6 h-6 text-red-600" />
-                }
-              </div>
             </div>
           </div>
-        </div>
-      )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className={cardClass}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={textClass}>Atletas Orçados</p>
-              <p className={`text-2xl font-bold ${headingClass}`}>{resumo?.atletas.total_orcado?.toLocaleString() || 0}</p>
-            </div>
-            <div className="p-3 bg-purple-100 rounded-full">
-              <Users className="w-6 h-6 text-purple-600" />
-            </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all ${
+                showFilters || activeFiltersCount > 0
+                  ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400'
+                  : isDark 
+                    ? 'bg-gray-800/50 border-gray-700 text-gray-300 hover:bg-gray-700' 
+                    : 'bg-white/70 border-gray-200 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Filter className="w-5 h-5" />
+              <span className="font-medium">Filtros</span>
+              {activeFiltersCount > 0 && (
+                <span className="px-2 py-0.5 text-xs font-bold bg-indigo-500 text-white rounded-full">
+                  {activeFiltersCount}
+                </span>
+              )}
+              <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${isDark ? 'border-gray-700 text-gray-300 hover:bg-gray-700' : 'border-gray-200 text-gray-700 hover:bg-gray-50'} transition-all`}
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span className="font-medium">Limpar</span>
+              </button>
+            )}
           </div>
         </div>
 
-        <div className={cardClass}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={textClass}>Atletas Projetados</p>
-              <p className={`text-2xl font-bold ${headingClass}`}>{resumo?.atletas.total_projetado?.toLocaleString() || 0}</p>
+        {showFilters && (
+          <div className={`p-6 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
+              <SearchableDropdown
+                label="Ano"
+                options={filterOptions.anos}
+                value={filters.ano}
+                onChange={(val) => setFilters(prev => ({ ...prev, ano: val as number }))}
+                placeholder="Selecione o ano"
+                isDark={isDark}
+              />
+              <SearchableDropdown
+                label="Mes"
+                options={filterOptions.meses}
+                value={filters.mes}
+                onChange={(val) => setFilters(prev => ({ ...prev, mes: val as number | null }))}
+                placeholder="Todos os meses"
+                isDark={isDark}
+              />
+              <SearchableDropdown
+                label="Produto"
+                options={filterOptions.produtos}
+                value={filters.produto}
+                onChange={(val) => setFilters(prev => ({ ...prev, produto: val as string | null }))}
+                placeholder="Todos os produtos"
+                isDark={isDark}
+              />
+              <SearchableDropdown
+                label="Tipo Evento"
+                options={filterOptions.tipos_evento}
+                value={filters.tipoEvento}
+                onChange={(val) => setFilters(prev => ({ ...prev, tipoEvento: val as string | null }))}
+                placeholder="Todos os tipos"
+                isDark={isDark}
+              />
+              <SearchableDropdown
+                label="Projeto"
+                options={filterOptions.projetos}
+                value={filters.projeto}
+                onChange={(val) => setFilters(prev => ({ ...prev, projeto: val as number | null }))}
+                placeholder="Todos os projetos"
+                isDark={isDark}
+              />
+              <SearchableDropdown
+                label="Modalidade"
+                options={filterOptions.modalidades}
+                value={filters.modalidade}
+                onChange={(val) => setFilters(prev => ({ ...prev, modalidade: val as string | null }))}
+                placeholder="Todas as modalidades"
+                isDark={isDark}
+              />
+              <SearchableDropdown
+                label="Cidade"
+                options={filterOptions.cidades}
+                value={filters.cidade}
+                onChange={(val) => setFilters(prev => ({ ...prev, cidade: val as string | null }))}
+                placeholder="Todas as cidades"
+                isDark={isDark}
+              />
             </div>
-            <div className="p-3 bg-indigo-100 rounded-full">
-              <Users className="w-6 h-6 text-indigo-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className={cardClass}>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={textClass}>Atletas Realizados</p>
-              <p className={`text-2xl font-bold ${headingClass}`}>{resumo?.atletas.total_realizado?.toLocaleString() || 0}</p>
-            </div>
-            <div className="p-3 bg-teal-100 rounded-full">
-              <Users className="w-6 h-6 text-teal-600" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-2' : ''} gap-6`}>
-        {isAdmin && (
-          <div className={cardClass}>
-            <h3 className={`text-lg font-semibold mb-4 ${headingClass}`}>
-              <BarChart3 className="inline w-5 h-5 mr-2" />
-              Evolucao Mensal - Orcado x Realizado
-            </h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={evolucao}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="mes" />
-                <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Legend />
-                <Bar dataKey="orcado" name="Orcado" fill="#3B82F6" />
-                <Bar dataKey="realizado" name="Realizado" fill="#10B981" />
-              </BarChart>
-            </ResponsiveContainer>
           </div>
         )}
 
-        <div className={cardClass}>
-          <h3 className={`text-lg font-semibold mb-4 ${headingClass}`}>
-            <PieChartIcon className="inline w-5 h-5 mr-2" />
-            Atletas por Modalidade
-          </h3>
+        {isAdmin && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" />
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-blue-500/20">
+                    <Target className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Orcado (Ano)</span>
+                </div>
+                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(resumo?.financeiro.orcado_resultado || 0)}</p>
+              </div>
+            </div>
+
+            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-yellow-500/20 to-transparent rounded-full blur-2xl" />
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-yellow-500/20">
+                    <TrendingUp className="w-4 h-4 text-yellow-400" />
+                  </div>
+                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Projetado (Ano)</span>
+                </div>
+                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(resumo?.financeiro.projetado_resultado || 0)}</p>
+              </div>
+            </div>
+
+            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-emerald-500/20 to-transparent rounded-full blur-2xl" />
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1.5 rounded-lg bg-emerald-500/20">
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Realizado (YTD)</span>
+                </div>
+                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(resumo?.financeiro.realizado_resultado || 0)}</p>
+              </div>
+            </div>
+
+            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
+              <div className="relative">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className={`p-1.5 rounded-lg ${(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
+                    {(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 
+                      <TrendingUp className="w-4 h-4 text-emerald-400" /> : 
+                      <TrendingDown className="w-4 h-4 text-red-400" />
+                    }
+                  </div>
+                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Variacao Orc x Real</span>
+                </div>
+                <p className={`text-2xl font-black ${(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {resumo?.financeiro.variacao_percentual || 0}%
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/20">
+                  <Users className="w-4 h-4 text-purple-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Atletas Orcados</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{resumo?.atletas.total_orcado?.toLocaleString() || 0}</p>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-indigo-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-indigo-500/20">
+                  <Users className="w-4 h-4 text-indigo-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Atletas Projetados</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{resumo?.atletas.total_projetado?.toLocaleString() || 0}</p>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-teal-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-teal-500/20">
+                  <Users className="w-4 h-4 text-teal-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Atletas Realizados</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{resumo?.atletas.total_realizado?.toLocaleString() || 0}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-2' : ''} gap-6`}>
+          {isAdmin && (
+            <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500">
+                  <BarChart3 className="w-5 h-5 text-white" />
+                </div>
+                <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Evolucao Mensal - Orcado x Realizado
+                </h3>
+              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={evolucao}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                  <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} />
+                  <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} stroke={isDark ? '#9ca3af' : '#6b7280'} />
+                  <Tooltip 
+                    formatter={(value: number) => formatCurrency(value)} 
+                    contentStyle={{ 
+                      backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                      borderRadius: '12px'
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="orcado" name="Orcado" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="realizado" name="Realizado" fill="#10B981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
+                <PieChartIcon className="w-5 h-5 text-white" />
+              </div>
+              <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Atletas por Modalidade
+              </h3>
+            </div>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={atletasModalidade}
+                  dataKey="total"
+                  nameKey="modalidade"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                >
+                  {atletasModalidade.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                    border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                    borderRadius: '12px'
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-500">
+              <Activity className="w-5 h-5 text-white" />
+            </div>
+            <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Atletas por Evento
+            </h3>
+          </div>
           <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={atletasModalidade}
-                dataKey="total"
-                nameKey="modalidade"
-                cx="50%"
-                cy="50%"
-                outerRadius={100}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-              >
-                {atletasModalidade.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
+            <BarChart data={atletasProjeto} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+              <XAxis type="number" stroke={isDark ? '#9ca3af' : '#6b7280'} />
+              <YAxis dataKey="evento" type="category" width={200} stroke={isDark ? '#9ca3af' : '#6b7280'} />
+              <Tooltip 
+                contentStyle={{ 
+                  backgroundColor: isDark ? '#1f2937' : '#ffffff',
+                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                  borderRadius: '12px'
+                }}
+              />
+              <Legend />
+              <Bar dataKey="orcado" name="Orcado" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="projetado" name="Projetado" fill="#F59E0B" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="realizado" name="Realizado" fill="#10B981" radius={[0, 4, 4, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
-
-      <div className={cardClass}>
-        <h3 className={`text-lg font-semibold mb-4 ${headingClass}`}>
-          <Activity className="inline w-5 h-5 mr-2" />
-          Atletas por Evento
-        </h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={atletasProjeto} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" />
-            <YAxis dataKey="evento" type="category" width={200} />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="orcado" name="Orcado" fill="#3B82F6" />
-            <Bar dataKey="projetado" name="Projetado" fill="#F59E0B" />
-            <Bar dataKey="realizado" name="Realizado" fill="#10B981" />
-          </BarChart>
-        </ResponsiveContainer>
       </div>
     </div>
   );

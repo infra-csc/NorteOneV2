@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { centrosCustoService } from '../../services/api';
 import { CentroCusto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
-import { Plus, Pencil, Trash2, X, Check } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, Check, Building2, Sparkles, Target, Users, Briefcase } from 'lucide-react';
 
 const CentrosCusto: React.FC = () => {
   const { isDark } = useTheme();
@@ -67,116 +67,243 @@ const CentrosCusto: React.FC = () => {
     }
   };
 
-  const cardClass = `rounded-xl shadow-lg ${isDark ? 'bg-gray-800' : 'bg-white'}`;
-  const textClass = isDark ? 'text-gray-200' : 'text-gray-600';
-  const headingClass = isDark ? 'text-white' : 'text-gray-800';
+  const openNewModal = () => {
+    setEditItem(null);
+    setForm({ codigo: '', nome: '', area: '', gestor_responsavel: '' });
+    setShowModal(true);
+  };
+
+  const totalCentros = centros.length;
+  const ativos = centros.filter(c => c.ativo).length;
+  const inativos = centros.filter(c => !c.ativo).length;
+  const areas = [...new Set(centros.map(c => c.area).filter(Boolean))].length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className={`text-2xl font-bold ${headingClass}`}>Centros de Custo</h1>
-        <button
-          onClick={() => { setShowModal(true); setEditItem(null); setForm({ codigo: '', nome: '', area: '', gestor_responsavel: '' }); }}
-          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          <Plus className="w-5 h-5 mr-2" /> Novo
-        </button>
+    <div className="min-h-screen">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+        <div className="absolute top-1/2 left-1/2 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
-      <div className={cardClass}>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className={isDark ? 'bg-gray-700' : 'bg-gray-50'}>
-              <tr>
-                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textClass}`}>Codigo</th>
-                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textClass}`}>Nome</th>
-                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textClass}`}>Area</th>
-                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textClass}`}>Gestor</th>
-                <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${textClass}`}>Status</th>
-                <th className={`px-6 py-3 text-right text-xs font-medium uppercase tracking-wider ${textClass}`}>Acoes</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
-              {loading ? (
-                <tr><td colSpan={6} className="text-center py-8"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
-              ) : centros.map((centro) => (
-                <tr key={centro.id} className={isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50'}>
-                  <td className={`px-6 py-4 whitespace-nowrap font-mono ${headingClass}`}>{centro.codigo}</td>
-                  <td className={`px-6 py-4 whitespace-nowrap ${headingClass}`}>{centro.nome}</td>
-                  <td className={`px-6 py-4 whitespace-nowrap ${textClass}`}>{centro.area}</td>
-                  <td className={`px-6 py-4 whitespace-nowrap ${textClass}`}>{centro.gestor_responsavel}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs rounded-full ${centro.ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                      {centro.ativo ? 'Ativo' : 'Inativo'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <button onClick={() => handleEdit(centro)} className="p-1 text-blue-600 hover:text-blue-800 mr-2">
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(centro.id)} className="p-1 text-red-600 hover:text-red-800">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
+      <div className="relative z-10 space-y-8 p-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500 shadow-lg shadow-blue-500/30">
+                <Building2 className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Centros de
+                  <span className="bg-gradient-to-r from-blue-400 via-cyan-500 to-teal-500 bg-clip-text text-transparent"> Custo</span>
+                </h1>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Gerencie seus centros de custo
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <button 
+            onClick={openNewModal} 
+            className="group relative px-6 py-3 bg-gradient-to-r from-blue-600 via-cyan-600 to-teal-500 text-white rounded-2xl font-semibold shadow-xl shadow-blue-500/30 hover:shadow-blue-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-cyan-400 to-teal-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            <span className="relative flex items-center gap-2">
+              <Plus className="w-5 h-5" />
+              Novo Centro
+              <Sparkles className="w-4 h-4" />
+            </span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-blue-500/20">
+                  <Target className="w-4 h-4 text-blue-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Centros</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalCentros}</p>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-emerald-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-emerald-500/20">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ativos</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{ativos}</p>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-red-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-red-500/20">
+                  <X className="w-4 h-4 text-red-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Inativos</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{inativos}</p>
+            </div>
+          </div>
+
+          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
+            <div className="relative">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/20">
+                  <Briefcase className="w-4 h-4 text-purple-400" />
+                </div>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Areas</span>
+              </div>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{areas}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-50/50'}>
+                <tr>
+                  <th className={`px-6 py-4 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Codigo</th>
+                  <th className={`px-6 py-4 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Nome</th>
+                  <th className={`px-6 py-4 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Area</th>
+                  <th className={`px-6 py-4 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Gestor</th>
+                  <th className={`px-6 py-4 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Status</th>
+                  <th className={`px-6 py-4 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Acoes</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-200/50'}`}>
+                {loading ? (
+                  <tr><td colSpan={6} className="text-center py-8"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" /></td></tr>
+                ) : centros.map((centro) => (
+                  <tr key={centro.id} className={`${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50/50'} transition-colors`}>
+                    <td className={`px-6 py-4 whitespace-nowrap font-mono font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{centro.codigo}</td>
+                    <td className={`px-6 py-4 whitespace-nowrap font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{centro.nome}</td>
+                    <td className={`px-6 py-4 whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{centro.area}</td>
+                    <td className={`px-6 py-4 whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{centro.gestor_responsavel}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-3 py-1 text-xs font-bold rounded-full ${centro.ativo ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                        {centro.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <button onClick={() => handleEdit(centro)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-blue-400' : 'hover:bg-gray-100 text-blue-600'} transition-colors mr-2`}>
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(centro.id)} className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-red-400' : 'hover:bg-gray-100 text-red-600'} transition-colors`}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className={`${isDark ? 'bg-gray-800' : 'bg-white'} rounded-xl p-6 w-full max-w-md`}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className={`text-xl font-bold ${headingClass}`}>{editItem ? 'Editar' : 'Novo'} Centro de Custo</h2>
-              <button onClick={() => setShowModal(false)}><X className={textClass} /></button>
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 overflow-y-auto p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowModal(false);
+              setEditItem(null);
+            }
+          }}
+        >
+          <div 
+            className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl p-8 w-full max-w-md shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-500">
+                  <Building2 className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {editItem ? 'Editar' : 'Novo'} Centro
+                  </h2>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Preencha as informacoes
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setShowModal(false)}
+                className={`p-2 rounded-xl ${isDark ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-600'} transition-colors`}
+              >
+                <X className="w-6 h-6" />
+              </button>
             </div>
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className={`block text-sm font-medium mb-1 ${textClass}`}>Codigo</label>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Codigo</label>
                 <input
                   type="text"
                   value={form.codigo}
                   onChange={(e) => setForm({ ...form, codigo: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
+                  className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200'} focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
                   required
                 />
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${textClass}`}>Nome</label>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Nome</label>
                 <input
                   type="text"
                   value={form.nome}
                   onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
+                  className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200'} focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
                   required
                 />
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${textClass}`}>Area</label>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Area</label>
                 <input
                   type="text"
                   value={form.area}
                   onChange={(e) => setForm({ ...form, area: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
+                  className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200'} focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
                 />
               </div>
               <div>
-                <label className={`block text-sm font-medium mb-1 ${textClass}`}>Gestor Responsavel</label>
+                <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Gestor Responsavel</label>
                 <input
                   type="text"
                   value={form.gestor_responsavel}
                   onChange={(e) => setForm({ ...form, gestor_responsavel: e.target.value })}
-                  className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'border-gray-300'}`}
+                  className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200'} focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all`}
                 />
               </div>
-              <div className="flex justify-end space-x-3 pt-4">
-                <button type="button" onClick={() => setShowModal(false)} className={`px-4 py-2 rounded-lg border ${isDark ? 'border-gray-600 text-gray-300' : 'border-gray-300'}`}>
+              <div className="flex justify-end gap-3 pt-4">
+                <button 
+                  type="button" 
+                  onClick={() => setShowModal(false)} 
+                  className={`px-6 py-3 rounded-xl border font-semibold ${isDark ? 'border-gray-700 text-gray-300 hover:bg-gray-800' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} transition-all`}
+                >
                   Cancelar
                 </button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center">
-                  <Check className="w-4 h-4 mr-2" /> Salvar
+                <button 
+                  type="submit" 
+                  className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-semibold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 transition-all hover:scale-105 flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4" /> Salvar
                 </button>
               </div>
             </form>
