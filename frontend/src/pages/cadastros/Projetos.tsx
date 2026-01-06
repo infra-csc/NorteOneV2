@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { projetosService } from '../../services/api';
 import { Projeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
@@ -6,13 +6,14 @@ import {
   Plus, Pencil, X, Check, Calendar, MapPin, Users, Globe, 
   UsersRound, Trophy, Zap, Target, TrendingUp, Sparkles,
   Image as ImageIcon, Building2, FileText, Search, Filter,
-  ChevronDown, RotateCcw
+  ChevronDown, RotateCcw, Eye, BarChart3, ArrowUpRight, 
+  ArrowDownRight, Minus, Award, Hash, Briefcase, Scale
 } from 'lucide-react';
 
-const modalidades = ['BEACH', 'CICLISMO', 'CORRIDA', 'CULTURA', 'EDUCACAO', 'E-SPORTS', 'FAMILIA', 'NATACAO', 'OBSTACULO', 'SAUDE', 'TRIATHLON'];
-const tiposEvento = ['PROPRIO', 'INCENTIVO', 'ORGANIZACAO', 'LICENCIADO'];
-const leis = ['LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'];
-const statusList = ['EM_ANDAMENTO', 'CONCLUIDO', 'CANCELADO'];
+const modalidades = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
+const tiposEvento = ['Próprio', 'Incentivado', 'Organização', 'Licenciado'];
+const leis = ['','LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'];
+const statusList = ['Em andamento', 'Concluído', 'Cancelado'];
 
 // Interface estendida para incluir dados de atletas
 interface ProjetoComAtletas extends Projeto {
@@ -20,6 +21,8 @@ interface ProjetoComAtletas extends Projeto {
   atletas_total?: number;
   atletas_site?: number;
   atletas_grupo?: number;
+  qtd_atletas_orcado?: number;
+  qtd_atletas_projetado?: number;
 }
 
 // Interface para filtros
@@ -45,17 +48,17 @@ interface FiltrosDisponiveis {
 
 // Mapeamento de cores por modalidade
 const modalidadeColors: Record<string, { bg: string; text: string; glow: string }> = {
-  'CORRIDA': { bg: 'from-orange-500 to-red-600', text: 'text-orange-400', glow: 'shadow-orange-500/50' },
-  'CICLISMO': { bg: 'from-cyan-500 to-blue-600', text: 'text-cyan-400', glow: 'shadow-cyan-500/50' },
-  'NATACAO': { bg: 'from-blue-400 to-indigo-600', text: 'text-blue-400', glow: 'shadow-blue-500/50' },
-  'TRIATHLON': { bg: 'from-purple-500 to-pink-600', text: 'text-purple-400', glow: 'shadow-purple-500/50' },
-  'BEACH': { bg: 'from-yellow-400 to-orange-500', text: 'text-yellow-400', glow: 'shadow-yellow-500/50' },
-  'OBSTACULO': { bg: 'from-green-500 to-emerald-600', text: 'text-green-400', glow: 'shadow-green-500/50' },
-  'E-SPORTS': { bg: 'from-violet-500 to-purple-600', text: 'text-violet-400', glow: 'shadow-violet-500/50' },
-  'CULTURA': { bg: 'from-rose-500 to-pink-600', text: 'text-rose-400', glow: 'shadow-rose-500/50' },
-  'EDUCACAO': { bg: 'from-teal-500 to-cyan-600', text: 'text-teal-400', glow: 'shadow-teal-500/50' },
-  'FAMILIA': { bg: 'from-amber-500 to-yellow-600', text: 'text-amber-400', glow: 'shadow-amber-500/50' },
-  'SAUDE': { bg: 'from-lime-500 to-green-600', text: 'text-lime-400', glow: 'shadow-lime-500/50' },
+  'Corrida': { bg: 'from-orange-500 to-red-600', text: 'text-orange-400', glow: 'shadow-orange-500/50' },
+  'Ciclismo': { bg: 'from-cyan-500 to-blue-600', text: 'text-cyan-400', glow: 'shadow-cyan-500/50' },
+  'Natação': { bg: 'from-blue-400 to-indigo-600', text: 'text-blue-400', glow: 'shadow-blue-500/50' },
+  'Triathlon': { bg: 'from-purple-500 to-pink-600', text: 'text-purple-400', glow: 'shadow-purple-500/50' },
+  'Beach': { bg: 'from-yellow-400 to-orange-500', text: 'text-yellow-400', glow: 'shadow-yellow-500/50' },
+  'Obstáculo': { bg: 'from-green-500 to-emerald-600', text: 'text-green-400', glow: 'shadow-green-500/50' },
+  'E-Sports': { bg: 'from-violet-500 to-purple-600', text: 'text-violet-400', glow: 'shadow-violet-500/50' },
+  'Cultura': { bg: 'from-rose-500 to-pink-600', text: 'text-rose-400', glow: 'shadow-rose-500/50' },
+  'Educação': { bg: 'from-teal-500 to-cyan-600', text: 'text-teal-400', glow: 'shadow-teal-500/50' },
+  'Família': { bg: 'from-amber-500 to-yellow-600', text: 'text-amber-400', glow: 'shadow-amber-500/50' },
+  'Saúde': { bg: 'from-lime-500 to-green-600', text: 'text-lime-400', glow: 'shadow-lime-500/50' },
 };
 
 const getModalidadeStyle = (modalidade: string) => {
@@ -64,14 +67,92 @@ const getModalidadeStyle = (modalidade: string) => {
 
 const getStatusStyle = (status: string) => {
   switch (status) {
-    case 'EM_ANDAMENTO':
+    case 'Em andamento':
       return { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/50', icon: <Zap className="w-3 h-3" /> };
-    case 'CONCLUIDO':
+    case 'Concluído':
       return { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/50', icon: <Check className="w-3 h-3" /> };
-    case 'CANCELADO':
+    case 'Cancelado':
       return { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/50', icon: <X className="w-3 h-3" /> };
     default:
       return { bg: 'bg-gray-500/20', text: 'text-gray-400', border: 'border-gray-500/50', icon: null };
+  }
+};
+
+// Função helper para formatar a data corretamente sem problemas de timezone
+const formatDateDisplay = (dateString: string | null | undefined): string => {
+  if (!dateString) return '-';
+
+  const parts = dateString.split('T')[0].split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' });
+  }
+
+  return dateString;
+};
+
+// Função helper para formatar data completa
+const formatDateFull = (dateString: string | null | undefined): string => {
+  if (!dateString) return '-';
+
+  const parts = dateString.split('T')[0].split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+  }
+
+  return dateString;
+};
+
+// Função helper para ordenar projetos por data (mais próximos primeiro)
+const parseDateForSort = (dateString: string | null | undefined): number => {
+  if (!dateString) return Infinity;
+
+  const parts = dateString.split('T')[0].split('-');
+  if (parts.length === 3) {
+    const [year, month, day] = parts;
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).getTime();
+  }
+
+  return Infinity;
+};
+
+// Função para gerar insight de atletas
+const getAtletasInsight = (orcado: number, realizado: number) => {
+  if (orcado === 0) {
+    return {
+      percentage: 0,
+      type: 'neutral' as const,
+      message: 'Sem meta orçada definida',
+      icon: <Minus className="w-4 h-4" />
+    };
+  }
+
+  const percentage = ((realizado - orcado) / orcado) * 100;
+
+  if (percentage > 10) {
+    return {
+      percentage: Math.abs(percentage),
+      type: 'positive' as const,
+      message: `Superou a meta em ${Math.abs(percentage).toFixed(1)}%`,
+      icon: <ArrowUpRight className="w-4 h-4" />
+    };
+  } else if (percentage < -10) {
+    return {
+      percentage: Math.abs(percentage),
+      type: 'negative' as const,
+      message: `Abaixo da meta em ${Math.abs(percentage).toFixed(1)}%`,
+      icon: <ArrowDownRight className="w-4 h-4" />
+    };
+  } else {
+    return {
+      percentage: Math.abs(percentage),
+      type: 'neutral' as const,
+      message: `Meta atingida (${percentage >= 0 ? '+' : ''}${percentage.toFixed(1)}%)`,
+      icon: <Check className="w-4 h-4" />
+    };
   }
 };
 
@@ -80,6 +161,8 @@ const Projetos: React.FC = () => {
   const [projetos, setProjetos] = useState<ProjetoComAtletas[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedProjeto, setSelectedProjeto] = useState<ProjetoComAtletas | null>(null);
   const [editItem, setEditItem] = useState<ProjetoComAtletas | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filtrosDisponiveis, setFiltrosDisponiveis] = useState<FiltrosDisponiveis | null>(null);
@@ -96,10 +179,19 @@ const Projetos: React.FC = () => {
 
   // Estado do formulário
   const [form, setForm] = useState({
-    codigo: '', produto: '', modalidade: 'CORRIDA', tipo_evento: 'PROPRIO', evento: '',
-    lei: 'ROUANET', cliente: '', status: 'EM_ANDAMENTO', data_evento: '', local_evento: '',
+    codigo: '', produto: '', modalidade: 'Corrida', tipo_evento: 'Próprio', evento: '',
+    lei: 'ROUANET', cliente: '', status: 'Em andamento', data_evento: '', local_evento: '',
     cidade: '', estado: '', capacidade_maxima: '', etapa: '', imagem_kv: ''
   });
+
+  // Ordenar projetos por data (mais próximos primeiro)
+  const projetosOrdenados = useMemo(() => {
+    return [...projetos].sort((a, b) => {
+      const dateA = parseDateForSort(a.data_evento);
+      const dateB = parseDateForSort(b.data_evento);
+      return dateA - dateB;
+    });
+  }, [projetos]);
 
   // Carregar filtros disponíveis
   const loadFiltros = async () => {
@@ -115,7 +207,6 @@ const Projetos: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // Monta os parâmetros de filtro
       const params: Record<string, string> = {};
       if (filtros.status) params.status = filtros.status;
       if (filtros.modalidade) params.modalidade = filtros.modalidade;
@@ -128,7 +219,6 @@ const Projetos: React.FC = () => {
       setProjetos(data);
     } catch (error) {
       console.error('Erro:', error);
-      // Fallback para endpoint antigo se o novo não existir
       try {
         const data = await projetosService.list();
         setProjetos(data);
@@ -148,7 +238,6 @@ const Projetos: React.FC = () => {
     loadData(); 
   }, [loadData]);
 
-  // Limpar filtros
   const handleClearFilters = () => {
     setFiltros({
       status: '',
@@ -160,7 +249,6 @@ const Projetos: React.FC = () => {
     });
   };
 
-  // Verificar se há filtros ativos
   const hasActiveFilters = Object.values(filtros).some(v => v !== '');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -189,13 +277,13 @@ const Projetos: React.FC = () => {
     setForm({
       codigo: item.codigo || '',
       produto: item.produto || '',
-      modalidade: item.modalidade || 'CORRIDA',
-      tipo_evento: item.tipo_evento || 'PROPRIO',
+      modalidade: item.modalidade || 'Corrida',
+      tipo_evento: item.tipo_evento || 'Próprio',
       evento: item.evento || '',
       lei: item.lei || 'ROUANET',
       cliente: item.cliente || '',
-      status: item.status || 'EM_ANDAMENTO',
-      data_evento: item.data_evento || '',
+      status: item.status || 'Em andamento',
+      data_evento: item.data_evento ? item.data_evento.split('T')[0] : '',
       local_evento: item.local_evento || '',
       cidade: item.cidade || '',
       estado: item.estado || '',
@@ -206,11 +294,16 @@ const Projetos: React.FC = () => {
     setShowModal(true);
   };
 
+  const handleViewDetails = (projeto: ProjetoComAtletas) => {
+    setSelectedProjeto(projeto);
+    setShowDetailsModal(true);
+  };
+
   const openNewModal = () => {
     setEditItem(null);
     setForm({
-      codigo: '', produto: '', modalidade: 'CORRIDA', tipo_evento: 'PROPRIO', evento: '',
-      lei: 'ROUANET', cliente: '', status: 'EM_ANDAMENTO', data_evento: '', local_evento: '',
+      codigo: '', produto: '', modalidade: 'Corrida', tipo_evento: 'Próprio', evento: '',
+      lei: 'ROUANET', cliente: '', status: 'Em andamento', data_evento: '', local_evento: '',
       cidade: '', estado: '', capacidade_maxima: '', etapa: '', imagem_kv: ''
     });
     setShowModal(true);
@@ -218,8 +311,8 @@ const Projetos: React.FC = () => {
 
   // Stats cards data
   const totalProjetos = projetos.length;
-  const emAndamento = projetos.filter(p => p.status === 'EM_ANDAMENTO').length;
-  const concluidos = projetos.filter(p => p.status === 'CONCLUIDO').length;
+  const emAndamento = projetos.filter(p => p.status === 'Em andamento').length;
+  const concluidos = projetos.filter(p => p.status === 'Concluído').length;
   const totalAtletas = projetos.reduce((acc, p) => acc + (p.atletas_total || 0), 0);
 
   return (
@@ -242,7 +335,7 @@ const Projetos: React.FC = () => {
               <div>
                 <h1 className={`text-3xl font-black tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
                   Eventos
-                  <span className="bg-gradient-to-r from-purple-400 via-pink-500 to-orange-500 bg-clip-text text-transparent"> & Projetos</span>
+                  <span className="bg-gradient-to-r from-purple-400 via-pink-500 to-orange-500 bg-clip-text text-transparent"> 2026</span>
                 </h1>
                 <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                   Gerencie seus eventos esportivos com estilo
@@ -267,7 +360,6 @@ const Projetos: React.FC = () => {
         {/* Search and Filters Bar */}
         <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
           <div className="flex flex-col md:flex-row gap-4">
-            {/* Search Input */}
             <div className="flex-1 relative">
               <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               <input
@@ -279,7 +371,6 @@ const Projetos: React.FC = () => {
               />
             </div>
 
-            {/* Filter Toggle Button */}
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all ${
@@ -300,7 +391,6 @@ const Projetos: React.FC = () => {
               <ChevronDown className={`w-4 h-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
             </button>
 
-            {/* Clear Filters */}
             {hasActiveFilters && (
               <button
                 onClick={handleClearFilters}
@@ -312,10 +402,8 @@ const Projetos: React.FC = () => {
             )}
           </div>
 
-          {/* Expanded Filters */}
           {showFilters && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 pt-4 border-t border-gray-700/50">
-              {/* Status Filter */}
               <div>
                 <label className={`block text-xs font-bold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Status</label>
                 <select
@@ -330,7 +418,6 @@ const Projetos: React.FC = () => {
                 </select>
               </div>
 
-              {/* Modalidade Filter */}
               <div>
                 <label className={`block text-xs font-bold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Modalidade</label>
                 <select
@@ -345,7 +432,6 @@ const Projetos: React.FC = () => {
                 </select>
               </div>
 
-              {/* Tipo Evento Filter */}
               <div>
                 <label className={`block text-xs font-bold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Tipo Evento</label>
                 <select
@@ -360,7 +446,6 @@ const Projetos: React.FC = () => {
                 </select>
               </div>
 
-              {/* Lei Filter */}
               <div>
                 <label className={`block text-xs font-bold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Lei</label>
                 <select
@@ -375,7 +460,6 @@ const Projetos: React.FC = () => {
                 </select>
               </div>
 
-              {/* Ano Filter */}
               <div>
                 <label className={`block text-xs font-bold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ano</label>
                 <select
@@ -458,7 +542,7 @@ const Projetos: React.FC = () => {
               </div>
               <p className={`mt-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Carregando eventos...</p>
             </div>
-          ) : projetos.length === 0 ? (
+          ) : projetosOrdenados.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center py-20">
               <div className="p-4 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 mb-4">
                 <Trophy className="w-12 h-12 text-purple-400" />
@@ -478,12 +562,14 @@ const Projetos: React.FC = () => {
                 </button>
               )}
             </div>
-          ) : projetos.map((projeto, index) => {
+          ) : projetosOrdenados.map((projeto, index) => {
             const modalidadeStyle = getModalidadeStyle(projeto.modalidade);
             const statusStyle = getStatusStyle(projeto.status);
             const atletasTotal = projeto.atletas_total || 0;
             const atletasSite = projeto.atletas_site || 0;
             const atletasGrupo = projeto.atletas_grupo || 0;
+            const atletasOrcado = projeto.qtd_atletas_orcado || 0;
+            const atletasProjetado = projeto.qtd_atletas_projetado || 0;
 
             return (
               <div 
@@ -491,7 +577,6 @@ const Projetos: React.FC = () => {
                 className={`group relative overflow-hidden rounded-3xl ${isDark ? 'bg-gray-800/80 backdrop-blur-xl' : 'bg-white/90 backdrop-blur-xl'} border ${isDark ? 'border-gray-700/50' : 'border-gray-200'} shadow-xl hover:shadow-2xl transition-all duration-500 hover:-translate-y-2`}
                 style={{ animationDelay: `${index * 100}ms` }}
               >
-                {/* Glow effect on hover */}
                 <div className={`absolute inset-0 bg-gradient-to-br ${modalidadeStyle.bg} opacity-0 group-hover:opacity-10 transition-opacity duration-500 pointer-events-none`} />
 
                 {/* Image KV Section */}
@@ -514,10 +599,8 @@ const Projetos: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Gradient overlay */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent pointer-events-none" />
 
-                  {/* Status badge */}
                   <div className={`absolute top-4 right-4 px-3 py-1.5 rounded-full ${statusStyle.bg} ${statusStyle.border} border backdrop-blur-md flex items-center gap-1.5`}>
                     {statusStyle.icon}
                     <span className={`text-xs font-bold ${statusStyle.text}`}>
@@ -525,14 +608,12 @@ const Projetos: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Modalidade badge */}
                   <div className={`absolute top-4 left-4 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur-md border border-white/20`}>
                     <span className={`text-xs font-bold ${modalidadeStyle.text}`}>
                       {projeto.modalidade}
                     </span>
                   </div>
 
-                  {/* Event info overlay */}
                   <div className="absolute bottom-0 left-0 right-0 p-4">
                     <span className="text-white/60 text-xs font-mono tracking-wider">{projeto.codigo}</span>
                     <h3 className="text-xl font-black text-white leading-tight mt-1 line-clamp-2">
@@ -543,14 +624,13 @@ const Projetos: React.FC = () => {
 
                 {/* Content Section */}
                 <div className="p-5 space-y-4">
-                  {/* Info Grid */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className={`flex items-center gap-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                       <div className={`p-1.5 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
                         <Calendar className="w-4 h-4 text-pink-500" />
                       </div>
                       <span className="text-sm font-medium">
-                        {new Date(projeto.data_evento).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        {formatDateDisplay(projeto.data_evento)}
                       </span>
                     </div>
 
@@ -583,48 +663,71 @@ const Projetos: React.FC = () => {
                     <div className="flex items-center gap-2 mb-3">
                       <TrendingUp className={`w-4 h-4 ${modalidadeStyle.text}`} />
                       <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Atletas Inscritos
+                        Atletas
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      {/* Total Atletas */}
-                      <div className={`relative overflow-hidden p-3 rounded-xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                        <div className="absolute top-0 right-0 w-8 h-8 bg-purple-500/20 rounded-full blur-xl" />
+                    <div className="grid grid-cols-5 gap-2">
+                      {/* Orçado */}
+                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200'}`}>
                         <div className="relative text-center">
-                          <Users className="w-5 h-5 text-purple-500 mx-auto mb-1" />
-                          <p className={`text-lg font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          <Scale className="w-4 h-4 text-amber-500 mx-auto mb-1" />
+                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            {atletasOrcado.toLocaleString('pt-BR')}
+                          </p>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                            Orçado
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Projetado */}
+                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/30' : 'bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200'}`}>
+                        <div className="relative text-center">
+                          <Target className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
+                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            {atletasProjetado.toLocaleString('pt-BR')}
+                          </p>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                            Projetado
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Total/Realizado */}
+                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
+                        <div className="relative text-center">
+                          <Users className="w-4 h-4 text-purple-500 mx-auto mb-1" />
+                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             {atletasTotal.toLocaleString('pt-BR')}
                           </p>
-                          <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
-                            Total
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                            Realizado
                           </span>
                         </div>
                       </div>
 
                       {/* Site */}
-                      <div className={`relative overflow-hidden p-3 rounded-xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-100 to-blue-100 border border-cyan-200'}`}>
-                        <div className="absolute top-0 right-0 w-8 h-8 bg-cyan-500/20 rounded-full blur-xl" />
+                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-100 to-blue-100 border border-cyan-200'}`}>
                         <div className="relative text-center">
-                          <Globe className="w-5 h-5 text-cyan-500 mx-auto mb-1" />
-                          <p className={`text-lg font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          <Globe className="w-4 h-4 text-cyan-500 mx-auto mb-1" />
+                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             {atletasSite.toLocaleString('pt-BR')}
                           </p>
-                          <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
                             Site
                           </span>
                         </div>
                       </div>
 
                       {/* Grupo */}
-                      <div className={`relative overflow-hidden p-3 rounded-xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200'}`}>
-                        <div className="absolute top-0 right-0 w-8 h-8 bg-orange-500/20 rounded-full blur-xl" />
+                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200'}`}>
                         <div className="relative text-center">
-                          <UsersRound className="w-5 h-5 text-orange-500 mx-auto mb-1" />
-                          <p className={`text-lg font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          <UsersRound className="w-4 h-4 text-orange-500 mx-auto mb-1" />
+                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             {atletasGrupo.toLocaleString('pt-BR')}
                           </p>
-                          <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
                             Grupo
                           </span>
                         </div>
@@ -633,7 +736,18 @@ const Projetos: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex justify-end pt-2">
+                  <div className="flex justify-end gap-2 pt-2">
+                    <button 
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleViewDetails(projeto);
+                      }} 
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl ${isDark ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-400' : 'bg-purple-100 hover:bg-purple-200 text-purple-700'} transition-all duration-300 hover:scale-105`}
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span className="text-sm font-medium">Detalhes</span>
+                    </button>
                     <button 
                       onClick={(e) => {
                         e.preventDefault();
@@ -653,7 +767,328 @@ const Projetos: React.FC = () => {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Details Modal */}
+      {showDetailsModal && selectedProjeto && (
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 overflow-y-auto p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowDetailsModal(false);
+              setSelectedProjeto(null);
+            }
+          }}
+        >
+          <div 
+            className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-full max-w-5xl my-8 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ animation: 'slideUp 0.4s ease-out' }}
+          >
+            {/* Hero Image Section */}
+            <div className="relative h-64 md:h-80 overflow-hidden">
+              {selectedProjeto.imagem_kv ? (
+                <img 
+                  src={selectedProjeto.imagem_kv} 
+                  alt={selectedProjeto.evento}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className={`w-full h-full bg-gradient-to-br ${getModalidadeStyle(selectedProjeto.modalidade).bg} flex items-center justify-center`}>
+                  <div className="text-center">
+                    <ImageIcon className="w-20 h-20 text-white/30 mx-auto mb-4" />
+                    <span className="text-white/50 text-lg font-medium">Sem imagem do evento</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Gradient Overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+
+              {/* Close Button */}
+              <button 
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  setSelectedProjeto(null);
+                }}
+                className="absolute top-4 right-4 p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white hover:bg-black/60 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+
+              {/* Badges */}
+              <div className="absolute top-4 left-4 flex gap-2">
+                <div className={`px-4 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20`}>
+                  <span className={`text-sm font-bold ${getModalidadeStyle(selectedProjeto.modalidade).text}`}>
+                    {selectedProjeto.modalidade}
+                  </span>
+                </div>
+                <div className={`px-4 py-2 rounded-full ${getStatusStyle(selectedProjeto.status).bg} ${getStatusStyle(selectedProjeto.status).border} border backdrop-blur-md flex items-center gap-2`}>
+                  {getStatusStyle(selectedProjeto.status).icon}
+                  <span className={`text-sm font-bold ${getStatusStyle(selectedProjeto.status).text}`}>
+                    {selectedProjeto.status.replace('_', ' ')}
+                  </span>
+                </div>
+              </div>
+
+              {/* Event Title */}
+              <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8">
+                <span className="text-white/60 text-sm font-mono tracking-wider">{selectedProjeto.codigo}</span>
+                <h2 className="text-3xl md:text-4xl font-black text-white leading-tight mt-2">
+                  {selectedProjeto.evento}
+                </h2>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 md:p-8 space-y-8">
+              {/* Quick Info Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="w-5 h-5 text-pink-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {formatDateFull(selectedProjeto.data_evento)}
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <MapPin className="w-5 h-5 text-cyan-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Local</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.cidade}{selectedProjeto.estado ? `, ${selectedProjeto.estado}` : ''}
+                  </p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {selectedProjeto.local_evento}
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="w-5 h-5 text-purple-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Lei</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.lei}
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building2 className="w-5 h-5 text-amber-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tipo</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.tipo_evento}
+                  </p>
+                </div>
+              </div>
+
+              {/* Additional Info */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Briefcase className="w-5 h-5 text-indigo-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Produto</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.produto || '-'}
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Award className="w-5 h-5 text-rose-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Cliente</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.cliente || '-'}
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Hash className="w-5 h-5 text-emerald-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Etapa</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.etapa || '-'}
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="w-5 h-5 text-blue-500" />
+                    <span className={`text-xs font-bold uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Capacidade</span>
+                  </div>
+                  <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {selectedProjeto.capacidade_maxima?.toLocaleString('pt-BR') || '-'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Atletas Analysis Section */}
+              <div className={`p-6 rounded-3xl ${isDark ? 'bg-gradient-to-br from-gray-800 to-gray-800/50' : 'bg-gradient-to-br from-gray-50 to-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
+                    <BarChart3 className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      Análise de Atletas
+                    </h3>
+                    <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Comparativo entre orçado, projetado e realizado
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                  {/* Orçado */}
+                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200'}`}>
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/20 rounded-full blur-2xl" />
+                    <div className="relative text-center">
+                      <Scale className="w-6 h-6 text-amber-500 mx-auto mb-2" />
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {(selectedProjeto.qtd_atletas_orcado || 0).toLocaleString('pt-BR')}
+                      </p>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                        Orçado
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Projetado */}
+                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/30' : 'bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200'}`}>
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/20 rounded-full blur-2xl" />
+                    <div className="relative text-center">
+                      <Target className="w-6 h-6 text-indigo-500 mx-auto mb-2" />
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {(selectedProjeto.qtd_atletas_projetado || 0).toLocaleString('pt-BR')}
+                      </p>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
+                        Projetado
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Total Realizado */}
+                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200'}`}>
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/20 rounded-full blur-2xl" />
+                    <div className="relative text-center">
+                      <Users className="w-6 h-6 text-purple-500 mx-auto mb-2" />
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {(selectedProjeto.atletas_total || 0).toLocaleString('pt-BR')}
+                      </p>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                        Realizado
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Site */}
+                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200'}`}>
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/20 rounded-full blur-2xl" />
+                    <div className="relative text-center">
+                      <Globe className="w-6 h-6 text-cyan-500 mx-auto mb-2" />
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {(selectedProjeto.atletas_site || 0).toLocaleString('pt-BR')}
+                      </p>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
+                        Site
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Grupo */}
+                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200'}`}>
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/20 rounded-full blur-2xl" />
+                    <div className="relative text-center">
+                      <UsersRound className="w-6 h-6 text-orange-500 mx-auto mb-2" />
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {(selectedProjeto.atletas_grupo || 0).toLocaleString('pt-BR')}
+                      </p>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                        Grupo
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Insight Card */}
+                {(() => {
+                  const insight = getAtletasInsight(
+                    selectedProjeto.qtd_atletas_orcado || 0,
+                    selectedProjeto.atletas_total || 0
+                  );
+
+                  const bgColor = insight.type === 'positive' 
+                    ? isDark ? 'from-emerald-500/20 to-green-500/20 border-emerald-500/30' : 'from-emerald-50 to-green-50 border-emerald-200'
+                    : insight.type === 'negative'
+                    ? isDark ? 'from-red-500/20 to-rose-500/20 border-red-500/30' : 'from-red-50 to-rose-50 border-red-200'
+                    : isDark ? 'from-gray-500/20 to-slate-500/20 border-gray-500/30' : 'from-gray-50 to-slate-50 border-gray-200';
+
+                  const textColor = insight.type === 'positive'
+                    ? 'text-emerald-500'
+                    : insight.type === 'negative'
+                    ? 'text-red-500'
+                    : isDark ? 'text-gray-400' : 'text-gray-500';
+
+                  return (
+                    <div className={`p-4 rounded-2xl bg-gradient-to-r ${bgColor} border flex items-center gap-4`}>
+                      <div className={`p-3 rounded-xl ${insight.type === 'positive' ? 'bg-emerald-500/20' : insight.type === 'negative' ? 'bg-red-500/20' : 'bg-gray-500/20'}`}>
+                        <div className={textColor}>
+                          {insight.icon}
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className={`text-sm font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          Insight de Performance
+                        </p>
+                        <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          {insight.message}
+                        </p>
+                      </div>
+                      {insight.type !== 'neutral' && (
+                        <div className={`text-3xl font-black ${textColor}`}>
+                          {insight.percentage.toFixed(0)}%
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 pt-4">
+                <button 
+                  onClick={() => {
+                    setShowDetailsModal(false);
+                    setSelectedProjeto(null);
+                  }}
+                  className={`px-6 py-3 rounded-xl font-semibold ${isDark ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300'} transition-all`}
+                >
+                  Fechar
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowDetailsModal(false);
+                    handleEdit(selectedProjeto);
+                  }}
+                  className="px-6 py-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white rounded-xl font-semibold shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all hover:scale-105 flex items-center gap-2"
+                >
+                  <Pencil className="w-5 h-5" />
+                  Editar Evento
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
       {showModal && (
         <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 overflow-y-auto p-4"

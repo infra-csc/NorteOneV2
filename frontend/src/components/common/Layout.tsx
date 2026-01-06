@@ -53,7 +53,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     <div className={`min-h-screen ${isDark ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
-          <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>DW Financeiro</h1>
+          <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>Norte One</h1>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden">
             <X className={isDark ? 'text-white' : 'text-gray-600'} />
           </button>
