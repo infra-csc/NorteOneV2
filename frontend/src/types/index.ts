@@ -34,14 +34,81 @@ export interface Projeto {
   tipo_evento: string;
   evento: string;
   lei: string;
-  cliente?: string;
+  cliente?: string | null;
   status: string;
   data_evento: string;
   local_evento: string;
-  cidade?: string;
-  estado?: string;
-  capacidade_maxima?: number;
-  etapa?: number;
+  cidade?: string | null;
+  estado?: string | null;
+  capacidade_maxima?: number | null;
+  etapa?: number | null;
+  imagem_kv?: string | null;  // NOVO CAMPO
+  created_at?: string | null;
+}
+
+// Interface estendida com dados de atletas (NOVA)
+export interface ProjetoComAtletas extends Projeto {
+  atletas_total: number;
+  atletas_site: number;
+  atletas_grupo: number;
+}
+
+// Interface para filtros disponíveis (NOVA)
+export interface FiltrosDisponiveis {
+  modalidades: string[];
+  tipos_evento: string[];
+  leis: string[];
+  estados: string[];
+  cidades: string[];
+  anos: number[];
+  status: string[];
+}
+
+// Interface para o estado dos filtros (NOVA)
+export interface FiltrosState {
+  status: string;
+  modalidade: string;
+  tipo_evento: string;
+  lei: string;
+  ano: string;
+  busca: string;
+}
+
+// Interface para criar/atualizar projeto
+export interface ProjetoCreate {
+  codigo: string;
+  produto: string;
+  modalidade: string;
+  tipo_evento: string;
+  evento: string;
+  lei: string;
+  cliente?: string | null;
+  status: string;
+  data_evento: string;
+  local_evento: string;
+  cidade?: string | null;
+  estado?: string | null;
+  capacidade_maxima?: number | null;
+  etapa?: number | null;
+  imagem_kv?: string | null;  // NOVO CAMPO
+}
+
+export interface ProjetoUpdate {
+  codigo?: string;
+  produto?: string;
+  modalidade?: string;
+  tipo_evento?: string;
+  evento?: string;
+  lei?: string;
+  cliente?: string | null;
+  status?: string;
+  data_evento?: string;
+  local_evento?: string;
+  cidade?: string | null;
+  estado?: string | null;
+  capacidade_maxima?: number | null;
+  etapa?: number | null;
+  imagem_kv?: string | null;  // NOVO CAMPO
 }
 
 export interface CategoriaAtleta {

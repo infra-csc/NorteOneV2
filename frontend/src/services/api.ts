@@ -137,10 +137,60 @@ export const contasService = {
 };
 
 export const projetosService = {
+  // Método original
   list: async () => {
     const response = await api.get('/projetos/');
     return response.data;
   },
+
+  // NOVO: Lista projetos com dados de atletas (com fallback para list original)
+  listComAtletas: async (params?: Record<string, string>) => {
+    try {
+      const queryString = params && Object.keys(params).length > 0
+        ? '?' + new URLSearchParams(params).toString() 
+        : '';
+      const response = await api.get(`/projetos/com-atletas${queryString}`);
+      return response.data;
+    } catch (error: any) {
+      // Se o endpoint não existir (404), usa o endpoint antigo
+      if (error.response?.status === 404) {
+        console.warn('Endpoint /projetos/com-atletas não encontrado, usando fallback');
+        const response = await api.get('/projetos/');
+        // Adiciona campos de atletas vazios para compatibilidade
+        return response.data.map((projeto: any) => ({
+          ...projeto,
+          atletas_total: projeto.atletas_total || 0,
+          atletas_site: projeto.atletas_site || 0,
+          atletas_grupo: projeto.atletas_grupo || 0,
+        }));
+      }
+      throw error;
+    }
+  },
+
+  // NOVO: Busca filtros disponíveis (com fallback para valores padrão)
+  getFiltros: async () => {
+    try {
+      const response = await api.get('/projetos/filtros');
+      return response.data;
+    } catch (error: any) {
+      // Se o endpoint não existir, retorna valores padrão
+      if (error.response?.status === 404) {
+        console.warn('Endpoint /projetos/filtros não encontrado, usando valores padrão');
+        return {
+          modalidades: ['BEACH', 'CICLISMO', 'CORRIDA', 'CULTURA', 'EDUCACAO', 'E-SPORTS', 'FAMILIA', 'NATACAO', 'OBSTACULO', 'SAUDE', 'TRIATHLON'],
+          tipos_evento: ['PROPRIO', 'INCENTIVO', 'ORGANIZACAO', 'LICENCIADO'],
+          leis: ['LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'],
+          estados: [],
+          cidades: [],
+          anos: [],
+          status: ['EM_ANDAMENTO', 'CONCLUIDO', 'CANCELADO']
+        };
+      }
+      throw error;
+    }
+  },
+
   create: async (data: any) => {
     const response = await api.post('/projetos/', data);
     return response.data;

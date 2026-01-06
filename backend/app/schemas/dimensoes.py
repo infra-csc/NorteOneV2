@@ -23,7 +23,7 @@ class CentroCustoUpdate(BaseModel):
 class CentroCustoResponse(CentroCustoBase):
     id: int
     created_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -49,7 +49,7 @@ class ContaUpdate(BaseModel):
 class ContaResponse(ContaBase):
     id: int
     created_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -68,6 +68,7 @@ class ProjetoBase(BaseModel):
     estado: Optional[str] = None
     capacidade_maxima: Optional[int] = None
     etapa: Optional[int] = None
+    imagem_kv: Optional[str] = None
 
 class ProjetoCreate(ProjetoBase):
     pass
@@ -87,13 +88,43 @@ class ProjetoUpdate(BaseModel):
     estado: Optional[str] = None
     capacidade_maxima: Optional[int] = None
     etapa: Optional[int] = None
+    imagem_kv: Optional[str] = None
 
 class ProjetoResponse(ProjetoBase):
     id: int
     created_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
+
+
+# Schema estendido com dados de atletas por canal
+class ProjetoComAtletasResponse(BaseModel):
+    """Schema para projeto com dados de atletas - não herda de ProjetoResponse para evitar conflito de Config"""
+    id: int
+    codigo: str
+    produto: str
+    modalidade: str
+    tipo_evento: str
+    evento: str
+    lei: str
+    cliente: Optional[str] = None
+    status: str
+    data_evento: date
+    local_evento: str
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
+    capacidade_maxima: Optional[int] = None
+    etapa: Optional[int] = None
+    imagem_kv: Optional[str] = None
+    created_at: Optional[datetime] = None
+    atletas_total: int = 0
+    atletas_site: int = 0
+    atletas_grupo: int = 0
+
+    class Config:
+        from_attributes = True
+
 
 class CategoriaAtletaBase(BaseModel):
     codigo: str
@@ -123,7 +154,7 @@ class CategoriaAtletaUpdate(BaseModel):
 class CategoriaAtletaResponse(CategoriaAtletaBase):
     id: int
     created_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -140,6 +171,6 @@ class TempoBase(BaseModel):
 
 class TempoResponse(TempoBase):
     id: int
-    
+
     class Config:
         from_attributes = True

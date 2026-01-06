@@ -65,6 +65,7 @@ class DimProjeto(Base):
     etapa = Column(Integer)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+    imagem_kv = Column(String(500)) 
 
 class DimCategoriaAtleta(Base):
     __tablename__ = "dim_categoria_atleta"
