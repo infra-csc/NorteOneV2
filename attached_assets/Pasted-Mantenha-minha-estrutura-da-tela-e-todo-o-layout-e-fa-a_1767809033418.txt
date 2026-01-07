@@ -1,0 +1,34 @@
+Mantenha minha estrutura da tela e todo o layout e faça alterações da minha tela 'Cadastro'
+
+1. Nome do evento atualmente está como text o input, porém dessa forma fica muito sujeito a erro, preciso que seja um dropdown com pesquisa que consulte os registros criados na tela 'Projetos';
+2. Aba atletas: Preciso separar as quantidade de atletas Site e Grupos, então ficará assim - 
+Uma coluna cabeçalho de Site com campo de Pago, Cortesia, Total (Pago + Cortesia) e Ticket Médio | Outra coluna cabeçalho Grupos com campo de Pago, Cortesia, Total (Pago + Cortesia) e Ticket Médio
+Regras: 
+*  No final do card preciso de um totalizador que irá somar a quantidade de Pago e Cortesia entre Site e Grupos, esse será o Total Atletas
+
+3. Aba Faixa de Preço: Essa aba será a terceira na ordem das abas, virá logo após a aba 'Atletas'. Mude o nome para 'Faixa Preço - Site'
+  * Campo 'Total' bloquear o campo e fazer uma multiplicação entre 'Qtd' e 'Tkt Médio'
+  * Só deixar adicionar a quantidade de campos conforme o valor máximo na lista do campo 'Faixa' (No momento seriam 5)
+  * Após adicionar as 5 faixas de preço, mostrar um totalizador no fim do card com uma soma ponderada da qtd e do total para achar o ticket médio real
+  e trazer insights rápidos e minimalista entre os valores que foram preenchidos nessa aba x orçado (aba atletas > Total Atletas)
+
+4. Adicionar nova aba igual a etapa anterior 'Faixa Preço - Site' e nomear como 'Faixa Preço - Grupos'
+
+5. Aba Cronometragem:
+  * Remover campos {Tempo limite, Tempo de Corte, Chip, Alfinete}
+  * Distâncias: Trazer a quantidade de subcards para preencher conforme as distâncias que foram definidas na aba 'Info Geral'
+  * Adicionar campo dropdown de 'Pelotões' {Quênia; Azul; Verde; Branco}
+  * Adicionar campo de Range para os números de peito, exemplo: Distância 5k Pelotão Quênia números do 1-100 | Distância 5k Pelotão Azul números do 101-200 etc.
+  * Adicionar campo 'Cor' para o número de peito
+  
+6. Aba Patrocinadores: remover.
+
+7. Aba Kit produto:
+  * No tipo do kit (Kit Básico, Kit Vip etc..) adicione Kit Participação
+  * Os kits são compostos por diversos produtos pré definidos, preciso que o sistema tenha um input intuitivo e bonito para ir selecionando a lista de produtos e atrelar ao kit. Exemplo: Por padrão o Kit Básico sempre vem: {Camiseta;Medalha;Garrafa;Sacochila;Mochila;Sacola} | O kit Vip vem com todos os produtos do Kit Básico mais {Moletom;Jaqueta} | O kit Plus vem com todos os produtos do Kit Básico mais {Boné;Viseira} | O kit Super vem com todos os produtos do Kit Básico mais {Mala tubo;Mochila exclusiva}
+  * No final do card acrescente o campo para indicar a qtd de troféus, essa informação serve para o evento todo, não precisa duplica em cada linha acrescentada
+
+8. Aba Produção mudar para 'Hidratação'
+    * Acrescentar o botão para adicionar campos
+    * Adicionar campo dropdown 'Posto de hidratação {Posto 1;Posto 2; Posto 3; Posto 4; Posto 5; Posto 6; Posto 7; Posto 8; Posto 9; Posto 10}
+    * Adicionar campo dropdown 'Distâncias' {3k; 5k; 10k; 15k; 21k; 42k}
