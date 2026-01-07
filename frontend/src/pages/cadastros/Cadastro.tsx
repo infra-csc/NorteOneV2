@@ -282,6 +282,77 @@ const Cadastro: React.FC = () => {
 
   const [form, setForm] = useState<FormData>(initialFormData);
 
+  const formatNumber = (value: number | string): string => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(num) || num === 0) return '';
+    return num.toLocaleString('pt-BR');
+  };
+
+  const parseFormattedNumber = (value: string): number => {
+    const cleaned = value.replace(/\./g, '').replace(',', '.');
+    return parseFloat(cleaned) || 0;
+  };
+
+  const FormattedInput = ({ 
+    value, 
+    onChange, 
+    label,
+    placeholder,
+    className = '',
+    icon,
+    step
+  }: { 
+    value: number; 
+    onChange: (val: number) => void;
+    label?: string;
+    placeholder?: string;
+    className?: string;
+    icon?: React.ReactNode;
+    step?: string;
+  }) => {
+    const [displayValue, setDisplayValue] = useState(value ? formatNumber(value) : '');
+    const [isFocused, setIsFocused] = useState(false);
+    
+    useEffect(() => {
+      if (!isFocused) {
+        setDisplayValue(value ? formatNumber(value) : '');
+      }
+    }, [value, isFocused]);
+    
+    const hasValue = value > 0;
+    
+    return (
+      <div className="relative">
+        {(hasValue || isFocused) && label && (
+          <label className={`absolute -top-2 left-2 px-1 text-[10px] font-medium z-10 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-gray-500 bg-white'}`}>
+            {icon}{label}
+          </label>
+        )}
+        <input
+          type="text"
+          inputMode="numeric"
+          value={isFocused ? displayValue : (value ? formatNumber(value) : '')}
+          onChange={(e) => {
+            const rawValue = e.target.value.replace(/[^\d.,]/g, '');
+            setDisplayValue(rawValue);
+            const numValue = parseFormattedNumber(rawValue);
+            onChange(numValue);
+          }}
+          onFocus={() => {
+            setIsFocused(true);
+            setDisplayValue(value ? String(value) : '');
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            setDisplayValue(value ? formatNumber(value) : '');
+          }}
+          placeholder={!hasValue ? (placeholder || label) : ''}
+          className={className}
+        />
+      </div>
+    );
+  };
+
   const getTotalAtletas = () => {
     const sitePago = form.atletas.site.pago || 0;
     const siteCortesia = form.atletas.site.cortesia || 0;
@@ -495,11 +566,9 @@ const Cadastro: React.FC = () => {
                   <option key={f} value={f}>{f}</option>
                 ))}
               </select>
-              <input
-                type="number"
-                value={faixa.qtd || ''}
-                onChange={(e) => {
-                  const qtd = Number(e.target.value);
+              <FormattedInput
+                value={faixa.qtd || 0}
+                onChange={(qtd) => {
                   const total = qtd * (faixa.tkt_medio || 0);
                   setForm(prev => ({
                     ...prev,
@@ -508,15 +577,13 @@ const Cadastro: React.FC = () => {
                     )
                   }));
                 }}
+                label="Qtd"
                 placeholder="Qtd"
                 className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
               />
-              <input
-                type="number"
-                step="0.01"
-                value={faixa.tkt_medio || ''}
-                onChange={(e) => {
-                  const tkt_medio = Number(e.target.value);
+              <FormattedInput
+                value={faixa.tkt_medio || 0}
+                onChange={(tkt_medio) => {
                   const total = (faixa.qtd || 0) * tkt_medio;
                   setForm(prev => ({
                     ...prev,
@@ -525,16 +592,16 @@ const Cadastro: React.FC = () => {
                     )
                   }));
                 }}
+                label="Tkt Médio"
                 placeholder="Tkt Médio"
                 className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
               />
-              <input
-                type="number"
-                step="0.01"
-                value={faixa.total || ''}
-                disabled
+              <FormattedInput
+                value={faixa.total || 0}
+                onChange={() => {}}
+                label="Total"
                 placeholder="Total"
-                className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-gray-400' : 'bg-gray-100 border-gray-300 text-gray-500'} cursor-not-allowed`}
+                className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-gray-400' : 'bg-gray-100 border-gray-300 text-gray-500'} cursor-not-allowed`}
               />
             </div>
           </div>
@@ -559,7 +626,7 @@ const Cadastro: React.FC = () => {
             <div className="grid grid-cols-3 gap-4 mb-4">
               <div className="text-center">
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
-                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalQtd.toLocaleString()}</p>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
               </div>
               <div className="text-center">
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Real</p>
@@ -574,7 +641,7 @@ const Cadastro: React.FC = () => {
             <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
               <div className="flex items-center justify-between mb-2">
                 <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Orçado (Aba Atletas): {totalAtletasOrcado.toLocaleString()}
+                  Orçado (Aba Atletas): {formatNumber(totalAtletasOrcado) || '0'}
                 </span>
                 <span className={`text-xs font-bold flex items-center gap-1 ${
                   diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
@@ -582,9 +649,9 @@ const Cadastro: React.FC = () => {
                   {diferencaQtd === 0 ? (
                     <><Check className="w-3 h-3" /> Exato</>
                   ) : diferencaQtd > 0 ? (
-                    <><TrendingUp className="w-3 h-3" /> +{diferencaQtd.toLocaleString()}</>
+                    <><TrendingUp className="w-3 h-3" /> +{formatNumber(diferencaQtd)}</>
                   ) : (
-                    <><TrendingDown className="w-3 h-3" /> {diferencaQtd.toLocaleString()}</>
+                    <><TrendingDown className="w-3 h-3" /> {formatNumber(diferencaQtd)}</>
                   )}
                 </span>
               </div>
@@ -694,41 +761,31 @@ const Cadastro: React.FC = () => {
                   <h3 className={`font-bold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Site</h3>
                 </div>
                 <div className="space-y-3">
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Pago</label>
-                    <input
-                      type="number"
-                      value={form.atletas.site.pago || ''}
-                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, pago: Number(e.target.value) } } }))}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cortesia</label>
-                    <input
-                      type="number"
-                      value={form.atletas.site.cortesia || ''}
-                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, cortesia: Number(e.target.value) } } }))}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                    />
-                  </div>
+                  <FormattedInput
+                    value={form.atletas.site.pago || 0}
+                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, pago: val } } }))}
+                    label="Pago"
+                    placeholder="Pago"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                  />
+                  <FormattedInput
+                    value={form.atletas.site.cortesia || 0}
+                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, cortesia: val } } }))}
+                    label="Cortesia"
+                    placeholder="Cortesia"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                  />
                   <div className={`p-2 rounded-lg ${isDark ? 'bg-blue-800/30' : 'bg-blue-100'}`}>
                     <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Total Site</label>
-                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{siteTotal.toLocaleString()}</p>
+                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(siteTotal) || '0'}</p>
                   </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <DollarSign className="w-3 h-3 inline mr-1 text-green-500" />
-                      Ticket Médio
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={form.atletas.site.tkt_medio || ''}
-                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, tkt_medio: Number(e.target.value) } } }))}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                    />
-                  </div>
+                  <FormattedInput
+                    value={form.atletas.site.tkt_medio || 0}
+                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, tkt_medio: val } } }))}
+                    label="Ticket Médio"
+                    placeholder="Ticket Médio"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                  />
                 </div>
               </div>
 
@@ -738,41 +795,31 @@ const Cadastro: React.FC = () => {
                   <h3 className={`font-bold ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Grupos</h3>
                 </div>
                 <div className="space-y-3">
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Pago</label>
-                    <input
-                      type="number"
-                      value={form.atletas.grupos.pago || ''}
-                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, pago: Number(e.target.value) } } }))}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cortesia</label>
-                    <input
-                      type="number"
-                      value={form.atletas.grupos.cortesia || ''}
-                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, cortesia: Number(e.target.value) } } }))}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                    />
-                  </div>
+                  <FormattedInput
+                    value={form.atletas.grupos.pago || 0}
+                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, pago: val } } }))}
+                    label="Pago"
+                    placeholder="Pago"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                  />
+                  <FormattedInput
+                    value={form.atletas.grupos.cortesia || 0}
+                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, cortesia: val } } }))}
+                    label="Cortesia"
+                    placeholder="Cortesia"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                  />
                   <div className={`p-2 rounded-lg ${isDark ? 'bg-orange-800/30' : 'bg-orange-100'}`}>
                     <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Total Grupos</label>
-                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{gruposTotal.toLocaleString()}</p>
+                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(gruposTotal) || '0'}</p>
                   </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <DollarSign className="w-3 h-3 inline mr-1 text-green-500" />
-                      Ticket Médio
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={form.atletas.grupos.tkt_medio || ''}
-                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: Number(e.target.value) } } }))}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                    />
-                  </div>
+                  <FormattedInput
+                    value={form.atletas.grupos.tkt_medio || 0}
+                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: val } } }))}
+                    label="Ticket Médio"
+                    placeholder="Ticket Médio"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                  />
                 </div>
               </div>
             </div>
@@ -783,16 +830,16 @@ const Cadastro: React.FC = () => {
                   <Users className="w-6 h-6 text-purple-400" />
                   <span className={`text-lg font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Total Atletas</span>
                 </div>
-                <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalGeral.toLocaleString()}</p>
+                <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalGeral) || '0'}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900/30' : 'bg-green-50'} border ${isDark ? 'border-green-500/30' : 'border-green-200'}`}>
                   <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Pagos</span>
-                  <span className="text-2xl font-bold text-green-400">{((form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0)).toLocaleString()}</span>
+                  <span className="text-2xl font-bold text-green-400">{formatNumber((form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0)) || '0'}</span>
                 </div>
                 <div className={`p-3 rounded-lg ${isDark ? 'bg-orange-900/30' : 'bg-orange-50'} border ${isDark ? 'border-orange-500/30' : 'border-orange-200'}`}>
                   <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Cortesias</span>
-                  <span className="text-2xl font-bold text-orange-400">{((form.atletas.site.cortesia || 0) + (form.atletas.grupos.cortesia || 0)).toLocaleString()}</span>
+                  <span className="text-2xl font-bold text-orange-400">{formatNumber((form.atletas.site.cortesia || 0) + (form.atletas.grupos.cortesia || 0)) || '0'}</span>
                 </div>
               </div>
             </div>
@@ -946,7 +993,9 @@ const Cadastro: React.FC = () => {
                           className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                         >
                           <option value="">Pelotão</option>
-                          {pelotoesOptions.map(p => (
+                          {pelotoesOptions.filter(p => 
+                            p === pel.pelotao || !crono.pelotoes.some((other, otherIdx) => otherIdx !== pelIndex && other.pelotao === p)
+                          ).map(p => (
                             <option key={p} value={p}>{p}</option>
                           ))}
                         </select>
@@ -1138,12 +1187,11 @@ const Cadastro: React.FC = () => {
                         {kit.produtos.map((prod, prodIndex) => (
                           <div key={prod.nome} className="flex items-center gap-2">
                             <span className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'} min-w-[80px]`}>{prod.nome}</span>
-                            <input
-                              type="number"
-                              value={prod.qtd || ''}
-                              onChange={(e) => {
+                            <FormattedInput
+                              value={prod.qtd || 0}
+                              onChange={(val) => {
                                 const newProdutos = [...kit.produtos];
-                                newProdutos[prodIndex] = { ...newProdutos[prodIndex], qtd: Number(e.target.value) };
+                                newProdutos[prodIndex] = { ...newProdutos[prodIndex], qtd: val };
                                 setForm(prev => ({
                                   ...prev,
                                   kit_produto: prev.kit_produto.map((k, i) => 
@@ -1151,6 +1199,7 @@ const Cadastro: React.FC = () => {
                                   )
                                 }));
                               }}
+                              label="Qtd"
                               placeholder="Qtd"
                               className={`flex-1 px-2 py-1 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                             />
@@ -1176,10 +1225,10 @@ const Cadastro: React.FC = () => {
                 <Trophy className="w-5 h-5 text-amber-400" />
                 <span className={`font-bold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Troféus (Evento)</span>
               </div>
-              <input
-                type="number"
-                value={form.trofeus || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, trofeus: Number(e.target.value) }))}
+              <FormattedInput
+                value={form.trofeus || 0}
+                onChange={(val) => setForm(prev => ({ ...prev, trofeus: val }))}
+                label="Quantidade de troféus"
                 placeholder="Quantidade de troféus para o evento"
                 className={`w-full px-4 py-3 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-amber-500`}
               />
@@ -1232,32 +1281,20 @@ const Cadastro: React.FC = () => {
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <Droplets className="w-3 h-3 inline mr-1 text-blue-400" />
-                      Qtd. Água
-                    </label>
-                    <input
-                      type="number"
-                      value={h.qtd_agua || ''}
-                      onChange={(e) => updateArrayField('hidratacao', index, 'qtd_agua', Number(e.target.value))}
-                      placeholder="Quantidade"
-                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                    />
-                  </div>
-                  <div>
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <Droplets className="w-3 h-3 inline mr-1 text-orange-400" />
-                      Qtd. Isotônico
-                    </label>
-                    <input
-                      type="number"
-                      value={h.qtd_isotonico || ''}
-                      onChange={(e) => updateArrayField('hidratacao', index, 'qtd_isotonico', Number(e.target.value))}
-                      placeholder="Quantidade"
-                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                    />
-                  </div>
+                  <FormattedInput
+                    value={h.qtd_agua || 0}
+                    onChange={(val) => updateArrayField('hidratacao', index, 'qtd_agua', val)}
+                    label="Qtd. Água"
+                    placeholder="Qtd. Água"
+                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                  />
+                  <FormattedInput
+                    value={h.qtd_isotonico || 0}
+                    onChange={(val) => updateArrayField('hidratacao', index, 'qtd_isotonico', val)}
+                    label="Qtd. Isotônico"
+                    placeholder="Qtd. Isotônico"
+                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                  />
                 </div>
               </div>
             ))}
@@ -1391,7 +1428,7 @@ const Cadastro: React.FC = () => {
                 </div>
                 <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Atletas</span>
               </div>
-              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalAtletas.toLocaleString()}</p>
+              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalAtletas) || '0'}</p>
             </div>
           </div>
         </div>
@@ -1483,15 +1520,15 @@ const Cadastro: React.FC = () => {
                   <div className="grid grid-cols-3 gap-2 py-3 border-t border-gray-700/50">
                     <div className="text-center">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</p>
-                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalAtletasCad.toLocaleString()}</p>
+                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalAtletasCad) || '0'}</p>
                     </div>
                     <div className="text-center">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site</p>
-                      <p className={`text-lg font-bold text-blue-400`}>{((cadastro.atletas.site.pago || 0) + (cadastro.atletas.site.cortesia || 0)).toLocaleString()}</p>
+                      <p className={`text-lg font-bold text-blue-400`}>{formatNumber((cadastro.atletas.site.pago || 0) + (cadastro.atletas.site.cortesia || 0)) || '0'}</p>
                     </div>
                     <div className="text-center">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos</p>
-                      <p className={`text-lg font-bold text-orange-400`}>{((cadastro.atletas.grupos.pago || 0) + (cadastro.atletas.grupos.cortesia || 0)).toLocaleString()}</p>
+                      <p className={`text-lg font-bold text-orange-400`}>{formatNumber((cadastro.atletas.grupos.pago || 0) + (cadastro.atletas.grupos.cortesia || 0)) || '0'}</p>
                     </div>
                   </div>
 
@@ -1579,15 +1616,15 @@ const Cadastro: React.FC = () => {
               <div className="grid grid-cols-4 gap-4">
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Atletas</p>
-                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{getTotalAtletasCadastro(selectedCadastro).toLocaleString()}</p>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(getTotalAtletasCadastro(selectedCadastro)) || '0'}</p>
                 </div>
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site</p>
-                  <p className="text-2xl font-bold text-blue-400">{((selectedCadastro.atletas.site.pago || 0) + (selectedCadastro.atletas.site.cortesia || 0)).toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-blue-400">{formatNumber((selectedCadastro.atletas.site.pago || 0) + (selectedCadastro.atletas.site.cortesia || 0)) || '0'}</p>
                 </div>
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos</p>
-                  <p className="text-2xl font-bold text-orange-400">{((selectedCadastro.atletas.grupos.pago || 0) + (selectedCadastro.atletas.grupos.cortesia || 0)).toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-orange-400">{formatNumber((selectedCadastro.atletas.grupos.pago || 0) + (selectedCadastro.atletas.grupos.cortesia || 0)) || '0'}</p>
                 </div>
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Troféus</p>
