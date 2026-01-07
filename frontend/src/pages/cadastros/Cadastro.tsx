@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projetosService } from '../../services/api';
 import { 
@@ -300,7 +300,8 @@ const Cadastro: React.FC = () => {
     placeholder,
     className = '',
     icon,
-    step
+    allowDecimal = false,
+    readOnly = false
   }: { 
     value: number; 
     onChange: (val: number) => void;
@@ -308,46 +309,97 @@ const Cadastro: React.FC = () => {
     placeholder?: string;
     className?: string;
     icon?: React.ReactNode;
-    step?: string;
+    allowDecimal?: boolean;
+    readOnly?: boolean;
   }) => {
-    const [displayValue, setDisplayValue] = useState(value ? formatNumber(value) : '');
-    const [isFocused, setIsFocused] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [displayValue, setDisplayValue] = useState('');
+    
+    const formatWithThousands = (val: string): string => {
+      if (!val) return '';
+      const hasComma = val.includes(',');
+      let [intPart, decPart] = val.split(',');
+      intPart = intPart.replace(/\D/g, '');
+      if (!intPart) intPart = '0';
+      const formatted = parseInt(intPart, 10).toLocaleString('pt-BR');
+      if (allowDecimal && hasComma) {
+        decPart = (decPart || '').replace(/\D/g, '').slice(0, 2);
+        return `${formatted},${decPart}`;
+      }
+      return formatted;
+    };
     
     useEffect(() => {
-      if (!isFocused) {
-        setDisplayValue(value ? formatNumber(value) : '');
+      if (document.activeElement !== inputRef.current) {
+        if (value === 0 || value === null || value === undefined) {
+          setDisplayValue('');
+        } else if (allowDecimal) {
+          setDisplayValue(value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+        } else {
+          setDisplayValue(formatNumber(value));
+        }
       }
-    }, [value, isFocused]);
+    }, [value, allowDecimal]);
+    
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.target;
+      const cursorPos = input.selectionStart || 0;
+      const oldValue = displayValue;
+      let newValue = e.target.value;
+      
+      if (allowDecimal) {
+        newValue = newValue.replace(/[^\d,]/g, '');
+        const commaCount = (newValue.match(/,/g) || []).length;
+        if (commaCount > 1) {
+          const firstComma = newValue.indexOf(',');
+          newValue = newValue.slice(0, firstComma + 1) + newValue.slice(firstComma + 1).replace(/,/g, '');
+        }
+      } else {
+        newValue = newValue.replace(/\D/g, '');
+      }
+      
+      const formatted = formatWithThousands(newValue);
+      setDisplayValue(formatted);
+      
+      const numValue = parseFormattedNumber(formatted);
+      onChange(numValue);
+      
+      setTimeout(() => {
+        if (inputRef.current) {
+          const diff = formatted.length - oldValue.length;
+          const newPos = Math.max(0, cursorPos + diff);
+          inputRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 0);
+    };
     
     const hasValue = value > 0;
     
     return (
       <div className="relative">
-        {(hasValue || isFocused) && label && (
+        {hasValue && label && (
           <label className={`absolute -top-2 left-2 px-1 text-[10px] font-medium z-10 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-gray-500 bg-white'}`}>
             {icon}{label}
           </label>
         )}
         <input
+          ref={inputRef}
           type="text"
-          inputMode="numeric"
-          value={isFocused ? displayValue : (value ? formatNumber(value) : '')}
-          onChange={(e) => {
-            const rawValue = e.target.value.replace(/[^\d.,]/g, '');
-            setDisplayValue(rawValue);
-            const numValue = parseFormattedNumber(rawValue);
-            onChange(numValue);
-          }}
-          onFocus={() => {
-            setIsFocused(true);
-            setDisplayValue(value ? String(value) : '');
-          }}
+          inputMode={allowDecimal ? "decimal" : "numeric"}
+          value={displayValue}
+          onChange={handleChange}
           onBlur={() => {
-            setIsFocused(false);
-            setDisplayValue(value ? formatNumber(value) : '');
+            if (value === 0) {
+              setDisplayValue('');
+            } else if (allowDecimal) {
+              setDisplayValue(value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+            } else {
+              setDisplayValue(formatNumber(value));
+            }
           }}
           placeholder={!hasValue ? (placeholder || label) : ''}
           className={className}
+          readOnly={readOnly}
         />
       </div>
     );
@@ -594,6 +646,7 @@ const Cadastro: React.FC = () => {
                 }}
                 label="Tkt Médio"
                 placeholder="Tkt Médio"
+                allowDecimal={true}
                 className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
               />
               <FormattedInput
@@ -601,6 +654,8 @@ const Cadastro: React.FC = () => {
                 onChange={() => {}}
                 label="Total"
                 placeholder="Total"
+                allowDecimal={true}
+                readOnly={true}
                 className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-gray-400' : 'bg-gray-100 border-gray-300 text-gray-500'} cursor-not-allowed`}
               />
             </div>
@@ -784,6 +839,7 @@ const Cadastro: React.FC = () => {
                     onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, tkt_medio: val } } }))}
                     label="Ticket Médio"
                     placeholder="Ticket Médio"
+                    allowDecimal={true}
                     className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
                   />
                 </div>
@@ -818,6 +874,7 @@ const Cadastro: React.FC = () => {
                     onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: val } } }))}
                     label="Ticket Médio"
                     placeholder="Ticket Médio"
+                    allowDecimal={true}
                     className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
                   />
                 </div>
@@ -911,12 +968,12 @@ const Cadastro: React.FC = () => {
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={pelotao.atletas || ''}
-                    onChange={(e) => updateArrayField('pelotoes', index, 'atletas', Number(e.target.value))}
+                  <FormattedInput
+                    value={pelotao.atletas || 0}
+                    onChange={(val) => updateArrayField('pelotoes', index, 'atletas', val)}
+                    label="Qtd Atletas"
                     placeholder="Qtd Atletas"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   />
                 </div>
               </div>
@@ -999,34 +1056,31 @@ const Cadastro: React.FC = () => {
                             <option key={p} value={p}>{p}</option>
                           ))}
                         </select>
-                        <input
-                          type="number"
-                          min="1"
-                          value={pel.num_inicio || ''}
-                          onChange={(e) => {
-                            const value = Math.max(1, Number(e.target.value));
+                        <FormattedInput
+                          value={pel.num_inicio || 0}
+                          onChange={(value) => {
+                            const safeValue = Math.max(1, value);
                             setForm(prev => ({
                               ...prev,
                               cronometragem: prev.cronometragem.map((c, i) => 
                                 i === cronoIndex 
-                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_inicio: value } : p) }
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_inicio: safeValue } : p) }
                                   : c
                               )
                             }));
                           }}
+                          label="Início"
                           placeholder="Início"
                           className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                         />
-                        <input
-                          type="number"
-                          min="1"
-                          value={pel.num_fim || ''}
-                          onChange={(e) => {
-                            const value = Math.max(1, Number(e.target.value));
+                        <FormattedInput
+                          value={pel.num_fim || 0}
+                          onChange={(value) => {
+                            const safeValue = Math.max(1, value);
                             setForm(prev => {
                               const newCronometragem = prev.cronometragem.map((c, i) => 
                                 i === cronoIndex 
-                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_fim: value } : p) }
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_fim: safeValue } : p) }
                                   : c
                               );
                               
@@ -1034,14 +1088,14 @@ const Cadastro: React.FC = () => {
                               if (pelIndex < currentCrono.pelotoes.length - 1) {
                                 currentCrono.pelotoes[pelIndex + 1] = {
                                   ...currentCrono.pelotoes[pelIndex + 1],
-                                  num_inicio: value + 1
+                                  num_inicio: safeValue + 1
                                 };
                               } else if (cronoIndex < newCronometragem.length - 1) {
                                 const nextCrono = newCronometragem[cronoIndex + 1];
                                 if (nextCrono.pelotoes.length > 0) {
                                   nextCrono.pelotoes[0] = {
                                     ...nextCrono.pelotoes[0],
-                                    num_inicio: value + 1
+                                    num_inicio: safeValue + 1
                                   };
                                 }
                               }
@@ -1049,6 +1103,7 @@ const Cadastro: React.FC = () => {
                               return { ...prev, cronometragem: newCronometragem };
                             });
                           }}
+                          label="Fim"
                           placeholder="Fim"
                           className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                         />
