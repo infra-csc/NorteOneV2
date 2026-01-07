@@ -126,28 +126,32 @@ cd frontend && npm run dev
 - fato_orcamento
 - fato_projecao
 - fato_realizado
-- fato_atletas
 
-### Tabelas Satelite de Atletas (Normalizadas)
-As metricas detalhadas de atletas foram normalizadas em 4 tabelas satelite para melhor organizacao e extensibilidade:
+### Tabelas de Atletas (Estrutura Direta)
+As metricas de atletas estao organizadas em 4 tabelas com vinculo direto a projeto_id:
 
 - **fato_atletas_metricas** - Metricas principais por cenario
-  - Campos: fato_atletas_id, cenario (ORCADO/PROJETADO/REALIZADO)
+  - Campos: projeto_id, categoria_atleta_id, tempo_id, cenario (ORCADO/PROJETADO/REALIZADO), versao_projecao
   - Metricas: qtd_atletas, qtd_atletas_pago, qtd_atletas_cortesia, tkt_medio, inscricao, custo_kit_unitario
 
 - **fato_atletas_canais** - Metricas por canal de distribuicao
-  - Campos: fato_atletas_id, canal (SITE/GRUPOS/APPAI), cenario (ORCADO/PROJETADO/REALIZADO)
+  - Campos: projeto_id, categoria_atleta_id, tempo_id, canal (SITE/GRUPOS/APPAI), cenario, versao_projecao
   - Metricas: qtd_atletas, tkt_medio, inscricao
 
 - **fato_atletas_kits** - Metricas de kits
-  - Campos: fato_atletas_id, tipo_kit (VIP/PLUS/SUPER/PRODUTO), cenario
+  - Campos: projeto_id, categoria_atleta_id, tempo_id, tipo_kit (VIP/PLUS/SUPER/PRODUTO), cenario, versao_projecao
   - Metricas: qtd_kit, tkt_medio, inscricao, custo_unitario
 
 - **fato_atletas_custos** - Custos operacionais por atleta
-  - Campos: fato_atletas_id, tipo_custo (AGUA/ISOTONICO/HIDRATACAO/NUMERO_PEITO/CHIP/ALFINETE/IDENTIFICACAO), cenario
+  - Campos: projeto_id, categoria_atleta_id, tempo_id, tipo_custo (AGUA/ISOTONICO/HIDRATACAO/etc), cenario, versao_projecao
   - Metricas: custo_unitario, qtd_por_atleta, custo_total
 
 ## Ultimas Modificacoes
+- 07/01/2026: Remocao da tabela intermediaria fato_atletas
+  - Tabela fato_atletas foi removida do modelo de dados
+  - Campos projeto_id, categoria_atleta_id, tempo_id, versao_projecao, created_by adicionados diretamente nas 4 tabelas satelite
+  - Rotas da API refatoradas para usar projeto_id diretamente
+  - Script de migracao SQL criado para bancos existentes (backend/migrations/001_remove_fato_atletas.sql)
 - 06/01/2025: Correcao de valores zerados no modal de detalhes de projetos
   - Endpoint /api/projetos/com-atletas agora retorna qtd_atletas_orcado e qtd_atletas_projetado
   - Adicionadas subqueries para buscar atletas dos 3 cenarios (ORCADO, PROJETADO, REALIZADO)
