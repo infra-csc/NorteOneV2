@@ -1,16 +1,25 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { projetosService } from '../../services/api';
 import { 
   Plus, Pencil, X, Check, Calendar, MapPin, Users, 
   Trophy, Zap, Target, Sparkles, Clock, Package,
   Image as ImageIcon, Search, Filter, Eye,
   ChevronDown, RotateCcw, DollarSign, Timer,
   Hash, Award, Ticket, Droplets, Gift, Layers,
-  UserPlus, Building2, ShoppingBag, Ruler
+  UserPlus, Building2, ShoppingBag, Ruler, Palette,
+  TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound
 } from 'lucide-react';
+
+interface Projeto {
+  id: number;
+  evento: string;
+  codigo: string;
+}
 
 interface CadastroEvento {
   id: number;
+  projeto_id: number | null;
   nome: string;
   imagem_kv: string;
   status: string;
@@ -22,10 +31,8 @@ interface CadastroEvento {
     distancias: string[];
   };
   atletas: {
-    total: number;
-    pago: number;
-    cortesia: number;
-    tkt_medio: number;
+    site: { pago: number; cortesia: number; tkt_medio: number };
+    grupos: { pago: number; cortesia: number; tkt_medio: number };
   };
   retirada_kit: {
     local: string;
@@ -34,22 +41,17 @@ interface CadastroEvento {
   pelotoes: Array<{ pelotao: string; atletas: number }>;
   cronometragem: Array<{
     distancia: string;
-    tempo_limite: string;
-    tempo_corte: string;
-    num_peito: number;
-    chip: number;
-    alfinete: number;
+    pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
   }>;
-  patrocinadores: Array<{ cliente: string; tipo_venda: string }>;
-  kit_produto: Array<{ kit: string; trofeu: number; qtd: number }>;
-  producao: {
-    agua: number;
-    isotonico: number;
-  };
-  faixas_preco: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
+  kit_produto: Array<{ kit: string; produtos: string[]; qtd: number }>;
+  trofeus: number;
+  hidratacao: Array<{ posto: string; distancia: string }>;
+  faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
+  faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
 
 interface FormData {
+  projeto_id: number | null;
   nome: string;
   imagem_kv: string;
   info_geral: {
@@ -59,10 +61,8 @@ interface FormData {
     distancias: string[];
   };
   atletas: {
-    total: number;
-    pago: number;
-    cortesia: number;
-    tkt_medio: number;
+    site: { pago: number; cortesia: number; tkt_medio: number };
+    grupos: { pago: number; cortesia: number; tkt_medio: number };
   };
   retirada_kit: {
     local: string;
@@ -71,120 +71,104 @@ interface FormData {
   pelotoes: Array<{ pelotao: string; atletas: number }>;
   cronometragem: Array<{
     distancia: string;
-    tempo_limite: string;
-    tempo_corte: string;
-    num_peito: number;
-    chip: number;
-    alfinete: number;
+    pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
   }>;
-  patrocinadores: Array<{ cliente: string; tipo_venda: string }>;
-  kit_produto: Array<{ kit: string; trofeu: number; qtd: number }>;
-  producao: {
-    agua: number;
-    isotonico: number;
-  };
-  faixas_preco: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
+  kit_produto: Array<{ kit: string; produtos: string[]; qtd: number }>;
+  trofeus: number;
+  hidratacao: Array<{ posto: string; distancia: string }>;
+  faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
+  faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
 
 const distanciasOptions = ['3k', '5k', '10k', '15k', '21k', '42k'];
 const pelotoesOptions = ['Quênia', 'Azul', 'Verde', 'Branco'];
-const tipoVendaOptions = ['Patrocínio', 'Permuta', 'Ativação'];
-const kitOptions = ['Kit Básico', 'Kit Vip', 'Kit Plus', 'Kit Super'];
+const kitOptions = ['Kit Participação', 'Kit Básico', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const faixaOptions = ['1', '2', '3', '4', '5'];
+const postoHidratacaoOptions = ['Posto 1', 'Posto 2', 'Posto 3', 'Posto 4', 'Posto 5', 'Posto 6', 'Posto 7', 'Posto 8', 'Posto 9', 'Posto 10'];
+const coresPeitoOptions = ['Branco', 'Amarelo', 'Laranja', 'Verde', 'Azul', 'Vermelho', 'Rosa', 'Roxo', 'Preto'];
+
+const produtosDisponiveis = [
+  'Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola',
+  'Moletom', 'Jaqueta', 'Boné', 'Viseira', 'Toalha', 'Squeeze', 'Munhequeira'
+];
+
+const produtosPadraoPorKit: Record<string, string[]> = {
+  'Kit Participação': ['Medalha'],
+  'Kit Básico': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola'],
+  'Kit Vip': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Moletom', 'Jaqueta'],
+  'Kit Plus': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Boné', 'Viseira'],
+  'Kit Super': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola']
+};
 
 const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
+  projeto_id: null,
   nome: '',
   imagem_kv: '',
   status: 'Em andamento',
   modalidade: 'Corrida',
   info_geral: { data: '', horario_largada: '', local: '', distancias: [] },
-  atletas: { total: 0, pago: 0, cortesia: 0, tkt_medio: 0 },
+  atletas: {
+    site: { pago: 0, cortesia: 0, tkt_medio: 0 },
+    grupos: { pago: 0, cortesia: 0, tkt_medio: 0 }
+  },
   retirada_kit: { local: '', data_horario: '' },
   pelotoes: [{ pelotao: '', atletas: 0 }],
-  cronometragem: [{ distancia: '', tempo_limite: '', tempo_corte: '', num_peito: 0, chip: 0, alfinete: 0 }],
-  patrocinadores: [{ cliente: '', tipo_venda: '' }],
-  kit_produto: [{ kit: '', trofeu: 0, qtd: 0 }],
-  producao: { agua: 0, isotonico: 0 },
-  faixas_preco: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
+  cronometragem: [],
+  kit_produto: [{ kit: '', produtos: [], qtd: 0 }],
+  trofeus: 0,
+  hidratacao: [{ posto: '', distancia: '' }],
+  faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
+  faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
 });
 
 const mockCadastros: CadastroEvento[] = [
   {
     id: 1,
+    projeto_id: 1,
     nome: 'Maratona de São Paulo 2026',
     imagem_kv: 'https://images.unsplash.com/photo-1513593771513-7b58b6c4af38?w=800',
     status: 'Em andamento',
     modalidade: 'Corrida',
     info_geral: { data: '2026-04-12', horario_largada: '06:30', local: 'Ibirapuera, São Paulo - SP', distancias: ['10k', '21k', '42k'] },
-    atletas: { total: 15000, pago: 12500, cortesia: 2500, tkt_medio: 189.90 },
+    atletas: {
+      site: { pago: 10000, cortesia: 2000, tkt_medio: 199.90 },
+      grupos: { pago: 2500, cortesia: 500, tkt_medio: 159.90 }
+    },
     retirada_kit: { local: 'Pavilhão do Ibirapuera', data_horario: '2026-04-11T10:00' },
     pelotoes: [{ pelotao: 'Quênia', atletas: 50 }, { pelotao: 'Azul', atletas: 2000 }, { pelotao: 'Verde', atletas: 5000 }],
     cronometragem: [
-      { distancia: '10k', tempo_limite: '01:30:00', tempo_corte: '01:15:00', num_peito: 5000, chip: 5000, alfinete: 20000 },
-      { distancia: '21k', tempo_limite: '03:00:00', tempo_corte: '02:30:00', num_peito: 6000, chip: 6000, alfinete: 24000 },
-      { distancia: '42k', tempo_limite: '06:00:00', tempo_corte: '05:00:00', num_peito: 4000, chip: 4000, alfinete: 16000 }
+      { distancia: '10k', pelotoes: [{ pelotao: 'Quênia', num_inicio: 1, num_fim: 50, cor: 'Amarelo' }, { pelotao: 'Azul', num_inicio: 51, num_fim: 2000, cor: 'Azul' }] },
+      { distancia: '21k', pelotoes: [{ pelotao: 'Verde', num_inicio: 2001, num_fim: 5000, cor: 'Verde' }] }
     ],
-    patrocinadores: [{ cliente: 'Nike', tipo_venda: 'Patrocínio' }, { cliente: 'Gatorade', tipo_venda: 'Permuta' }],
-    kit_produto: [{ kit: 'Kit Básico', trofeu: 0, qtd: 10000 }, { kit: 'Kit Vip', trofeu: 1, qtd: 5000 }],
-    producao: { agua: 50000, isotonico: 30000 },
-    faixas_preco: [{ faixa: '1', qtd: 5000, tkt_medio: 149.90, total: 749500 }, { faixa: '2', qtd: 5000, tkt_medio: 189.90, total: 949500 }, { faixa: '3', qtd: 5000, tkt_medio: 229.90, total: 1149500 }]
+    kit_produto: [{ kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola'], qtd: 10000 }, { kit: 'Kit Vip', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Moletom', 'Jaqueta'], qtd: 5000 }],
+    trofeus: 50,
+    hidratacao: [{ posto: 'Posto 1', distancia: '5k' }, { posto: 'Posto 2', distancia: '10k' }],
+    faixas_preco_site: [{ faixa: '1', qtd: 4000, tkt_medio: 149.90, total: 599600 }, { faixa: '2', qtd: 4000, tkt_medio: 199.90, total: 799600 }, { faixa: '3', qtd: 4000, tkt_medio: 249.90, total: 999600 }],
+    faixas_preco_grupos: [{ faixa: '1', qtd: 1500, tkt_medio: 129.90, total: 194850 }, { faixa: '2', qtd: 1500, tkt_medio: 169.90, total: 254850 }]
   },
   {
     id: 2,
+    projeto_id: 2,
     nome: 'Night Run Rio 2026',
     imagem_kv: 'https://images.unsplash.com/photo-1552674605-db6ffd4facb5?w=800',
     status: 'Em andamento',
     modalidade: 'Corrida',
     info_geral: { data: '2026-06-20', horario_largada: '20:00', local: 'Aterro do Flamengo, Rio de Janeiro - RJ', distancias: ['5k', '10k'] },
-    atletas: { total: 8000, pago: 7200, cortesia: 800, tkt_medio: 129.90 },
+    atletas: {
+      site: { pago: 5500, cortesia: 600, tkt_medio: 139.90 },
+      grupos: { pago: 1700, cortesia: 200, tkt_medio: 109.90 }
+    },
     retirada_kit: { local: 'Marina da Glória', data_horario: '2026-06-19T14:00' },
     pelotoes: [{ pelotao: 'Azul', atletas: 3000 }, { pelotao: 'Verde', atletas: 5000 }],
     cronometragem: [
-      { distancia: '5k', tempo_limite: '01:00:00', tempo_corte: '00:45:00', num_peito: 4000, chip: 4000, alfinete: 16000 },
-      { distancia: '10k', tempo_limite: '01:30:00', tempo_corte: '01:15:00', num_peito: 4000, chip: 4000, alfinete: 16000 }
+      { distancia: '5k', pelotoes: [{ pelotao: 'Azul', num_inicio: 1, num_fim: 3000, cor: 'Azul' }] },
+      { distancia: '10k', pelotoes: [{ pelotao: 'Verde', num_inicio: 3001, num_fim: 8000, cor: 'Verde' }] }
     ],
-    patrocinadores: [{ cliente: 'Adidas', tipo_venda: 'Patrocínio' }],
-    kit_produto: [{ kit: 'Kit Básico', trofeu: 0, qtd: 8000 }],
-    producao: { agua: 24000, isotonico: 16000 },
-    faixas_preco: [{ faixa: '1', qtd: 4000, tkt_medio: 99.90, total: 399600 }, { faixa: '2', qtd: 4000, tkt_medio: 159.90, total: 639600 }]
-  },
-  {
-    id: 3,
-    nome: 'Trail Run Serra Gaúcha',
-    imagem_kv: 'https://images.unsplash.com/photo-1551698618-1dfe5d97d256?w=800',
-    status: 'Em andamento',
-    modalidade: 'Corrida',
-    info_geral: { data: '2026-09-15', horario_largada: '07:00', local: 'Gramado - RS', distancias: ['15k', '21k'] },
-    atletas: { total: 3500, pago: 3000, cortesia: 500, tkt_medio: 249.90 },
-    retirada_kit: { local: 'Praça das Etnias', data_horario: '2026-09-14T09:00' },
-    pelotoes: [{ pelotao: 'Quênia', atletas: 20 }, { pelotao: 'Azul', atletas: 1500 }],
-    cronometragem: [
-      { distancia: '15k', tempo_limite: '03:00:00', tempo_corte: '02:30:00', num_peito: 1500, chip: 1500, alfinete: 6000 },
-      { distancia: '21k', tempo_limite: '04:00:00', tempo_corte: '03:30:00', num_peito: 2000, chip: 2000, alfinete: 8000 }
-    ],
-    patrocinadores: [{ cliente: 'The North Face', tipo_venda: 'Patrocínio' }, { cliente: 'Red Bull', tipo_venda: 'Ativação' }],
-    kit_produto: [{ kit: 'Kit Plus', trofeu: 1, qtd: 3500 }],
-    producao: { agua: 15000, isotonico: 10000 },
-    faixas_preco: [{ faixa: '1', qtd: 1500, tkt_medio: 199.90, total: 299850 }, { faixa: '2', qtd: 2000, tkt_medio: 299.90, total: 599800 }]
-  },
-  {
-    id: 4,
-    nome: 'Corrida Kids Esportiva',
-    imagem_kv: 'https://images.unsplash.com/photo-1571008887538-b36bb32f4571?w=800',
-    status: 'Concluído',
-    modalidade: 'Corrida',
-    info_geral: { data: '2026-03-08', horario_largada: '09:00', local: 'Parque Villa Lobos, São Paulo - SP', distancias: ['3k', '5k'] },
-    atletas: { total: 2000, pago: 1500, cortesia: 500, tkt_medio: 79.90 },
-    retirada_kit: { local: 'Parque Villa Lobos - Entrada Principal', data_horario: '2026-03-07T10:00' },
-    pelotoes: [{ pelotao: 'Branco', atletas: 2000 }],
-    cronometragem: [
-      { distancia: '3k', tempo_limite: '00:40:00', tempo_corte: '00:30:00', num_peito: 1000, chip: 1000, alfinete: 4000 },
-      { distancia: '5k', tempo_limite: '01:00:00', tempo_corte: '00:45:00', num_peito: 1000, chip: 1000, alfinete: 4000 }
-    ],
-    patrocinadores: [{ cliente: 'Nestlé', tipo_venda: 'Permuta' }],
-    kit_produto: [{ kit: 'Kit Básico', trofeu: 1, qtd: 2000 }],
-    producao: { agua: 6000, isotonico: 4000 },
-    faixas_preco: [{ faixa: '1', qtd: 2000, tkt_medio: 79.90, total: 159800 }]
+    kit_produto: [{ kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola'], qtd: 8000 }],
+    trofeus: 30,
+    hidratacao: [{ posto: 'Posto 1', distancia: '5k' }],
+    faixas_preco_site: [{ faixa: '1', qtd: 3000, tkt_medio: 99.90, total: 299700 }, { faixa: '2', qtd: 3100, tkt_medio: 159.90, total: 495690 }],
+    faixas_preco_grupos: [{ faixa: '1', qtd: 1900, tkt_medio: 89.90, total: 170810 }]
   }
 ];
 
@@ -219,13 +203,13 @@ const formatCurrency = (value: number): string => {
 const tabs = [
   { id: 'info_geral', label: 'Info Geral', icon: Calendar },
   { id: 'atletas', label: 'Atletas', icon: Users },
+  { id: 'faixas_preco_site', label: 'Faixa Preço - Site', icon: Globe },
+  { id: 'faixas_preco_grupos', label: 'Faixa Preço - Grupos', icon: UsersRound },
   { id: 'retirada_kit', label: 'Retirada Kit', icon: Package },
   { id: 'pelotoes', label: 'Pelotões', icon: Layers },
   { id: 'cronometragem', label: 'Cronometragem', icon: Timer },
-  { id: 'patrocinadores', label: 'Patrocinadores', icon: Building2 },
   { id: 'kit_produto', label: 'Kit Produto', icon: Gift },
-  { id: 'producao', label: 'Produção', icon: Droplets },
-  { id: 'faixas_preco', label: 'Faixas de Preço', icon: DollarSign },
+  { id: 'hidratacao', label: 'Hidratação', icon: Droplets },
 ];
 
 const Cadastro: React.FC = () => {
@@ -239,8 +223,34 @@ const Cadastro: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState('info_geral');
   const [busca, setBusca] = useState('');
+  
+  const [projetos, setProjetos] = useState<Projeto[]>([]);
+  const [projetoBusca, setProjetoBusca] = useState('');
+  const [showProjetoDropdown, setShowProjetoDropdown] = useState(false);
+
+  useEffect(() => {
+    loadProjetos();
+  }, []);
+
+  const loadProjetos = async () => {
+    try {
+      const data = await projetosService.list();
+      setProjetos(data);
+    } catch (error) {
+      console.error('Erro ao carregar projetos:', error);
+    }
+  };
+
+  const filteredProjetos = useMemo(() => {
+    if (!projetoBusca) return projetos;
+    return projetos.filter(p => 
+      p.evento.toLowerCase().includes(projetoBusca.toLowerCase()) ||
+      p.codigo.toLowerCase().includes(projetoBusca.toLowerCase())
+    );
+  }, [projetos, projetoBusca]);
 
   const initialFormData: FormData = {
+    projeto_id: null,
     nome: '',
     imagem_kv: '',
     info_geral: {
@@ -250,27 +260,38 @@ const Cadastro: React.FC = () => {
       distancias: []
     },
     atletas: {
-      total: 0,
-      pago: 0,
-      cortesia: 0,
-      tkt_medio: 0
+      site: { pago: 0, cortesia: 0, tkt_medio: 0 },
+      grupos: { pago: 0, cortesia: 0, tkt_medio: 0 }
     },
     retirada_kit: {
       local: '',
       data_horario: ''
     },
     pelotoes: [{ pelotao: '', atletas: 0 }],
-    cronometragem: [{ distancia: '', tempo_limite: '', tempo_corte: '', num_peito: 0, chip: 0, alfinete: 0 }],
-    patrocinadores: [{ cliente: '', tipo_venda: '' }],
-    kit_produto: [{ kit: '', trofeu: 0, qtd: 0 }],
-    producao: {
-      agua: 0,
-      isotonico: 0
-    },
-    faixas_preco: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
+    cronometragem: [],
+    kit_produto: [{ kit: '', produtos: [], qtd: 0 }],
+    trofeus: 0,
+    hidratacao: [{ posto: '', distancia: '' }],
+    faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
+    faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
   };
 
   const [form, setForm] = useState<FormData>(initialFormData);
+
+  const getTotalAtletas = () => {
+    const sitePago = form.atletas.site.pago || 0;
+    const siteCortesia = form.atletas.site.cortesia || 0;
+    const gruposPago = form.atletas.grupos.pago || 0;
+    const gruposCortesia = form.atletas.grupos.cortesia || 0;
+    return sitePago + siteCortesia + gruposPago + gruposCortesia;
+  };
+
+  const getTotalAtletasCadastro = (cadastro: CadastroEvento) => {
+    return (cadastro.atletas.site.pago || 0) + 
+           (cadastro.atletas.site.cortesia || 0) + 
+           (cadastro.atletas.grupos.pago || 0) + 
+           (cadastro.atletas.grupos.cortesia || 0);
+  };
 
   const filteredCadastros = useMemo(() => {
     if (!busca) return cadastros;
@@ -283,11 +304,12 @@ const Cadastro: React.FC = () => {
   const totalEventos = cadastros.length;
   const emAndamento = cadastros.filter(c => c.status === 'Em andamento').length;
   const concluidos = cadastros.filter(c => c.status === 'Concluído').length;
-  const totalAtletas = cadastros.reduce((acc, c) => acc + c.atletas.total, 0);
+  const totalAtletas = cadastros.reduce((acc, c) => acc + getTotalAtletasCadastro(c), 0);
 
   const openNewModal = () => {
     setEditItem(null);
     setForm(initialFormData);
+    setProjetoBusca('');
     setActiveTab('info_geral');
     setShowModal(true);
   };
@@ -300,18 +322,27 @@ const Cadastro: React.FC = () => {
   const handleEdit = (item: CadastroEvento) => {
     setEditItem(item);
     setForm({
+      projeto_id: item.projeto_id,
       nome: item.nome,
       imagem_kv: item.imagem_kv,
       info_geral: { ...item.info_geral },
-      atletas: { ...item.atletas },
+      atletas: { 
+        site: { ...item.atletas.site },
+        grupos: { ...item.atletas.grupos }
+      },
       retirada_kit: { ...item.retirada_kit },
       pelotoes: item.pelotoes.length > 0 ? [...item.pelotoes] : [{ pelotao: '', atletas: 0 }],
-      cronometragem: item.cronometragem.length > 0 ? [...item.cronometragem] : [{ distancia: '', tempo_limite: '', tempo_corte: '', num_peito: 0, chip: 0, alfinete: 0 }],
-      patrocinadores: item.patrocinadores.length > 0 ? [...item.patrocinadores] : [{ cliente: '', tipo_venda: '' }],
-      kit_produto: item.kit_produto.length > 0 ? [...item.kit_produto] : [{ kit: '', trofeu: 0, qtd: 0 }],
-      producao: { ...item.producao },
-      faixas_preco: item.faixas_preco.length > 0 ? [...item.faixas_preco] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
+      cronometragem: item.cronometragem.length > 0 ? item.cronometragem.map(c => ({
+        distancia: c.distancia,
+        pelotoes: c.pelotoes.map(p => ({ ...p }))
+      })) : [],
+      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ ...k, produtos: [...k.produtos] })) : [{ kit: '', produtos: [], qtd: 0 }],
+      trofeus: item.trofeus || 0,
+      hidratacao: item.hidratacao?.length > 0 ? [...item.hidratacao] : [{ posto: '', distancia: '' }],
+      faixas_preco_site: item.faixas_preco_site?.length > 0 ? [...item.faixas_preco_site] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
+      faixas_preco_grupos: item.faixas_preco_grupos?.length > 0 ? [...item.faixas_preco_grupos] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
     });
+    setProjetoBusca(item.nome);
     setActiveTab('info_geral');
     setShowModal(true);
   };
@@ -323,36 +354,40 @@ const Cadastro: React.FC = () => {
         c.id === editItem.id 
           ? {
               ...c,
+              projeto_id: form.projeto_id,
               nome: form.nome,
               imagem_kv: form.imagem_kv,
-              info_geral: { ...form.info_geral },
-              atletas: { ...form.atletas },
-              retirada_kit: { ...form.retirada_kit },
-              pelotoes: [...form.pelotoes],
-              cronometragem: [...form.cronometragem],
-              patrocinadores: [...form.patrocinadores],
-              kit_produto: [...form.kit_produto],
-              producao: { ...form.producao },
-              faixas_preco: [...form.faixas_preco]
+              info_geral: form.info_geral,
+              atletas: form.atletas,
+              retirada_kit: form.retirada_kit,
+              pelotoes: form.pelotoes,
+              cronometragem: form.cronometragem,
+              kit_produto: form.kit_produto,
+              trofeus: form.trofeus,
+              hidratacao: form.hidratacao,
+              faixas_preco_site: form.faixas_preco_site,
+              faixas_preco_grupos: form.faixas_preco_grupos
             }
           : c
       ));
     } else {
       const newCadastro: CadastroEvento = {
-        id: cadastros.length > 0 ? Math.max(...cadastros.map(c => c.id)) + 1 : 1,
+        id: Date.now(),
+        projeto_id: form.projeto_id,
         nome: form.nome,
         imagem_kv: form.imagem_kv,
         status: 'Em andamento',
         modalidade: 'Corrida',
-        info_geral: { ...form.info_geral },
-        atletas: { ...form.atletas },
-        retirada_kit: { ...form.retirada_kit },
-        pelotoes: [...form.pelotoes],
-        cronometragem: [...form.cronometragem],
-        patrocinadores: [...form.patrocinadores],
-        kit_produto: [...form.kit_produto],
-        producao: { ...form.producao },
-        faixas_preco: [...form.faixas_preco]
+        info_geral: form.info_geral,
+        atletas: form.atletas,
+        retirada_kit: form.retirada_kit,
+        pelotoes: form.pelotoes,
+        cronometragem: form.cronometragem,
+        kit_produto: form.kit_produto,
+        trofeus: form.trofeus,
+        hidratacao: form.hidratacao,
+        faixas_preco_site: form.faixas_preco_site,
+        faixas_preco_grupos: form.faixas_preco_grupos
       };
       setCadastros(prev => [...prev, newCadastro]);
     }
@@ -360,24 +395,25 @@ const Cadastro: React.FC = () => {
     setEditItem(null);
   };
 
-  const addArrayField = (field: 'pelotoes' | 'cronometragem' | 'patrocinadores' | 'kit_produto' | 'faixas_preco') => {
-    const newItems = {
+  const addArrayField = (field: 'pelotoes' | 'cronometragem' | 'kit_produto' | 'hidratacao' | 'faixas_preco_site' | 'faixas_preco_grupos') => {
+    const defaults: Record<string, any> = {
       pelotoes: { pelotao: '', atletas: 0 },
-      cronometragem: { distancia: '', tempo_limite: '', tempo_corte: '', num_peito: 0, chip: 0, alfinete: 0 },
-      patrocinadores: { cliente: '', tipo_venda: '' },
-      kit_produto: { kit: '', trofeu: 0, qtd: 0 },
-      faixas_preco: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 }
+      cronometragem: { distancia: '', pelotoes: [{ pelotao: '', num_inicio: 0, num_fim: 0, cor: '' }] },
+      kit_produto: { kit: '', produtos: [], qtd: 0 },
+      hidratacao: { posto: '', distancia: '' },
+      faixas_preco_site: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 },
+      faixas_preco_grupos: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 }
     };
     setForm(prev => ({
       ...prev,
-      [field]: [...prev[field], newItems[field]]
+      [field]: [...(prev as any)[field], defaults[field]]
     }));
   };
 
-  const removeArrayField = (field: 'pelotoes' | 'cronometragem' | 'patrocinadores' | 'kit_produto' | 'faixas_preco', index: number) => {
+  const removeArrayField = (field: 'pelotoes' | 'cronometragem' | 'kit_produto' | 'hidratacao' | 'faixas_preco_site' | 'faixas_preco_grupos', index: number) => {
     setForm(prev => ({
       ...prev,
-      [field]: prev[field].filter((_, i) => i !== index)
+      [field]: (prev as any)[field].filter((_: any, i: number) => i !== index)
     }));
   };
 
@@ -388,6 +424,182 @@ const Cadastro: React.FC = () => {
         i === index ? { ...item, [key]: value } : item
       )
     }));
+  };
+
+  useEffect(() => {
+    if (form.info_geral.distancias.length > 0) {
+      const existingDistancias = form.cronometragem.map(c => c.distancia);
+      const newDistancias = form.info_geral.distancias.filter(d => !existingDistancias.includes(d));
+      const removedDistancias = existingDistancias.filter(d => !form.info_geral.distancias.includes(d));
+      
+      if (newDistancias.length > 0 || removedDistancias.length > 0) {
+        setForm(prev => ({
+          ...prev,
+          cronometragem: [
+            ...prev.cronometragem.filter(c => form.info_geral.distancias.includes(c.distancia)),
+            ...newDistancias.map(d => ({
+              distancia: d,
+              pelotoes: [{ pelotao: '', num_inicio: 0, num_fim: 0, cor: '' }]
+            }))
+          ]
+        }));
+      }
+    }
+  }, [form.info_geral.distancias]);
+
+  const calcularTotalizadorFaixa = (faixas: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>) => {
+    const totalQtd = faixas.reduce((acc, f) => acc + (f.qtd || 0), 0);
+    const totalValor = faixas.reduce((acc, f) => acc + (f.total || 0), 0);
+    const ticketMedioReal = totalQtd > 0 ? totalValor / totalQtd : 0;
+    return { totalQtd, totalValor, ticketMedioReal };
+  };
+
+  const renderFaixaPrecoContent = (tipo: 'site' | 'grupos') => {
+    const field = tipo === 'site' ? 'faixas_preco_site' : 'faixas_preco_grupos';
+    const faixas = tipo === 'site' ? form.faixas_preco_site : form.faixas_preco_grupos;
+    const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
+    const totalAtletasOrcado = getTotalAtletas();
+    const canAddMore = faixas.length < 5;
+    
+    const diferencaQtd = totalQtd - totalAtletasOrcado;
+    const percentualPreenchido = totalAtletasOrcado > 0 ? (totalQtd / totalAtletasOrcado) * 100 : 0;
+
+    return (
+      <div className="space-y-4">
+        {faixas.map((faixa, index) => (
+          <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+            <div className="flex justify-between items-center mb-3">
+              <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Faixa de Preço {index + 1}</span>
+              {faixas.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeArrayField(field, index)}
+                  className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <select
+                value={faixa.faixa}
+                onChange={(e) => updateArrayField(field, index, 'faixa', e.target.value)}
+                className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+              >
+                <option value="">Faixa</option>
+                {faixaOptions.filter(f => !faixas.some((ff, i) => i !== index && ff.faixa === f)).map(f => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={faixa.qtd || ''}
+                onChange={(e) => {
+                  const qtd = Number(e.target.value);
+                  const total = qtd * (faixa.tkt_medio || 0);
+                  setForm(prev => ({
+                    ...prev,
+                    [field]: (prev as any)[field].map((item: any, i: number) => 
+                      i === index ? { ...item, qtd, total } : item
+                    )
+                  }));
+                }}
+                placeholder="Qtd"
+                className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+              />
+              <input
+                type="number"
+                step="0.01"
+                value={faixa.tkt_medio || ''}
+                onChange={(e) => {
+                  const tkt_medio = Number(e.target.value);
+                  const total = (faixa.qtd || 0) * tkt_medio;
+                  setForm(prev => ({
+                    ...prev,
+                    [field]: (prev as any)[field].map((item: any, i: number) => 
+                      i === index ? { ...item, tkt_medio, total } : item
+                    )
+                  }));
+                }}
+                placeholder="Tkt Médio"
+                className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+              />
+              <input
+                type="number"
+                step="0.01"
+                value={faixa.total || ''}
+                disabled
+                placeholder="Total"
+                className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-gray-400' : 'bg-gray-100 border-gray-300 text-gray-500'} cursor-not-allowed`}
+              />
+            </div>
+          </div>
+        ))}
+        
+        {canAddMore && (
+          <button
+            type="button"
+            onClick={() => addArrayField(field)}
+            className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus className="w-5 h-5" />
+            Adicionar Faixa de Preço ({faixas.length}/5)
+          </button>
+        )}
+
+        {faixas.length > 0 && faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50' : 'bg-gradient-to-r from-purple-50 to-pink-50'} border ${isDark ? 'border-purple-500/30' : 'border-purple-200'}`}>
+            <h4 className={`text-sm font-bold mb-3 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>
+              Totalizador
+            </h4>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="text-center">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalQtd.toLocaleString()}</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Real</p>
+                <p className={`text-lg font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Valor</p>
+                <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+              </div>
+            </div>
+            
+            <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Orçado (Aba Atletas): {totalAtletasOrcado.toLocaleString()}
+                </span>
+                <span className={`text-xs font-bold flex items-center gap-1 ${
+                  diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
+                }`}>
+                  {diferencaQtd === 0 ? (
+                    <><Check className="w-3 h-3" /> Exato</>
+                  ) : diferencaQtd > 0 ? (
+                    <><TrendingUp className="w-3 h-3" /> +{diferencaQtd.toLocaleString()}</>
+                  ) : (
+                    <><TrendingDown className="w-3 h-3" /> {diferencaQtd.toLocaleString()}</>
+                  )}
+                </span>
+              </div>
+              <div className="w-full bg-gray-600 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full transition-all ${
+                    percentualPreenchido >= 100 ? 'bg-green-500' : percentualPreenchido >= 80 ? 'bg-blue-500' : 'bg-orange-500'
+                  }`}
+                  style={{ width: `${Math.min(percentualPreenchido, 100)}%` }}
+                />
+              </div>
+              <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                {percentualPreenchido.toFixed(1)}% do orçado
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const renderTabContent = () => {
@@ -465,56 +677,127 @@ const Cadastro: React.FC = () => {
         );
 
       case 'atletas':
+        const siteTotal = (form.atletas.site.pago || 0) + (form.atletas.site.cortesia || 0);
+        const gruposTotal = (form.atletas.grupos.pago || 0) + (form.atletas.grupos.cortesia || 0);
+        const totalGeral = siteTotal + gruposTotal;
+
         return (
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Total
-              </label>
-              <input
-                type="number"
-                value={form.atletas.total || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, total: Number(e.target.value) } }))}
-                className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              />
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-6">
+              <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Globe className="w-5 h-5 text-blue-400" />
+                  <h3 className={`font-bold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Site</h3>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Pago</label>
+                    <input
+                      type="number"
+                      value={form.atletas.site.pago || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, pago: Number(e.target.value) } } }))}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cortesia</label>
+                    <input
+                      type="number"
+                      value={form.atletas.site.cortesia || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, cortesia: Number(e.target.value) } } }))}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+                  <div className={`p-2 rounded-lg ${isDark ? 'bg-blue-800/30' : 'bg-blue-100'}`}>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Total Site</label>
+                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{siteTotal.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <DollarSign className="w-3 h-3 inline mr-1 text-green-500" />
+                      Ticket Médio
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.atletas.site.tkt_medio || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, tkt_medio: Number(e.target.value) } } }))}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className={`p-4 rounded-xl ${isDark ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50 border-orange-200'} border`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <UsersRound className="w-5 h-5 text-orange-400" />
+                  <h3 className={`font-bold ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Grupos</h3>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Pago</label>
+                    <input
+                      type="number"
+                      value={form.atletas.grupos.pago || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, pago: Number(e.target.value) } } }))}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cortesia</label>
+                    <input
+                      type="number"
+                      value={form.atletas.grupos.cortesia || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, cortesia: Number(e.target.value) } } }))}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                    />
+                  </div>
+                  <div className={`p-2 rounded-lg ${isDark ? 'bg-orange-800/30' : 'bg-orange-100'}`}>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Total Grupos</label>
+                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{gruposTotal.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <DollarSign className="w-3 h-3 inline mr-1 text-green-500" />
+                      Ticket Médio
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={form.atletas.grupos.tkt_medio || ''}
+                      onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: Number(e.target.value) } } }))}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Pago
-              </label>
-              <input
-                type="number"
-                value={form.atletas.pago || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, pago: Number(e.target.value) } }))}
-                className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              />
-            </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                Cortesia
-              </label>
-              <input
-                type="number"
-                value={form.atletas.cortesia || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, cortesia: Number(e.target.value) } }))}
-                className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              />
-            </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                <DollarSign className="w-4 h-4 inline mr-1 text-green-500" />
-                Ticket Médio
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={form.atletas.tkt_medio || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, tkt_medio: Number(e.target.value) } }))}
-                className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              />
+
+            <div className={`p-4 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500/30' : 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200'} border`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <span className={`font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Total Atletas</span>
+                </div>
+                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalGeral.toLocaleString()}</p>
+              </div>
+              <div className="mt-2 flex gap-4 text-sm">
+                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                  Pagos: <span className="text-green-400 font-semibold">{((form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0)).toLocaleString()}</span>
+                </span>
+                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
+                  Cortesias: <span className="text-orange-400 font-semibold">{((form.atletas.site.cortesia || 0) + (form.atletas.grupos.cortesia || 0)).toLocaleString()}</span>
+                </span>
+              </div>
             </div>
           </div>
         );
+
+      case 'faixas_preco_site':
+        return renderFaixaPrecoContent('site');
+
+      case 'faixas_preco_grupos':
+        return renderFaixaPrecoContent('grupos');
 
       case 'retirada_kit':
         return (
@@ -599,128 +882,143 @@ const Cadastro: React.FC = () => {
       case 'cronometragem':
         return (
           <div className="space-y-4">
-            {form.cronometragem.map((crono, index) => (
-              <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                <div className="flex justify-between items-center mb-3">
-                  <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distância {index + 1}</span>
-                  {form.cronometragem.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeArrayField('cronometragem', index)}
-                      className="p-1 text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <select
-                    value={crono.distancia}
-                    onChange={(e) => updateArrayField('cronometragem', index, 'distancia', e.target.value)}
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  >
-                    <option value="">Distância</option>
-                    {distanciasOptions.filter(d => !form.cronometragem.some((fc, i) => i !== index && fc.distancia === d)).map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    value={crono.tempo_limite}
-                    onChange={(e) => updateArrayField('cronometragem', index, 'tempo_limite', e.target.value)}
-                    placeholder="Tempo Limite"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                  <input
-                    type="text"
-                    value={crono.tempo_corte}
-                    onChange={(e) => updateArrayField('cronometragem', index, 'tempo_corte', e.target.value)}
-                    placeholder="Tempo de Corte"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <input
-                    type="number"
-                    value={crono.num_peito || ''}
-                    onChange={(e) => updateArrayField('cronometragem', index, 'num_peito', Number(e.target.value))}
-                    placeholder="N° de Peito"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                  <input
-                    type="number"
-                    value={crono.chip || ''}
-                    onChange={(e) => updateArrayField('cronometragem', index, 'chip', Number(e.target.value))}
-                    placeholder="Chip"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                  <input
-                    type="number"
-                    value={crono.alfinete || ''}
-                    onChange={(e) => updateArrayField('cronometragem', index, 'alfinete', Number(e.target.value))}
-                    placeholder="Alfinete"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                </div>
+            {form.info_geral.distancias.length === 0 ? (
+              <div className={`p-6 rounded-xl text-center ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                <AlertCircle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
+                <p className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Defina as distâncias na aba "Info Geral" primeiro
+                </p>
+                <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                  Os campos de cronometragem serão gerados automaticamente
+                </p>
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => addArrayField('cronometragem')}
-              className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Adicionar Distância
-            </button>
-          </div>
-        );
-
-      case 'patrocinadores':
-        return (
-          <div className="space-y-4">
-            {form.patrocinadores.map((patrocinador, index) => (
-              <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                <div className="flex justify-between items-center mb-3">
-                  <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Patrocinador {index + 1}</span>
-                  {form.patrocinadores.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeArrayField('patrocinadores', index)}
-                      className="p-1 text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    value={patrocinador.cliente}
-                    onChange={(e) => updateArrayField('patrocinadores', index, 'cliente', e.target.value)}
-                    placeholder="Nome do Cliente"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                  <select
-                    value={patrocinador.tipo_venda}
-                    onChange={(e) => updateArrayField('patrocinadores', index, 'tipo_venda', e.target.value)}
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+            ) : (
+              form.cronometragem.map((crono, cronoIndex) => (
+                <div key={cronoIndex} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold">
+                      {crono.distancia}
+                    </div>
+                  </div>
+                  
+                  {crono.pelotoes.map((pel, pelIndex) => (
+                    <div key={pelIndex} className={`p-3 rounded-lg mb-3 ${isDark ? 'bg-gray-800/50' : 'bg-white'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Pelotão {pelIndex + 1}</span>
+                        {crono.pelotoes.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setForm(prev => ({
+                                ...prev,
+                                cronometragem: prev.cronometragem.map((c, i) => 
+                                  i === cronoIndex 
+                                    ? { ...c, pelotoes: c.pelotoes.filter((_, pi) => pi !== pelIndex) }
+                                    : c
+                                )
+                              }));
+                            }}
+                            className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-4 gap-2">
+                        <select
+                          value={pel.pelotao}
+                          onChange={(e) => {
+                            setForm(prev => ({
+                              ...prev,
+                              cronometragem: prev.cronometragem.map((c, i) => 
+                                i === cronoIndex 
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, pelotao: e.target.value } : p) }
+                                  : c
+                              )
+                            }));
+                          }}
+                          className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                        >
+                          <option value="">Pelotão</option>
+                          {pelotoesOptions.map(p => (
+                            <option key={p} value={p}>{p}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          value={pel.num_inicio || ''}
+                          onChange={(e) => {
+                            setForm(prev => ({
+                              ...prev,
+                              cronometragem: prev.cronometragem.map((c, i) => 
+                                i === cronoIndex 
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_inicio: Number(e.target.value) } : p) }
+                                  : c
+                              )
+                            }));
+                          }}
+                          placeholder="Início"
+                          className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                        />
+                        <input
+                          type="number"
+                          value={pel.num_fim || ''}
+                          onChange={(e) => {
+                            setForm(prev => ({
+                              ...prev,
+                              cronometragem: prev.cronometragem.map((c, i) => 
+                                i === cronoIndex 
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_fim: Number(e.target.value) } : p) }
+                                  : c
+                              )
+                            }));
+                          }}
+                          placeholder="Fim"
+                          className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                        />
+                        <select
+                          value={pel.cor}
+                          onChange={(e) => {
+                            setForm(prev => ({
+                              ...prev,
+                              cronometragem: prev.cronometragem.map((c, i) => 
+                                i === cronoIndex 
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, cor: e.target.value } : p) }
+                                  : c
+                              )
+                            }));
+                          }}
+                          className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                        >
+                          <option value="">Cor</option>
+                          {coresPeitoOptions.map(c => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm(prev => ({
+                        ...prev,
+                        cronometragem: prev.cronometragem.map((c, i) => 
+                          i === cronoIndex 
+                            ? { ...c, pelotoes: [...c.pelotoes, { pelotao: '', num_inicio: 0, num_fim: 0, cor: '' }] }
+                            : c
+                        )
+                      }));
+                    }}
+                    className="w-full py-2 rounded-lg border border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors text-sm flex items-center justify-center gap-2"
                   >
-                    <option value="">Tipo de Venda</option>
-                    {tipoVendaOptions.map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                    <Plus className="w-4 h-4" />
+                    Adicionar Pelotão
+                  </button>
                 </div>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => addArrayField('patrocinadores')}
-              className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Adicionar Patrocinador
-            </button>
+              ))
+            )}
           </div>
         );
 
@@ -741,24 +1039,26 @@ const Cadastro: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <select
                     value={kit.kit}
-                    onChange={(e) => updateArrayField('kit_produto', index, 'kit', e.target.value)}
+                    onChange={(e) => {
+                      const selectedKit = e.target.value;
+                      const defaultProdutos = produtosPadraoPorKit[selectedKit] || [];
+                      setForm(prev => ({
+                        ...prev,
+                        kit_produto: prev.kit_produto.map((k, i) => 
+                          i === index ? { ...k, kit: selectedKit, produtos: defaultProdutos } : k
+                        )
+                      }));
+                    }}
                     className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   >
-                    <option value="">Selecione</option>
+                    <option value="">Selecione o Kit</option>
                     {kitOptions.filter(k => !form.kit_produto.some((fk, i) => i !== index && fk.kit === k)).map(k => (
                       <option key={k} value={k}>{k}</option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={kit.trofeu || ''}
-                    onChange={(e) => updateArrayField('kit_produto', index, 'trofeu', Number(e.target.value))}
-                    placeholder="Troféu"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
                   <input
                     type="number"
                     value={kit.qtd || ''}
@@ -766,6 +1066,38 @@ const Cadastro: React.FC = () => {
                     placeholder="Quantidade"
                     className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   />
+                </div>
+                
+                <div>
+                  <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Produtos do Kit
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {produtosDisponiveis.map(produto => (
+                      <button
+                        key={produto}
+                        type="button"
+                        onClick={() => {
+                          const produtos = kit.produtos.includes(produto)
+                            ? kit.produtos.filter(p => p !== produto)
+                            : [...kit.produtos, produto];
+                          setForm(prev => ({
+                            ...prev,
+                            kit_produto: prev.kit_produto.map((k, i) => 
+                              i === index ? { ...k, produtos } : k
+                            )
+                          }));
+                        }}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                          kit.produtos.includes(produto)
+                            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md'
+                            : isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        {produto}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             ))}
@@ -777,100 +1109,71 @@ const Cadastro: React.FC = () => {
               <Plus className="w-5 h-5" />
               Adicionar Kit
             </button>
-          </div>
-        );
 
-      case 'producao':
-        return (
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                <Droplets className="w-4 h-4 inline mr-2 text-blue-400" />
-                Água (unidades)
-              </label>
+            <div className={`p-4 rounded-xl ${isDark ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'} border`}>
+              <div className="flex items-center gap-2 mb-3">
+                <Trophy className="w-5 h-5 text-amber-400" />
+                <span className={`font-bold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Troféus (Evento)</span>
+              </div>
               <input
                 type="number"
-                value={form.producao.agua || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, producao: { ...prev.producao, agua: Number(e.target.value) } }))}
-                className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              />
-            </div>
-            <div>
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                <Droplets className="w-4 h-4 inline mr-2 text-green-400" />
-                Isotônico (unidades)
-              </label>
-              <input
-                type="number"
-                value={form.producao.isotonico || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, producao: { ...prev.producao, isotonico: Number(e.target.value) } }))}
-                className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                value={form.trofeus || ''}
+                onChange={(e) => setForm(prev => ({ ...prev, trofeus: Number(e.target.value) }))}
+                placeholder="Quantidade de troféus para o evento"
+                className={`w-full px-4 py-3 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-amber-500`}
               />
             </div>
           </div>
         );
 
-      case 'faixas_preco':
+      case 'hidratacao':
         return (
           <div className="space-y-4">
-            {form.faixas_preco.map((faixa, index) => (
+            {form.hidratacao.map((h, index) => (
               <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
                 <div className="flex justify-between items-center mb-3">
-                  <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Faixa de Preço {index + 1}</span>
-                  {form.faixas_preco.length > 1 && (
+                  <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Posto de Hidratação {index + 1}</span>
+                  {form.hidratacao.length > 1 && (
                     <button
                       type="button"
-                      onClick={() => removeArrayField('faixas_preco', index)}
+                      onClick={() => removeArrayField('hidratacao', index)}
                       className="p-1 text-red-400 hover:text-red-300 transition-colors"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <select
-                    value={faixa.faixa}
-                    onChange={(e) => updateArrayField('faixas_preco', index, 'faixa', e.target.value)}
+                    value={h.posto}
+                    onChange={(e) => updateArrayField('hidratacao', index, 'posto', e.target.value)}
                     className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   >
-                    <option value="">Faixa</option>
-                    {faixaOptions.filter(f => !form.faixas_preco.some((ff, i) => i !== index && ff.faixa === f)).map(f => (
-                      <option key={f} value={f}>{f}</option>
+                    <option value="">Posto</option>
+                    {postoHidratacaoOptions.map(p => (
+                      <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={faixa.qtd || ''}
-                    onChange={(e) => updateArrayField('faixas_preco', index, 'qtd', Number(e.target.value))}
-                    placeholder="Qtd"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={faixa.tkt_medio || ''}
-                    onChange={(e) => updateArrayField('faixas_preco', index, 'tkt_medio', Number(e.target.value))}
-                    placeholder="Tkt Médio"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={faixa.total || ''}
-                    onChange={(e) => updateArrayField('faixas_preco', index, 'total', Number(e.target.value))}
-                    placeholder="Total"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
+                  <select
+                    value={h.distancia}
+                    onChange={(e) => updateArrayField('hidratacao', index, 'distancia', e.target.value)}
+                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Distância</option>
+                    {distanciasOptions.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             ))}
             <button
               type="button"
-              onClick={() => addArrayField('faixas_preco')}
+              onClick={() => addArrayField('hidratacao')}
               className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
             >
               <Plus className="w-5 h-5" />
-              Adicionar Faixa de Preço
+              Adicionar Posto de Hidratação
             </button>
           </div>
         );
@@ -1022,6 +1325,8 @@ const Cadastro: React.FC = () => {
             </div>
           ) : filteredCadastros.map((cadastro, index) => {
             const statusStyle = getStatusStyle(cadastro.status);
+            const totalAtletasCad = getTotalAtletasCadastro(cadastro);
+            const tktMedioGeral = ((cadastro.atletas.site.tkt_medio || 0) + (cadastro.atletas.grupos.tkt_medio || 0)) / 2;
 
             return (
               <div 
@@ -1084,15 +1389,15 @@ const Cadastro: React.FC = () => {
                   <div className="grid grid-cols-3 gap-2 py-3 border-t border-gray-700/50">
                     <div className="text-center">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</p>
-                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{cadastro.atletas.total.toLocaleString()}</p>
+                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalAtletasCad.toLocaleString()}</p>
                     </div>
                     <div className="text-center">
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Pagos</p>
-                      <p className={`text-lg font-bold text-green-400`}>{cadastro.atletas.pago.toLocaleString()}</p>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site</p>
+                      <p className={`text-lg font-bold text-blue-400`}>{((cadastro.atletas.site.pago || 0) + (cadastro.atletas.site.cortesia || 0)).toLocaleString()}</p>
                     </div>
                     <div className="text-center">
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio</p>
-                      <p className={`text-lg font-bold text-purple-400`}>{formatCurrency(cadastro.atletas.tkt_medio)}</p>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos</p>
+                      <p className={`text-lg font-bold text-orange-400`}>{((cadastro.atletas.grupos.pago || 0) + (cadastro.atletas.grupos.cortesia || 0)).toLocaleString()}</p>
                     </div>
                   </div>
 
@@ -1162,15 +1467,15 @@ const Cadastro: React.FC = () => {
                 <div className="flex items-center gap-4 text-white/80">
                   <div className="flex items-center gap-2">
                     <Calendar className="w-5 h-5" />
-                    <span>{formatDateDisplay(selectedCadastro.data)}</span>
+                    <span>{formatDateDisplay(selectedCadastro.info_geral.data)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="w-5 h-5" />
-                    <span>{selectedCadastro.horario_largada}</span>
+                    <span>{selectedCadastro.info_geral.horario_largada}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin className="w-5 h-5" />
-                    <span>{selectedCadastro.local}</span>
+                    <span>{selectedCadastro.info_geral.local}</span>
                   </div>
                 </div>
               </div>
@@ -1180,25 +1485,25 @@ const Cadastro: React.FC = () => {
               <div className="grid grid-cols-4 gap-4">
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Atletas</p>
-                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.total_atletas.toLocaleString()}</p>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{getTotalAtletasCadastro(selectedCadastro).toLocaleString()}</p>
                 </div>
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Atletas Pagos</p>
-                  <p className="text-2xl font-bold text-green-400">{selectedCadastro.atletas_pagos.toLocaleString()}</p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site</p>
+                  <p className="text-2xl font-bold text-blue-400">{((selectedCadastro.atletas.site.pago || 0) + (selectedCadastro.atletas.site.cortesia || 0)).toLocaleString()}</p>
                 </div>
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Cortesias</p>
-                  <p className="text-2xl font-bold text-orange-400">{selectedCadastro.atletas_cortesia.toLocaleString()}</p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos</p>
+                  <p className="text-2xl font-bold text-orange-400">{((selectedCadastro.atletas.grupos.pago || 0) + (selectedCadastro.atletas.grupos.cortesia || 0)).toLocaleString()}</p>
                 </div>
                 <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio</p>
-                  <p className="text-2xl font-bold text-purple-400">{formatCurrency(selectedCadastro.ticket_medio)}</p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Troféus</p>
+                  <p className="text-2xl font-bold text-amber-400">{selectedCadastro.trofeus || 0}</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2">
                 <span className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Distâncias:</span>
-                {selectedCadastro.distancias.map(d => (
+                {selectedCadastro.info_geral.distancias.map(d => (
                   <span 
                     key={d}
                     className="px-4 py-1.5 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold"
@@ -1277,13 +1582,39 @@ const Cadastro: React.FC = () => {
               </button>
 
               <div className="absolute bottom-4 left-4 right-4">
-                <input
-                  type="text"
-                  value={form.nome}
-                  onChange={(e) => setForm(prev => ({ ...prev, nome: e.target.value }))}
-                  placeholder="Nome do Evento"
-                  className="w-full text-2xl font-black bg-transparent text-white placeholder-white/50 border-none focus:outline-none focus:ring-0"
-                />
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
+                  <input
+                    type="text"
+                    value={projetoBusca}
+                    onChange={(e) => {
+                      setProjetoBusca(e.target.value);
+                      setShowProjetoDropdown(true);
+                    }}
+                    onFocus={() => setShowProjetoDropdown(true)}
+                    placeholder="Buscar projeto/evento..."
+                    className="w-full pl-10 pr-4 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  {showProjetoDropdown && filteredProjetos.length > 0 && (
+                    <div className={`absolute top-full left-0 right-0 mt-2 max-h-48 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-xl z-10`}>
+                      {filteredProjetos.map(projeto => (
+                        <button
+                          key={projeto.id}
+                          type="button"
+                          onClick={() => {
+                            setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento }));
+                            setProjetoBusca(projeto.evento);
+                            setShowProjetoDropdown(false);
+                          }}
+                          className={`w-full px-4 py-3 text-left hover:bg-purple-500/20 transition-colors ${isDark ? 'text-white' : 'text-gray-900'}`}
+                        >
+                          <div className="font-semibold">{projeto.evento}</div>
+                          <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{projeto.codigo}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
