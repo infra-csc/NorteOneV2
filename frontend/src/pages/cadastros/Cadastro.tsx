@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projetosService } from '../../services/api';
 import { 
@@ -312,92 +312,73 @@ const Cadastro: React.FC = () => {
     allowDecimal?: boolean;
     readOnly?: boolean;
   }) => {
-    const inputRef = useRef<HTMLInputElement>(null);
-    const [displayValue, setDisplayValue] = useState('');
+    const [isFocused, setIsFocused] = useState(false);
+    const [inputValue, setInputValue] = useState('');
     
-    const formatWithThousands = (val: string): string => {
-      if (!val) return '';
-      const hasComma = val.includes(',');
-      let [intPart, decPart] = val.split(',');
-      intPart = intPart.replace(/\D/g, '');
-      if (!intPart) intPart = '0';
-      const formatted = parseInt(intPart, 10).toLocaleString('pt-BR');
-      if (allowDecimal && hasComma) {
-        decPart = (decPart || '').replace(/\D/g, '').slice(0, 2);
-        return `${formatted},${decPart}`;
+    const formatForDisplay = (num: number): string => {
+      if (num === 0 || num === null || num === undefined || isNaN(num)) return '';
+      if (allowDecimal) {
+        return num.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
       }
-      return formatted;
+      return num.toLocaleString('pt-BR');
     };
     
-    useEffect(() => {
-      if (document.activeElement !== inputRef.current) {
-        if (value === 0 || value === null || value === undefined) {
-          setDisplayValue('');
-        } else if (allowDecimal) {
-          setDisplayValue(value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
-        } else {
-          setDisplayValue(formatNumber(value));
-        }
+    const parseToNumber = (str: string): number => {
+      if (!str) return 0;
+      const cleaned = str.replace(/\./g, '').replace(',', '.');
+      return parseFloat(cleaned) || 0;
+    };
+    
+    const handleFocus = () => {
+      setIsFocused(true);
+      if (allowDecimal) {
+        setInputValue(value ? String(value).replace('.', ',') : '');
+      } else {
+        setInputValue(value ? String(value) : '');
       }
-    }, [value, allowDecimal]);
+    };
+    
+    const handleBlur = () => {
+      setIsFocused(false);
+      const numValue = parseToNumber(inputValue);
+      onChange(numValue);
+    };
     
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const input = e.target;
-      const cursorPos = input.selectionStart || 0;
-      const oldValue = displayValue;
       let newValue = e.target.value;
-      
       if (allowDecimal) {
         newValue = newValue.replace(/[^\d,]/g, '');
-        const commaCount = (newValue.match(/,/g) || []).length;
-        if (commaCount > 1) {
-          const firstComma = newValue.indexOf(',');
-          newValue = newValue.slice(0, firstComma + 1) + newValue.slice(firstComma + 1).replace(/,/g, '');
+        const parts = newValue.split(',');
+        if (parts.length > 2) {
+          newValue = parts[0] + ',' + parts.slice(1).join('');
+        }
+        if (parts[1] && parts[1].length > 2) {
+          newValue = parts[0] + ',' + parts[1].slice(0, 2);
         }
       } else {
         newValue = newValue.replace(/\D/g, '');
       }
-      
-      const formatted = formatWithThousands(newValue);
-      setDisplayValue(formatted);
-      
-      const numValue = parseFormattedNumber(formatted);
-      onChange(numValue);
-      
-      setTimeout(() => {
-        if (inputRef.current) {
-          const diff = formatted.length - oldValue.length;
-          const newPos = Math.max(0, cursorPos + diff);
-          inputRef.current.setSelectionRange(newPos, newPos);
-        }
-      }, 0);
+      setInputValue(newValue);
     };
     
     const hasValue = value > 0;
+    const displayValue = isFocused ? inputValue : formatForDisplay(value);
     
     return (
       <div className="relative">
-        {hasValue && label && (
+        {hasValue && !isFocused && label && (
           <label className={`absolute -top-2 left-2 px-1 text-[10px] font-medium z-10 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-gray-500 bg-white'}`}>
             {icon}{label}
           </label>
         )}
         <input
-          ref={inputRef}
           type="text"
           inputMode={allowDecimal ? "decimal" : "numeric"}
           value={displayValue}
           onChange={handleChange}
-          onBlur={() => {
-            if (value === 0) {
-              setDisplayValue('');
-            } else if (allowDecimal) {
-              setDisplayValue(value.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
-            } else {
-              setDisplayValue(formatNumber(value));
-            }
-          }}
-          placeholder={!hasValue ? (placeholder || label) : ''}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholder={placeholder || label}
           className={className}
           readOnly={readOnly}
         />
