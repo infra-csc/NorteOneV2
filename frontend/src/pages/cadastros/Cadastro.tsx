@@ -15,6 +15,7 @@ interface Projeto {
   id: number;
   evento: string;
   codigo: string;
+  imagem_kv?: string;
 }
 
 interface CadastroEvento {
@@ -1696,7 +1697,7 @@ const Cadastro: React.FC = () => {
                             key={projeto.id}
                             type="button"
                             onClick={() => {
-                              setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento }));
+                              setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento, imagem_kv: projeto.imagem_kv || '' }));
                               setProjetoBusca(projeto.evento);
                               setShowProjetoDropdown(false);
                             }}
@@ -1743,12 +1744,12 @@ const Cadastro: React.FC = () => {
               })}
             </div>
 
-            <form onSubmit={handleSubmit}>
-              <div className="p-6 min-h-[400px] flex-1 overflow-y-auto">
+            <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+              <div className="p-6 flex-1 overflow-y-auto scrollbar-thin-custom">
                 {renderTabContent()}
               </div>
 
-              <div className={`p-4 border-t ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'} flex justify-end gap-3`}>
+              <div className={`p-4 border-t flex-shrink-0 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'} flex justify-end gap-3`}>
                 <button
                   type="button"
                   onClick={() => {
