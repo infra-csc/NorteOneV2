@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from ...core.database import get_db
 from ...core.security import get_current_user, require_roles
-from ...models.fatos import FatoAtletas, FatoAtletasMetricas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
+from ...models.fatos import FatoAtletasMetricas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
+from ...models.dimensoes import DimProjeto
 from ...models.user import Usuario
 from ...schemas.fatos import (
     AtletasMetricasCreate, AtletasMetricasUpdate, AtletasMetricasResponse,
@@ -18,17 +19,20 @@ router = APIRouter(prefix="/atletas-satelite", tags=["Atletas Satélite"])
 # === METRICAS (principal) ===
 @router.get("/metricas/", response_model=List[AtletasMetricasResponse])
 async def list_metricas(
-    fato_atletas_id: int = None,
-    cenario: str = None,
+    projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
+    cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
+    categoria_atleta_id: Optional[int] = Query(None, description="Filtrar por categoria de atleta"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     query = db.query(FatoAtletasMetricas)
     
-    if fato_atletas_id:
-        query = query.filter(FatoAtletasMetricas.fato_atletas_id == fato_atletas_id)
+    if projeto_id:
+        query = query.filter(FatoAtletasMetricas.projeto_id == projeto_id)
     if cenario:
         query = query.filter(FatoAtletasMetricas.cenario == cenario)
+    if categoria_atleta_id:
+        query = query.filter(FatoAtletasMetricas.categoria_atleta_id == categoria_atleta_id)
     
     return query.all()
 
@@ -39,11 +43,11 @@ async def create_metrica(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
-    if not fato:
-        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
+    if not projeto:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
     
-    db_item = FatoAtletasMetricas(**data.model_dump())
+    db_item = FatoAtletasMetricas(**data.model_dump(), created_by=current_user.id)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -90,7 +94,7 @@ async def create_metricas_bulk(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    items = [FatoAtletasMetricas(**item.model_dump()) for item in data]
+    items = [FatoAtletasMetricas(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
     db.commit()
     for item in items:
@@ -101,20 +105,23 @@ async def create_metricas_bulk(
 # === CANAIS ===
 @router.get("/canais/", response_model=List[AtletasCanaisResponse])
 async def list_canais(
-    fato_atletas_id: int = None,
-    canal: str = None,
-    cenario: str = None,
+    projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
+    canal: Optional[str] = Query(None, description="Filtrar por canal: SITE, GRUPOS, APPAI"),
+    cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
+    categoria_atleta_id: Optional[int] = Query(None, description="Filtrar por categoria de atleta"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     query = db.query(FatoAtletasCanais)
     
-    if fato_atletas_id:
-        query = query.filter(FatoAtletasCanais.fato_atletas_id == fato_atletas_id)
+    if projeto_id:
+        query = query.filter(FatoAtletasCanais.projeto_id == projeto_id)
     if canal:
         query = query.filter(FatoAtletasCanais.canal == canal)
     if cenario:
         query = query.filter(FatoAtletasCanais.cenario == cenario)
+    if categoria_atleta_id:
+        query = query.filter(FatoAtletasCanais.categoria_atleta_id == categoria_atleta_id)
     
     return query.all()
 
@@ -125,11 +132,11 @@ async def create_canal(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
-    if not fato:
-        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
+    if not projeto:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
     
-    db_item = FatoAtletasCanais(**data.model_dump())
+    db_item = FatoAtletasCanais(**data.model_dump(), created_by=current_user.id)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -173,20 +180,23 @@ async def delete_canal(
 # === KITS ===
 @router.get("/kits/", response_model=List[AtletasKitsResponse])
 async def list_kits(
-    fato_atletas_id: int = None,
-    tipo_kit: str = None,
-    cenario: str = None,
+    projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
+    tipo_kit: Optional[str] = Query(None, description="Filtrar por tipo de kit: VIP, PLUS, SUPER, PRODUTO"),
+    cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
+    categoria_atleta_id: Optional[int] = Query(None, description="Filtrar por categoria de atleta"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     query = db.query(FatoAtletasKits)
     
-    if fato_atletas_id:
-        query = query.filter(FatoAtletasKits.fato_atletas_id == fato_atletas_id)
+    if projeto_id:
+        query = query.filter(FatoAtletasKits.projeto_id == projeto_id)
     if tipo_kit:
         query = query.filter(FatoAtletasKits.tipo_kit == tipo_kit)
     if cenario:
         query = query.filter(FatoAtletasKits.cenario == cenario)
+    if categoria_atleta_id:
+        query = query.filter(FatoAtletasKits.categoria_atleta_id == categoria_atleta_id)
     
     return query.all()
 
@@ -197,11 +207,11 @@ async def create_kit(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
-    if not fato:
-        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
+    if not projeto:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
     
-    db_item = FatoAtletasKits(**data.model_dump())
+    db_item = FatoAtletasKits(**data.model_dump(), created_by=current_user.id)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -245,20 +255,23 @@ async def delete_kit(
 # === CUSTOS ===
 @router.get("/custos/", response_model=List[AtletasCustosResponse])
 async def list_custos(
-    fato_atletas_id: int = None,
-    tipo_custo: str = None,
-    cenario: str = None,
+    projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
+    tipo_custo: Optional[str] = Query(None, description="Filtrar por tipo de custo"),
+    cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
+    categoria_atleta_id: Optional[int] = Query(None, description="Filtrar por categoria de atleta"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     query = db.query(FatoAtletasCustos)
     
-    if fato_atletas_id:
-        query = query.filter(FatoAtletasCustos.fato_atletas_id == fato_atletas_id)
+    if projeto_id:
+        query = query.filter(FatoAtletasCustos.projeto_id == projeto_id)
     if tipo_custo:
         query = query.filter(FatoAtletasCustos.tipo_custo == tipo_custo)
     if cenario:
         query = query.filter(FatoAtletasCustos.cenario == cenario)
+    if categoria_atleta_id:
+        query = query.filter(FatoAtletasCustos.categoria_atleta_id == categoria_atleta_id)
     
     return query.all()
 
@@ -269,11 +282,11 @@ async def create_custo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    fato = db.query(FatoAtletas).filter(FatoAtletas.id == data.fato_atletas_id).first()
-    if not fato:
-        raise HTTPException(status_code=404, detail="Fato Atletas não encontrado")
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
+    if not projeto:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
     
-    db_item = FatoAtletasCustos(**data.model_dump())
+    db_item = FatoAtletasCustos(**data.model_dump(), created_by=current_user.id)
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
@@ -321,7 +334,7 @@ async def create_canais_bulk(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    items = [FatoAtletasCanais(**item.model_dump()) for item in data]
+    items = [FatoAtletasCanais(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
     db.commit()
     for item in items:
@@ -335,7 +348,7 @@ async def create_kits_bulk(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    items = [FatoAtletasKits(**item.model_dump()) for item in data]
+    items = [FatoAtletasKits(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
     db.commit()
     for item in items:
@@ -349,7 +362,7 @@ async def create_custos_bulk(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    items = [FatoAtletasCustos(**item.model_dump()) for item in data]
+    items = [FatoAtletasCustos(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
     db.commit()
     for item in items:

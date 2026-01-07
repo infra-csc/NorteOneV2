@@ -78,45 +78,11 @@ class RealizadoResponse(RealizadoBase):
     class Config:
         from_attributes = True
 
-class AtletasBase(BaseModel):
-    projeto_id: int
-    categoria_atleta_id: int
-    tempo_id: Optional[int] = None
-    qtd_atletas_orcado: int = 0
-    qtd_atletas_projetado: int = 0
-    qtd_atletas_realizado: int = 0
-    valor_inscricao_unitario: Optional[Decimal] = None
-    custo_kit_unitario_orcado: Optional[Decimal] = None
-    custo_kit_unitario_projetado: Optional[Decimal] = None
-    custo_kit_unitario_realizado: Optional[Decimal] = None
-    versao_projecao: int = 1
-    observacao: Optional[str] = None
-
-class AtletasCreate(AtletasBase):
-    pass
-
-class AtletasUpdate(BaseModel):
-    qtd_atletas_orcado: Optional[int] = None
-    qtd_atletas_projetado: Optional[int] = None
-    qtd_atletas_realizado: Optional[int] = None
-    valor_inscricao_unitario: Optional[Decimal] = None
-    custo_kit_unitario_orcado: Optional[Decimal] = None
-    custo_kit_unitario_projetado: Optional[Decimal] = None
-    custo_kit_unitario_realizado: Optional[Decimal] = None
-    observacao: Optional[str] = None
-
-class AtletasResponse(AtletasBase):
-    id: int
-    created_by: Optional[int] = None
-    created_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-
-
 # === Schemas para Atletas Metricas (principal) ===
 class AtletasMetricasBase(BaseModel):
-    fato_atletas_id: int
+    projeto_id: int
+    categoria_atleta_id: Optional[int] = None
+    tempo_id: Optional[int] = None
     cenario: str  # ORCADO, PROJETADO, REALIZADO
     qtd_atletas: int = 0
     qtd_atletas_pago: int = 0
@@ -124,6 +90,8 @@ class AtletasMetricasBase(BaseModel):
     tkt_medio: Optional[Decimal] = None
     inscricao: Optional[Decimal] = None
     custo_kit_unitario: Optional[Decimal] = None
+    versao_projecao: int = 1
+    observacao: Optional[str] = None
 
 class AtletasMetricasCreate(AtletasMetricasBase):
     pass
@@ -135,9 +103,11 @@ class AtletasMetricasUpdate(BaseModel):
     tkt_medio: Optional[Decimal] = None
     inscricao: Optional[Decimal] = None
     custo_kit_unitario: Optional[Decimal] = None
+    observacao: Optional[str] = None
 
 class AtletasMetricasResponse(AtletasMetricasBase):
     id: int
+    created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     
     class Config:
@@ -146,12 +116,16 @@ class AtletasMetricasResponse(AtletasMetricasBase):
 
 # === Schemas para Atletas Canais ===
 class AtletasCanaisBase(BaseModel):
-    fato_atletas_id: int
+    projeto_id: int
+    categoria_atleta_id: Optional[int] = None
+    tempo_id: Optional[int] = None
     canal: str  # SITE, GRUPOS, APPAI
     cenario: str  # ORCADO, PROJETADO, REALIZADO
     qtd_atletas: int = 0
     tkt_medio: Optional[Decimal] = None
     inscricao: Optional[Decimal] = None
+    versao_projecao: int = 1
+    observacao: Optional[str] = None
 
 class AtletasCanaisCreate(AtletasCanaisBase):
     pass
@@ -160,9 +134,11 @@ class AtletasCanaisUpdate(BaseModel):
     qtd_atletas: Optional[int] = None
     tkt_medio: Optional[Decimal] = None
     inscricao: Optional[Decimal] = None
+    observacao: Optional[str] = None
 
 class AtletasCanaisResponse(AtletasCanaisBase):
     id: int
+    created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     
     class Config:
@@ -171,13 +147,17 @@ class AtletasCanaisResponse(AtletasCanaisBase):
 
 # === Schemas para Atletas Kits ===
 class AtletasKitsBase(BaseModel):
-    fato_atletas_id: int
+    projeto_id: int
+    categoria_atleta_id: Optional[int] = None
+    tempo_id: Optional[int] = None
     tipo_kit: str  # VIP, PLUS, SUPER, PRODUTO
     cenario: str  # ORCADO, PROJETADO, REALIZADO
     qtd_kit: int = 0
     tkt_medio: Optional[Decimal] = None
     inscricao: Optional[Decimal] = None
     custo_unitario: Optional[Decimal] = None
+    versao_projecao: int = 1
+    observacao: Optional[str] = None
 
 class AtletasKitsCreate(AtletasKitsBase):
     pass
@@ -187,9 +167,11 @@ class AtletasKitsUpdate(BaseModel):
     tkt_medio: Optional[Decimal] = None
     inscricao: Optional[Decimal] = None
     custo_unitario: Optional[Decimal] = None
+    observacao: Optional[str] = None
 
 class AtletasKitsResponse(AtletasKitsBase):
     id: int
+    created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     
     class Config:
@@ -198,12 +180,16 @@ class AtletasKitsResponse(AtletasKitsBase):
 
 # === Schemas para Atletas Custos ===
 class AtletasCustosBase(BaseModel):
-    fato_atletas_id: int
+    projeto_id: int
+    categoria_atleta_id: Optional[int] = None
+    tempo_id: Optional[int] = None
     tipo_custo: str  # AGUA, ISOTONICO, HIDRATACAO, NUMERO_PEITO, CHIP, ALFINETE, IDENTIFICACAO
     cenario: str  # ORCADO, PROJETADO, REALIZADO
     custo_unitario: Optional[Decimal] = None
     qtd_por_atleta: Optional[Decimal] = None
     custo_total: Optional[Decimal] = None
+    versao_projecao: int = 1
+    observacao: Optional[str] = None
 
 class AtletasCustosCreate(AtletasCustosBase):
     pass
@@ -212,9 +198,11 @@ class AtletasCustosUpdate(BaseModel):
     custo_unitario: Optional[Decimal] = None
     qtd_por_atleta: Optional[Decimal] = None
     custo_total: Optional[Decimal] = None
+    observacao: Optional[str] = None
 
 class AtletasCustosResponse(AtletasCustosBase):
     id: int
+    created_by: Optional[int] = None
     created_at: Optional[datetime] = None
     
     class Config:

@@ -5,7 +5,7 @@ from typing import List, Optional
 from ...core.database import get_db
 from ...core.security import get_current_user, require_roles
 from ...models.dimensoes import DimProjeto
-from ...models.fatos import FatoAtletas, FatoAtletasCanais
+from ...models.fatos import FatoAtletasCanais, FatoAtletasMetricas
 from ...models.user import Usuario
 from ...schemas.dimensoes import ProjetoCreate, ProjetoUpdate, ProjetoResponse, ProjetoComAtletasResponse
 
@@ -50,49 +50,36 @@ async def list_projetos_com_atletas(
     e totais de atletas ORCADO e PROJETADO.
     """
 
-    # Subquery para pegar atletas SITE (REALIZADO)
     subq_site = db.query(
-        FatoAtletas.projeto_id,
+        FatoAtletasCanais.projeto_id,
         func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_site')
-    ).join(
-        FatoAtletasCanais, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
     ).filter(
         FatoAtletasCanais.canal == 'SITE',
         FatoAtletasCanais.cenario == 'REALIZADO'
-    ).group_by(FatoAtletas.projeto_id).subquery()
+    ).group_by(FatoAtletasCanais.projeto_id).subquery()
 
-    # Subquery para pegar atletas GRUPOS (REALIZADO)
     subq_grupo = db.query(
-        FatoAtletas.projeto_id,
+        FatoAtletasCanais.projeto_id,
         func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_grupo')
-    ).join(
-        FatoAtletasCanais, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
     ).filter(
         FatoAtletasCanais.canal == 'GRUPOS',
         FatoAtletasCanais.cenario == 'REALIZADO'
-    ).group_by(FatoAtletas.projeto_id).subquery()
+    ).group_by(FatoAtletasCanais.projeto_id).subquery()
 
-    # Subquery para pegar total atletas ORCADO (soma de todos os canais)
     subq_orcado = db.query(
-        FatoAtletas.projeto_id,
+        FatoAtletasCanais.projeto_id,
         func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_orcado')
-    ).join(
-        FatoAtletasCanais, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
     ).filter(
         FatoAtletasCanais.cenario == 'ORCADO'
-    ).group_by(FatoAtletas.projeto_id).subquery()
+    ).group_by(FatoAtletasCanais.projeto_id).subquery()
 
-    # Subquery para pegar total atletas PROJETADO (soma de todos os canais)
     subq_projetado = db.query(
-        FatoAtletas.projeto_id,
+        FatoAtletasCanais.projeto_id,
         func.coalesce(func.sum(FatoAtletasCanais.qtd_atletas), 0).label('qtd_projetado')
-    ).join(
-        FatoAtletasCanais, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
     ).filter(
         FatoAtletasCanais.cenario == 'PROJETADO'
-    ).group_by(FatoAtletas.projeto_id).subquery()
+    ).group_by(FatoAtletasCanais.projeto_id).subquery()
 
-    # Query principal
     query = db.query(
         DimProjeto,
         func.coalesce(subq_site.c.qtd_site, 0).label('atletas_site'),
@@ -109,7 +96,6 @@ async def list_projetos_com_atletas(
         subq_projetado, DimProjeto.id == subq_projetado.c.projeto_id
     )
 
-    # Aplicar filtros
     if status:
         query = query.filter(DimProjeto.status == status)
     if modalidade:
@@ -133,13 +119,10 @@ async def list_projetos_com_atletas(
             )
         )
 
-    # Ordenar por data do evento (mais recentes primeiro)
     query = query.order_by(DimProjeto.data_evento.desc())
 
-    # Executar query
     results = query.offset(skip).limit(limit).all()
 
-    # Montar resposta
     projetos_com_atletas = []
     for projeto, atletas_site, atletas_grupo, qtd_orcado, qtd_projetado in results:
         atletas_total = int(atletas_site or 0) + int(atletas_grupo or 0)
@@ -241,14 +224,11 @@ async def get_projeto_com_atletas(
     if not projeto:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
 
-    # Buscar atletas por canal
     atletas_canais = db.query(
         FatoAtletasCanais.canal,
         func.sum(FatoAtletasCanais.qtd_atletas).label('total')
-    ).join(
-        FatoAtletas, FatoAtletas.id == FatoAtletasCanais.fato_atletas_id
     ).filter(
-        FatoAtletas.projeto_id == projeto_id,
+        FatoAtletasCanais.projeto_id == projeto_id,
         FatoAtletasCanais.cenario == 'REALIZADO'
     ).group_by(FatoAtletasCanais.canal).all()
 

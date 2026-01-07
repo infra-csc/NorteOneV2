@@ -4,7 +4,7 @@ from sqlalchemy import func, distinct
 from typing import Optional
 from ...core.database import get_db
 from ...core.security import get_current_user
-from ...models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletas
+from ...models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletasMetricas, FatoAtletasCanais
 from ...models.dimensoes import DimTempo, DimConta, DimProjeto, DimCategoriaAtleta
 from ...models.user import Usuario
 
@@ -137,16 +137,24 @@ async def get_resumo_geral(
     realizado_receita = real_receita_query.scalar() or 0
     realizado_despesa = real_despesa_query.scalar() or 0
 
-    atletas_query = db.query(
-        func.sum(FatoAtletas.qtd_atletas_orcado).label('orcado'),
-        func.sum(FatoAtletas.qtd_atletas_projetado).label('projetado'),
-        func.sum(FatoAtletas.qtd_atletas_realizado).label('realizado')
+    atletas_orcado_query = db.query(func.sum(FatoAtletasMetricas.qtd_atletas)).filter(
+        FatoAtletasMetricas.cenario == 'ORCADO'
+    )
+    atletas_projetado_query = db.query(func.sum(FatoAtletasMetricas.qtd_atletas)).filter(
+        FatoAtletasMetricas.cenario == 'PROJETADO'
+    )
+    atletas_realizado_query = db.query(func.sum(FatoAtletasMetricas.qtd_atletas)).filter(
+        FatoAtletasMetricas.cenario == 'REALIZADO'
     )
     
     if projeto_ids is not None:
-        atletas_query = atletas_query.filter(FatoAtletas.projeto_id.in_(projeto_ids))
+        atletas_orcado_query = atletas_orcado_query.filter(FatoAtletasMetricas.projeto_id.in_(projeto_ids))
+        atletas_projetado_query = atletas_projetado_query.filter(FatoAtletasMetricas.projeto_id.in_(projeto_ids))
+        atletas_realizado_query = atletas_realizado_query.filter(FatoAtletasMetricas.projeto_id.in_(projeto_ids))
     
-    atletas_resumo = atletas_query.first()
+    atletas_orcado = atletas_orcado_query.scalar() or 0
+    atletas_projetado = atletas_projetado_query.scalar() or 0
+    atletas_realizado = atletas_realizado_query.scalar() or 0
 
     total_orcado = float(orcado_receita) - float(orcado_despesa)
     total_realizado = float(realizado_receita) - float(realizado_despesa)
@@ -169,9 +177,9 @@ async def get_resumo_geral(
             "variacao_percentual": round(variacao, 2)
         },
         "atletas": {
-            "total_orcado": atletas_resumo.orcado or 0,
-            "total_projetado": atletas_resumo.projetado or 0,
-            "total_realizado": atletas_resumo.realizado or 0
+            "total_orcado": atletas_orcado,
+            "total_projetado": atletas_projetado,
+            "total_realizado": atletas_realizado
         }
     }
 
@@ -267,11 +275,12 @@ async def get_atletas_por_modalidade(
     
     query = db.query(
         DimCategoriaAtleta.modalidade,
-        func.sum(FatoAtletas.qtd_atletas_realizado).label('total')
-    ).join(DimCategoriaAtleta, FatoAtletas.categoria_atleta_id == DimCategoriaAtleta.id)
+        func.sum(FatoAtletasMetricas.qtd_atletas).label('total')
+    ).join(DimCategoriaAtleta, FatoAtletasMetricas.categoria_atleta_id == DimCategoriaAtleta.id
+    ).filter(FatoAtletasMetricas.cenario == 'REALIZADO')
     
     if projeto_ids is not None:
-        query = query.filter(FatoAtletas.projeto_id.in_(projeto_ids))
+        query = query.filter(FatoAtletasMetricas.projeto_id.in_(projeto_ids))
     
     dados = query.group_by(DimCategoriaAtleta.modalidade).all()
 
@@ -291,22 +300,25 @@ async def get_atletas_por_projeto(
     
     query = db.query(
         DimProjeto.evento,
-        func.sum(FatoAtletas.qtd_atletas_orcado).label('orcado'),
-        func.sum(FatoAtletas.qtd_atletas_projetado).label('projetado'),
-        func.sum(FatoAtletas.qtd_atletas_realizado).label('realizado')
-    ).join(DimProjeto, FatoAtletas.projeto_id == DimProjeto.id)
+        FatoAtletasMetricas.cenario,
+        func.sum(FatoAtletasMetricas.qtd_atletas).label('total')
+    ).join(DimProjeto, FatoAtletasMetricas.projeto_id == DimProjeto.id)
     
     if projeto_ids is not None:
-        query = query.filter(FatoAtletas.projeto_id.in_(projeto_ids))
+        query = query.filter(FatoAtletasMetricas.projeto_id.in_(projeto_ids))
     
-    dados = query.group_by(DimProjeto.id, DimProjeto.evento).all()
+    dados = query.group_by(DimProjeto.id, DimProjeto.evento, FatoAtletasMetricas.cenario).all()
 
-    return [
-        {
-            "evento": d.evento,
-            "orcado": d.orcado or 0,
-            "projetado": d.projetado or 0,
-            "realizado": d.realizado or 0
-        }
-        for d in dados
-    ]
+    projetos_dict = {}
+    for d in dados:
+        if d.evento not in projetos_dict:
+            projetos_dict[d.evento] = {"evento": d.evento, "orcado": 0, "projetado": 0, "realizado": 0}
+        
+        if d.cenario == 'ORCADO':
+            projetos_dict[d.evento]["orcado"] = d.total or 0
+        elif d.cenario == 'PROJETADO':
+            projetos_dict[d.evento]["projetado"] = d.total or 0
+        elif d.cenario == 'REALIZADO':
+            projetos_dict[d.evento]["realizado"] = d.total or 0
+
+    return list(projetos_dict.values())

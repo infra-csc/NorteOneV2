@@ -73,35 +73,22 @@ class FatoRealizado(Base):
     conta = relationship("DimConta")
     projeto = relationship("DimProjeto")
 
-class FatoAtletas(Base):
-    __tablename__ = "fato_atletas"
+class FatoAtletasMetricas(Base):
+    """Métricas principais de atletas normalizadas por cenário"""
+    __tablename__ = "fato_atletas_metricas"
     
     id = Column(Integer, primary_key=True, index=True)
     projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=False)
-    categoria_atleta_id = Column(Integer, ForeignKey("dim_categoria_atleta.id"), nullable=False)
+    categoria_atleta_id = Column(Integer, ForeignKey("dim_categoria_atleta.id"))
     tempo_id = Column(Integer, ForeignKey("dim_tempo.id"))
+    cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
     
-    qtd_atletas_orcado = Column(Integer, default=0)
-    qtd_atletas_projetado = Column(Integer, default=0)
-    qtd_atletas_realizado = Column(Integer, default=0)
-    qtd_atletas_pago_orcado = Column(Integer, default=0)
-    qtd_atletas_pago_projetado = Column(Integer, default=0)
-    qtd_atletas_pago_realizado = Column(Integer, default=0)
-    qtd_atletas_cortesia_orcado = Column(Integer, default=0)
-    qtd_atletas_cortesia_projetado = Column(Integer, default=0)
-    qtd_atletas_cortesia_realizado = Column(Integer, default=0)
-    
-    tkt_medio_orcado = Column(Numeric(10, 2))
-    tkt_medio_projetado = Column(Numeric(10, 2))
-    tkt_medio_realizado = Column(Numeric(10, 2))
-    inscricao_orcado = Column(Numeric(10, 2))
-    inscricao_projetado = Column(Numeric(10, 2))
-    inscricao_realizado = Column(Numeric(10, 2))
-    
-    valor_inscricao_unitario = Column(Numeric(10, 2))
-    custo_kit_unitario_orcado = Column(Numeric(10, 2))
-    custo_kit_unitario_projetado = Column(Numeric(10, 2))
-    custo_kit_unitario_realizado = Column(Numeric(10, 2))
+    qtd_atletas = Column(Integer, default=0)
+    qtd_atletas_pago = Column(Integer, default=0)
+    qtd_atletas_cortesia = Column(Integer, default=0)
+    tkt_medio = Column(Numeric(10, 2))
+    inscricao = Column(Numeric(10, 2))
+    custo_kit_unitario = Column(Numeric(10, 2))
     
     versao_projecao = Column(Integer, default=1)
     observacao = Column(Text)
@@ -115,32 +102,7 @@ class FatoAtletas(Base):
     criador = relationship("Usuario", foreign_keys=[created_by])
     
     __table_args__ = (
-        UniqueConstraint('projeto_id', 'categoria_atleta_id', 'tempo_id', 'versao_projecao', name='uq_atletas'),
-    )
-
-
-class FatoAtletasMetricas(Base):
-    """Métricas principais de atletas normalizadas por cenário"""
-    __tablename__ = "fato_atletas_metricas"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
-    cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
-    
-    qtd_atletas = Column(Integer, default=0)
-    qtd_atletas_pago = Column(Integer, default=0)
-    qtd_atletas_cortesia = Column(Integer, default=0)
-    tkt_medio = Column(Numeric(10, 2))
-    inscricao = Column(Numeric(10, 2))
-    custo_kit_unitario = Column(Numeric(10, 2))
-    
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
-    
-    fato_atletas = relationship("FatoAtletas", backref="metricas")
-    
-    __table_args__ = (
-        UniqueConstraint('fato_atletas_id', 'cenario', name='uq_atletas_metricas'),
+        UniqueConstraint('projeto_id', 'categoria_atleta_id', 'tempo_id', 'cenario', 'versao_projecao', name='uq_atletas_metricas'),
     )
 
 
@@ -149,7 +111,9 @@ class FatoAtletasCanais(Base):
     __tablename__ = "fato_atletas_canais"
     
     id = Column(Integer, primary_key=True, index=True)
-    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=False)
+    categoria_atleta_id = Column(Integer, ForeignKey("dim_categoria_atleta.id"))
+    tempo_id = Column(Integer, ForeignKey("dim_tempo.id"))
     canal = Column(String(50), nullable=False)  # SITE, GRUPOS, APPAI
     cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
     
@@ -157,13 +121,19 @@ class FatoAtletasCanais(Base):
     tkt_medio = Column(Numeric(10, 2))
     inscricao = Column(Numeric(10, 2))
     
+    versao_projecao = Column(Integer, default=1)
+    observacao = Column(Text)
+    created_by = Column(Integer, ForeignKey("dim_usuario.id"))
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
     
-    fato_atletas = relationship("FatoAtletas", backref="canais")
+    projeto = relationship("DimProjeto")
+    categoria_atleta = relationship("DimCategoriaAtleta")
+    tempo = relationship("DimTempo")
+    criador = relationship("Usuario", foreign_keys=[created_by])
     
     __table_args__ = (
-        UniqueConstraint('fato_atletas_id', 'canal', 'cenario', name='uq_atletas_canais'),
+        UniqueConstraint('projeto_id', 'categoria_atleta_id', 'tempo_id', 'canal', 'cenario', 'versao_projecao', name='uq_atletas_canais'),
     )
 
 
@@ -172,7 +142,9 @@ class FatoAtletasKits(Base):
     __tablename__ = "fato_atletas_kits"
     
     id = Column(Integer, primary_key=True, index=True)
-    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=False)
+    categoria_atleta_id = Column(Integer, ForeignKey("dim_categoria_atleta.id"))
+    tempo_id = Column(Integer, ForeignKey("dim_tempo.id"))
     tipo_kit = Column(String(50), nullable=False)  # VIP, PLUS, SUPER, PRODUTO
     cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
     
@@ -181,13 +153,19 @@ class FatoAtletasKits(Base):
     inscricao = Column(Numeric(10, 2))
     custo_unitario = Column(Numeric(10, 2))
     
+    versao_projecao = Column(Integer, default=1)
+    observacao = Column(Text)
+    created_by = Column(Integer, ForeignKey("dim_usuario.id"))
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
     
-    fato_atletas = relationship("FatoAtletas", backref="kits")
+    projeto = relationship("DimProjeto")
+    categoria_atleta = relationship("DimCategoriaAtleta")
+    tempo = relationship("DimTempo")
+    criador = relationship("Usuario", foreign_keys=[created_by])
     
     __table_args__ = (
-        UniqueConstraint('fato_atletas_id', 'tipo_kit', 'cenario', name='uq_atletas_kits'),
+        UniqueConstraint('projeto_id', 'categoria_atleta_id', 'tempo_id', 'tipo_kit', 'cenario', 'versao_projecao', name='uq_atletas_kits'),
     )
 
 
@@ -196,7 +174,9 @@ class FatoAtletasCustos(Base):
     __tablename__ = "fato_atletas_custos"
     
     id = Column(Integer, primary_key=True, index=True)
-    fato_atletas_id = Column(Integer, ForeignKey("fato_atletas.id", ondelete="CASCADE"), nullable=False)
+    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=False)
+    categoria_atleta_id = Column(Integer, ForeignKey("dim_categoria_atleta.id"))
+    tempo_id = Column(Integer, ForeignKey("dim_tempo.id"))
     tipo_custo = Column(String(50), nullable=False)  # AGUA, ISOTONICO, HIDRATACAO, NUMERO_PEITO, CHIP, ALFINETE, IDENTIFICACAO
     cenario = Column(String(20), nullable=False)  # ORCADO, PROJETADO, REALIZADO
     
@@ -204,11 +184,17 @@ class FatoAtletasCustos(Base):
     qtd_por_atleta = Column(Numeric(10, 2))
     custo_total = Column(Numeric(10, 2))
     
+    versao_projecao = Column(Integer, default=1)
+    observacao = Column(Text)
+    created_by = Column(Integer, ForeignKey("dim_usuario.id"))
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
     
-    fato_atletas = relationship("FatoAtletas", backref="custos")
+    projeto = relationship("DimProjeto")
+    categoria_atleta = relationship("DimCategoriaAtleta")
+    tempo = relationship("DimTempo")
+    criador = relationship("Usuario", foreign_keys=[created_by])
     
     __table_args__ = (
-        UniqueConstraint('fato_atletas_id', 'tipo_custo', 'cenario', name='uq_atletas_custos'),
+        UniqueConstraint('projeto_id', 'categoria_atleta_id', 'tempo_id', 'tipo_custo', 'cenario', 'versao_projecao', name='uq_atletas_custos'),
     )
