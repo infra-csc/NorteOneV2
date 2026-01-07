@@ -43,9 +43,9 @@ interface CadastroEvento {
     distancia: string;
     pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
   }>;
-  kit_produto: Array<{ kit: string; produtos: string[]; qtd: number }>;
+  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; qtd: number }>; }>;
   trofeus: number;
-  hidratacao: Array<{ posto: string; distancia: string }>;
+  hidratacao: Array<{ posto: string; distancia: string; qtd_agua: number; qtd_isotonico: number }>;
   faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
@@ -73,9 +73,9 @@ interface FormData {
     distancia: string;
     pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
   }>;
-  kit_produto: Array<{ kit: string; produtos: string[]; qtd: number }>;
+  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; qtd: number }>; }>;
   trofeus: number;
-  hidratacao: Array<{ posto: string; distancia: string }>;
+  hidratacao: Array<{ posto: string; distancia: string; qtd_agua: number; qtd_isotonico: number }>;
   faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
@@ -114,9 +114,9 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   retirada_kit: { local: '', data_horario: '' },
   pelotoes: [{ pelotao: '', atletas: 0 }],
   cronometragem: [],
-  kit_produto: [{ kit: '', produtos: [], qtd: 0 }],
+  kit_produto: [{ kit: '', produtos: [] }],
   trofeus: 0,
-  hidratacao: [{ posto: '', distancia: '' }],
+  hidratacao: [{ posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 }],
   faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
   faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
 });
@@ -140,9 +140,12 @@ const mockCadastros: CadastroEvento[] = [
       { distancia: '10k', pelotoes: [{ pelotao: 'Quênia', num_inicio: 1, num_fim: 50, cor: 'Amarelo' }, { pelotao: 'Azul', num_inicio: 51, num_fim: 2000, cor: 'Azul' }] },
       { distancia: '21k', pelotoes: [{ pelotao: 'Verde', num_inicio: 2001, num_fim: 5000, cor: 'Verde' }] }
     ],
-    kit_produto: [{ kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola'], qtd: 10000 }, { kit: 'Kit Vip', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Moletom', 'Jaqueta'], qtd: 5000 }],
+    kit_produto: [
+      { kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', qtd: 10000 }, { nome: 'Medalha', qtd: 10000 }, { nome: 'Garrafa', qtd: 10000 }, { nome: 'Sacochila', qtd: 10000 }] },
+      { kit: 'Kit Vip', produtos: [{ nome: 'Camiseta', qtd: 5000 }, { nome: 'Medalha', qtd: 5000 }, { nome: 'Moletom', qtd: 5000 }] }
+    ],
     trofeus: 50,
-    hidratacao: [{ posto: 'Posto 1', distancia: '5k' }, { posto: 'Posto 2', distancia: '10k' }],
+    hidratacao: [{ posto: 'Posto 1', distancia: '5k', qtd_agua: 5000, qtd_isotonico: 2000 }, { posto: 'Posto 2', distancia: '10k', qtd_agua: 8000, qtd_isotonico: 3000 }],
     faixas_preco_site: [{ faixa: '1', qtd: 4000, tkt_medio: 149.90, total: 599600 }, { faixa: '2', qtd: 4000, tkt_medio: 199.90, total: 799600 }, { faixa: '3', qtd: 4000, tkt_medio: 249.90, total: 999600 }],
     faixas_preco_grupos: [{ faixa: '1', qtd: 1500, tkt_medio: 129.90, total: 194850 }, { faixa: '2', qtd: 1500, tkt_medio: 169.90, total: 254850 }]
   },
@@ -164,9 +167,9 @@ const mockCadastros: CadastroEvento[] = [
       { distancia: '5k', pelotoes: [{ pelotao: 'Azul', num_inicio: 1, num_fim: 3000, cor: 'Azul' }] },
       { distancia: '10k', pelotoes: [{ pelotao: 'Verde', num_inicio: 3001, num_fim: 8000, cor: 'Verde' }] }
     ],
-    kit_produto: [{ kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola'], qtd: 8000 }],
+    kit_produto: [{ kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', qtd: 8000 }, { nome: 'Medalha', qtd: 8000 }] }],
     trofeus: 30,
-    hidratacao: [{ posto: 'Posto 1', distancia: '5k' }],
+    hidratacao: [{ posto: 'Posto 1', distancia: '5k', qtd_agua: 4000, qtd_isotonico: 1500 }],
     faixas_preco_site: [{ faixa: '1', qtd: 3000, tkt_medio: 99.90, total: 299700 }, { faixa: '2', qtd: 3100, tkt_medio: 159.90, total: 495690 }],
     faixas_preco_grupos: [{ faixa: '1', qtd: 1900, tkt_medio: 89.90, total: 170810 }]
   }
@@ -269,9 +272,9 @@ const Cadastro: React.FC = () => {
     },
     pelotoes: [{ pelotao: '', atletas: 0 }],
     cronometragem: [],
-    kit_produto: [{ kit: '', produtos: [], qtd: 0 }],
+    kit_produto: [{ kit: '', produtos: [] }],
     trofeus: 0,
-    hidratacao: [{ posto: '', distancia: '' }],
+    hidratacao: [{ posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 }],
     faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
     faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
   };
@@ -336,9 +339,9 @@ const Cadastro: React.FC = () => {
         distancia: c.distancia,
         pelotoes: c.pelotoes.map(p => ({ ...p }))
       })) : [],
-      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ ...k, produtos: [...k.produtos] })) : [{ kit: '', produtos: [], qtd: 0 }],
+      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: k.produtos.map(p => ({ ...p })) })) : [{ kit: '', produtos: [] }],
       trofeus: item.trofeus || 0,
-      hidratacao: item.hidratacao?.length > 0 ? [...item.hidratacao] : [{ posto: '', distancia: '' }],
+      hidratacao: item.hidratacao?.length > 0 ? item.hidratacao.map(h => ({ ...h, qtd_agua: h.qtd_agua || 0, qtd_isotonico: h.qtd_isotonico || 0 })) : [{ posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 }],
       faixas_preco_site: item.faixas_preco_site?.length > 0 ? [...item.faixas_preco_site] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
       faixas_preco_grupos: item.faixas_preco_grupos?.length > 0 ? [...item.faixas_preco_grupos] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
     });
@@ -399,8 +402,8 @@ const Cadastro: React.FC = () => {
     const defaults: Record<string, any> = {
       pelotoes: { pelotao: '', atletas: 0 },
       cronometragem: { distancia: '', pelotoes: [{ pelotao: '', num_inicio: 0, num_fim: 0, cor: '' }] },
-      kit_produto: { kit: '', produtos: [], qtd: 0 },
-      hidratacao: { posto: '', distancia: '' },
+      kit_produto: { kit: '', produtos: [] },
+      hidratacao: { posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 },
       faixas_preco_site: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 },
       faixas_preco_grupos: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 }
     };
@@ -773,21 +776,23 @@ const Cadastro: React.FC = () => {
               </div>
             </div>
 
-            <div className={`p-4 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500/30' : 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200'} border`}>
-              <div className="flex items-center justify-between">
+            <div className={`p-5 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500/30' : 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200'} border`}>
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-purple-400" />
-                  <span className={`font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Total Atletas</span>
+                  <Users className="w-6 h-6 text-purple-400" />
+                  <span className={`text-lg font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Total Atletas</span>
                 </div>
-                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalGeral.toLocaleString()}</p>
+                <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalGeral.toLocaleString()}</p>
               </div>
-              <div className="mt-2 flex gap-4 text-sm">
-                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
-                  Pagos: <span className="text-green-400 font-semibold">{((form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0)).toLocaleString()}</span>
-                </span>
-                <span className={isDark ? 'text-gray-400' : 'text-gray-600'}>
-                  Cortesias: <span className="text-orange-400 font-semibold">{((form.atletas.site.cortesia || 0) + (form.atletas.grupos.cortesia || 0)).toLocaleString()}</span>
-                </span>
+              <div className="grid grid-cols-2 gap-4">
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900/30' : 'bg-green-50'} border ${isDark ? 'border-green-500/30' : 'border-green-200'}`}>
+                  <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Pagos</span>
+                  <span className="text-2xl font-bold text-green-400">{((form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0)).toLocaleString()}</span>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-orange-900/30' : 'bg-orange-50'} border ${isDark ? 'border-orange-500/30' : 'border-orange-200'}`}>
+                  <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Cortesias</span>
+                  <span className="text-2xl font-bold text-orange-400">{((form.atletas.site.cortesia || 0) + (form.atletas.grupos.cortesia || 0)).toLocaleString()}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -946,13 +951,15 @@ const Cadastro: React.FC = () => {
                         </select>
                         <input
                           type="number"
+                          min="1"
                           value={pel.num_inicio || ''}
                           onChange={(e) => {
+                            const value = Math.max(1, Number(e.target.value));
                             setForm(prev => ({
                               ...prev,
                               cronometragem: prev.cronometragem.map((c, i) => 
                                 i === cronoIndex 
-                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_inicio: Number(e.target.value) } : p) }
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_inicio: value } : p) }
                                   : c
                               )
                             }));
@@ -962,16 +969,35 @@ const Cadastro: React.FC = () => {
                         />
                         <input
                           type="number"
+                          min="1"
                           value={pel.num_fim || ''}
                           onChange={(e) => {
-                            setForm(prev => ({
-                              ...prev,
-                              cronometragem: prev.cronometragem.map((c, i) => 
+                            const value = Math.max(1, Number(e.target.value));
+                            setForm(prev => {
+                              const newCronometragem = prev.cronometragem.map((c, i) => 
                                 i === cronoIndex 
-                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_fim: Number(e.target.value) } : p) }
+                                  ? { ...c, pelotoes: c.pelotoes.map((p, pi) => pi === pelIndex ? { ...p, num_fim: value } : p) }
                                   : c
-                              )
-                            }));
+                              );
+                              
+                              const currentCrono = newCronometragem[cronoIndex];
+                              if (pelIndex < currentCrono.pelotoes.length - 1) {
+                                currentCrono.pelotoes[pelIndex + 1] = {
+                                  ...currentCrono.pelotoes[pelIndex + 1],
+                                  num_inicio: value + 1
+                                };
+                              } else if (cronoIndex < newCronometragem.length - 1) {
+                                const nextCrono = newCronometragem[cronoIndex + 1];
+                                if (nextCrono.pelotoes.length > 0) {
+                                  nextCrono.pelotoes[0] = {
+                                    ...nextCrono.pelotoes[0],
+                                    num_inicio: value + 1
+                                  };
+                                }
+                              }
+                              
+                              return { ...prev, cronometragem: newCronometragem };
+                            });
                           }}
                           placeholder="Fim"
                           className={`px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
@@ -1002,14 +1028,20 @@ const Cadastro: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setForm(prev => ({
-                        ...prev,
-                        cronometragem: prev.cronometragem.map((c, i) => 
-                          i === cronoIndex 
-                            ? { ...c, pelotoes: [...c.pelotoes, { pelotao: '', num_inicio: 0, num_fim: 0, cor: '' }] }
-                            : c
-                        )
-                      }));
+                      setForm(prev => {
+                        const currentCrono = prev.cronometragem[cronoIndex];
+                        const lastPelotao = currentCrono.pelotoes[currentCrono.pelotoes.length - 1];
+                        const nextNumInicio = lastPelotao && lastPelotao.num_fim > 0 ? lastPelotao.num_fim + 1 : 1;
+                        
+                        return {
+                          ...prev,
+                          cronometragem: prev.cronometragem.map((c, i) => 
+                            i === cronoIndex 
+                              ? { ...c, pelotoes: [...c.pelotoes, { pelotao: '', num_inicio: nextNumInicio, num_fim: 0, cor: '' }] }
+                              : c
+                          )
+                        };
+                      });
                     }}
                     className="w-full py-2 rounded-lg border border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors text-sm flex items-center justify-center gap-2"
                   >
@@ -1039,12 +1071,13 @@ const Cadastro: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="mb-4">
                   <select
                     value={kit.kit}
                     onChange={(e) => {
                       const selectedKit = e.target.value;
-                      const defaultProdutos = produtosPadraoPorKit[selectedKit] || [];
+                      const defaultProdutoNames = produtosPadraoPorKit[selectedKit] || [];
+                      const defaultProdutos = defaultProdutoNames.map(nome => ({ nome, qtd: 0 }));
                       setForm(prev => ({
                         ...prev,
                         kit_produto: prev.kit_produto.map((k, i) => 
@@ -1052,52 +1085,79 @@ const Cadastro: React.FC = () => {
                         )
                       }));
                     }}
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   >
                     <option value="">Selecione o Kit</option>
                     {kitOptions.filter(k => !form.kit_produto.some((fk, i) => i !== index && fk.kit === k)).map(k => (
                       <option key={k} value={k}>{k}</option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    value={kit.qtd || ''}
-                    onChange={(e) => updateArrayField('kit_produto', index, 'qtd', Number(e.target.value))}
-                    placeholder="Quantidade"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
                 </div>
                 
                 <div>
                   <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Produtos do Kit
+                    Produtos do Kit (clique para adicionar/remover)
                   </label>
-                  <div className="flex flex-wrap gap-2">
-                    {produtosDisponiveis.map(produto => (
-                      <button
-                        key={produto}
-                        type="button"
-                        onClick={() => {
-                          const produtos = kit.produtos.includes(produto)
-                            ? kit.produtos.filter(p => p !== produto)
-                            : [...kit.produtos, produto];
-                          setForm(prev => ({
-                            ...prev,
-                            kit_produto: prev.kit_produto.map((k, i) => 
-                              i === index ? { ...k, produtos } : k
-                            )
-                          }));
-                        }}
-                        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                          kit.produtos.includes(produto)
-                            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md'
-                            : isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                      >
-                        {produto}
-                      </button>
-                    ))}
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {produtosDisponiveis.map(produto => {
+                      const isSelected = kit.produtos.some(p => p.nome === produto);
+                      return (
+                        <button
+                          key={produto}
+                          type="button"
+                          onClick={() => {
+                            const produtos = isSelected
+                              ? kit.produtos.filter(p => p.nome !== produto)
+                              : [...kit.produtos, { nome: produto, qtd: 0 }];
+                            setForm(prev => ({
+                              ...prev,
+                              kit_produto: prev.kit_produto.map((k, i) => 
+                                i === index ? { ...k, produtos } : k
+                              )
+                            }));
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                            isSelected
+                              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-md'
+                              : isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          }`}
+                        >
+                          {produto}
+                        </button>
+                      );
+                    })}
                   </div>
+                  
+                  {kit.produtos.length > 0 && (
+                    <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                      <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Quantidade por produto
+                      </label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {kit.produtos.map((prod, prodIndex) => (
+                          <div key={prod.nome} className="flex items-center gap-2">
+                            <span className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'} min-w-[80px]`}>{prod.nome}</span>
+                            <input
+                              type="number"
+                              value={prod.qtd || ''}
+                              onChange={(e) => {
+                                const newProdutos = [...kit.produtos];
+                                newProdutos[prodIndex] = { ...newProdutos[prodIndex], qtd: Number(e.target.value) };
+                                setForm(prev => ({
+                                  ...prev,
+                                  kit_produto: prev.kit_produto.map((k, i) => 
+                                    i === index ? { ...k, produtos: newProdutos } : k
+                                  )
+                                }));
+                              }}
+                              placeholder="Qtd"
+                              className={`flex-1 px-2 py-1 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -1143,7 +1203,7 @@ const Cadastro: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <select
                     value={h.posto}
                     onChange={(e) => updateArrayField('hidratacao', index, 'posto', e.target.value)}
@@ -1160,10 +1220,43 @@ const Cadastro: React.FC = () => {
                     className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   >
                     <option value="">Distância</option>
-                    {distanciasOptions.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
+                    {form.info_geral.distancias.length > 0 
+                      ? form.info_geral.distancias.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))
+                      : distanciasOptions.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))
+                    }
                   </select>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <Droplets className="w-3 h-3 inline mr-1 text-blue-400" />
+                      Qtd. Água
+                    </label>
+                    <input
+                      type="number"
+                      value={h.qtd_agua || ''}
+                      onChange={(e) => updateArrayField('hidratacao', index, 'qtd_agua', Number(e.target.value))}
+                      placeholder="Quantidade"
+                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <Droplets className="w-3 h-3 inline mr-1 text-orange-400" />
+                      Qtd. Isotônico
+                    </label>
+                    <input
+                      type="number"
+                      value={h.qtd_isotonico || ''}
+                      onChange={(e) => updateArrayField('hidratacao', index, 'qtd_isotonico', Number(e.target.value))}
+                      placeholder="Quantidade"
+                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -1435,10 +1528,10 @@ const Cadastro: React.FC = () => {
           }}
         >
           <div 
-            className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-full max-w-4xl my-8 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}
+            className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-[90%] max-w-7xl my-4 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden max-h-[90vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative h-64 overflow-hidden">
+            <div className="relative h-64 overflow-hidden flex-shrink-0">
               {selectedCadastro.imagem_kv ? (
                 <img 
                   src={selectedCadastro.imagem_kv} 
@@ -1550,10 +1643,10 @@ const Cadastro: React.FC = () => {
           }}
         >
           <div 
-            className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-full max-w-4xl my-8 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}
+            className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-[90%] max-w-7xl my-4 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden max-h-[90vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`relative h-48 overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
+            <div className={`relative h-48 overflow-hidden flex-shrink-0 ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
               {form.imagem_kv ? (
                 <img 
                   src={form.imagem_kv} 
@@ -1595,41 +1688,35 @@ const Cadastro: React.FC = () => {
                     placeholder="Buscar projeto/evento..."
                     className="w-full pl-10 pr-4 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
                   />
-                  {showProjetoDropdown && filteredProjetos.length > 0 && (
+                  {showProjetoDropdown && (
                     <div className={`absolute top-full left-0 right-0 mt-2 max-h-48 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-xl z-10`}>
-                      {filteredProjetos.map(projeto => (
-                        <button
-                          key={projeto.id}
-                          type="button"
-                          onClick={() => {
-                            setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento }));
-                            setProjetoBusca(projeto.evento);
-                            setShowProjetoDropdown(false);
-                          }}
-                          className={`w-full px-4 py-3 text-left hover:bg-purple-500/20 transition-colors ${isDark ? 'text-white' : 'text-gray-900'}`}
-                        >
-                          <div className="font-semibold">{projeto.evento}</div>
-                          <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{projeto.codigo}</div>
-                        </button>
-                      ))}
+                      {filteredProjetos.length > 0 ? (
+                        filteredProjetos.map(projeto => (
+                          <button
+                            key={projeto.id}
+                            type="button"
+                            onClick={() => {
+                              setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento }));
+                              setProjetoBusca(projeto.evento);
+                              setShowProjetoDropdown(false);
+                            }}
+                            className={`w-full px-4 py-3 text-left hover:bg-purple-500/20 transition-colors ${isDark ? 'text-white' : 'text-gray-900'}`}
+                          >
+                            <div className="font-semibold">{projeto.evento}</div>
+                            <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{projeto.codigo}</div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className={`px-4 py-3 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          Nenhum projeto encontrado
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="p-4 border-b border-gray-700/50">
-              <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                URL da Imagem do Evento
-              </label>
-              <input
-                type="url"
-                value={form.imagem_kv}
-                onChange={(e) => setForm(prev => ({ ...prev, imagem_kv: e.target.value }))}
-                placeholder="https://exemplo.com/imagem.jpg"
-                className={`w-full px-4 py-2 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              />
-            </div>
 
             <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-700/50">
               {tabs.map((tab) => {
@@ -1657,7 +1744,7 @@ const Cadastro: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmit}>
-              <div className="p-6 min-h-[300px] max-h-[400px] overflow-y-auto">
+              <div className="p-6 min-h-[400px] flex-1 overflow-y-auto">
                 {renderTabContent()}
               </div>
 
