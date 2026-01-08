@@ -1851,10 +1851,10 @@ const Cadastro: React.FC = () => {
                   {showProjetoDropdown && (
                     <>
                       <div 
-                        className="fixed inset-0 z-[5]" 
+                        className="fixed inset-0 z-[100]" 
                         onClick={() => setShowProjetoDropdown(false)}
                       />
-                      <div className={`absolute top-full left-0 right-0 mt-2 max-h-64 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-2xl z-10`}>
+                      <div className={`absolute bottom-full left-0 right-0 mb-2 max-h-64 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-2xl z-[101]`}>
                         <div className={`sticky top-0 px-4 py-2 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                           <p className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                             {filteredProjetos.length} evento{filteredProjetos.length !== 1 ? 's' : ''} disponível{filteredProjetos.length !== 1 ? 'is' : ''}
