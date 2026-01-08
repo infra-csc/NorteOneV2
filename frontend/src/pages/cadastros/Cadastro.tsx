@@ -465,6 +465,30 @@ const Cadastro: React.FC = () => {
            (cadastro.atletas.cortesia || 0);
   };
 
+  const getAtletasAlocadosPelotoes = () => {
+    return form.pelotoes_por_distancia.reduce((total, dist) => {
+      return total + dist.pelotoes.reduce((sum, p) => sum + (p.atletas || 0), 0);
+    }, 0);
+  };
+
+  const getAtletasAlocadosCronometragem = () => {
+    return form.cronometragem.reduce((total: number, dist) => {
+      return total + dist.pelotoes.reduce((sum: number, p) => {
+        const atletas = p.num_fim > 0 && p.num_inicio > 0 ? (p.num_fim - p.num_inicio + 1) : 0;
+        return sum + atletas;
+      }, 0);
+    }, 0);
+  };
+
+  const getAtletasAlocadosHidratacao = () => {
+    const distanciasTotal = form.hidratacao.distancias.reduce((total, dist) => total + (dist.atletas || 0), 0);
+    const chegadaTotal = form.hidratacao.chegada.atletas || 0;
+    const ativacoesTotal = form.hidratacao.ativacoes.atletas || 0;
+    return distanciasTotal + chegadaTotal + ativacoesTotal;
+  };
+
+  const maxAtletas = getTotalAtletas();
+
   const filteredCadastros = useMemo(() => {
     if (!busca) return cadastros;
     return cadastros.filter(c => 
@@ -1129,6 +1153,10 @@ const Cadastro: React.FC = () => {
         );
 
       case 'pelotoes': {
+        const atletasAlocados = getAtletasAlocadosPelotoes();
+        const atletasRestantes = maxAtletas - atletasAlocados;
+        const excedeCapacidade = atletasAlocados > maxAtletas;
+
         const updatePelotaoDistancia = (distanciaIndex: number, pelotaoIndex: number, field: string, value: string | number) => {
           setForm(prev => {
             const newPelotoes = [...prev.pelotoes_por_distancia];
@@ -1161,6 +1189,37 @@ const Cadastro: React.FC = () => {
 
         return (
           <div className="space-y-4">
+            <div className={`p-4 rounded-xl border ${excedeCapacidade 
+              ? (isDark ? 'bg-red-900/30 border-red-500/50' : 'bg-red-50 border-red-300') 
+              : (isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200')}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className={`w-5 h-5 ${excedeCapacidade ? 'text-red-400' : 'text-purple-400'}`} />
+                  <span className={`font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>Capacidade de Atletas</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Alocados</span>
+                    <span className={`text-lg font-bold ${excedeCapacidade ? 'text-red-400' : 'text-purple-400'}`}>{formatNumber(atletasAlocados)}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Máximo</span>
+                    <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(maxAtletas)}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Restantes</span>
+                    <span className={`text-lg font-bold ${atletasRestantes < 0 ? 'text-red-400' : 'text-green-400'}`}>{formatNumber(atletasRestantes)}</span>
+                  </div>
+                </div>
+              </div>
+              {excedeCapacidade && (
+                <div className="mt-2 flex items-center gap-2 text-red-400">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm">Quantidade de atletas excede o limite definido na aba Atletas!</span>
+                </div>
+              )}
+            </div>
+
             {form.info_geral.distancias.length === 0 ? (
               <div className={`p-6 rounded-xl text-center ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
                 <AlertCircle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
@@ -1238,9 +1297,44 @@ const Cadastro: React.FC = () => {
         );
       }
 
-      case 'cronometragem':
+      case 'cronometragem': {
+        const atletasAlocadosCrono = getAtletasAlocadosCronometragem();
+        const atletasRestantesCrono = maxAtletas - atletasAlocadosCrono;
+        const excedeCapacidadeCrono = atletasAlocadosCrono > maxAtletas;
+
         return (
           <div className="space-y-4">
+            <div className={`p-4 rounded-xl border ${excedeCapacidadeCrono 
+              ? (isDark ? 'bg-red-900/30 border-red-500/50' : 'bg-red-50 border-red-300') 
+              : (isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200')}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className={`w-5 h-5 ${excedeCapacidadeCrono ? 'text-red-400' : 'text-purple-400'}`} />
+                  <span className={`font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>Capacidade de Atletas</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Alocados</span>
+                    <span className={`text-lg font-bold ${excedeCapacidadeCrono ? 'text-red-400' : 'text-purple-400'}`}>{formatNumber(atletasAlocadosCrono)}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Máximo</span>
+                    <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(maxAtletas)}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Restantes</span>
+                    <span className={`text-lg font-bold ${atletasRestantesCrono < 0 ? 'text-red-400' : 'text-green-400'}`}>{formatNumber(atletasRestantesCrono)}</span>
+                  </div>
+                </div>
+              </div>
+              {excedeCapacidadeCrono && (
+                <div className="mt-2 flex items-center gap-2 text-red-400">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm">Quantidade de atletas excede o limite definido na aba Atletas!</span>
+                </div>
+              )}
+            </div>
+
             {form.info_geral.distancias.length === 0 ? (
               <div className={`p-6 rounded-xl text-center ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
                 <AlertCircle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
@@ -1407,6 +1501,7 @@ const Cadastro: React.FC = () => {
             )}
           </div>
         );
+      }
 
       case 'kit_produto':
         return (
@@ -1496,6 +1591,10 @@ const Cadastro: React.FC = () => {
         );
 
       case 'hidratacao': {
+        const atletasAlocadosHidrat = getAtletasAlocadosHidratacao();
+        const atletasRestantesHidrat = maxAtletas - atletasAlocadosHidrat;
+        const excedeCapacidadeHidrat = atletasAlocadosHidrat > maxAtletas;
+
         const updateHidratacaoDistancia = (index: number, field: string, value: number) => {
           setForm(prev => {
             const newDistancias = [...prev.hidratacao.distancias];
@@ -1600,6 +1699,37 @@ const Cadastro: React.FC = () => {
 
         return (
           <div className="space-y-4">
+            <div className={`p-4 rounded-xl border ${excedeCapacidadeHidrat 
+              ? (isDark ? 'bg-red-900/30 border-red-500/50' : 'bg-red-50 border-red-300') 
+              : (isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200')}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className={`w-5 h-5 ${excedeCapacidadeHidrat ? 'text-red-400' : 'text-purple-400'}`} />
+                  <span className={`font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>Capacidade de Atletas</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Alocados</span>
+                    <span className={`text-lg font-bold ${excedeCapacidadeHidrat ? 'text-red-400' : 'text-purple-400'}`}>{formatNumber(atletasAlocadosHidrat)}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Máximo</span>
+                    <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(maxAtletas)}</span>
+                  </div>
+                  <div className="text-center">
+                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Restantes</span>
+                    <span className={`text-lg font-bold ${atletasRestantesHidrat < 0 ? 'text-red-400' : 'text-green-400'}`}>{formatNumber(atletasRestantesHidrat)}</span>
+                  </div>
+                </div>
+              </div>
+              {excedeCapacidadeHidrat && (
+                <div className="mt-2 flex items-center gap-2 text-red-400">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm">Quantidade de atletas excede o limite definido na aba Atletas!</span>
+                </div>
+              )}
+            </div>
+
             {form.info_geral.distancias.length === 0 ? (
               <div className={`p-6 rounded-xl text-center ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
                 <AlertCircle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
