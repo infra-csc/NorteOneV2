@@ -56,6 +56,10 @@ interface CadastroEvento {
     data_horario: string;
   };
   pelotoes: Array<{ pelotao: string; atletas: number }>;
+  pelotoes_por_distancia: Array<{
+    distancia: string;
+    pelotoes: Array<{ nome: string; atletas: number }>;
+  }>;
   cronometragem: Array<{
     distancia: string;
     pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
@@ -86,6 +90,10 @@ interface FormData {
     data_horario: string;
   };
   pelotoes: Array<{ pelotao: string; atletas: number }>;
+  pelotoes_por_distancia: Array<{
+    distancia: string;
+    pelotoes: Array<{ nome: string; atletas: number }>;
+  }>;
   cronometragem: Array<{
     distancia: string;
     pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
@@ -136,6 +144,7 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   },
   retirada_kit: { local: '', data_horario: '' },
   pelotoes: [{ pelotao: '', atletas: 0 }],
+  pelotoes_por_distancia: [],
   cronometragem: [],
   kit_produto: [{ kit: '', produtos: [] }],
   trofeus: 0,
@@ -159,6 +168,11 @@ const mockCadastros: CadastroEvento[] = [
     },
     retirada_kit: { local: 'Pavilhão do Ibirapuera', data_horario: '2026-04-11T10:00' },
     pelotoes: [{ pelotao: 'Quênia', atletas: 50 }, { pelotao: 'Azul', atletas: 2000 }, { pelotao: 'Verde', atletas: 5000 }],
+    pelotoes_por_distancia: [
+      { distancia: '10k', pelotoes: [{ nome: 'Azul', atletas: 2000 }] },
+      { distancia: '21k', pelotoes: [{ nome: 'Verde', atletas: 5000 }] },
+      { distancia: '42k', pelotoes: [{ nome: 'Quênia', atletas: 50 }] }
+    ],
     cronometragem: [
       { distancia: '10k', pelotoes: [{ pelotao: 'Quênia', num_inicio: 1, num_fim: 50, cor: 'Amarelo' }, { pelotao: 'Azul', num_inicio: 51, num_fim: 2000, cor: 'Azul' }] },
       { distancia: '21k', pelotoes: [{ pelotao: 'Verde', num_inicio: 2001, num_fim: 5000, cor: 'Verde' }] }
@@ -195,6 +209,10 @@ const mockCadastros: CadastroEvento[] = [
     },
     retirada_kit: { local: 'Marina da Glória', data_horario: '2026-06-19T14:00' },
     pelotoes: [{ pelotao: 'Azul', atletas: 3000 }, { pelotao: 'Verde', atletas: 5000 }],
+    pelotoes_por_distancia: [
+      { distancia: '5k', pelotoes: [{ nome: 'Azul', atletas: 3000 }] },
+      { distancia: '10k', pelotoes: [{ nome: 'Verde', atletas: 5000 }] }
+    ],
     cronometragem: [
       { distancia: '5k', pelotoes: [{ pelotao: 'Azul', num_inicio: 1, num_fim: 3000, cor: 'Azul' }] },
       { distancia: '10k', pelotoes: [{ pelotao: 'Verde', num_inicio: 3001, num_fim: 8000, cor: 'Verde' }] }
@@ -313,6 +331,7 @@ const Cadastro: React.FC = () => {
       data_horario: ''
     },
     pelotoes: [{ pelotao: '', atletas: 0 }],
+    pelotoes_por_distancia: [],
     cronometragem: [],
     kit_produto: [{ kit: '', produtos: [] }],
     trofeus: 0,
@@ -481,6 +500,12 @@ const Cadastro: React.FC = () => {
       },
       retirada_kit: { ...item.retirada_kit },
       pelotoes: item.pelotoes.length > 0 ? [...item.pelotoes] : [{ pelotao: '', atletas: 0 }],
+      pelotoes_por_distancia: item.pelotoes_por_distancia?.length > 0 
+        ? item.pelotoes_por_distancia.map(d => ({
+            distancia: d.distancia,
+            pelotoes: d.pelotoes.map(p => ({ ...p }))
+          }))
+        : [],
       cronometragem: item.cronometragem.length > 0 ? item.cronometragem.map(c => ({
         distancia: c.distancia,
         pelotoes: c.pelotoes.map(p => ({ ...p }))
@@ -515,6 +540,7 @@ const Cadastro: React.FC = () => {
               atletas: form.atletas,
               retirada_kit: form.retirada_kit,
               pelotoes: form.pelotoes,
+              pelotoes_por_distancia: form.pelotoes_por_distancia,
               cronometragem: form.cronometragem,
               kit_produto: form.kit_produto,
               trofeus: form.trofeus,
@@ -536,6 +562,7 @@ const Cadastro: React.FC = () => {
         atletas: form.atletas,
         retirada_kit: form.retirada_kit,
         pelotoes: form.pelotoes,
+        pelotoes_por_distancia: form.pelotoes_por_distancia,
         cronometragem: form.cronometragem,
         kit_produto: form.kit_produto,
         trofeus: form.trofeus,
@@ -621,6 +648,25 @@ const Cadastro: React.FC = () => {
             }))
           ]
         }
+      }));
+    }
+  }, [form.info_geral.distancias]);
+
+  useEffect(() => {
+    const existingDistancias = form.pelotoes_por_distancia.map(p => p.distancia);
+    const newDistancias = form.info_geral.distancias.filter(d => !existingDistancias.includes(d));
+    const removedDistancias = existingDistancias.filter(d => !form.info_geral.distancias.includes(d));
+    
+    if (newDistancias.length > 0 || removedDistancias.length > 0) {
+      setForm(prev => ({
+        ...prev,
+        pelotoes_por_distancia: [
+          ...prev.pelotoes_por_distancia.filter(p => form.info_geral.distancias.includes(p.distancia)),
+          ...newDistancias.map(d => ({
+            distancia: d,
+            pelotoes: [{ nome: '', atletas: 0 }]
+          }))
+        ]
       }));
     }
   }, [form.info_geral.distancias]);
@@ -1075,54 +1121,115 @@ const Cadastro: React.FC = () => {
           </div>
         );
 
-      case 'pelotoes':
+      case 'pelotoes': {
+        const updatePelotaoDistancia = (distanciaIndex: number, pelotaoIndex: number, field: string, value: string | number) => {
+          setForm(prev => {
+            const newPelotoes = [...prev.pelotoes_por_distancia];
+            const newPelotoesList = [...newPelotoes[distanciaIndex].pelotoes];
+            newPelotoesList[pelotaoIndex] = { ...newPelotoesList[pelotaoIndex], [field]: value };
+            newPelotoes[distanciaIndex] = { ...newPelotoes[distanciaIndex], pelotoes: newPelotoesList };
+            return { ...prev, pelotoes_por_distancia: newPelotoes };
+          });
+        };
+
+        const addPelotaoToDistancia = (distanciaIndex: number) => {
+          setForm(prev => {
+            const newPelotoes = [...prev.pelotoes_por_distancia];
+            newPelotoes[distanciaIndex] = {
+              ...newPelotoes[distanciaIndex],
+              pelotoes: [...newPelotoes[distanciaIndex].pelotoes, { nome: '', atletas: 0 }]
+            };
+            return { ...prev, pelotoes_por_distancia: newPelotoes };
+          });
+        };
+
+        const removePelotaoFromDistancia = (distanciaIndex: number, pelotaoIndex: number) => {
+          setForm(prev => {
+            const newPelotoes = [...prev.pelotoes_por_distancia];
+            const newPelotoesList = newPelotoes[distanciaIndex].pelotoes.filter((_, i) => i !== pelotaoIndex);
+            newPelotoes[distanciaIndex] = { ...newPelotoes[distanciaIndex], pelotoes: newPelotoesList };
+            return { ...prev, pelotoes_por_distancia: newPelotoes };
+          });
+        };
+
         return (
           <div className="space-y-4">
-            {form.pelotoes.map((pelotao, index) => (
-              <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                <div className="flex justify-between items-center mb-3">
-                  <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Pelotão {index + 1}</span>
-                  {form.pelotoes.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeArrayField('pelotoes', index)}
-                      className="p-1 text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <select
-                    value={pelotao.pelotao}
-                    onChange={(e) => updateArrayField('pelotoes', index, 'pelotao', e.target.value)}
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  >
-                    <option value="">Selecione</option>
-                    {pelotoesOptions.filter(p => !form.pelotoes.some((fp, i) => i !== index && fp.pelotao === p)).map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                  <FormattedInput
-                    value={pelotao.atletas || 0}
-                    onChange={(val) => updateArrayField('pelotoes', index, 'atletas', val)}
-                    label="Qtd Atletas"
-                    placeholder="Qtd Atletas"
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                </div>
+            {form.info_geral.distancias.length === 0 ? (
+              <div className={`p-6 rounded-xl text-center ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                <AlertCircle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
+                <p className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Defina as distâncias na aba "Info Geral" primeiro
+                </p>
+                <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                  Os pelotões serão organizados por distância
+                </p>
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => addArrayField('pelotoes')}
-              className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Adicionar Pelotão
-            </button>
+            ) : (
+              form.pelotoes_por_distancia.map((distancia, distanciaIndex) => (
+                <div key={distanciaIndex} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold">
+                      {distancia.distancia}
+                    </div>
+                    <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      {distancia.pelotoes.length} pelotão(ões) • {distancia.pelotoes.reduce((acc, p) => acc + (p.atletas || 0), 0)} atletas
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {distancia.pelotoes.map((pelotao, pelotaoIndex) => (
+                      <div key={pelotaoIndex} className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Pelotão {pelotaoIndex + 1}</span>
+                          {distancia.pelotoes.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removePelotaoFromDistancia(distanciaIndex, pelotaoIndex)}
+                              className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <select
+                            value={pelotao.nome}
+                            onChange={(e) => updatePelotaoDistancia(distanciaIndex, pelotaoIndex, 'nome', e.target.value)}
+                            className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                          >
+                            <option value="">Selecione o pelotão</option>
+                            {pelotoesOptions.filter(p => 
+                              !distancia.pelotoes.some((fp, i) => i !== pelotaoIndex && fp.nome === p)
+                            ).map(p => (
+                              <option key={p} value={p}>{p}</option>
+                            ))}
+                          </select>
+                          <FormattedInput
+                            value={pelotao.atletas || 0}
+                            onChange={(val) => updatePelotaoDistancia(distanciaIndex, pelotaoIndex, 'atletas', val)}
+                            label="Qtd Atletas"
+                            placeholder="Qtd Atletas"
+                            className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => addPelotaoToDistancia(distanciaIndex)}
+                    className="w-full mt-3 py-2 rounded-lg border-2 border-dashed border-purple-500/30 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Adicionar Pelotão
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         );
+      }
 
       case 'cronometragem':
         return (
@@ -1378,19 +1485,6 @@ const Cadastro: React.FC = () => {
               Adicionar Kit
             </button>
 
-            <div className={`p-4 rounded-xl ${isDark ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'} border`}>
-              <div className="flex items-center gap-2 mb-3">
-                <Trophy className="w-5 h-5 text-amber-400" />
-                <span className={`font-bold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Troféus (Evento)</span>
-              </div>
-              <FormattedInput
-                value={form.trofeus || 0}
-                onChange={(val) => setForm(prev => ({ ...prev, trofeus: val }))}
-                label="Quantidade de troféus"
-                placeholder="Quantidade de troféus para o evento"
-                className={`w-full px-4 py-3 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-amber-500`}
-              />
-            </div>
           </div>
         );
 
