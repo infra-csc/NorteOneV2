@@ -566,11 +566,21 @@ const Cadastro: React.FC = () => {
     const field = tipo === 'site' ? 'faixas_preco_site' : 'faixas_preco_grupos';
     const faixas = tipo === 'site' ? form.faixas_preco_site : form.faixas_preco_grupos;
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const totalAtletasOrcado = getTotalAtletas();
+    
+    const atletasOrcado = tipo === 'site' 
+      ? (form.atletas.site.pago || 0) + (form.atletas.site.cortesia || 0)
+      : (form.atletas.grupos.pago || 0) + (form.atletas.grupos.cortesia || 0);
+    const tktMedioOrcado = tipo === 'site' 
+      ? (form.atletas.site.tkt_medio || 0) 
+      : (form.atletas.grupos.tkt_medio || 0);
+    const valorTotalOrcado = atletasOrcado * tktMedioOrcado;
+    
     const canAddMore = faixas.length < 5;
     
-    const diferencaQtd = totalQtd - totalAtletasOrcado;
-    const percentualPreenchido = totalAtletasOrcado > 0 ? (totalQtd / totalAtletasOrcado) * 100 : 0;
+    const diferencaQtd = totalQtd - atletasOrcado;
+    const diferencaTktMedio = ticketMedioReal - tktMedioOrcado;
+    const diferencaValor = totalValor - valorTotalOrcado;
+    const percentualPreenchido = atletasOrcado > 0 ? (totalQtd / atletasOrcado) * 100 : 0;
 
     return (
       <div className="space-y-4">
@@ -674,34 +684,77 @@ const Cadastro: React.FC = () => {
               </div>
             </div>
             
-            <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                  Orçado (Aba Atletas): {formatNumber(totalAtletasOrcado) || '0'}
-                </span>
-                <span className={`text-xs font-bold flex items-center gap-1 ${
-                  diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
-                }`}>
-                  {diferencaQtd === 0 ? (
-                    <><Check className="w-3 h-3" /> Exato</>
-                  ) : diferencaQtd > 0 ? (
-                    <><TrendingUp className="w-3 h-3" /> +{formatNumber(diferencaQtd)}</>
-                  ) : (
-                    <><TrendingDown className="w-3 h-3" /> {formatNumber(diferencaQtd)}</>
-                  )}
-                </span>
+            <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-3`}>
+              <h5 className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                Comparativo com Orçado ({tipo === 'site' ? 'Site' : 'Grupos'})
+              </h5>
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Qtd Atletas: {formatNumber(atletasOrcado) || '0'} orçado
+                  </span>
+                  <span className={`text-xs font-bold flex items-center gap-1 ${
+                    diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
+                  }`}>
+                    {diferencaQtd === 0 ? (
+                      <><Check className="w-3 h-3" /> Exato</>
+                    ) : diferencaQtd > 0 ? (
+                      <><TrendingUp className="w-3 h-3" /> +{formatNumber(diferencaQtd)}</>
+                    ) : (
+                      <><TrendingDown className="w-3 h-3" /> {formatNumber(diferencaQtd)}</>
+                    )}
+                  </span>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Tkt Médio: {formatCurrency(tktMedioOrcado)} orçado
+                  </span>
+                  <span className={`text-xs font-bold flex items-center gap-1 ${
+                    Math.abs(diferencaTktMedio) < 0.01 ? 'text-green-400' : diferencaTktMedio > 0 ? 'text-blue-400' : 'text-orange-400'
+                  }`}>
+                    {Math.abs(diferencaTktMedio) < 0.01 ? (
+                      <><Check className="w-3 h-3" /> Exato</>
+                    ) : diferencaTktMedio > 0 ? (
+                      <><TrendingUp className="w-3 h-3" /> +{formatCurrency(diferencaTktMedio)}</>
+                    ) : (
+                      <><TrendingDown className="w-3 h-3" /> {formatCurrency(diferencaTktMedio)}</>
+                    )}
+                  </span>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Total: {formatCurrency(valorTotalOrcado)} orçado
+                  </span>
+                  <span className={`text-xs font-bold flex items-center gap-1 ${
+                    Math.abs(diferencaValor) < 0.01 ? 'text-green-400' : diferencaValor > 0 ? 'text-blue-400' : 'text-orange-400'
+                  }`}>
+                    {Math.abs(diferencaValor) < 0.01 ? (
+                      <><Check className="w-3 h-3" /> Exato</>
+                    ) : diferencaValor > 0 ? (
+                      <><TrendingUp className="w-3 h-3" /> +{formatCurrency(diferencaValor)}</>
+                    ) : (
+                      <><TrendingDown className="w-3 h-3" /> {formatCurrency(diferencaValor)}</>
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="w-full bg-gray-600 rounded-full h-2">
-                <div 
-                  className={`h-2 rounded-full transition-all ${
-                    percentualPreenchido >= 100 ? 'bg-green-500' : percentualPreenchido >= 80 ? 'bg-blue-500' : 'bg-orange-500'
-                  }`}
-                  style={{ width: `${Math.min(percentualPreenchido, 100)}%` }}
-                />
+              
+              <div>
+                <div className="w-full bg-gray-600 rounded-full h-2">
+                  <div 
+                    className={`h-2 rounded-full transition-all ${
+                      percentualPreenchido >= 100 ? 'bg-green-500' : percentualPreenchido >= 80 ? 'bg-blue-500' : 'bg-orange-500'
+                    }`}
+                    style={{ width: `${Math.min(percentualPreenchido, 100)}%` }}
+                  />
+                </div>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  {percentualPreenchido.toFixed(1)}% do orçado em quantidade
+                </p>
               </div>
-              <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                {percentualPreenchido.toFixed(1)}% do orçado
-              </p>
             </div>
           </div>
         )}
