@@ -1842,34 +1842,63 @@ const Cadastro: React.FC = () => {
                       setProjetoBusca(e.target.value);
                       setShowProjetoDropdown(true);
                     }}
+                    onClick={() => setShowProjetoDropdown(true)}
                     onFocus={() => setShowProjetoDropdown(true)}
-                    placeholder="Buscar projeto/evento..."
-                    className="w-full pl-10 pr-4 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="Clique para selecionar o evento..."
+                    className="w-full pl-10 pr-10 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
                   />
+                  <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50 transition-transform ${showProjetoDropdown ? 'rotate-180' : ''}`} />
                   {showProjetoDropdown && (
-                    <div className={`absolute top-full left-0 right-0 mt-2 max-h-48 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-xl z-10`}>
-                      {filteredProjetos.length > 0 ? (
-                        filteredProjetos.map(projeto => (
-                          <button
-                            key={projeto.id}
-                            type="button"
-                            onClick={() => {
-                              setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento, imagem_kv: projeto.imagem_kv || '' }));
-                              setProjetoBusca(projeto.evento);
-                              setShowProjetoDropdown(false);
-                            }}
-                            className={`w-full px-4 py-3 text-left hover:bg-purple-500/20 transition-colors ${isDark ? 'text-white' : 'text-gray-900'}`}
-                          >
-                            <div className="font-semibold">{projeto.evento}</div>
-                            <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{projeto.codigo}</div>
-                          </button>
-                        ))
-                      ) : (
-                        <div className={`px-4 py-3 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Nenhum projeto encontrado
+                    <>
+                      <div 
+                        className="fixed inset-0 z-[5]" 
+                        onClick={() => setShowProjetoDropdown(false)}
+                      />
+                      <div className={`absolute top-full left-0 right-0 mt-2 max-h-64 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-2xl z-10`}>
+                        <div className={`sticky top-0 px-4 py-2 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                          <p className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {filteredProjetos.length} evento{filteredProjetos.length !== 1 ? 's' : ''} disponível{filteredProjetos.length !== 1 ? 'is' : ''}
+                          </p>
                         </div>
-                      )}
-                    </div>
+                        {filteredProjetos.length > 0 ? (
+                          filteredProjetos.map(projeto => (
+                            <button
+                              key={projeto.id}
+                              type="button"
+                              onClick={() => {
+                                setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento, imagem_kv: projeto.imagem_kv || '' }));
+                                setProjetoBusca(projeto.evento);
+                                setShowProjetoDropdown(false);
+                              }}
+                              className={`w-full px-4 py-3 text-left hover:bg-purple-500/20 transition-colors flex items-center gap-3 ${
+                                form.projeto_id === projeto.id ? (isDark ? 'bg-purple-500/30' : 'bg-purple-100') : ''
+                              } ${isDark ? 'text-white' : 'text-gray-900'}`}
+                            >
+                              {projeto.imagem_kv ? (
+                                <img src={projeto.imagem_kv} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                              ) : (
+                                <div className={`w-10 h-10 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
+                                  <Calendar className="w-5 h-5 text-gray-400" />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold truncate">{projeto.evento}</div>
+                                <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{projeto.codigo}</div>
+                              </div>
+                              {form.projeto_id === projeto.id && (
+                                <Check className="w-5 h-5 text-purple-500 flex-shrink-0" />
+                              )}
+                            </button>
+                          ))
+                        ) : (
+                          <div className={`px-4 py-6 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                            <p>Nenhum evento encontrado</p>
+                            <p className="text-xs mt-1">Tente outro termo de busca</p>
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
