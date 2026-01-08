@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projetosService } from '../../services/api';
 import { 
@@ -231,6 +231,8 @@ const Cadastro: React.FC = () => {
   const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [projetoBusca, setProjetoBusca] = useState('');
   const [showProjetoDropdown, setShowProjetoDropdown] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadProjetos();
@@ -1836,17 +1838,43 @@ const Cadastro: React.FC = () => {
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={projetoBusca}
                     onChange={(e) => {
                       setProjetoBusca(e.target.value);
                       setShowProjetoDropdown(true);
                     }}
-                    onClick={() => setShowProjetoDropdown(true)}
-                    onFocus={() => setShowProjetoDropdown(true)}
+                    onClick={() => {
+                      if (searchInputRef.current) {
+                        const rect = searchInputRef.current.getBoundingClientRect();
+                        setDropdownPosition({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+                      }
+                      setShowProjetoDropdown(true);
+                    }}
+                    onFocus={() => {
+                      if (searchInputRef.current) {
+                        const rect = searchInputRef.current.getBoundingClientRect();
+                        setDropdownPosition({ top: rect.bottom + 8, left: rect.left, width: rect.width });
+                      }
+                      setShowProjetoDropdown(true);
+                    }}
                     placeholder="Clique para selecionar o evento..."
-                    className="w-full pl-10 pr-10 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                    className="w-full pl-10 pr-16 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
                   />
+                  {form.projeto_id ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForm(prev => ({ ...prev, projeto_id: null, nome: '', imagem_kv: '' }));
+                        setProjetoBusca('');
+                      }}
+                      className="absolute right-10 top-1/2 -translate-y-1/2 p-1 rounded-full bg-red-500/80 hover:bg-red-500 text-white transition-colors"
+                      title="Remover seleção"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  ) : null}
                   <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50 transition-transform ${showProjetoDropdown ? 'rotate-180' : ''}`} />
                   {showProjetoDropdown && (
                     <>
@@ -1855,8 +1883,8 @@ const Cadastro: React.FC = () => {
                         onClick={() => setShowProjetoDropdown(false)}
                       />
                       <div 
-                        className={`fixed left-1/2 -translate-x-1/2 w-[calc(80vw-4rem)] max-h-64 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-2xl z-[101]`}
-                        style={{ top: '240px' }}
+                        className={`fixed max-h-64 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-2xl z-[101]`}
+                        style={{ top: dropdownPosition.top, left: dropdownPosition.left, width: dropdownPosition.width }}
                       >
                         <div className={`sticky top-0 px-4 py-2 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                           <p className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
