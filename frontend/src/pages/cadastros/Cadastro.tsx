@@ -48,8 +48,9 @@ interface CadastroEvento {
     distancias: string[];
   };
   atletas: {
-    site: { pago: number; cortesia: number; tkt_medio: number };
-    grupos: { pago: number; cortesia: number; tkt_medio: number };
+    site: { pago: number; tkt_medio: number };
+    grupos: { pago: number; tkt_medio: number };
+    cortesia: number;
   };
   retirada_kit: {
     local: string;
@@ -82,8 +83,9 @@ interface FormData {
     distancias: string[];
   };
   atletas: {
-    site: { pago: number; cortesia: number; tkt_medio: number };
-    grupos: { pago: number; cortesia: number; tkt_medio: number };
+    site: { pago: number; tkt_medio: number };
+    grupos: { pago: number; tkt_medio: number };
+    cortesia: number;
   };
   retirada_kit: {
     local: string;
@@ -139,8 +141,9 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   modalidade: 'Corrida',
   info_geral: { data: '', horario_largada: '', local: '', distancias: [] },
   atletas: {
-    site: { pago: 0, cortesia: 0, tkt_medio: 0 },
-    grupos: { pago: 0, cortesia: 0, tkt_medio: 0 }
+    site: { pago: 0, tkt_medio: 0 },
+    grupos: { pago: 0, tkt_medio: 0 },
+    cortesia: 0
   },
   retirada_kit: { local: '', data_horario: '' },
   pelotoes: [{ pelotao: '', atletas: 0 }],
@@ -163,8 +166,9 @@ const mockCadastros: CadastroEvento[] = [
     modalidade: 'Corrida',
     info_geral: { data: '2026-04-12', horario_largada: '06:30', local: 'Ibirapuera, São Paulo - SP', distancias: ['10k', '21k', '42k'] },
     atletas: {
-      site: { pago: 10000, cortesia: 2000, tkt_medio: 199.90 },
-      grupos: { pago: 2500, cortesia: 500, tkt_medio: 159.90 }
+      site: { pago: 10000, tkt_medio: 199.90 },
+      grupos: { pago: 2500, tkt_medio: 159.90 },
+      cortesia: 2500
     },
     retirada_kit: { local: 'Pavilhão do Ibirapuera', data_horario: '2026-04-11T10:00' },
     pelotoes: [{ pelotao: 'Quênia', atletas: 50 }, { pelotao: 'Azul', atletas: 2000 }, { pelotao: 'Verde', atletas: 5000 }],
@@ -204,8 +208,9 @@ const mockCadastros: CadastroEvento[] = [
     modalidade: 'Corrida',
     info_geral: { data: '2026-06-20', horario_largada: '20:00', local: 'Aterro do Flamengo, Rio de Janeiro - RJ', distancias: ['5k', '10k'] },
     atletas: {
-      site: { pago: 5500, cortesia: 600, tkt_medio: 139.90 },
-      grupos: { pago: 1700, cortesia: 200, tkt_medio: 109.90 }
+      site: { pago: 5500, tkt_medio: 139.90 },
+      grupos: { pago: 1700, tkt_medio: 109.90 },
+      cortesia: 800
     },
     retirada_kit: { local: 'Marina da Glória', data_horario: '2026-06-19T14:00' },
     pelotoes: [{ pelotao: 'Azul', atletas: 3000 }, { pelotao: 'Verde', atletas: 5000 }],
@@ -323,8 +328,9 @@ const Cadastro: React.FC = () => {
       distancias: []
     },
     atletas: {
-      site: { pago: 0, cortesia: 0, tkt_medio: 0 },
-      grupos: { pago: 0, cortesia: 0, tkt_medio: 0 }
+      site: { pago: 0, tkt_medio: 0 },
+      grupos: { pago: 0, tkt_medio: 0 },
+      cortesia: 0
     },
     retirada_kit: {
       local: '',
@@ -496,7 +502,8 @@ const Cadastro: React.FC = () => {
       info_geral: { ...item.info_geral },
       atletas: { 
         site: { ...item.atletas.site },
-        grupos: { ...item.atletas.grupos }
+        grupos: { ...item.atletas.grupos },
+        cortesia: item.atletas.cortesia || 0
       },
       retirada_kit: { ...item.retirada_kit },
       pelotoes: item.pelotoes.length > 0 ? [...item.pelotoes] : [{ pelotao: '', atletas: 0 }],
