@@ -8,7 +8,8 @@ import {
   ChevronDown, RotateCcw, DollarSign, Timer,
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
-  TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound
+  TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
+  Box, Flag, Activity
 } from 'lucide-react';
 
 interface Projeto {
@@ -16,6 +17,21 @@ interface Projeto {
   evento: string;
   codigo: string;
   imagem_kv?: string;
+}
+
+interface HidratacaoDistancia {
+  distancia: string;
+  postos: number;
+  doses_atleta: number;
+  atletas: number;
+  total: number;
+}
+
+interface HidratacaoData {
+  copos_por_caixa: number;
+  distancias: HidratacaoDistancia[];
+  chegada: { postos: number; doses_atleta: number; atletas: number; total: number };
+  ativacoes: { postos: number; doses_atleta: number; atletas: number; total: number };
 }
 
 interface CadastroEvento {
@@ -44,9 +60,9 @@ interface CadastroEvento {
     distancia: string;
     pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
   }>;
-  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; qtd: number }>; }>;
+  kit_produto: Array<{ kit: string; produtos: string[] }>;
   trofeus: number;
-  hidratacao: Array<{ posto: string; distancia: string; qtd_agua: number; qtd_isotonico: number }>;
+  hidratacao: HidratacaoData;
   faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
@@ -74,9 +90,9 @@ interface FormData {
     distancia: string;
     pelotoes: Array<{ pelotao: string; num_inicio: number; num_fim: number; cor: string }>;
   }>;
-  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; qtd: number }>; }>;
+  kit_produto: Array<{ kit: string; produtos: string[] }>;
   trofeus: number;
-  hidratacao: Array<{ posto: string; distancia: string; qtd_agua: number; qtd_isotonico: number }>;
+  hidratacao: HidratacaoData;
   faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
@@ -85,7 +101,6 @@ const distanciasOptions = ['3k', '5k', '10k', '15k', '21k', '42k'];
 const pelotoesOptions = ['Quênia', 'Azul', 'Verde', 'Branco'];
 const kitOptions = ['Kit Participação', 'Kit Básico', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const faixaOptions = ['1', '2', '3', '4', '5'];
-const postoHidratacaoOptions = ['Posto 1', 'Posto 2', 'Posto 3', 'Posto 4', 'Posto 5', 'Posto 6', 'Posto 7', 'Posto 8', 'Posto 9', 'Posto 10'];
 const coresPeitoOptions = ['Branco', 'Amarelo', 'Laranja', 'Verde', 'Azul', 'Vermelho', 'Rosa', 'Roxo', 'Preto'];
 
 const produtosDisponiveis = [
@@ -100,6 +115,13 @@ const produtosPadraoPorKit: Record<string, string[]> = {
   'Kit Plus': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Boné', 'Viseira'],
   'Kit Super': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola']
 };
+
+const createDefaultHidratacao = (): HidratacaoData => ({
+  copos_por_caixa: 48,
+  distancias: [],
+  chegada: { postos: 0, doses_atleta: 0, atletas: 0, total: 0 },
+  ativacoes: { postos: 0, doses_atleta: 0, atletas: 0, total: 0 }
+});
 
 const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   projeto_id: null,
@@ -117,7 +139,7 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   cronometragem: [],
   kit_produto: [{ kit: '', produtos: [] }],
   trofeus: 0,
-  hidratacao: [{ posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 }],
+  hidratacao: createDefaultHidratacao(),
   faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
   faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
 });
@@ -142,11 +164,20 @@ const mockCadastros: CadastroEvento[] = [
       { distancia: '21k', pelotoes: [{ pelotao: 'Verde', num_inicio: 2001, num_fim: 5000, cor: 'Verde' }] }
     ],
     kit_produto: [
-      { kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', qtd: 10000 }, { nome: 'Medalha', qtd: 10000 }, { nome: 'Garrafa', qtd: 10000 }, { nome: 'Sacochila', qtd: 10000 }] },
-      { kit: 'Kit Vip', produtos: [{ nome: 'Camiseta', qtd: 5000 }, { nome: 'Medalha', qtd: 5000 }, { nome: 'Moletom', qtd: 5000 }] }
+      { kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila'] },
+      { kit: 'Kit Vip', produtos: ['Camiseta', 'Medalha', 'Moletom'] }
     ],
     trofeus: 50,
-    hidratacao: [{ posto: 'Posto 1', distancia: '5k', qtd_agua: 5000, qtd_isotonico: 2000 }, { posto: 'Posto 2', distancia: '10k', qtd_agua: 8000, qtd_isotonico: 3000 }],
+    hidratacao: {
+      copos_por_caixa: 48,
+      distancias: [
+        { distancia: '10k', postos: 2, doses_atleta: 1.5, atletas: 3000, total: 9000 },
+        { distancia: '21k', postos: 4, doses_atleta: 2, atletas: 5000, total: 40000 },
+        { distancia: '42k', postos: 6, doses_atleta: 3, atletas: 2000, total: 36000 }
+      ],
+      chegada: { postos: 1, doses_atleta: 1, atletas: 10000, total: 10000 },
+      ativacoes: { postos: 2, doses_atleta: 0.5, atletas: 1000, total: 1000 }
+    },
     faixas_preco_site: [{ faixa: '1', qtd: 4000, tkt_medio: 149.90, total: 599600 }, { faixa: '2', qtd: 4000, tkt_medio: 199.90, total: 799600 }, { faixa: '3', qtd: 4000, tkt_medio: 249.90, total: 999600 }],
     faixas_preco_grupos: [{ faixa: '1', qtd: 1500, tkt_medio: 129.90, total: 194850 }, { faixa: '2', qtd: 1500, tkt_medio: 169.90, total: 254850 }]
   },
@@ -168,9 +199,17 @@ const mockCadastros: CadastroEvento[] = [
       { distancia: '5k', pelotoes: [{ pelotao: 'Azul', num_inicio: 1, num_fim: 3000, cor: 'Azul' }] },
       { distancia: '10k', pelotoes: [{ pelotao: 'Verde', num_inicio: 3001, num_fim: 8000, cor: 'Verde' }] }
     ],
-    kit_produto: [{ kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', qtd: 8000 }, { nome: 'Medalha', qtd: 8000 }] }],
+    kit_produto: [{ kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha'] }],
     trofeus: 30,
-    hidratacao: [{ posto: 'Posto 1', distancia: '5k', qtd_agua: 4000, qtd_isotonico: 1500 }],
+    hidratacao: {
+      copos_por_caixa: 48,
+      distancias: [
+        { distancia: '5k', postos: 1, doses_atleta: 1, atletas: 3000, total: 3000 },
+        { distancia: '10k', postos: 2, doses_atleta: 1.5, atletas: 5000, total: 15000 }
+      ],
+      chegada: { postos: 1, doses_atleta: 1, atletas: 8000, total: 8000 },
+      ativacoes: { postos: 1, doses_atleta: 0.5, atletas: 500, total: 250 }
+    },
     faixas_preco_site: [{ faixa: '1', qtd: 3000, tkt_medio: 99.90, total: 299700 }, { faixa: '2', qtd: 3100, tkt_medio: 159.90, total: 495690 }],
     faixas_preco_grupos: [{ faixa: '1', qtd: 1900, tkt_medio: 89.90, total: 170810 }]
   }
@@ -277,7 +316,7 @@ const Cadastro: React.FC = () => {
     cronometragem: [],
     kit_produto: [{ kit: '', produtos: [] }],
     trofeus: 0,
-    hidratacao: [{ posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 }],
+    hidratacao: createDefaultHidratacao(),
     faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
     faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
   };
@@ -446,9 +485,14 @@ const Cadastro: React.FC = () => {
         distancia: c.distancia,
         pelotoes: c.pelotoes.map(p => ({ ...p }))
       })) : [],
-      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: k.produtos.map(p => ({ ...p })) })) : [{ kit: '', produtos: [] }],
+      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: [...k.produtos] })) : [{ kit: '', produtos: [] }],
       trofeus: item.trofeus || 0,
-      hidratacao: item.hidratacao?.length > 0 ? item.hidratacao.map(h => ({ ...h, qtd_agua: h.qtd_agua || 0, qtd_isotonico: h.qtd_isotonico || 0 })) : [{ posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 }],
+      hidratacao: item.hidratacao?.copos_por_caixa !== undefined ? {
+        copos_por_caixa: item.hidratacao.copos_por_caixa,
+        distancias: item.hidratacao.distancias.map(d => ({ ...d })),
+        chegada: { ...item.hidratacao.chegada },
+        ativacoes: { ...item.hidratacao.ativacoes }
+      } : createDefaultHidratacao(),
       faixas_preco_site: item.faixas_preco_site?.length > 0 ? [...item.faixas_preco_site] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
       faixas_preco_grupos: item.faixas_preco_grupos?.length > 0 ? [...item.faixas_preco_grupos] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
     });
@@ -505,12 +549,11 @@ const Cadastro: React.FC = () => {
     setEditItem(null);
   };
 
-  const addArrayField = (field: 'pelotoes' | 'cronometragem' | 'kit_produto' | 'hidratacao' | 'faixas_preco_site' | 'faixas_preco_grupos') => {
+  const addArrayField = (field: 'pelotoes' | 'cronometragem' | 'kit_produto' | 'faixas_preco_site' | 'faixas_preco_grupos') => {
     const defaults: Record<string, any> = {
       pelotoes: { pelotao: '', atletas: 0 },
       cronometragem: { distancia: '', pelotoes: [{ pelotao: '', num_inicio: 0, num_fim: 0, cor: '' }] },
       kit_produto: { kit: '', produtos: [] },
-      hidratacao: { posto: '', distancia: '', qtd_agua: 0, qtd_isotonico: 0 },
       faixas_preco_site: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 },
       faixas_preco_grupos: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 }
     };
@@ -520,7 +563,7 @@ const Cadastro: React.FC = () => {
     }));
   };
 
-  const removeArrayField = (field: 'pelotoes' | 'cronometragem' | 'kit_produto' | 'hidratacao' | 'faixas_preco_site' | 'faixas_preco_grupos', index: number) => {
+  const removeArrayField = (field: 'pelotoes' | 'cronometragem' | 'kit_produto' | 'faixas_preco_site' | 'faixas_preco_grupos', index: number) => {
     setForm(prev => ({
       ...prev,
       [field]: (prev as any)[field].filter((_: any, i: number) => i !== index)
@@ -554,6 +597,31 @@ const Cadastro: React.FC = () => {
           ]
         }));
       }
+    }
+  }, [form.info_geral.distancias]);
+
+  useEffect(() => {
+    const existingDistancias = form.hidratacao.distancias.map(h => h.distancia);
+    const newDistancias = form.info_geral.distancias.filter(d => !existingDistancias.includes(d));
+    const removedDistancias = existingDistancias.filter(d => !form.info_geral.distancias.includes(d));
+    
+    if (newDistancias.length > 0 || removedDistancias.length > 0) {
+      setForm(prev => ({
+        ...prev,
+        hidratacao: {
+          ...prev.hidratacao,
+          distancias: [
+            ...prev.hidratacao.distancias.filter(h => form.info_geral.distancias.includes(h.distancia)),
+            ...newDistancias.map(d => ({
+              distancia: d,
+              postos: 0,
+              doses_atleta: 0,
+              atletas: 0,
+              total: 0
+            }))
+          ]
+        }
+      }));
     }
   }, [form.info_geral.distancias]);
 
@@ -1248,8 +1316,7 @@ const Cadastro: React.FC = () => {
                     value={kit.kit}
                     onChange={(e) => {
                       const selectedKit = e.target.value;
-                      const defaultProdutoNames = produtosPadraoPorKit[selectedKit] || [];
-                      const defaultProdutos = defaultProdutoNames.map(nome => ({ nome, qtd: 0 }));
+                      const defaultProdutos = produtosPadraoPorKit[selectedKit] || [];
                       setForm(prev => ({
                         ...prev,
                         kit_produto: prev.kit_produto.map((k, i) => 
@@ -1270,17 +1337,17 @@ const Cadastro: React.FC = () => {
                   <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                     Produtos do Kit (clique para adicionar/remover)
                   </label>
-                  <div className="flex flex-wrap gap-2 mb-3">
+                  <div className="flex flex-wrap gap-2">
                     {produtosDisponiveis.map(produto => {
-                      const isSelected = kit.produtos.some(p => p.nome === produto);
+                      const isSelected = kit.produtos.includes(produto);
                       return (
                         <button
                           key={produto}
                           type="button"
                           onClick={() => {
                             const produtos = isSelected
-                              ? kit.produtos.filter(p => p.nome !== produto)
-                              : [...kit.produtos, { nome: produto, qtd: 0 }];
+                              ? kit.produtos.filter(p => p !== produto)
+                              : [...kit.produtos, produto];
                             setForm(prev => ({
                               ...prev,
                               kit_produto: prev.kit_produto.map((k, i) => 
@@ -1299,37 +1366,6 @@ const Cadastro: React.FC = () => {
                       );
                     })}
                   </div>
-                  
-                  {kit.produtos.length > 0 && (
-                    <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                      <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Quantidade por produto
-                      </label>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {kit.produtos.map((prod, prodIndex) => (
-                          <div key={prod.nome} className="flex items-center gap-2">
-                            <span className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'} min-w-[80px]`}>{prod.nome}</span>
-                            <FormattedInput
-                              value={prod.qtd || 0}
-                              onChange={(val) => {
-                                const newProdutos = [...kit.produtos];
-                                newProdutos[prodIndex] = { ...newProdutos[prodIndex], qtd: val };
-                                setForm(prev => ({
-                                  ...prev,
-                                  kit_produto: prev.kit_produto.map((k, i) => 
-                                    i === index ? { ...k, produtos: newProdutos } : k
-                                  )
-                                }));
-                              }}
-                              label="Qtd"
-                              placeholder="Qtd"
-                              className={`flex-1 px-2 py-1 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             ))}
@@ -1358,78 +1394,260 @@ const Cadastro: React.FC = () => {
           </div>
         );
 
-      case 'hidratacao':
-        return (
-          <div className="space-y-4">
-            {form.hidratacao.map((h, index) => (
-              <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                <div className="flex justify-between items-center mb-3">
-                  <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Posto de Hidratação {index + 1}</span>
-                  {form.hidratacao.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeArrayField('hidratacao', index)}
-                      className="p-1 text-red-400 hover:text-red-300 transition-colors"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <select
-                    value={h.posto}
-                    onChange={(e) => updateArrayField('hidratacao', index, 'posto', e.target.value)}
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  >
-                    <option value="">Posto</option>
-                    {postoHidratacaoOptions.map(p => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={h.distancia}
-                    onChange={(e) => updateArrayField('hidratacao', index, 'distancia', e.target.value)}
-                    className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  >
-                    <option value="">Distância</option>
-                    {form.info_geral.distancias.length > 0 
-                      ? form.info_geral.distancias.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))
-                      : distanciasOptions.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))
-                    }
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <FormattedInput
-                    value={h.qtd_agua || 0}
-                    onChange={(val) => updateArrayField('hidratacao', index, 'qtd_agua', val)}
-                    label="Qtd. Água"
-                    placeholder="Qtd. Água"
-                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                  />
-                  <FormattedInput
-                    value={h.qtd_isotonico || 0}
-                    onChange={(val) => updateArrayField('hidratacao', index, 'qtd_isotonico', val)}
-                    label="Qtd. Isotônico"
-                    placeholder="Qtd. Isotônico"
-                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                  />
-                </div>
+      case 'hidratacao': {
+        const updateHidratacaoDistancia = (index: number, field: string, value: number) => {
+          setForm(prev => {
+            const newDistancias = [...prev.hidratacao.distancias];
+            newDistancias[index] = { ...newDistancias[index], [field]: value };
+            if (field === 'postos' || field === 'doses_atleta' || field === 'atletas') {
+              const postos = field === 'postos' ? value : newDistancias[index].postos;
+              const doses = field === 'doses_atleta' ? value : newDistancias[index].doses_atleta;
+              const atletas = field === 'atletas' ? value : newDistancias[index].atletas;
+              newDistancias[index].total = Math.round(atletas * doses * postos);
+            }
+            const newTotalAtletas = newDistancias.reduce((acc, d) => acc + (d.atletas || 0), 0);
+            const newChegada = { 
+              ...prev.hidratacao.chegada, 
+              atletas: newTotalAtletas,
+              total: Math.round(newTotalAtletas * (prev.hidratacao.chegada.doses_atleta || 0) * (prev.hidratacao.chegada.postos || 0))
+            };
+            return { ...prev, hidratacao: { ...prev.hidratacao, distancias: newDistancias, chegada: newChegada } };
+          });
+        };
+
+        const updateHidratacaoSection = (section: 'chegada' | 'ativacoes', field: string, value: number) => {
+          setForm(prev => {
+            const newSection = { ...prev.hidratacao[section], [field]: value };
+            if (field === 'postos' || field === 'doses_atleta' || field === 'atletas') {
+              const postos = field === 'postos' ? value : newSection.postos;
+              const doses = field === 'doses_atleta' ? value : newSection.doses_atleta;
+              if (section === 'chegada') {
+                const totalAtletasFromDistancias = prev.hidratacao.distancias.reduce((acc, d) => acc + (d.atletas || 0), 0);
+                newSection.atletas = totalAtletasFromDistancias;
+                newSection.total = Math.round(totalAtletasFromDistancias * doses * postos);
+              } else {
+                const atletas = field === 'atletas' ? value : newSection.atletas;
+                newSection.total = Math.round(atletas * doses * postos);
+              }
+            }
+            return { ...prev, hidratacao: { ...prev.hidratacao, [section]: newSection } };
+          });
+        };
+
+        const totalAtletasDistancias = form.hidratacao.distancias.reduce((acc, d) => acc + (d.atletas || 0), 0);
+        const totalCoposDistancias = form.hidratacao.distancias.reduce((acc, d) => acc + (d.total || 0), 0);
+        const chegadaTotalCalculado = Math.round(totalAtletasDistancias * (form.hidratacao.chegada.doses_atleta || 0) * (form.hidratacao.chegada.postos || 0));
+        const totalCoposAtivacoes = form.hidratacao.ativacoes.total || 0;
+        const totalCoposGeral = totalCoposDistancias + chegadaTotalCalculado + totalCoposAtivacoes;
+        const coposPorCaixa = form.hidratacao.copos_por_caixa || 48;
+        const totalCaixas = coposPorCaixa > 0 ? Math.ceil(totalCoposGeral / coposPorCaixa) : 0;
+
+        const renderHidratacaoCard = (
+          title: string,
+          icon: React.ReactNode,
+          gradientFrom: string,
+          gradientTo: string,
+          postos: number,
+          dosesAtleta: number,
+          atletas: number,
+          total: number,
+          onUpdate: (field: string, value: number) => void,
+          isAtletasReadOnly: boolean = false
+        ) => (
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+            <div className="flex items-center gap-2 mb-4">
+              <div className={`p-2 rounded-lg bg-gradient-to-r ${gradientFrom} ${gradientTo}`}>
+                {icon}
               </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => addArrayField('hidratacao')}
-              className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Adicionar Posto de Hidratação
-            </button>
+              <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{title}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-3">
+              <FormattedInput
+                value={postos}
+                onChange={(val) => onUpdate('postos', Math.max(0, val))}
+                label="Postos"
+                placeholder="Postos"
+                className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+              />
+              <FormattedInput
+                value={dosesAtleta}
+                onChange={(val) => onUpdate('doses_atleta', Math.max(0, val))}
+                label="Doses/Atleta"
+                placeholder="Doses/Atleta"
+                allowDecimal
+                className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-cyan-500`}
+              />
+              <FormattedInput
+                value={atletas}
+                onChange={(val) => onUpdate('atletas', Math.max(0, val))}
+                label="Atletas"
+                placeholder="Atletas"
+                readOnly={isAtletasReadOnly}
+                className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 ${isAtletasReadOnly ? 'opacity-70 cursor-not-allowed' : ''}`}
+              />
+              <FormattedInput
+                value={total}
+                onChange={() => {}}
+                label="Total"
+                placeholder="Total"
+                readOnly
+                className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-white' : 'bg-gray-100 border-gray-300 text-gray-700'} opacity-70 cursor-not-allowed`}
+              />
+            </div>
           </div>
         );
+
+        return (
+          <div className="space-y-4">
+            {form.info_geral.distancias.length === 0 ? (
+              <div className={`p-6 rounded-xl text-center ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'}`}>
+                <AlertCircle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
+                <p className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Defina as distâncias na aba "Info Geral" primeiro
+                </p>
+                <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                  Os campos de hidratação serão gerados automaticamente
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500">
+                        <Box className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <span className={`text-sm font-bold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Copos por Caixa</span>
+                        <p className={`text-xs ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Base de cálculo para todas as distâncias</p>
+                      </div>
+                    </div>
+                    <div className="w-32">
+                      <FormattedInput
+                        value={coposPorCaixa}
+                        onChange={(val) => setForm(prev => ({ 
+                          ...prev, 
+                          hidratacao: { ...prev.hidratacao, copos_por_caixa: Math.max(1, val) }
+                        }))}
+                        label="Qtd"
+                        placeholder="48"
+                        className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500 text-center font-bold`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {form.hidratacao.distancias.map((h, index) => (
+                  <div key={h.distancia} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold">
+                        {h.distancia}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-3">
+                      <FormattedInput
+                        value={h.postos || 0}
+                        onChange={(val) => updateHidratacaoDistancia(index, 'postos', Math.max(0, val))}
+                        label="Postos"
+                        placeholder="Postos"
+                        className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
+                      />
+                      <FormattedInput
+                        value={h.doses_atleta || 0}
+                        onChange={(val) => updateHidratacaoDistancia(index, 'doses_atleta', Math.max(0, val))}
+                        label="Doses/Atleta"
+                        placeholder="Doses/Atleta"
+                        allowDecimal
+                        className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-cyan-500`}
+                      />
+                      <FormattedInput
+                        value={h.atletas || 0}
+                        onChange={(val) => updateHidratacaoDistancia(index, 'atletas', Math.max(0, val))}
+                        label="Atletas"
+                        placeholder="Atletas"
+                        className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      />
+                      <FormattedInput
+                        value={h.total || 0}
+                        onChange={() => {}}
+                        label="Total"
+                        placeholder="Total"
+                        readOnly
+                        className={`w-full px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-white' : 'bg-gray-100 border-gray-300 text-gray-700'} opacity-70 cursor-not-allowed`}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                {renderHidratacaoCard(
+                  'Chegada',
+                  <Flag className="w-4 h-4 text-white" />,
+                  'from-emerald-500',
+                  'to-green-500',
+                  form.hidratacao.chegada.postos,
+                  form.hidratacao.chegada.doses_atleta,
+                  totalAtletasDistancias,
+                  chegadaTotalCalculado,
+                  (field, value) => {
+                    if (field === 'atletas') return;
+                    setForm(prev => ({ 
+                      ...prev, 
+                      hidratacao: { 
+                        ...prev.hidratacao, 
+                        chegada: { ...prev.hidratacao.chegada, [field]: value } 
+                      } 
+                    }));
+                  },
+                  true
+                )}
+
+                {renderHidratacaoCard(
+                  'Ativações',
+                  <Activity className="w-4 h-4 text-white" />,
+                  'from-orange-500',
+                  'to-amber-500',
+                  form.hidratacao.ativacoes.postos,
+                  form.hidratacao.ativacoes.doses_atleta,
+                  form.hidratacao.ativacoes.atletas,
+                  form.hidratacao.ativacoes.total,
+                  (field, value) => updateHidratacaoSection('ativacoes', field, value),
+                  false
+                )}
+
+                <div className={`p-5 rounded-2xl ${isDark ? 'bg-gradient-to-br from-purple-900/40 to-pink-900/40 border-purple-500/30' : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-200'} border`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Droplets className="w-5 h-5 text-purple-400" />
+                    <span className={`font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>Resumo de Hidratação</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-white'} text-center`}>
+                      <div className={`text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total de Copos</div>
+                      <div className={`text-2xl font-black ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
+                        {formatNumber(totalCoposGeral) || '0'}
+                      </div>
+                      <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} mt-1`}>
+                        Dist: {formatNumber(totalCoposDistancias)} | Cheg: {formatNumber(chegadaTotalCalculado)} | Ativ: {formatNumber(totalCoposAtivacoes)}
+                      </div>
+                    </div>
+                    <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-white'} text-center`}>
+                      <div className={`text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Copos por Caixa</div>
+                      <div className={`text-2xl font-black ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                        {formatNumber(coposPorCaixa)}
+                      </div>
+                    </div>
+                    <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-white'} text-center`}>
+                      <div className={`text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total de Caixas</div>
+                      <div className={`text-2xl font-black bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent`}>
+                        {formatNumber(totalCaixas)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
 
       default:
         return null;
