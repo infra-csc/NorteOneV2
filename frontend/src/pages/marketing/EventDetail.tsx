@@ -282,7 +282,7 @@ const EventDetail: React.FC = () => {
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <Tooltip 
                   labelFormatter={(value) => new Date(value).toLocaleDateString('pt-BR')}
-                  formatter={(value: number) => formatNumber(value)}
+                  formatter={(value) => formatNumber(Number(value ?? 0))}
                   contentStyle={{ 
                     backgroundColor: '#1F2937', 
                     border: 'none', 
@@ -330,7 +330,7 @@ const EventDetail: React.FC = () => {
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <Tooltip 
                   labelFormatter={(value) => new Date(value).toLocaleDateString('pt-BR')}
-                  formatter={(value: number) => formatNumber(value)}
+                  formatter={(value) => formatNumber(Number(value ?? 0))}
                   contentStyle={{ 
                     backgroundColor: '#1F2937', 
                     border: 'none', 

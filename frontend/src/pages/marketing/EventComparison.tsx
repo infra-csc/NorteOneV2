@@ -171,7 +171,7 @@ const EventComparison: React.FC = () => {
                   />
                   <YAxis stroke="#6B7280" fontSize={12} />
                   <Tooltip 
-                    formatter={(value: number) => formatNumber(value)}
+                    formatter={(value) => formatNumber(Number(value ?? 0))}
                     contentStyle={{ 
                       backgroundColor: '#1F2937', 
                       border: 'none', 
