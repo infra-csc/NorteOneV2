@@ -372,7 +372,7 @@ const EventComparison: React.FC = () => {
                       Ação Sugerida
                     </td>
                     {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center text-xs text-gray-700 dark:text-gray-300">
+                      <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-700 dark:text-gray-300">
                         {event.suggestedAction}
                       </td>
                     ))}
