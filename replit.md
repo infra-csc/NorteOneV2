@@ -27,9 +27,11 @@ Sistema web completo para gerenciamento de Data Warehouse financeiro de uma empr
   /src
     /components    - Componentes React reutilizaveis
     /context       - Contextos (Auth, Theme)
+    /data          - Dados mock (mockMarketingData.ts)
     /pages         - Paginas da aplicacao
+      /marketing   - Dashboard Marketing Performance (ISC)
     /services      - Servicos de API
-    /types         - Definicoes TypeScript
+    /types         - Definicoes TypeScript (marketingPerformance.ts)
 ```
 
 ## Funcionalidades Implementadas
@@ -59,6 +61,30 @@ Sistema web completo para gerenciamento de Data Warehouse financeiro de uma empr
 - Graficos de evolucao mensal
 - Distribuicao por tipo
 - Atletas por modalidade e projeto
+
+### 6. Marketing Performance (ISC Dashboard)
+Dashboard para area de Marketing acompanhar vendas de inscricoes de eventos de corrida.
+
+**Metrica Principal: ISC (Indice de Saude Comercial)**
+- 🟢 Acelerando (ISC > 1.10) - evento forte, pode subir preco
+- 🟡 Estavel (ISC 0.90 a 1.10) - manter/ajustar comunicacao
+- 🔴 Desacelerando (ISC < 0.90) - evento fraco, reforcar demanda
+
+**Componentes do ISC:**
+- IA 7/30 (Indice de Aceleracao): Vendas 7 dias / Vendas 30 dias × (30/7)
+- Curva D-%: Vendas reais acumuladas / Vendas esperadas
+- Rolling 14d: Media de vendas dos ultimos 14 dias (normalizada)
+
+**Regra de Negocio D-40:**
+- D-40 e a ultima janela para promocoes
+- Diagnostico ate D-45, acao ate D-40
+- Apos D-40: NUNCA fazer promocao (apenas comunicacao ou preco para cima)
+
+**Telas:**
+- Dashboard Geral: tabela de eventos com ISC, filtros e cards resumo
+- Detalhe do Evento: gauge ISC, graficos de vendas, timeline de acoes
+- Comparativo: comparacao lado a lado de ate 4 eventos
+- Configuracoes: placeholder para futuras configuracoes
 
 ## Credenciais de Teste
 - **Admin:** admin@cscdoesporte.com / admin123
@@ -147,6 +173,14 @@ As metricas de atletas estao organizadas em 4 tabelas com vinculo direto a proje
   - Metricas: custo_unitario, qtd_por_atleta, custo_total
 
 ## Ultimas Modificacoes
+- 09/01/2026: Adicao do Dashboard Marketing Performance (ISC)
+  - Nova secao no menu lateral com Dashboard ISC, Comparativo e Configuracoes
+  - Tipos e dados mock em frontend/src/types/marketingPerformance.ts e frontend/src/data/mockMarketingData.ts
+  - Paginas: MarketingDashboard.tsx, EventDetail.tsx, EventComparison.tsx, MarketingSettings.tsx
+  - Calculo do ISC com IA 7/30, Curva D-% e Rolling 14d
+  - Regra D-40 para janela de promocoes implementada
+  - Graficos com Recharts (curva de vendas, vendas diarias)
+
 - 07/01/2026: Remocao da tabela intermediaria fato_atletas
   - Tabela fato_atletas foi removida do modelo de dados
   - Campos projeto_id, categoria_atleta_id, tempo_id, versao_projecao, created_by adicionados diretamente nas 4 tabelas satelite

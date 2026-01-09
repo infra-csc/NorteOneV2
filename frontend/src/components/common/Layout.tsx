@@ -16,7 +16,10 @@ import {
   Moon,
   Sun,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  Activity,
+  BarChart3,
+  Settings
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -34,6 +37,12 @@ const menuItems = [
   { path: '/atletas', icon: Users, label: 'Atletas' },
 ];
 
+const marketingItems = [
+  { path: '/marketing', icon: Activity, label: 'Dashboard ISC' },
+  { path: '/marketing/comparativo', icon: BarChart3, label: 'Comparativo' },
+  { path: '/marketing/configuracoes', icon: Settings, label: 'Configurações' },
+];
+
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
@@ -41,6 +50,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [cadastrosOpen, setCadastrosOpen] = useState(true);
+  const [marketingOpen, setMarketingOpen] = useState(location.pathname.startsWith('/marketing'));
 
   const handleLogout = () => {
     logout();
@@ -81,6 +91,48 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </Link>
             );
           })}
+
+          <div>
+            <button
+              onClick={() => setMarketingOpen(!marketingOpen)}
+              className={`flex items-center justify-between w-full px-4 py-2 rounded-lg transition-colors ${
+                location.pathname.startsWith('/marketing')
+                  ? 'bg-green-600 text-white'
+                  : isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <span className="flex items-center">
+                <Activity className="w-5 h-5 mr-3" />
+                Marketing Performance
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform ${marketingOpen ? 'rotate-180' : ''}`} />
+            </button>
+            
+            {marketingOpen && (
+              <div className="ml-4 mt-1 space-y-1">
+                {marketingItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.path;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                        isActive
+                          ? 'bg-green-600 text-white'
+                          : isDark
+                          ? 'text-gray-300 hover:bg-gray-700'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 mr-3" />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div>
             <button

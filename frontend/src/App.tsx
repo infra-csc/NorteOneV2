@@ -11,6 +11,10 @@ import CategoriasAtletas from './pages/cadastros/CategoriasAtletas';
 import Cadastro from './pages/cadastros/Cadastro';
 import Orcamento from './pages/Orcamento';
 import Atletas from './pages/Atletas';
+import MarketingDashboard from './pages/marketing/MarketingDashboard';
+import EventDetail from './pages/marketing/EventDetail';
+import EventComparison from './pages/marketing/EventComparison';
+import MarketingSettings from './pages/marketing/MarketingSettings';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
@@ -41,6 +45,10 @@ function App() {
             <Route path="/cadastros/cadastro" element={<PrivateRoute><Layout><Cadastro /></Layout></PrivateRoute>} />
             <Route path="/orcamento" element={<PrivateRoute><Layout><Orcamento /></Layout></PrivateRoute>} />
             <Route path="/atletas" element={<PrivateRoute><Layout><Atletas /></Layout></PrivateRoute>} />
+            <Route path="/marketing" element={<PrivateRoute><Layout><MarketingDashboard /></Layout></PrivateRoute>} />
+            <Route path="/marketing/evento/:id" element={<PrivateRoute><Layout><EventDetail /></Layout></PrivateRoute>} />
+            <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
+            <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
           </Routes>
         </Router>
       </AuthProvider>
