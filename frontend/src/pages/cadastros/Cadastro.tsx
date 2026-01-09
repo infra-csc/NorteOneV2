@@ -482,12 +482,15 @@ const Cadastro: React.FC = () => {
 
   const getAtletasAlocadosHidratacao = () => {
     const distanciasTotal = form.hidratacao.distancias.reduce((total, dist) => total + (dist.atletas || 0), 0);
-    const chegadaTotal = form.hidratacao.chegada.atletas || 0;
     const ativacoesTotal = form.hidratacao.ativacoes.atletas || 0;
-    return distanciasTotal + chegadaTotal + ativacoesTotal;
+    return distanciasTotal + ativacoesTotal;
   };
 
   const maxAtletas = getTotalAtletas();
+  
+  const excedeCapacidadePelotoes = getAtletasAlocadosPelotoes() > maxAtletas;
+  const excedeCapacidadeHidratacao = getAtletasAlocadosHidratacao() > maxAtletas;
+  const excedeCapacidadeGeral = excedeCapacidadePelotoes || excedeCapacidadeHidratacao;
 
   const filteredCadastros = useMemo(() => {
     if (!busca) return cadastros;
@@ -1298,41 +1301,19 @@ const Cadastro: React.FC = () => {
       }
 
       case 'cronometragem': {
-        const atletasAlocadosCrono = getAtletasAlocadosCronometragem();
-        const atletasRestantesCrono = maxAtletas - atletasAlocadosCrono;
-        const excedeCapacidadeCrono = atletasAlocadosCrono > maxAtletas;
-
         return (
           <div className="space-y-4">
-            <div className={`p-4 rounded-xl border ${excedeCapacidadeCrono 
-              ? (isDark ? 'bg-red-900/30 border-red-500/50' : 'bg-red-50 border-red-300') 
-              : (isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200')}`}>
+            <div className={`p-4 rounded-xl border ${isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200'}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Users className={`w-5 h-5 ${excedeCapacidadeCrono ? 'text-red-400' : 'text-purple-400'}`} />
-                  <span className={`font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>Capacidade de Atletas</span>
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <span className={`font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>Limite de Atletas</span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-center">
-                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Alocados</span>
-                    <span className={`text-lg font-bold ${excedeCapacidadeCrono ? 'text-red-400' : 'text-purple-400'}`}>{formatNumber(atletasAlocadosCrono)}</span>
-                  </div>
-                  <div className="text-center">
-                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Máximo</span>
-                    <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(maxAtletas)}</span>
-                  </div>
-                  <div className="text-center">
-                    <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Restantes</span>
-                    <span className={`text-lg font-bold ${atletasRestantesCrono < 0 ? 'text-red-400' : 'text-green-400'}`}>{formatNumber(atletasRestantesCrono)}</span>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <span className={`block text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Máximo:</span>
+                  <span className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(maxAtletas)}</span>
                 </div>
               </div>
-              {excedeCapacidadeCrono && (
-                <div className="mt-2 flex items-center gap-2 text-red-400">
-                  <AlertCircle className="w-4 h-4" />
-                  <span className="text-sm">Quantidade de atletas excede o limite definido na aba Atletas!</span>
-                </div>
-              )}
             </div>
 
             {form.info_geral.distancias.length === 0 ? (
@@ -1419,7 +1400,7 @@ const Cadastro: React.FC = () => {
                         <FormattedInput
                           value={pel.num_fim || 0}
                           onChange={(value) => {
-                            const safeValue = Math.max(1, value);
+                            const safeValue = Math.min(Math.max(1, value), maxAtletas);
                             setForm(prev => {
                               const newCronometragem = prev.cronometragem.map((c, i) => 
                                 i === cronoIndex 
@@ -2428,7 +2409,13 @@ const Cadastro: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-8 py-3 rounded-xl font-semibold bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all flex items-center gap-2"
+                  disabled={excedeCapacidadeGeral}
+                  className={`px-8 py-3 rounded-xl font-semibold transition-all flex items-center gap-2 ${
+                    excedeCapacidadeGeral 
+                      ? 'bg-gray-500 text-gray-300 cursor-not-allowed opacity-60' 
+                      : 'bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40'
+                  }`}
+                  title={excedeCapacidadeGeral ? 'Quantidade de atletas excede o limite nas abas Pelotões ou Hidratação' : ''}
                 >
                   <Check className="w-5 h-5" />
                   {editItem ? 'Salvar Alterações' : 'Criar Cadastro'}
