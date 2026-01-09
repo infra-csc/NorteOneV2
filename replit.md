@@ -84,7 +84,14 @@ Dashboard para area de Marketing acompanhar vendas de inscricoes de eventos de c
 - Dashboard Geral: tabela de eventos com ISC, filtros e cards resumo
 - Detalhe do Evento: gauge ISC, graficos de vendas, timeline de acoes
 - Comparativo: comparacao lado a lado de ate 4 eventos
-- Configuracoes: placeholder para futuras configuracoes
+- Configuracoes: pagina completa de configuracoes com 5 modulos
+
+**Modulo de Configuracoes (Marketing Performance):**
+- Definicao de Metas por Evento: editar metas de vendas, receita, conversao e ticket medio
+- Curvas de Benchmark: configurar curvas de referencia (agressiva, moderada, conservadora)
+- Parametros ISC: ajustar pesos dos componentes e limiares de classificacao
+- Categorias de Eventos: gerenciar categorias com cores, capacidade e precos padrao
+- Alertas Automaticos: configurar notificacoes para eventos criticos (email, SMS, push, Slack)
 
 ## Credenciais de Teste
 - **Admin:** admin@cscdoesporte.com / admin123
@@ -173,6 +180,15 @@ As metricas de atletas estao organizadas em 4 tabelas com vinculo direto a proje
   - Metricas: custo_unitario, qtd_por_atleta, custo_total
 
 ## Ultimas Modificacoes
+- 09/01/2026: Implementacao completa do Modulo de Configuracoes do Marketing Performance
+  - Definicao de Metas por Evento: tabela editavel com metas de vendas e receita
+  - Curvas de Benchmark: visualizacao e edicao de curvas de referencia com grafico SVG
+  - Parametros ISC: ajuste de pesos (IA 7/30, Curva D-%, Rolling 14d) e limiares de cor
+  - Categorias de Eventos: CRUD completo com cores e precos padrao
+  - Alertas Automaticos: configuracao de condicoes e canais de notificacao
+  - Novos arquivos: marketingSettings.ts, mockMarketingSettings.ts, 5 componentes de settings
+  - Navegacao por tabs integrada na pagina MarketingSettings.tsx
+
 - 09/01/2026: Adicao do Dashboard Marketing Performance (ISC)
   - Nova secao no menu lateral com Dashboard ISC, Comparativo e Configuracoes
   - Tipos e dados mock em frontend/src/types/marketingPerformance.ts e frontend/src/data/mockMarketingData.ts
