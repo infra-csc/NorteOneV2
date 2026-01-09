@@ -1,8 +1,50 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Settings, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Target, TrendingUp, Activity, Tag, Bell } from 'lucide-react';
+import {
+  EventGoalsSettings,
+  BenchmarkCurvesSettings,
+  ISCParametersSettings,
+  EventCategoriesSettings,
+  AlertsSettings
+} from '../../components/marketing/settings';
+
+type TabId = 'goals' | 'benchmarks' | 'isc' | 'categories' | 'alerts';
+
+interface Tab {
+  id: TabId;
+  label: string;
+  icon: React.ReactNode;
+}
+
+const tabs: Tab[] = [
+  { id: 'goals', label: 'Metas por Evento', icon: <Target className="w-5 h-5" /> },
+  { id: 'benchmarks', label: 'Curvas de Benchmark', icon: <TrendingUp className="w-5 h-5" /> },
+  { id: 'isc', label: 'Parâmetros ISC', icon: <Activity className="w-5 h-5" /> },
+  { id: 'categories', label: 'Categorias', icon: <Tag className="w-5 h-5" /> },
+  { id: 'alerts', label: 'Alertas', icon: <Bell className="w-5 h-5" /> }
+];
 
 const MarketingSettings: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<TabId>('goals');
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'goals':
+        return <EventGoalsSettings />;
+      case 'benchmarks':
+        return <BenchmarkCurvesSettings />;
+      case 'isc':
+        return <ISCParametersSettings />;
+      case 'categories':
+        return <EventCategoriesSettings />;
+      case 'alerts':
+        return <AlertsSettings />;
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center gap-4">
@@ -22,37 +64,27 @@ const MarketingSettings: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex flex-col items-center justify-center text-center py-12">
-          <div className="p-4 bg-gray-100 dark:bg-gray-700 rounded-full mb-4">
-            <Settings className="w-12 h-12 text-gray-400" />
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-            Em Desenvolvimento
-          </h2>
-          <p className="text-gray-500 dark:text-gray-400 max-w-md">
-            Esta seção está em desenvolvimento. Em breve você poderá configurar 
-            metas, benchmarks e parâmetros do ISC.
-          </p>
-        </div>
+      <div className="border-b border-gray-200 dark:border-gray-700">
+        <nav className="flex space-x-1 overflow-x-auto pb-px">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                activeTab === tab.id
+                  ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
-          <div>
-            <h3 className="font-medium text-blue-800 dark:text-blue-300">
-              Funcionalidades Planejadas
-            </h3>
-            <ul className="text-sm text-blue-700 dark:text-blue-400 mt-2 space-y-1 list-disc list-inside">
-              <li>Definição de metas por evento</li>
-              <li>Configuração de curvas de benchmark</li>
-              <li>Ajuste de parâmetros do ISC</li>
-              <li>Gestão de categorias de eventos</li>
-              <li>Configuração de alertas automáticos</li>
-            </ul>
-          </div>
-        </div>
+      <div className="min-h-[500px]">
+        {renderTabContent()}
       </div>
     </div>
   );
