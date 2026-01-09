@@ -1,0 +1,122 @@
+Crie um dashboard web para a área de Marketing Performance acompanhar vendas de inscrições de eventos de corrida. O app deve ser construído com React + TypeScript, usando Tailwind CSS para estilização e Recharts para gráficos.
+
+## CONTEXTO DO NEGÓCIO
+Eventos de corrida têm vendas de "cauda longa" - o volume cresce pouco no início e acelera conforme o evento se aproxima. O momento da ação comercial importa tanto quanto o valor. O dashboard deve ajudar a:
+- Detectar eventos fortes → rentabilizar com segurança (subir preço)
+- Detectar eventos fracos → reforçar demanda antes que seja tarde
+- Criar uma régua única de decisão para todo o time
+- Reduzir erro operacional
+
+## MÉTRICA PRINCIPAL: ISC (Índice de Saúde Comercial)
+O ISC indica se o evento está:
+- 🟢 Acelerando (ISC > 1.10) → evento forte, pode subir preço
+- 🟡 Estável (ISC entre 0.90 e 1.10) → manter/ajustar comunicação  
+- 🔴 Desacelerando (ISC < 0.90) → evento fraco, reforçar demanda
+
+### Fórmula do ISC:
+ISC = (IA_7_30 + Curva_D_Percent + Rolling_14d_normalizado) / 3
+
+### Componentes:
+
+1. **IA 7/30 (Índice de Aceleração)**
+   - Fórmula: Vendas dos últimos 7 dias / Vendas dos últimos 30 dias × (30/7)
+   - Se > 1: curva acelerando | Se < 1: curva desacelerando
+   - Responde: "Estamos vendendo mais rápido ou mais devagar?"
+
+2. **Curva D-% (Progresso no Tempo)**
+   - Fórmula: Vendas reais acumuladas / Vendas esperadas para este D-
+   - Se > 1: adiantados | Se < 1: atrasados
+   - Responde: "Estamos na frente ou atrás do ritmo esperado?"
+
+3. **Rolling 14d (Momentum)**
+   - Fórmula: Média de vendas dos últimos 14 dias (normalizada)
+   - Responde: "O momento recente está quente ou frio?"
+
+## REGRA DE NEGÓCIO CRÍTICA: D-40
+- D-40 é a última janela para promoções sem destruir comportamento futuro
+- Diagnóstico deve acontecer até D-45
+- Ação de correção até D-40
+- APÓS D-40: NUNCA fazer promoção (apenas ajustes de comunicação ou preço para cima)
+
+## ESTRUTURA DAS TELAS
+
+### Tela 1: Dashboard Geral (Home)
+- Header com filtros: período, categoria de evento, status (todos/ativos/encerrados)
+- Cards resumo:
+  - Total de eventos ativos
+  - Eventos em zona verde (🟢)
+  - Eventos em zona amarela (🟡)
+  - Eventos em zona vermelha (🔴)
+- Tabela principal dos eventos com colunas:
+  - Nome do evento
+  - Data do evento
+  - D- (dias para o evento)
+  - Vendas atuais / Meta
+  - ISC (com indicador colorido)
+  - IA 7/30
+  - Curva D-%
+  - Rolling 14d
+  - Ação sugerida (chip colorido)
+  - Última ação realizada
+- Ordenação padrão: eventos mais próximos (menor D-) primeiro
+- Destaque visual para eventos em D-45 a D-40 (janela crítica de decisão)
+
+### Tela 2: Detalhe do Evento
+- Header: Nome, data, local, capacidade total
+- Seção de métricas principais (cards grandes):
+  - ISC atual com gauge/velocímetro visual
+  - Dias para o evento (D-)
+  - Vendas / Meta (com % de progresso)
+  - Ticket médio atual
+- Gráfico de linha: Curva de vendas acumuladas vs Curva esperada (benchmark)
+- Gráfico de barras: Vendas diárias dos últimos 30 dias
+- Painel de componentes do ISC:
+  - IA 7/30 com sparkline
+  - Curva D-% com indicador visual
+  - Rolling 14d com tendência
+- Timeline de ações comerciais realizadas (histórico)
+- Seção de recomendação automática baseada no ISC e D-:
+  - Se ISC 🟢 e qualquer D-: "Evento forte. Considere ajuste de preço para cima."
+  - Se ISC 🟡 e D- > 40: "Evento estável. Monitore e reforce comunicação."
+  - Se ISC 🔴 e D- > 40: "Evento fraco. Janela aberta para ação promocional."
+  - Se ISC 🔴 e D- <= 40: "⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação."
+  - Se D- entre 40 e 45: Badge especial "🎯 JANELA CRÍTICA DE DECISÃO"
+
+### Tela 3: Comparativo de Eventos
+- Permite selecionar 2-4 eventos para comparar lado a lado
+- Gráfico sobreposto das curvas de venda
+- Tabela comparativa de todas as métricas
+- Útil para entender padrões entre eventos similares
+
+## DADOS MOCK PARA DESENVOLVIMENTO
+Criar dados fictícios para 6-8 eventos com diferentes cenários:
+1. "São Paulo Marathon 30K" - ISC 1.21 🟢, D-45, vendendo bem
+2. "EcoRun Floripa" - ISC 0.85 🔴, D-52, precisa de ação
+3. "Night Run RJ" - ISC 0.95 🟡, D-38, estável mas fora da janela
+4. "Trail Serra Gaúcha" - ISC 1.05 🟡, D-60, início de vendas
+5. "Meia Maratona BH" - ISC 0.78 🔴, D-43, janela crítica
+6. "Color Run Curitiba" - ISC 1.35 🟢, D-30, muito forte
+
+Para cada evento, gerar:
+- Histórico de vendas diárias dos últimos 60 dias
+- Curva esperada de benchmark
+- Meta de inscrições
+- Histórico de ações comerciais
+
+## REQUISITOS TÉCNICOS
+- Design moderno, clean, com bastante espaço em branco
+- Cores do semáforo: Verde (#22c55e), Amarelo (#eab308), Vermelho (#ef4444)
+- Responsivo (mobile-friendly)
+- Loading states e empty states
+- Tooltips explicativos nas métricas (ajudar usuário a entender cada número)
+
+## NAVEGAÇÃO
+- Sidebar com:
+  - Dashboard (home)
+  - Eventos (lista completa com mais filtros)
+  - Comparativo
+  - Configurações (placeholder)
+- Breadcrumb na navegação interna
+- Click no evento da tabela → abre detalhe do evento
+
+Comece pela estrutura do projeto e dados mock, depois construa as telas na ordem: Dashboard → Detalhe → Comparativo.
