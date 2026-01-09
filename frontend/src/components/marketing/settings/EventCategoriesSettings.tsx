@@ -62,7 +62,8 @@ const EventCategoriesSettings: React.FC = () => {
 
   const handleAddCategory = () => {
     if (newCategory.name && newCategory.description) {
-      const newId = String(Math.max(...categories.map(c => Number(c.id))) + 1);
+      const existingIds = categories.map(c => Number(c.id));
+      const newId = String(existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1);
       setCategories([...categories, { ...newCategory, id: newId, eventCount: 0 } as EventCategory]);
       setNewCategory({
         name: '',

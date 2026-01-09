@@ -72,7 +72,8 @@ const AlertsSettings: React.FC = () => {
 
   const handleAddAlert = () => {
     if (newAlert.name && newAlert.description) {
-      const newId = String(Math.max(...alerts.map(a => Number(a.id))) + 1);
+      const existingIds = alerts.map(a => Number(a.id));
+      const newId = String(existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1);
       setAlerts([...alerts, {
         ...newAlert,
         id: newId,
