@@ -55,7 +55,7 @@ interface CadastroEvento {
     local: string;
     data_horario: string;
   };
-  kit_produto: Array<{ kit: string; produtos: string[] }>;
+  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
   trofeus: number;
   faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
@@ -82,7 +82,7 @@ interface FormData {
     local: string;
     data_horario: string;
   };
-  kit_produto: Array<{ kit: string; produtos: string[] }>;
+  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
   trofeus: number;
   faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
@@ -99,12 +99,12 @@ const produtosDisponiveis = [
   'Moletom', 'Jaqueta', 'Boné', 'Viseira', 'Toalha', 'Squeeze', 'Munhequeira'
 ];
 
-const produtosPadraoPorKit: Record<string, string[]> = {
-  'Kit Participação': ['Medalha'],
-  'Kit Básico': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola'],
-  'Kit Vip': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Moletom', 'Jaqueta'],
-  'Kit Plus': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola', 'Boné', 'Viseira'],
-  'Kit Super': ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola']
+const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario: number }>> = {
+  'Kit Participação': [{ nome: 'Medalha', valor_unitario: 0 }],
+  'Kit Básico': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }],
+  'Kit Vip': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }, { nome: 'Moletom', valor_unitario: 0 }, { nome: 'Jaqueta', valor_unitario: 0 }],
+  'Kit Plus': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }, { nome: 'Boné', valor_unitario: 0 }, { nome: 'Viseira', valor_unitario: 0 }],
+  'Kit Super': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }]
 };
 
 const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
@@ -151,8 +151,8 @@ const mockCadastros: CadastroEvento[] = [
     ],
     retirada_kit: { local: 'Pavilhão do Ibirapuera', data_horario: '2026-04-11T10:00' },
     kit_produto: [
-      { kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha', 'Garrafa', 'Sacochila'] },
-      { kit: 'Kit Vip', produtos: ['Camiseta', 'Medalha', 'Moletom'] }
+      { kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', valor_unitario: 25 }, { nome: 'Medalha', valor_unitario: 15 }, { nome: 'Garrafa', valor_unitario: 10 }, { nome: 'Sacochila', valor_unitario: 8 }] },
+      { kit: 'Kit Vip', produtos: [{ nome: 'Camiseta', valor_unitario: 25 }, { nome: 'Medalha', valor_unitario: 15 }, { nome: 'Moletom', valor_unitario: 45 }] }
     ],
     trofeus: 50,
     faixas_preco_site: [{ faixa: '1', qtd: 4000, tkt_medio: 149.90, total: 599600 }, { faixa: '2', qtd: 4000, tkt_medio: 199.90, total: 799600 }, { faixa: '3', qtd: 4000, tkt_medio: 249.90, total: 999600 }],
@@ -176,7 +176,7 @@ const mockCadastros: CadastroEvento[] = [
     ],
     taxas: [],
     retirada_kit: { local: 'Marina da Glória', data_horario: '2026-06-19T14:00' },
-    kit_produto: [{ kit: 'Kit Básico', produtos: ['Camiseta', 'Medalha'] }],
+    kit_produto: [{ kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', valor_unitario: 25 }, { nome: 'Medalha', valor_unitario: 15 }] }],
     trofeus: 30,
     faixas_preco_site: [{ faixa: '1', qtd: 3000, tkt_medio: 99.90, total: 299700 }, { faixa: '2', qtd: 3100, tkt_medio: 159.90, total: 495690 }],
     faixas_preco_grupos: [{ faixa: '1', qtd: 1900, tkt_medio: 89.90, total: 170810 }]
@@ -1228,17 +1228,17 @@ const Cadastro: React.FC = () => {
                   <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                     Produtos do Kit (clique para adicionar/remover)
                   </label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 mb-3">
                     {produtosDisponiveis.map(produto => {
-                      const isSelected = kit.produtos.includes(produto);
+                      const isSelected = kit.produtos.some(p => p.nome === produto);
                       return (
                         <button
                           key={produto}
                           type="button"
                           onClick={() => {
                             const produtos = isSelected
-                              ? kit.produtos.filter(p => p !== produto)
-                              : [...kit.produtos, produto];
+                              ? kit.produtos.filter(p => p.nome !== produto)
+                              : [...kit.produtos, { nome: produto, valor_unitario: 0 }];
                             setForm(prev => ({
                               ...prev,
                               kit_produto: prev.kit_produto.map((k, i) => 
@@ -1257,6 +1257,45 @@ const Cadastro: React.FC = () => {
                       );
                     })}
                   </div>
+                  {kit.produtos.length > 0 && (
+                    <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-100'}`}>
+                      <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Valores Unitários dos Produtos
+                      </label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {kit.produtos.map((produto, prodIndex) => (
+                          <div key={produto.nome} className="flex flex-col gap-1">
+                            <span className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{produto.nome}</span>
+                            <div className="relative">
+                              <span className={`absolute left-2 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>R$</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={produto.valor_unitario || ''}
+                                onChange={(e) => {
+                                  const newValue = parseFloat(e.target.value) || 0;
+                                  setForm(prev => ({
+                                    ...prev,
+                                    kit_produto: prev.kit_produto.map((k, i) => 
+                                      i === index ? {
+                                        ...k,
+                                        produtos: k.produtos.map((p, pi) => 
+                                          pi === prodIndex ? { ...p, valor_unitario: newValue } : p
+                                        )
+                                      } : k
+                                    )
+                                  }));
+                                }}
+                                placeholder="0,00"
+                                className={`w-full pl-7 pr-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
