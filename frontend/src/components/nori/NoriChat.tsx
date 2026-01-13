@@ -91,12 +91,19 @@ const EventMiniCard: React.FC<{ event: MarketingEvent }> = ({ event }) => {
   );
 };
 
+interface UserOption {
+  id: number;
+  nome: string;
+  email: string;
+}
+
 interface NoriChatProps {
   isOpen: boolean;
   onClose: () => void;
+  onTaskCreated?: () => void;
 }
 
-const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
+const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -104,8 +111,13 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [greeting, setGreeting] = useState('');
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [showUserMention, setShowUserMention] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+  const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const cleanTextForSpeech = (text: string): string => {
     return text
@@ -156,8 +168,56 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
   useEffect(() => {
     if (isOpen && messages.length === 0) {
       fetchGreeting();
+      fetchUsers();
     }
   }, [isOpen]);
+
+  const fetchUsers = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (token) {
+        const response = await fetch('/api/users/', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setUsers(data);
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao carregar usuários:', error);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInputValue(value);
+    
+    const lastAtIndex = value.lastIndexOf('@');
+    if (lastAtIndex !== -1 && lastAtIndex === value.length - 1) {
+      setShowUserMention(true);
+      setMentionFilter('');
+    } else if (lastAtIndex !== -1 && value.slice(lastAtIndex + 1).indexOf(' ') === -1) {
+      setShowUserMention(true);
+      setMentionFilter(value.slice(lastAtIndex + 1).toLowerCase());
+    } else {
+      setShowUserMention(false);
+    }
+  };
+
+  const handleSelectUser = (user: UserOption) => {
+    setSelectedUser(user);
+    const lastAtIndex = inputValue.lastIndexOf('@');
+    const newValue = inputValue.slice(0, lastAtIndex) + `@${user.nome} `;
+    setInputValue(newValue);
+    setShowUserMention(false);
+    inputRef.current?.focus();
+  };
+
+  const filteredUsers = users.filter(u => 
+    u.nome.toLowerCase().includes(mentionFilter) || 
+    u.email.toLowerCase().includes(mentionFilter)
+  );
 
   const fetchGreeting = async () => {
     try {
@@ -342,6 +402,45 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
       e.preventDefault();
       sendMessage();
     }
+    if (e.key === 'Escape' && showUserMention) {
+      setShowUserMention(false);
+    }
+  };
+
+  const createQuickTask = async (titulo: string) => {
+    try {
+      const taskData: TarefaCreate = {
+        titulo,
+        criado_por_nori: true,
+        responsavel_id: selectedUser?.id
+      };
+      
+      await tarefasService.create(taskData);
+      
+      const responsavelInfo = selectedUser ? ` para @${selectedUser.nome}` : '';
+      const confirmMessage: ChatMessage = {
+        role: 'assistant',
+        content: `✅ Tarefa criada com sucesso${responsavelInfo}!\n\n**"${titulo}"**\n\nVocê pode ver suas tarefas na tela principal do Nori.`
+      };
+      setMessages(prev => [...prev, confirmMessage]);
+      
+      if (isSpeechEnabled) {
+        speak(`Tarefa criada com sucesso${responsavelInfo ? ` ${responsavelInfo}` : ''}!`);
+      }
+      
+      setSelectedUser(null);
+      
+      if (onTaskCreated) {
+        onTaskCreated();
+      }
+    } catch (error) {
+      console.error('Erro ao criar tarefa:', error);
+      const errorMsg: ChatMessage = {
+        role: 'assistant',
+        content: '❌ Desculpe, não consegui criar a tarefa. Tente novamente.'
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    }
   };
 
   if (!isOpen) return null;
@@ -487,7 +586,22 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
             </button>
           </div>
           
-          <div className="flex gap-2">
+          {selectedUser && (
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Responsável:</span>
+              <span className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 rounded-full text-xs font-medium flex items-center gap-1">
+                @{selectedUser.nome}
+                <button 
+                  onClick={() => setSelectedUser(null)}
+                  className="hover:text-red-500 ml-1"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            </div>
+          )}
+
+          <div className="flex gap-2 relative">
             <button
               onClick={isListening ? stopListening : startListening}
               className={`p-3 rounded-full transition-colors ${
@@ -500,15 +614,41 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
               {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
             
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Digite sua mensagem ou clique no microfone..."
-              className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-700 border-0 rounded-full text-gray-800 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-              disabled={isLoading}
-            />
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={handleInputChange}
+                onKeyPress={handleKeyPress}
+                placeholder="Digite sua mensagem... Use @ para mencionar"
+                className="w-full px-4 py-3 bg-gray-100 dark:bg-gray-700 border-0 rounded-full text-gray-800 dark:text-white placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                disabled={isLoading}
+              />
+              
+              {showUserMention && filteredUsers.length > 0 && (
+                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 max-h-48 overflow-y-auto z-50">
+                  <div className="p-2 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
+                    Selecione um usuário para atribuir a tarefa
+                  </div>
+                  {filteredUsers.map(user => (
+                    <button
+                      key={user.id}
+                      onClick={() => handleSelectUser(user)}
+                      className="w-full px-4 py-2 text-left hover:bg-indigo-50 dark:hover:bg-indigo-900/20 flex items-center gap-3 transition-colors"
+                    >
+                      <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                        {user.nome.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 dark:text-white text-sm truncate">{user.nome}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             
             <button
               onClick={() => sendMessage()}
@@ -518,6 +658,10 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
               <Send className="w-5 h-5" />
             </button>
           </div>
+          
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
+            Use @ para mencionar usuários ao criar tarefas
+          </p>
         </div>
       </div>
     </div>

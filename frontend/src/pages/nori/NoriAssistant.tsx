@@ -289,12 +289,19 @@ const NoriAssistant: React.FC = () => {
                       {tarefa.descricao && (
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{tarefa.descricao}</p>
                       )}
-                      {tarefa.data_vencimento && (
-                        <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {new Date(tarefa.data_vencimento).toLocaleString('pt-BR')}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {tarefa.responsavel && (
+                          <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full">
+                            @{tarefa.responsavel.nome}
+                          </span>
+                        )}
+                        {tarefa.data_vencimento && (
+                          <span className="text-xs text-gray-400 flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(tarefa.data_vencimento).toLocaleString('pt-BR')}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <button
                       onClick={() => handleDelete(tarefa.id)}
@@ -310,7 +317,11 @@ const NoriAssistant: React.FC = () => {
         </div>
       </div>
 
-      <NoriChat isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+      <NoriChat 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
+        onTaskCreated={loadData}
+      />
     </div>
   );
 };

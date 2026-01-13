@@ -55,6 +55,7 @@ class TarefaBase(BaseModel):
 
 class TarefaCreate(TarefaBase):
     criado_por_nori: bool = False
+    responsavel_id: Optional[int] = None
 
 
 class TarefaUpdate(BaseModel):
@@ -66,11 +67,22 @@ class TarefaUpdate(BaseModel):
     status: Optional[StatusTarefa] = None
 
 
+class ResponsavelInfo(BaseModel):
+    id: int
+    nome: str
+    email: str
+    
+    class Config:
+        from_attributes = True
+
+
 class TarefaResponse(TarefaBase):
     id: int
     status: StatusTarefa
     criado_por_nori: bool
     usuario_id: int
+    responsavel_id: Optional[int] = None
+    responsavel: Optional[ResponsavelInfo] = None
     created_at: datetime
     updated_at: datetime
     

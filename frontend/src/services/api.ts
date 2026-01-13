@@ -314,6 +314,12 @@ export const noriService = {
   }
 };
 
+export interface ResponsavelInfo {
+  id: number;
+  nome: string;
+  email: string;
+}
+
 export interface Tarefa {
   id: number;
   titulo: string;
@@ -324,6 +330,8 @@ export interface Tarefa {
   status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'CANCELADA';
   criado_por_nori: boolean;
   usuario_id: number;
+  responsavel_id?: number;
+  responsavel?: ResponsavelInfo;
   created_at: string;
   updated_at: string;
 }
@@ -335,6 +343,7 @@ export interface TarefaCreate {
   hora_lembrete?: string;
   prioridade?: 'BAIXA' | 'MEDIA' | 'ALTA' | 'URGENTE';
   criado_por_nori?: boolean;
+  responsavel_id?: number;
 }
 
 export const tarefasService = {

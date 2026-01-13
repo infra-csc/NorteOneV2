@@ -18,7 +18,13 @@ async def list_tarefas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    query = db.query(Tarefa).filter(Tarefa.usuario_id == current_user.id)
+    from sqlalchemy import or_
+    query = db.query(Tarefa).filter(
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        )
+    )
     
     if status:
         query = query.filter(Tarefa.status == status)
@@ -34,8 +40,12 @@ async def list_tarefas_pendentes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import or_
     tarefas = db.query(Tarefa).filter(
-        Tarefa.usuario_id == current_user.id,
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        ),
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
     ).order_by(Tarefa.data_vencimento.asc().nullsfirst()).all()
     return tarefas
@@ -124,6 +134,12 @@ async def create_tarefa(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    responsavel_id = tarefa.responsavel_id
+    if responsavel_id:
+        responsavel = db.query(Usuario).filter(Usuario.id == responsavel_id).first()
+        if not responsavel:
+            raise HTTPException(status_code=400, detail="Responsável não encontrado")
+    
     db_tarefa = Tarefa(
         titulo=tarefa.titulo,
         descricao=tarefa.descricao,
@@ -131,7 +147,8 @@ async def create_tarefa(
         hora_lembrete=tarefa.hora_lembrete,
         prioridade=tarefa.prioridade,
         criado_por_nori=tarefa.criado_por_nori,
-        usuario_id=current_user.id
+        usuario_id=current_user.id,
+        responsavel_id=responsavel_id
     )
     
     db.add(db_tarefa)

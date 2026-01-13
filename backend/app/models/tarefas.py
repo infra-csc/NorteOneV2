@@ -31,8 +31,10 @@ class Tarefa(Base):
     status = Column(Enum(StatusTarefa), default=StatusTarefa.PENDENTE)
     criado_por_nori = Column(Boolean, default=False)
     usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
+    responsavel_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
-    usuario = relationship("Usuario", backref="tarefas")
+    usuario = relationship("Usuario", foreign_keys=[usuario_id], backref="tarefas_criadas")
+    responsavel = relationship("Usuario", foreign_keys=[responsavel_id], backref="tarefas_atribuidas")
