@@ -10,10 +10,86 @@ import {
   BarChart3,
   Loader2,
   ListTodo,
-  Square
+  Square,
+  TrendingUp,
+  TrendingDown,
+  Minus
 } from 'lucide-react';
 import { noriService, ChatMessage, tarefasService, TarefaCreate } from '../../services/api';
 import { mockEvents } from '../../data/mockMarketingData';
+import { Event as MarketingEvent } from '../../types/marketingPerformance';
+
+const MiniISCGauge: React.FC<{ value: number; status: string }> = ({ value, status }) => {
+  const color = status === 'accelerating' ? '#22c55e' : status === 'stable' ? '#eab308' : '#ef4444';
+  const percentage = Math.min(Math.max((value / 2) * 100, 0), 100);
+  
+  return (
+    <div className="inline-flex items-center gap-2 bg-gray-50 dark:bg-gray-600 rounded-lg px-3 py-1.5">
+      <div className="relative w-12 h-6">
+        <svg viewBox="0 0 48 24" className="w-full h-full">
+          <path
+            d="M4 20 A 20 20 0 0 1 44 20"
+            fill="none"
+            stroke="#e5e7eb"
+            strokeWidth="4"
+            strokeLinecap="round"
+          />
+          <path
+            d="M4 20 A 20 20 0 0 1 44 20"
+            fill="none"
+            stroke={color}
+            strokeWidth="4"
+            strokeLinecap="round"
+            strokeDasharray={`${percentage * 0.63} 100`}
+          />
+        </svg>
+      </div>
+      <span className="font-bold text-sm" style={{ color }}>{value.toFixed(2)}</span>
+    </div>
+  );
+};
+
+const EventMiniCard: React.FC<{ event: MarketingEvent }> = ({ event }) => {
+  const statusColors: Record<string, string> = {
+    accelerating: 'border-green-500 bg-green-50 dark:bg-green-900/20',
+    stable: 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20',
+    decelerating: 'border-red-500 bg-red-50 dark:bg-red-900/20'
+  };
+  
+  const StatusIcon = event.iscStatus === 'accelerating' ? TrendingUp : 
+                     event.iscStatus === 'stable' ? Minus : TrendingDown;
+  const iconColor = event.iscStatus === 'accelerating' ? 'text-green-500' : 
+                    event.iscStatus === 'stable' ? 'text-yellow-500' : 'text-red-500';
+  
+  const progress = (event.currentSales / event.salesGoal) * 100;
+  
+  return (
+    <div className={`border-l-4 rounded-lg p-3 my-2 ${statusColors[event.iscStatus]}`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <StatusIcon className={`w-4 h-4 ${iconColor}`} />
+          <span className="font-semibold text-sm dark:text-gray-200">{event.name}</span>
+        </div>
+        <MiniISCGauge value={event.isc} status={event.iscStatus} />
+      </div>
+      <div className="flex items-center gap-4 text-xs text-gray-600 dark:text-gray-400">
+        <span>D-{event.dMinus}</span>
+        <div className="flex-1">
+          <div className="h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+            <div 
+              className={`h-full rounded-full ${
+                event.iscStatus === 'accelerating' ? 'bg-green-500' : 
+                event.iscStatus === 'stable' ? 'bg-yellow-500' : 'bg-red-500'
+              }`}
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
+        </div>
+        <span>{event.currentSales.toLocaleString()}/{event.salesGoal.toLocaleString()}</span>
+      </div>
+    </div>
+  );
+};
 
 interface NoriChatProps {
   isOpen: boolean;
@@ -38,7 +114,7 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
       .replace(/_{1,2}([^_]+)_{1,2}/g, '$1')
       .replace(/`{1,3}[^`]*`{1,3}/g, '')
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/[🟢🟡🔴📊📈📉✅❌⚠️💡🎯]/g, '')
+      .replace(/[🟢🟡🔴📊📈📉✅❌⚠️💡🎯🚀💪🔥⭐️📌🎉]/g, '')
       .replace(/[-•]\s/g, '')
       .replace(/\n{2,}/g, '. ')
       .replace(/\n/g, ', ')
@@ -46,6 +122,28 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
       .replace(/:\s*,/g, ': ')
       .trim();
   };
+
+  const renderFormattedMessage = (content: string) => {
+    const parts = content.split(/(\*\*[^*]+\*\*)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
+  const detectMentionedEvents = (content: string): MarketingEvent[] => {
+    const mentioned: MarketingEvent[] = [];
+    mockEvents.forEach(event => {
+      if (content.toLowerCase().includes(event.name.toLowerCase())) {
+        mentioned.push(event);
+      }
+    });
+    return mentioned.slice(0, 4);
+  };
+
+  const [showEventCards, setShowEventCards] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -309,27 +407,48 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
-            >
-              {message.role === 'assistant' && (
-                <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="w-4 h-4 text-white" />
-                </div>
-              )}
+          {messages.map((message, index) => {
+            const mentionedEvents = message.role === 'assistant' ? detectMentionedEvents(message.content) : [];
+            const isAnalysis = message.content.includes('ISC') || message.content.includes('evento') || mentionedEvents.length > 0;
+            
+            return (
               <div
-                className={`rounded-2xl p-4 max-w-[80%] ${
-                  message.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-tr-sm'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-tl-sm'
-                }`}
+                key={index}
+                className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                {message.role === 'assistant' && (
+                  <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <Sparkles className="w-4 h-4 text-white" />
+                  </div>
+                )}
+                <div className={`max-w-[85%] ${message.role === 'user' ? '' : ''}`}>
+                  <div
+                    className={`rounded-2xl p-4 ${
+                      message.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-tr-sm'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-tl-sm'
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap leading-relaxed">
+                      {renderFormattedMessage(message.content)}
+                    </p>
+                  </div>
+                  
+                  {message.role === 'assistant' && mentionedEvents.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 px-2">
+                        <BarChart3 className="w-3 h-3" />
+                        <span>Eventos mencionados</span>
+                      </div>
+                      {mentionedEvents.map(event => (
+                        <EventMiniCard key={event.id} event={event} />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {isLoading && (
             <div className="flex gap-3">
