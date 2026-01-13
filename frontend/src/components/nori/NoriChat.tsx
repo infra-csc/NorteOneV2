@@ -86,16 +86,18 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
     utterance.volume = 1.0;
     
     const voices = window.speechSynthesis.getVoices();
-    const preferredVoices = voices.filter(v => 
+    const maleVoices = voices.filter(v => 
       v.lang.startsWith('pt-BR') && 
-      (v.name.toLowerCase().includes('google') || 
-       v.name.toLowerCase().includes('natural') ||
-       v.name.toLowerCase().includes('female') ||
-       v.name.toLowerCase().includes('luciana') ||
-       v.name.toLowerCase().includes('francisca'))
+      (v.name.toLowerCase().includes('google português do brasil') ||
+       v.name.toLowerCase().includes('ricardo') ||
+       v.name.toLowerCase().includes('daniel') ||
+       v.name.toLowerCase().includes('male') ||
+       (!v.name.toLowerCase().includes('female') && 
+        !v.name.toLowerCase().includes('luciana') && 
+        !v.name.toLowerCase().includes('francisca')))
     );
     
-    const selectedVoice = preferredVoices[0] || voices.find(v => v.lang.startsWith('pt-BR')) || voices.find(v => v.lang.startsWith('pt'));
+    const selectedVoice = maleVoices[0] || voices.find(v => v.lang.startsWith('pt-BR')) || voices.find(v => v.lang.startsWith('pt'));
     if (selectedVoice) {
       utterance.voice = selectedVoice;
     }

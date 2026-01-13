@@ -2,6 +2,7 @@ import os
 from openai import AsyncOpenAI, RateLimitError, APIError
 from typing import Optional
 from datetime import datetime
+import pytz
 
 
 class OpenAIQuotaError(Exception):
@@ -130,7 +131,12 @@ Evento: {event.get('name', 'N/A')}
 
 
 def get_greeting() -> str:
-    hour = datetime.now().hour
+    try:
+        br_tz = pytz.timezone('America/Sao_Paulo')
+        hour = datetime.now(br_tz).hour
+    except:
+        hour = datetime.now().hour
+    
     if hour < 12:
         greeting = "Bom dia"
     elif hour < 18:
