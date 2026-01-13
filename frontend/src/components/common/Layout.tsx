@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import NoriButton from '../nori/NoriButton';
 import { 
   LayoutDashboard, 
   Building2, 
@@ -19,7 +20,8 @@ import {
   ChevronDown,
   Activity,
   BarChart3,
-  Settings
+  Settings,
+  Sparkles
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -91,6 +93,20 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </Link>
             );
           })}
+
+          <Link
+            to="/nori"
+            className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+              location.pathname === '/nori'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                : isDark
+                ? 'text-gray-300 hover:bg-gray-700'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            <Sparkles className="w-5 h-5 mr-3" />
+            Nori (Assistente)
+          </Link>
 
           <div>
             <button
@@ -216,6 +232,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           {children}
         </main>
       </div>
+
+      <NoriButton />
     </div>
   );
 };

@@ -288,4 +288,95 @@ export const atletasService = {
   }
 };
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export const noriService = {
+  getGreeting: async () => {
+    const response = await api.get('/nori/greeting');
+    return response.data;
+  },
+  chat: async (message: string, context?: ChatMessage[], eventsData?: any[]) => {
+    const response = await api.post('/nori/chat', {
+      message,
+      context,
+      events_data: eventsData
+    });
+    return response.data;
+  },
+  analyze: async (eventsData: any[]) => {
+    const response = await api.post('/nori/analyze', {
+      events_data: eventsData
+    });
+    return response.data;
+  }
+};
+
+export interface Tarefa {
+  id: number;
+  titulo: string;
+  descricao?: string;
+  data_vencimento?: string;
+  hora_lembrete?: string;
+  prioridade: 'BAIXA' | 'MEDIA' | 'ALTA' | 'URGENTE';
+  status: 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'CANCELADA';
+  criado_por_nori: boolean;
+  usuario_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TarefaCreate {
+  titulo: string;
+  descricao?: string;
+  data_vencimento?: string;
+  hora_lembrete?: string;
+  prioridade?: 'BAIXA' | 'MEDIA' | 'ALTA' | 'URGENTE';
+  criado_por_nori?: boolean;
+}
+
+export const tarefasService = {
+  list: async (status?: string, prioridade?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (prioridade) params.append('prioridade', prioridade);
+    const response = await api.get(`/tarefas/?${params.toString()}`);
+    return response.data;
+  },
+  getPendentes: async () => {
+    const response = await api.get('/tarefas/pendentes');
+    return response.data;
+  },
+  getHoje: async () => {
+    const response = await api.get('/tarefas/hoje');
+    return response.data;
+  },
+  getResumo: async () => {
+    const response = await api.get('/tarefas/resumo');
+    return response.data;
+  },
+  get: async (id: number) => {
+    const response = await api.get(`/tarefas/${id}`);
+    return response.data;
+  },
+  create: async (tarefa: TarefaCreate) => {
+    const response = await api.post('/tarefas/', tarefa);
+    return response.data;
+  },
+  update: async (id: number, tarefa: Partial<TarefaCreate>) => {
+    const response = await api.put(`/tarefas/${id}`, tarefa);
+    return response.data;
+  },
+  concluir: async (id: number) => {
+    const response = await api.put(`/tarefas/${id}/concluir`);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/tarefas/${id}`);
+    return response.data;
+  }
+};
+
 export default api;

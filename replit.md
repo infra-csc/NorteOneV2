@@ -179,7 +179,38 @@ As metricas de atletas estao organizadas em 4 tabelas com vinculo direto a proje
   - Campos: projeto_id, categoria_atleta_id, tempo_id, tipo_custo (AGUA/ISOTONICO/HIDRATACAO/etc), cenario, versao_projecao
   - Metricas: custo_unitario, qtd_por_atleta, custo_total
 
+### 7. Nori - Assistente Virtual
+Assistente virtual inteligente por voz integrado ao sistema.
+
+**Funcionalidades:**
+- Analise de cenario dos eventos por IA (GPT-4o-mini)
+- Reconhecimento de voz (Speech-to-Text) via Web Speech API
+- Sintese de voz (Text-to-Speech) para respostas faladas
+- Chat conversacional com contexto dos dados de marketing
+- Sistema de agendamento de tarefas integrado
+
+**Tecnologias:**
+- OpenAI GPT-4o-mini para processamento de linguagem natural
+- Web Speech API para reconhecimento de voz no navegador
+- SpeechSynthesis API para sintese de voz em portugues brasileiro
+
+**Telas:**
+- Pagina do Assistente (/nori): dashboard de tarefas + chat com Nori
+- Botao flutuante em todas as paginas para acesso rapido ao chat
+
+**Endpoints:**
+- GET /api/nori/greeting - Saudacao personalizada
+- POST /api/nori/chat - Conversa com contexto
+- POST /api/nori/analyze - Analise de dados de marketing
+- CRUD /api/tarefas/ - Gerenciamento de tarefas
+
 ## Ultimas Modificacoes
+- 13/01/2026: Implementacao do Nori - Assistente Virtual por Voz
+  - Backend: servico de IA com OpenAI, endpoints para chat e analise
+  - Frontend: componente de chat com reconhecimento e sintese de voz
+  - Sistema de tarefas: modelo, API CRUD, interface de gerenciamento
+  - Integracao ao menu lateral e botao flutuante em todas as paginas
+
 - 09/01/2026: Implementacao completa do Modulo de Configuracoes do Marketing Performance
   - Definicao de Metas por Evento: tabela editavel com metas de vendas e receita
   - Curvas de Benchmark: visualizacao e edicao de curvas de referencia com grafico SVG
