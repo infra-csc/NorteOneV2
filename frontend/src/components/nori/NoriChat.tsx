@@ -18,6 +18,7 @@ import {
 import { noriService, ChatMessage, tarefasService, TarefaCreate } from '../../services/api';
 import { mockEvents } from '../../data/mockMarketingData';
 import { Event as MarketingEvent } from '../../types/marketingPerformance';
+import noriAvatar from '@assets/Nori_1768273889454.png';
 
 const MiniISCGauge: React.FC<{ value: number; status: string }> = ({ value, status }) => {
   const color = status === 'accelerating' ? '#22c55e' : status === 'stable' ? '#eab308' : '#ef4444';
@@ -450,8 +451,8 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700">
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-              <Sparkles className="w-6 h-6 text-white" />
+            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white/30">
+              <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover" />
             </div>
             <div>
               <h2 className="text-white font-bold text-lg">Nori</h2>
@@ -497,8 +498,8 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {greeting && messages.length === 0 && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border border-indigo-300">
+                <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover" />
               </div>
               <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm p-4 max-w-[80%]">
                 <p className="text-gray-800 dark:text-gray-200">{greeting}</p>
@@ -516,8 +517,8 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
                 className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
               >
                 {message.role === 'assistant' && (
-                  <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="w-4 h-4 text-white" />
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border border-indigo-300">
+                    <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover" />
                   </div>
                 )}
                 <div className={`max-w-[85%] ${message.role === 'user' ? '' : ''}`}>
@@ -551,8 +552,8 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
 
           {isLoading && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-white" />
+              <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 border border-indigo-300">
+                <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover" />
               </div>
               <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm p-4">
                 <div className="flex items-center gap-2">

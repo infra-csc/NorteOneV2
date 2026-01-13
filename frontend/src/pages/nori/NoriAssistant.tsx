@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Sparkles, 
   ListTodo, 
   Plus, 
   Check, 
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react';
 import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
 import NoriChat from '../../components/nori/NoriChat';
+import noriAvatar from '@assets/Nori_1768273889454.png';
 
 const NoriAssistant: React.FC = () => {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
@@ -96,9 +96,9 @@ const NoriAssistant: React.FC = () => {
       <div className="relative z-10 space-y-8 p-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/30">
-                <Sparkles className="w-6 h-6 text-white" />
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-full overflow-hidden shadow-lg shadow-indigo-500/30 border-2 border-indigo-400">
+                <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover" />
               </div>
               <div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
@@ -120,7 +120,7 @@ const NoriAssistant: React.FC = () => {
               onClick={() => setIsChatOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-colors"
             >
-              <Sparkles className="w-5 h-5" />
+              <img src={noriAvatar} alt="Nori" className="w-6 h-6 rounded-full" />
               Falar com Nori
             </button>
           </div>
@@ -261,7 +261,7 @@ const NoriAssistant: React.FC = () => {
               </div>
             ) : tarefas.length === 0 ? (
               <div className="p-8 text-center">
-                <Sparkles className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                <img src={noriAvatar} alt="Nori" className="w-16 h-16 mx-auto mb-3 rounded-full opacity-60" />
                 <p className="text-gray-500 dark:text-gray-400">Nenhuma tarefa pendente!</p>
                 <p className="text-sm text-gray-400 mt-1">Use o Nori para criar novas tarefas</p>
               </div>

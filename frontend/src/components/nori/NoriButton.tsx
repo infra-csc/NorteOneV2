@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Sparkles } from 'lucide-react';
 import NoriChat from './NoriChat';
+import noriAvatar from '@assets/Nori_1768273889454.png';
 
 const NoriButton: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,10 +9,10 @@ const NoriButton: React.FC = () => {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-40 w-14 h-14 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center group hover:scale-110"
+        className="fixed bottom-6 right-6 z-40 w-16 h-16 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center group hover:scale-110 overflow-hidden border-2 border-indigo-500/50"
         title="Falar com Nori"
       >
-        <Sparkles className="w-7 h-7 text-white group-hover:animate-pulse" />
+        <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover" />
         <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white animate-pulse" />
       </button>
       
