@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  MessageCircle, 
   X, 
   Send, 
   Mic, 
@@ -11,7 +10,7 @@ import {
   BarChart3,
   Loader2,
   ListTodo,
-  Plus
+  Square
 } from 'lucide-react';
 import { noriService, ChatMessage, tarefasService, TarefaCreate } from '../../services/api';
 import { mockEvents } from '../../data/mockMarketingData';
@@ -27,9 +26,26 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [isSpeechEnabled, setIsSpeechEnabled] = useState(true);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [greeting, setGreeting] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+
+  const cleanTextForSpeech = (text: string): string => {
+    return text
+      .replace(/#{1,6}\s?/g, '')
+      .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1')
+      .replace(/_{1,2}([^_]+)_{1,2}/g, '$1')
+      .replace(/`{1,3}[^`]*`{1,3}/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[🟢🟡🔴📊📈📉✅❌⚠️💡🎯]/g, '')
+      .replace(/[-•]\s/g, '')
+      .replace(/\n{2,}/g, '. ')
+      .replace(/\n/g, ', ')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/:\s*,/g, ': ')
+      .trim();
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -61,18 +77,41 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
     if (!isSpeechEnabled || !('speechSynthesis' in window)) return;
     
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    
+    const cleanText = cleanTextForSpeech(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = 'pt-BR';
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
+    utterance.rate = 0.9;
+    utterance.pitch = 0.95;
+    utterance.volume = 1.0;
     
     const voices = window.speechSynthesis.getVoices();
-    const ptVoice = voices.find(v => v.lang.startsWith('pt'));
-    if (ptVoice) {
-      utterance.voice = ptVoice;
+    const preferredVoices = voices.filter(v => 
+      v.lang.startsWith('pt-BR') && 
+      (v.name.toLowerCase().includes('google') || 
+       v.name.toLowerCase().includes('natural') ||
+       v.name.toLowerCase().includes('female') ||
+       v.name.toLowerCase().includes('luciana') ||
+       v.name.toLowerCase().includes('francisca'))
+    );
+    
+    const selectedVoice = preferredVoices[0] || voices.find(v => v.lang.startsWith('pt-BR')) || voices.find(v => v.lang.startsWith('pt'));
+    if (selectedVoice) {
+      utterance.voice = selectedVoice;
     }
     
+    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    
     window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
   };
 
   const startListening = useCallback(() => {
@@ -221,8 +260,20 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isSpeaking && (
+              <button
+                onClick={stopSpeaking}
+                className="p-2 rounded-full bg-red-500/80 hover:bg-red-500 transition-colors animate-pulse"
+                title="Parar de falar"
+              >
+                <Square className="w-4 h-4 text-white" />
+              </button>
+            )}
             <button
-              onClick={() => setIsSpeechEnabled(!isSpeechEnabled)}
+              onClick={() => {
+                if (isSpeaking) stopSpeaking();
+                setIsSpeechEnabled(!isSpeechEnabled);
+              }}
               className="p-2 rounded-full hover:bg-white/20 transition-colors"
               title={isSpeechEnabled ? 'Desativar voz' : 'Ativar voz'}
             >
@@ -233,7 +284,10 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose }) => {
               )}
             </button>
             <button
-              onClick={onClose}
+              onClick={() => {
+                stopSpeaking();
+                onClose();
+              }}
               className="p-2 rounded-full hover:bg-white/20 transition-colors"
             >
               <X className="w-5 h-5 text-white" />
