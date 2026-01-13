@@ -1,13 +1,21 @@
 import os
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError, APIError
 from typing import Optional
 from datetime import datetime
+
+
+class OpenAIQuotaError(Exception):
+    pass
+
+
+class OpenAIConfigError(Exception):
+    pass
 
 
 def get_openai_client() -> AsyncOpenAI:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError("OPENAI_API_KEY não configurada")
+        raise OpenAIConfigError("OPENAI_API_KEY não configurada")
     return AsyncOpenAI(api_key=api_key)
 
 NORI_SYSTEM_PROMPT = """Você é o Nori, um assistente virtual inteligente e amigável especializado em análise de performance de eventos e marketing.
@@ -58,16 +66,21 @@ Por favor, forneça:
 3. Eventos com bom desempenho
 4. Recomendações estratégicas"""
 
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": NORI_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=1000,
-        temperature=0.7
-    )
-    return response.choices[0].message.content
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": NORI_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except RateLimitError:
+        raise OpenAIQuotaError("A cota da API OpenAI foi excedida. Verifique os créditos da sua conta OpenAI.")
+    except APIError as e:
+        raise Exception(f"Erro na API OpenAI: {str(e)}")
 
 
 async def chat_with_nori(message: str, context: Optional[list] = None, events_data: Optional[list] = None) -> str:
@@ -86,13 +99,18 @@ async def chat_with_nori(message: str, context: Optional[list] = None, events_da
     
     messages.append({"role": "user", "content": message})
     
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        max_tokens=800,
-        temperature=0.7
-    )
-    return response.choices[0].message.content
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=800,
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except RateLimitError:
+        raise OpenAIQuotaError("A cota da API OpenAI foi excedida. Verifique os créditos da sua conta OpenAI.")
+    except APIError as e:
+        raise Exception(f"Erro na API OpenAI: {str(e)}")
 
 
 def format_events_for_analysis(events: list) -> str:
