@@ -18,7 +18,7 @@ import {
 import { noriService, ChatMessage, tarefasService, TarefaCreate } from '../../services/api';
 import { mockEvents } from '../../data/mockMarketingData';
 import { Event as MarketingEvent } from '../../types/marketingPerformance';
-import noriAvatar from '@assets/Nori_1768273889454.png';
+import noriAvatar from '@assets/Nori.png';
 
 const MiniISCGauge: React.FC<{ value: number; status: string }> = ({ value, status }) => {
   const color = status === 'accelerating' ? '#22c55e' : status === 'stable' ? '#eab308' : '#ef4444';
