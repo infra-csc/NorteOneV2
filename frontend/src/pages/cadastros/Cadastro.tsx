@@ -234,13 +234,13 @@ const formatCurrency = (value: number): string => {
 
 const tabs = [
   { id: 'info_geral', label: 'Info Geral', icon: Calendar },
+  { id: 'retirada_kit', label: 'Retirada Kit', icon: Package },
   { id: 'atletas', label: 'Atletas', icon: Users },
+  { id: 'kit_produto', label: 'Kit Produto', icon: Gift },
   { id: 'cortesias', label: 'Cortesias', icon: Gift },
   { id: 'faixas_preco_site', label: 'Faixa Preço - Site', icon: Globe },
   { id: 'faixas_preco_grupos', label: 'Faixa Preço - Grupos', icon: UsersRound },
-  { id: 'taxas', label: 'Taxas', icon: DollarSign },
-  { id: 'retirada_kit', label: 'Retirada Kit', icon: Package },
-  { id: 'kit_produto', label: 'Kit Produto', icon: Gift },
+  { id: 'taxas', label: 'Taxas', icon: DollarSign },  
 ];
 
 const Cadastro: React.FC = () => {
@@ -618,16 +618,33 @@ const Cadastro: React.FC = () => {
     return { totalQtd, totalValor, ticketMedioReal };
   };
 
+  const getKitCost = (kitName: string): number => {
+    const kit = form.kit_produto.find(k => k.kit === kitName);
+    if (!kit) return 0;
+    return kit.produtos.reduce((sum, p) => sum + (p.valor_unitario || 0), 0);
+  };
+
   const renderFaixaKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
     const faixas = form.faixas_preco_site[kitType];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
     const canAddMore = faixas.length < 5;
+    
+    const kitName = kitType === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
+    const custoUnitarioKit = getKitCost(kitName);
+    const custoTotalKit = custoUnitarioKit * totalQtd;
+    const margemKit = totalValor - custoTotalKit;
 
     return (
       <div className="space-y-3">
-        <div className={`flex items-center gap-2 pb-2 border-b ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
-          <Box className={`w-5 h-5 ${colorClass}`} />
-          <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h4>
+        <div className={`flex items-center justify-between pb-2 border-b ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
+          <div className="flex items-center gap-2">
+            <Box className={`w-5 h-5 ${colorClass}`} />
+            <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h4>
+          </div>
+          <div className={`text-right px-2 py-1 rounded ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/50'}`}>
+            <p className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Kit</p>
+            <p className={`text-xs font-bold ${colorClass}`}>{formatCurrency(custoUnitarioKit)}</p>
+          </div>
         </div>
         
         {faixas.map((faixa, index) => (
@@ -696,7 +713,7 @@ const Cadastro: React.FC = () => {
 
         {faixas.length > 0 && faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
           <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-100'}`}>
-            <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
               <div>
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
                 <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
@@ -706,8 +723,20 @@ const Cadastro: React.FC = () => {
                 <p className={`text-sm font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
               </div>
               <div>
-                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</p>
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento</p>
                 <p className={`text-sm font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+              </div>
+            </div>
+            <div className={`pt-3 border-t ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
+                  <p className={`text-sm font-bold text-orange-400`}>{formatCurrency(custoTotalKit)}</p>
+                </div>
+                <div>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem</p>
+                  <p className={`text-sm font-bold ${margemKit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKit)}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -728,6 +757,21 @@ const Cadastro: React.FC = () => {
     const diferencaTktMedio = ticketMedioReal - tktMedioOrcado;
     const diferencaValor = totalValor - valorTotalOrcado;
     const percentualPreenchido = atletasOrcado > 0 ? (totalQtd / atletasOrcado) * 100 : 0;
+    
+    const faixasKitBasico = form.faixas_preco_site.kit_basico;
+    const faixasKitParticipacao = form.faixas_preco_site.kit_participacao;
+    const { totalQtd: qtdKitBasico, totalValor: faturamentoKitBasico } = calcularTotalizadorFaixa(faixasKitBasico);
+    const { totalQtd: qtdKitParticipacao, totalValor: faturamentoKitParticipacao } = calcularTotalizadorFaixa(faixasKitParticipacao);
+    
+    const custoUnitarioKitBasico = getKitCost('Kit Básico');
+    const custoUnitarioKitParticipacao = getKitCost('Kit Participação');
+    const custoTotalKitBasico = custoUnitarioKitBasico * qtdKitBasico;
+    const custoTotalKitParticipacao = custoUnitarioKitParticipacao * qtdKitParticipacao;
+    const custoTotalGeral = custoTotalKitBasico + custoTotalKitParticipacao;
+    
+    const margemKitBasico = faturamentoKitBasico - custoTotalKitBasico;
+    const margemKitParticipacao = faturamentoKitParticipacao - custoTotalKitParticipacao;
+    const margemTotal = margemKitBasico + margemKitParticipacao;
 
     return (
       <div className="space-y-4">
@@ -861,6 +905,66 @@ const Cadastro: React.FC = () => {
                     />
                   </div>
                   <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{valorTotalOrcado > 0 ? ((totalValor / valorTotalOrcado) * 100).toFixed(1) : 0}%</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className={`mt-4 p-4 rounded-lg ${isDark ? 'bg-gradient-to-r from-emerald-900/50 to-teal-900/50' : 'bg-gradient-to-r from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-500/30' : 'border-emerald-200'}`}>
+              <h5 className={`text-sm font-bold mb-3 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                Análise de Margem
+              </h5>
+              <div className="grid grid-cols-3 gap-4 mb-3">
+                <div className="text-center">
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento Total</p>
+                  <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                </div>
+                <div className="text-center">
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
+                  <p className={`text-lg font-bold text-orange-400`}>{formatCurrency(custoTotalGeral)}</p>
+                </div>
+                <div className="text-center">
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Total</p>
+                  <p className={`text-xl font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900/30' : 'bg-blue-50'} border ${isDark ? 'border-blue-500/30' : 'border-blue-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>Margem Kit Básico</p>
+                      <p className={`text-sm font-bold ${margemKitBasico >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKitBasico)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(custoTotalKitBasico)}</p>
+                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(faturamentoKitBasico)}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900/30' : 'bg-green-50'} border ${isDark ? 'border-green-500/30' : 'border-green-200'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className={`text-xs ${isDark ? 'text-green-300' : 'text-green-600'}`}>Margem Kit Participação</p>
+                      <p className={`text-sm font-bold ${margemKitParticipacao >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKitParticipacao)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(custoTotalKitParticipacao)}</p>
+                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(faturamentoKitParticipacao)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className={`mt-3 p-2 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>% Margem sobre Faturamento</span>
+                  <span className={`text-sm font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {totalValor > 0 ? ((margemTotal / totalValor) * 100).toFixed(1) : 0}%
+                  </span>
+                </div>
+                <div className="w-full bg-gray-600 rounded-full h-2 mt-1">
+                  <div 
+                    className={`h-2 rounded-full transition-all ${margemTotal >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}
+                    style={{ width: `${totalValor > 0 ? Math.min(Math.abs((margemTotal / totalValor) * 100), 100) : 0}%` }}
+                  />
                 </div>
               </div>
             </div>
