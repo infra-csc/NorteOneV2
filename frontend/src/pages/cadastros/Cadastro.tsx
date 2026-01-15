@@ -773,9 +773,8 @@ const Cadastro: React.FC = () => {
     const margemKitParticipacao = faturamentoKitParticipacao - custoTotalKitParticipacao;
     const margemTotal = margemKitBasico + margemKitParticipacao;
     
-    const custoUnitarioTotalKits = custoUnitarioKitBasico + custoUnitarioKitParticipacao;
     const faturamentoOrcado = atletasOrcado * tktMedioOrcado;
-    const custoOrcado = atletasOrcado * custoUnitarioTotalKits;
+    const custoOrcado = atletasOrcado * custoUnitarioKitBasico;
     const margemOrcada = faturamentoOrcado - custoOrcado;
 
     return (
@@ -983,7 +982,7 @@ const Cadastro: React.FC = () => {
                 </div>
                 <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                   <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
-                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit: {formatCurrency(custoUnitarioTotalKits)}</div>
+                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Básico: {formatCurrency(custoUnitarioKitBasico)}</div>
                 </div>
               </div>
             </div>
