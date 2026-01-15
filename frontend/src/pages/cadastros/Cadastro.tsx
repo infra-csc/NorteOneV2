@@ -31,6 +31,18 @@ interface TaxaItem {
   data_validacao: string;
 }
 
+interface FaixaPrecoItem {
+  faixa: string;
+  qtd: number;
+  tkt_medio: number;
+  total: number;
+}
+
+interface FaixasPrecoSiteByKit {
+  kit_basico: FaixaPrecoItem[];
+  kit_participacao: FaixaPrecoItem[];
+}
+
 interface CadastroEvento {
   id: number;
   projeto_id: number | null;
@@ -57,7 +69,7 @@ interface CadastroEvento {
   };
   kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
   trofeus: number;
-  faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
+  faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
 
@@ -84,7 +96,7 @@ interface FormData {
   };
   kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
   trofeus: number;
-  faixas_preco_site: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
+  faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>;
 }
 
@@ -124,7 +136,10 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   retirada_kit: { local: '', data_horario: '' },
   kit_produto: [{ kit: '', produtos: [] }],
   trofeus: 0,
-  faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
+  faixas_preco_site: {
+    kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+    kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+  },
   faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
 });
 
@@ -155,7 +170,10 @@ const mockCadastros: CadastroEvento[] = [
       { kit: 'Kit Vip', produtos: [{ nome: 'Camiseta', valor_unitario: 25 }, { nome: 'Medalha', valor_unitario: 15 }, { nome: 'Moletom', valor_unitario: 45 }] }
     ],
     trofeus: 50,
-    faixas_preco_site: [{ faixa: '1', qtd: 4000, tkt_medio: 149.90, total: 599600 }, { faixa: '2', qtd: 4000, tkt_medio: 199.90, total: 799600 }, { faixa: '3', qtd: 4000, tkt_medio: 249.90, total: 999600 }],
+    faixas_preco_site: {
+      kit_basico: [{ faixa: '1', qtd: 3000, tkt_medio: 149.90, total: 449700 }, { faixa: '2', qtd: 2500, tkt_medio: 199.90, total: 499750 }, { faixa: '3', qtd: 2500, tkt_medio: 249.90, total: 624750 }],
+      kit_participacao: [{ faixa: '1', qtd: 1000, tkt_medio: 99.90, total: 99900 }, { faixa: '2', qtd: 1000, tkt_medio: 129.90, total: 129900 }]
+    },
     faixas_preco_grupos: [{ faixa: '1', qtd: 1500, tkt_medio: 129.90, total: 194850 }, { faixa: '2', qtd: 1500, tkt_medio: 169.90, total: 254850 }]
   },
   {
@@ -178,7 +196,10 @@ const mockCadastros: CadastroEvento[] = [
     retirada_kit: { local: 'Marina da Glória', data_horario: '2026-06-19T14:00' },
     kit_produto: [{ kit: 'Kit Básico', produtos: [{ nome: 'Camiseta', valor_unitario: 25 }, { nome: 'Medalha', valor_unitario: 15 }] }],
     trofeus: 30,
-    faixas_preco_site: [{ faixa: '1', qtd: 3000, tkt_medio: 99.90, total: 299700 }, { faixa: '2', qtd: 3100, tkt_medio: 159.90, total: 495690 }],
+    faixas_preco_site: {
+      kit_basico: [{ faixa: '1', qtd: 2000, tkt_medio: 99.90, total: 199800 }, { faixa: '2', qtd: 2000, tkt_medio: 159.90, total: 319800 }],
+      kit_participacao: [{ faixa: '1', qtd: 1000, tkt_medio: 69.90, total: 69900 }, { faixa: '2', qtd: 1100, tkt_medio: 99.90, total: 109890 }]
+    },
     faixas_preco_grupos: [{ faixa: '1', qtd: 1900, tkt_medio: 89.90, total: 170810 }]
   }
 ];
@@ -284,7 +305,10 @@ const Cadastro: React.FC = () => {
     },
     kit_produto: [{ kit: '', produtos: [] }],
     trofeus: 0,
-    faixas_preco_site: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
+    faixas_preco_site: {
+      kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+      kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+    },
     faixas_preco_grupos: [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
   };
 
@@ -457,7 +481,14 @@ const Cadastro: React.FC = () => {
       retirada_kit: { ...item.retirada_kit },
       kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: [...k.produtos] })) : [{ kit: '', produtos: [] }],
       trofeus: item.trofeus || 0,
-      faixas_preco_site: item.faixas_preco_site?.length > 0 ? [...item.faixas_preco_site] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }],
+      faixas_preco_site: {
+        kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
+          ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
+          : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+        kit_participacao: item.faixas_preco_site?.kit_participacao?.length > 0 
+          ? item.faixas_preco_site.kit_participacao.map(f => ({ ...f })) 
+          : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+      },
       faixas_preco_grupos: item.faixas_preco_grupos?.length > 0 ? [...item.faixas_preco_grupos] : [{ faixa: '', qtd: 0, tkt_medio: 0, total: 0 }]
     });
     setProjetoBusca(item.nome);
@@ -511,10 +542,9 @@ const Cadastro: React.FC = () => {
     setEditItem(null);
   };
 
-  const addArrayField = (field: 'kit_produto' | 'faixas_preco_site' | 'faixas_preco_grupos' | 'cortesias' | 'taxas') => {
+  const addArrayField = (field: 'kit_produto' | 'faixas_preco_grupos' | 'cortesias' | 'taxas') => {
     const defaults: Record<string, any> = {
       kit_produto: { kit: '', produtos: [] },
-      faixas_preco_site: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 },
       faixas_preco_grupos: { faixa: '', qtd: 0, tkt_medio: 0, total: 0 },
       cortesias: { cliente: '', quantidade: 0 },
       taxas: { valor_unitario: 0, percentual_inscricao: 0, validado: false, data_validacao: '' }
@@ -525,7 +555,47 @@ const Cadastro: React.FC = () => {
     }));
   };
 
-  const removeArrayField = (field: 'kit_produto' | 'faixas_preco_site' | 'faixas_preco_grupos' | 'cortesias' | 'taxas', index: number) => {
+  const addFaixaSiteByKit = (kitType: 'kit_basico' | 'kit_participacao') => {
+    setForm(prev => {
+      const currentFaixas = prev.faixas_preco_site[kitType];
+      const nextFaixaNum = currentFaixas.length + 1;
+      return {
+        ...prev,
+        faixas_preco_site: {
+          ...prev.faixas_preco_site,
+          [kitType]: [...currentFaixas, { faixa: String(nextFaixaNum), qtd: 0, tkt_medio: 0, total: 0 }]
+        }
+      };
+    });
+  };
+
+  const removeFaixaSiteByKit = (kitType: 'kit_basico' | 'kit_participacao', index: number) => {
+    setForm(prev => {
+      const newFaixas = prev.faixas_preco_site[kitType].filter((_: any, i: number) => i !== index);
+      const renumberedFaixas = newFaixas.map((f: FaixaPrecoItem, i: number) => ({ ...f, faixa: String(i + 1) }));
+      return {
+        ...prev,
+        faixas_preco_site: {
+          ...prev.faixas_preco_site,
+          [kitType]: renumberedFaixas
+        }
+      };
+    });
+  };
+
+  const updateFaixaSiteByKit = (kitType: 'kit_basico' | 'kit_participacao', index: number, key: string, value: any) => {
+    setForm(prev => ({
+      ...prev,
+      faixas_preco_site: {
+        ...prev.faixas_preco_site,
+        [kitType]: prev.faixas_preco_site[kitType].map((item: FaixaPrecoItem, i: number) =>
+          i === index ? { ...item, [key]: value } : item
+        )
+      }
+    }));
+  };
+
+  const removeArrayField = (field: 'kit_produto' | 'faixas_preco_grupos' | 'cortesias' | 'taxas', index: number) => {
     setForm(prev => ({
       ...prev,
       [field]: (prev as any)[field].filter((_: any, i: number) => i !== index)
@@ -548,17 +618,264 @@ const Cadastro: React.FC = () => {
     return { totalQtd, totalValor, ticketMedioReal };
   };
 
-  const renderFaixaPrecoContent = (tipo: 'site' | 'grupos') => {
-    const field = tipo === 'site' ? 'faixas_preco_site' : 'faixas_preco_grupos';
-    const faixas = tipo === 'site' ? form.faixas_preco_site : form.faixas_preco_grupos;
+  const renderFaixaKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
+    const faixas = form.faixas_preco_site[kitType];
+    const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
+    const canAddMore = faixas.length < 5;
+
+    return (
+      <div className="space-y-3">
+        <div className={`flex items-center gap-2 pb-2 border-b ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
+          <Box className={`w-5 h-5 ${colorClass}`} />
+          <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h4>
+        </div>
+        
+        {faixas.map((faixa, index) => (
+          <div key={index} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+            <div className="flex justify-between items-center mb-2">
+              <span className={`text-xs font-bold px-2 py-1 rounded ${isDark ? 'bg-gray-600 text-gray-200' : 'bg-gray-200 text-gray-700'}`}>
+                Faixa {faixa.faixa}
+              </span>
+              {faixas.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeFaixaSiteByKit(kitType, index)}
+                  className="p-1 text-red-400 hover:text-red-300 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <FormattedInput
+                value={faixa.qtd || 0}
+                onChange={(qtd) => {
+                  const total = qtd * (faixa.tkt_medio || 0);
+                  updateFaixaSiteByKit(kitType, index, 'qtd', qtd);
+                  updateFaixaSiteByKit(kitType, index, 'total', total);
+                }}
+                label="Qtd"
+                placeholder="Qtd"
+                className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+              />
+              <FormattedInput
+                value={faixa.tkt_medio || 0}
+                onChange={(tkt_medio) => {
+                  const total = (faixa.qtd || 0) * tkt_medio;
+                  updateFaixaSiteByKit(kitType, index, 'tkt_medio', tkt_medio);
+                  updateFaixaSiteByKit(kitType, index, 'total', total);
+                }}
+                label="Tkt Médio"
+                placeholder="Tkt Médio"
+                allowDecimal={true}
+                className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+              />
+              <FormattedInput
+                value={faixa.total || 0}
+                onChange={() => {}}
+                label="Total"
+                placeholder="Total"
+                allowDecimal={true}
+                readOnly={true}
+                className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-600 border-gray-500 text-gray-400' : 'bg-gray-100 border-gray-300 text-gray-500'} cursor-not-allowed`}
+              />
+            </div>
+          </div>
+        ))}
+        
+        {canAddMore && (
+          <button
+            type="button"
+            onClick={() => addFaixaSiteByKit(kitType)}
+            className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.includes('blue') ? 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10' : 'border-green-500/50 text-green-400 hover:bg-green-500/10'} transition-colors flex items-center justify-center gap-2 text-sm`}
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar Faixa ({faixas.length}/5)
+          </button>
+        )}
+
+        {faixas.length > 0 && faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
+          <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-100'}`}>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
+                <p className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+              </div>
+              <div>
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio</p>
+                <p className={`text-sm font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+              </div>
+              <div>
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</p>
+                <p className={`text-sm font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderFaixaPrecoSiteContent = () => {
+    const allFaixas = [...form.faixas_preco_site.kit_basico, ...form.faixas_preco_site.kit_participacao];
+    const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(allFaixas);
+    
+    const atletasOrcado = form.atletas.site.pago || 0;
+    const tktMedioOrcado = form.atletas.site.tkt_medio || 0;
+    const valorTotalOrcado = atletasOrcado * tktMedioOrcado;
+    
+    const diferencaQtd = totalQtd - atletasOrcado;
+    const diferencaTktMedio = ticketMedioReal - tktMedioOrcado;
+    const diferencaValor = totalValor - valorTotalOrcado;
+    const percentualPreenchido = atletasOrcado > 0 ? (totalQtd / atletasOrcado) * 100 : 0;
+
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
+            {renderFaixaKitColumn('kit_basico', 'Kit Básico', 'text-blue-400')}
+          </div>
+          
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200'} border`}>
+            {renderFaixaKitColumn('kit_participacao', 'Kit Participação', 'text-green-400')}
+          </div>
+        </div>
+
+        {allFaixas.length > 0 && allFaixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50' : 'bg-gradient-to-r from-purple-50 to-pink-50'} border ${isDark ? 'border-purple-500/30' : 'border-purple-200'}`}>
+            <h4 className={`text-sm font-bold mb-3 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>
+              Totalizador Geral - Site
+            </h4>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="text-center">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
+                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Real</p>
+                <p className={`text-lg font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+              </div>
+              <div className="text-center">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Valor</p>
+                <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+              </div>
+            </div>
+            
+            <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-4`}>
+              <h5 className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
+                Comparativo com Orçado (Site)
+              </h5>
+              
+              <div className="grid grid-cols-1 gap-4">
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd Atletas</p>
+                      <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatNumber(atletasOrcado) || '0'}</p>
+                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                        diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
+                      }`}>
+                        {diferencaQtd === 0 ? (
+                          <><Check className="w-4 h-4" /> Exato</>
+                        ) : diferencaQtd > 0 ? (
+                          <><TrendingUp className="w-4 h-4" /> +{formatNumber(diferencaQtd)}</>
+                        ) : (
+                          <><TrendingDown className="w-4 h-4" /> {formatNumber(diferencaQtd)}</>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-full bg-gray-600 rounded-full h-2.5">
+                    <div 
+                      className={`h-2.5 rounded-full transition-all ${
+                        percentualPreenchido >= 100 ? 'bg-green-500' : percentualPreenchido >= 80 ? 'bg-blue-500' : 'bg-orange-500'
+                      }`}
+                      style={{ width: `${Math.min(percentualPreenchido, 100)}%` }}
+                    />
+                  </div>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{percentualPreenchido.toFixed(1)}%</p>
+                </div>
+                
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio</p>
+                      <p className={`text-xl font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(tktMedioOrcado)}</p>
+                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                        Math.abs(diferencaTktMedio) < 0.01 ? 'text-green-400' : diferencaTktMedio > 0 ? 'text-blue-400' : 'text-orange-400'
+                      }`}>
+                        {Math.abs(diferencaTktMedio) < 0.01 ? (
+                          <><Check className="w-4 h-4" /> Exato</>
+                        ) : diferencaTktMedio > 0 ? (
+                          <><TrendingUp className="w-4 h-4" /> +{formatCurrency(diferencaTktMedio)}</>
+                        ) : (
+                          <><TrendingDown className="w-4 h-4" /> {formatCurrency(diferencaTktMedio)}</>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-full bg-gray-600 rounded-full h-2.5">
+                    <div 
+                      className={`h-2.5 rounded-full transition-all ${
+                        tktMedioOrcado > 0 && ticketMedioReal >= tktMedioOrcado ? 'bg-green-500' : tktMedioOrcado > 0 && ticketMedioReal >= tktMedioOrcado * 0.8 ? 'bg-blue-500' : 'bg-orange-500'
+                      }`}
+                      style={{ width: `${tktMedioOrcado > 0 ? Math.min((ticketMedioReal / tktMedioOrcado) * 100, 100) : 0}%` }}
+                    />
+                  </div>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{tktMedioOrcado > 0 ? ((ticketMedioReal / tktMedioOrcado) * 100).toFixed(1) : 0}%</p>
+                </div>
+                
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Total</p>
+                      <p className={`text-xl font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(valorTotalOrcado)}</p>
+                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                        Math.abs(diferencaValor) < 0.01 ? 'text-green-400' : diferencaValor > 0 ? 'text-blue-400' : 'text-orange-400'
+                      }`}>
+                        {Math.abs(diferencaValor) < 0.01 ? (
+                          <><Check className="w-4 h-4" /> Exato</>
+                        ) : diferencaValor > 0 ? (
+                          <><TrendingUp className="w-4 h-4" /> +{formatCurrency(diferencaValor)}</>
+                        ) : (
+                          <><TrendingDown className="w-4 h-4" /> {formatCurrency(diferencaValor)}</>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-full bg-gray-600 rounded-full h-2.5">
+                    <div 
+                      className={`h-2.5 rounded-full transition-all ${
+                        valorTotalOrcado > 0 && totalValor >= valorTotalOrcado ? 'bg-green-500' : valorTotalOrcado > 0 && totalValor >= valorTotalOrcado * 0.8 ? 'bg-blue-500' : 'bg-orange-500'
+                      }`}
+                      style={{ width: `${valorTotalOrcado > 0 ? Math.min((totalValor / valorTotalOrcado) * 100, 100) : 0}%` }}
+                    />
+                  </div>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{valorTotalOrcado > 0 ? ((totalValor / valorTotalOrcado) * 100).toFixed(1) : 0}%</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderFaixaPrecoGruposContent = () => {
+    const faixas = form.faixas_preco_grupos;
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
     
-    const atletasOrcado = tipo === 'site' 
-      ? (form.atletas.site.pago || 0)
-      : (form.atletas.grupos.pago || 0);
-    const tktMedioOrcado = tipo === 'site' 
-      ? (form.atletas.site.tkt_medio || 0) 
-      : (form.atletas.grupos.tkt_medio || 0);
+    const atletasOrcado = form.atletas.grupos.pago || 0;
+    const tktMedioOrcado = form.atletas.grupos.tkt_medio || 0;
     const valorTotalOrcado = atletasOrcado * tktMedioOrcado;
     
     const canAddMore = faixas.length < 5;
@@ -573,36 +890,26 @@ const Cadastro: React.FC = () => {
         {faixas.map((faixa, index) => (
           <div key={index} className={`p-4 rounded-xl ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
             <div className="flex justify-between items-center mb-3">
-              <span className={`text-sm font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Faixa de Preço {index + 1}</span>
+              <span className={`text-sm font-bold px-3 py-1 rounded ${isDark ? 'bg-gray-600 text-gray-200' : 'bg-gray-200 text-gray-700'}`}>Faixa {index + 1}</span>
               {faixas.length > 1 && (
                 <button
                   type="button"
-                  onClick={() => removeArrayField(field, index)}
+                  onClick={() => removeArrayField('faixas_preco_grupos', index)}
                   className="p-1 text-red-400 hover:text-red-300 transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
-            <div className="grid grid-cols-4 gap-3">
-              <select
-                value={faixa.faixa}
-                onChange={(e) => updateArrayField(field, index, 'faixa', e.target.value)}
-                className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-              >
-                <option value="">Faixa</option>
-                {faixaOptions.filter(f => !faixas.some((ff, i) => i !== index && ff.faixa === f)).map(f => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
-              </select>
+            <div className="grid grid-cols-3 gap-3">
               <FormattedInput
                 value={faixa.qtd || 0}
                 onChange={(qtd) => {
                   const total = qtd * (faixa.tkt_medio || 0);
                   setForm(prev => ({
                     ...prev,
-                    [field]: (prev as any)[field].map((item: any, i: number) => 
-                      i === index ? { ...item, qtd, total } : item
+                    faixas_preco_grupos: prev.faixas_preco_grupos.map((item, i) => 
+                      i === index ? { ...item, qtd, total, faixa: String(i + 1) } : item
                     )
                   }));
                 }}
@@ -616,8 +923,8 @@ const Cadastro: React.FC = () => {
                   const total = (faixa.qtd || 0) * tkt_medio;
                   setForm(prev => ({
                     ...prev,
-                    [field]: (prev as any)[field].map((item: any, i: number) => 
-                      i === index ? { ...item, tkt_medio, total } : item
+                    faixas_preco_grupos: prev.faixas_preco_grupos.map((item, i) => 
+                      i === index ? { ...item, tkt_medio, total, faixa: String(i + 1) } : item
                     )
                   }));
                 }}
@@ -642,7 +949,7 @@ const Cadastro: React.FC = () => {
         {canAddMore && (
           <button
             type="button"
-            onClick={() => addArrayField(field)}
+            onClick={() => addArrayField('faixas_preco_grupos')}
             className="w-full py-3 rounded-xl border-2 border-dashed border-purple-500/50 text-purple-400 hover:bg-purple-500/10 transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="w-5 h-5" />
@@ -672,7 +979,7 @@ const Cadastro: React.FC = () => {
             
             <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-4`}>
               <h5 className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
-                Comparativo com Orçado ({tipo === 'site' ? 'Site' : 'Grupos'})
+                Comparativo com Orçado (Grupos)
               </h5>
               
               <div className="grid grid-cols-1 gap-4">
@@ -957,10 +1264,10 @@ const Cadastro: React.FC = () => {
       }
 
       case 'faixas_preco_site':
-        return renderFaixaPrecoContent('site');
+        return renderFaixaPrecoSiteContent();
 
       case 'faixas_preco_grupos':
-        return renderFaixaPrecoContent('grupos');
+        return renderFaixaPrecoGruposContent();
 
       case 'retirada_kit':
         return (
