@@ -1006,6 +1006,14 @@ const Cadastro: React.FC = () => {
     const diferencaTktMedio = ticketMedioReal - tktMedioOrcado;
     const diferencaValor = totalValor - valorTotalOrcado;
     const percentualPreenchido = atletasOrcado > 0 ? (totalQtd / atletasOrcado) * 100 : 0;
+    
+    const custoUnitarioKitBasico = getKitCost('Kit Básico');
+    const custoTotal = custoUnitarioKitBasico * totalQtd;
+    const margemReal = totalValor - custoTotal;
+    
+    const faturamentoOrcado = atletasOrcado * tktMedioOrcado;
+    const custoOrcado = atletasOrcado * custoUnitarioKitBasico;
+    const margemOrcada = faturamentoOrcado - custoOrcado;
 
     return (
       <div className="space-y-4">
@@ -1199,6 +1207,56 @@ const Cadastro: React.FC = () => {
                     />
                   </div>
                   <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{valorTotalOrcado > 0 ? ((totalValor / valorTotalOrcado) * 100).toFixed(1) : 0}%</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className={`mt-4 p-4 rounded-lg ${isDark ? 'bg-gradient-to-r from-emerald-900/50 to-teal-900/50' : 'bg-gradient-to-r from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-500/30' : 'border-emerald-200'}`}>
+              <h5 className={`text-sm font-bold mb-3 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                Análise de Margem
+              </h5>
+              <div className="grid grid-cols-3 gap-4 mb-3">
+                <div className="text-center">
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento</p>
+                  <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                </div>
+                <div className="text-center">
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
+                  <p className={`text-lg font-bold text-orange-400`}>{formatCurrency(custoTotal)}</p>
+                  <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Kit Básico: {formatCurrency(custoUnitarioKitBasico)}/un</p>
+                </div>
+                <div className="text-center">
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Real</p>
+                  <p className={`text-xl font-bold ${margemReal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemReal)}</p>
+                </div>
+              </div>
+              
+              <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Real vs Orçada</p>
+                    <p className={`text-lg font-bold ${margemReal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemReal)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(margemOrcada)}</p>
+                    <span className={`text-sm font-bold flex items-center justify-end gap-1 ${
+                      margemOrcada > 0 && margemReal >= margemOrcada ? 'text-green-400' : margemReal >= margemOrcada * 0.8 ? 'text-blue-400' : 'text-orange-400'
+                    }`}>
+                      {margemOrcada > 0 ? ((margemReal / margemOrcada) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-600 rounded-full h-2.5">
+                  <div 
+                    className={`h-2.5 rounded-full transition-all ${
+                      margemOrcada > 0 && margemReal >= margemOrcada ? 'bg-emerald-500' : margemOrcada > 0 && margemReal >= margemOrcada * 0.8 ? 'bg-blue-500' : 'bg-orange-500'
+                    }`}
+                    style={{ width: `${margemOrcada > 0 ? Math.min((margemReal / margemOrcada) * 100, 100) : 0}%` }}
+                  />
+                </div>
+                <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
+                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Básico: {formatCurrency(custoUnitarioKitBasico)}</div>
                 </div>
               </div>
             </div>
