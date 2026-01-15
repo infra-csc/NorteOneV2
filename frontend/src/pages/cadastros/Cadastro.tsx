@@ -236,8 +236,8 @@ const tabs = [
   { id: 'info_geral', label: 'Info Geral', icon: Calendar },
   { id: 'retirada_kit', label: 'Retirada Kit', icon: Package },
   { id: 'atletas', label: 'Atletas', icon: Users },
-  { id: 'kit_produto', label: 'Kit Produto', icon: Gift },
   { id: 'cortesias', label: 'Cortesias', icon: Gift },
+  { id: 'kit_produto', label: 'Kit Produto', icon: Gift },
   { id: 'faixas_preco_site', label: 'Faixa Preço - Site', icon: Globe },
   { id: 'faixas_preco_grupos', label: 'Faixa Preço - Grupos', icon: UsersRound },
   { id: 'taxas', label: 'Taxas', icon: DollarSign },  
@@ -772,6 +772,11 @@ const Cadastro: React.FC = () => {
     const margemKitBasico = faturamentoKitBasico - custoTotalKitBasico;
     const margemKitParticipacao = faturamentoKitParticipacao - custoTotalKitParticipacao;
     const margemTotal = margemKitBasico + margemKitParticipacao;
+    
+    const custoUnitarioTotalKits = custoUnitarioKitBasico + custoUnitarioKitParticipacao;
+    const faturamentoOrcado = atletasOrcado * tktMedioOrcado;
+    const custoOrcado = atletasOrcado * custoUnitarioTotalKits;
+    const margemOrcada = faturamentoOrcado - custoOrcado;
 
     return (
       <div className="space-y-4">
@@ -953,18 +958,32 @@ const Cadastro: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className={`mt-3 p-2 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
-                <div className="flex items-center justify-between">
-                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>% Margem sobre Faturamento</span>
-                  <span className={`text-sm font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {totalValor > 0 ? ((margemTotal / totalValor) * 100).toFixed(1) : 0}%
-                  </span>
+              <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Real vs Orçada</p>
+                    <p className={`text-lg font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(margemOrcada)}</p>
+                    <span className={`text-sm font-bold flex items-center justify-end gap-1 ${
+                      margemOrcada > 0 && margemTotal >= margemOrcada ? 'text-green-400' : margemTotal >= margemOrcada * 0.8 ? 'text-blue-400' : 'text-orange-400'
+                    }`}>
+                      {margemOrcada > 0 ? ((margemTotal / margemOrcada) * 100).toFixed(1) : 0}%
+                    </span>
+                  </div>
                 </div>
-                <div className="w-full bg-gray-600 rounded-full h-2 mt-1">
+                <div className="w-full bg-gray-600 rounded-full h-2.5">
                   <div 
-                    className={`h-2 rounded-full transition-all ${margemTotal >= 0 ? 'bg-emerald-500' : 'bg-red-500'}`}
-                    style={{ width: `${totalValor > 0 ? Math.min(Math.abs((margemTotal / totalValor) * 100), 100) : 0}%` }}
+                    className={`h-2.5 rounded-full transition-all ${
+                      margemOrcada > 0 && margemTotal >= margemOrcada ? 'bg-emerald-500' : margemOrcada > 0 && margemTotal >= margemOrcada * 0.8 ? 'bg-blue-500' : 'bg-orange-500'
+                    }`}
+                    style={{ width: `${margemOrcada > 0 ? Math.min((margemTotal / margemOrcada) * 100, 100) : 0}%` }}
                   />
+                </div>
+                <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
+                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit: {formatCurrency(custoUnitarioTotalKits)}</div>
                 </div>
               </div>
             </div>
