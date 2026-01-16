@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { projetosService } from '../../services/api';
+import { projetosService, cadastrosService } from '../../services/api';
 import { 
   Plus, Pencil, X, Check, Calendar, MapPin, Users, 
   Trophy, Zap, Target, Sparkles, Clock, Package,
@@ -254,8 +254,8 @@ const tabs = [
 
 const Cadastro: React.FC = () => {
   const { isDark } = useTheme();
-  const [cadastros, setCadastros] = useState<CadastroEvento[]>(mockCadastros);
-  const [loading, setLoading] = useState(false);
+  const [cadastros, setCadastros] = useState<CadastroEvento[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedCadastro, setSelectedCadastro] = useState<CadastroEvento | null>(null);
@@ -272,7 +272,20 @@ const Cadastro: React.FC = () => {
 
   useEffect(() => {
     loadProjetos();
+    loadCadastros();
   }, []);
+
+  const loadCadastros = async () => {
+    try {
+      setLoading(true);
+      const data = await cadastrosService.list();
+      setCadastros(data);
+    } catch (error) {
+      console.error('Erro ao carregar cadastros:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadProjetos = async () => {
     try {
@@ -515,31 +528,11 @@ const Cadastro: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editItem) {
-      setCadastros(prev => prev.map(c => 
-        c.id === editItem.id 
-          ? {
-              ...c,
-              projeto_id: form.projeto_id,
-              nome: form.nome,
-              imagem_kv: form.imagem_kv,
-              info_geral: form.info_geral,
-              atletas: form.atletas,
-              cortesias: form.cortesias,
-              taxas: form.taxas,
-              retirada_kit: form.retirada_kit,
-              kit_produto: form.kit_produto,
-              trofeus: form.trofeus,
-              faixas_preco_site: form.faixas_preco_site,
-              faixas_preco_grupos: form.faixas_preco_grupos
-            }
-          : c
-      ));
-    } else {
-      const newCadastro: CadastroEvento = {
-        id: Date.now(),
+    try {
+      setLoading(true);
+      const payload = {
         projeto_id: form.projeto_id,
         nome: form.nome,
         imagem_kv: form.imagem_kv,
@@ -555,10 +548,22 @@ const Cadastro: React.FC = () => {
         faixas_preco_site: form.faixas_preco_site,
         faixas_preco_grupos: form.faixas_preco_grupos
       };
-      setCadastros(prev => [...prev, newCadastro]);
+      
+      if (editItem) {
+        await cadastrosService.update(editItem.id, payload);
+      } else {
+        await cadastrosService.create(payload);
+      }
+      
+      await loadCadastros();
+      setShowModal(false);
+      setEditItem(null);
+    } catch (error) {
+      console.error('Erro ao salvar cadastro:', error);
+      alert('Erro ao salvar cadastro. Tente novamente.');
+    } finally {
+      setLoading(false);
     }
-    setShowModal(false);
-    setEditItem(null);
   };
 
   const addArrayField = (field: 'kit_produto' | 'cortesias' | 'taxas') => {

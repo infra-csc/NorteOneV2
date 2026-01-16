@@ -346,6 +346,30 @@ export interface TarefaCreate {
   responsavel_id?: number;
 }
 
+export const cadastrosService = {
+  list: async (status?: string) => {
+    const params = status ? `?status=${status}` : '';
+    const response = await api.get(`/cadastros/${params}`);
+    return response.data;
+  },
+  get: async (id: number) => {
+    const response = await api.get(`/cadastros/${id}`);
+    return response.data;
+  },
+  create: async (data: any) => {
+    const response = await api.post('/cadastros/', data);
+    return response.data;
+  },
+  update: async (id: number, data: any) => {
+    const response = await api.put(`/cadastros/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/cadastros/${id}`);
+    return response.data;
+  }
+};
+
 export const tarefasService = {
   list: async (status?: string, prioridade?: string) => {
     const params = new URLSearchParams();

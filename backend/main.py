@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo
-from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas
+from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros
 
 if engine:
     Base.metadata.create_all(bind=engine)
@@ -33,6 +33,7 @@ app.include_router(atletas_satelite.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(nori.router, prefix="/api")
 app.include_router(tarefas.router, prefix="/api")
+app.include_router(cadastros.router, prefix="/api")
 
 @app.get("/api/health")
 async def health_check():

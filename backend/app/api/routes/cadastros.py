@@ -1,0 +1,417 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+from datetime import datetime, date
+from decimal import Decimal
+
+from app.core.database import get_db
+from app.models.cadastro_evento import (
+    CadastroEvento, CadastroCortesia, CadastroTaxa,
+    CadastroKitProduto, CadastroKitProdutoItem,
+    CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos
+)
+from app.schemas.cadastro_evento import (
+    CadastroEventoCreate, CadastroEventoUpdate, CadastroEventoResponse,
+    InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
+    CortesiaItemResponse, TaxaItemResponse, KitProdutoResponse, ProdutoItemResponse,
+    FaixaPrecoItemBase
+)
+
+router = APIRouter(prefix="/cadastros", tags=["Cadastros"])
+
+
+def db_to_response(cadastro: CadastroEvento) -> dict:
+    """Converte modelo do banco para formato de resposta"""
+    info_geral = InfoGeral(
+        data=cadastro.data_evento.isoformat() if cadastro.data_evento else "",
+        horario_largada=cadastro.horario_largada or "",
+        local=cadastro.local or "",
+        distancias=cadastro.distancias or []
+    )
+    
+    atletas = AtletasData(
+        site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
+        grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
+        cortesia=cadastro.atletas_cortesia or 0
+    )
+    
+    retirada_kit = RetiradaKit(
+        local=cadastro.retirada_kit_local or "",
+        data_horario=cadastro.retirada_kit_data_horario.isoformat() if cadastro.retirada_kit_data_horario else ""
+    )
+    
+    cortesias = [
+        CortesiaItemResponse(id=c.id, cliente=c.cliente, quantidade=c.quantidade)
+        for c in cadastro.cortesias
+    ]
+    
+    taxas = [
+        TaxaItemResponse(
+            id=t.id,
+            valor_unitario=t.valor_unitario or Decimal("0"),
+            percentual_inscricao=t.percentual_inscricao or Decimal("0"),
+            validado=t.validado,
+            data_validacao=t.data_validacao.isoformat() if t.data_validacao else None
+        )
+        for t in cadastro.taxas
+    ]
+    
+    kit_produto = [
+        KitProdutoResponse(
+            id=kp.id,
+            kit=kp.kit or "",
+            produtos=[
+                ProdutoItemResponse(id=p.id, nome=p.nome, valor_unitario=p.valor_unitario or Decimal("0"))
+                for p in kp.produtos
+            ]
+        )
+        for kp in cadastro.kit_produtos
+    ]
+    
+    faixas_site_basico = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_site if f.tipo_kit == "kit_basico"
+    ]
+    faixas_site_participacao = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_site if f.tipo_kit == "kit_participacao"
+    ]
+    
+    faixas_grupos_basico = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_grupos if f.tipo_kit == "kit_basico"
+    ]
+    faixas_grupos_participacao = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_grupos if f.tipo_kit == "kit_participacao"
+    ]
+    
+    return {
+        "id": cadastro.id,
+        "projeto_id": cadastro.projeto_id,
+        "nome": cadastro.nome,
+        "imagem_kv": cadastro.imagem_kv or "",
+        "status": cadastro.status or "Em andamento",
+        "modalidade": cadastro.modalidade or "Corrida",
+        "info_geral": info_geral,
+        "atletas": atletas,
+        "cortesias": cortesias,
+        "taxas": taxas,
+        "retirada_kit": retirada_kit,
+        "kit_produto": kit_produto,
+        "trofeus": cadastro.trofeus or 0,
+        "faixas_preco_site": FaixasPrecoByKit(kit_basico=faixas_site_basico, kit_participacao=faixas_site_participacao),
+        "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=faixas_grupos_basico, kit_participacao=faixas_grupos_participacao),
+        "created_at": cadastro.created_at,
+        "updated_at": cadastro.updated_at
+    }
+
+
+@router.get("/", response_model=List[CadastroEventoResponse])
+def listar_cadastros(
+    skip: int = 0,
+    limit: int = 100,
+    status: str = None,
+    db: Session = Depends(get_db)
+):
+    """Lista todos os cadastros de eventos"""
+    query = db.query(CadastroEvento)
+    
+    if status:
+        query = query.filter(CadastroEvento.status == status)
+    
+    cadastros = query.order_by(CadastroEvento.id.desc()).offset(skip).limit(limit).all()
+    
+    return [db_to_response(c) for c in cadastros]
+
+
+@router.get("/{cadastro_id}", response_model=CadastroEventoResponse)
+def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
+    """Obtém um cadastro específico"""
+    cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
+    
+    if not cadastro:
+        raise HTTPException(status_code=404, detail="Cadastro não encontrado")
+    
+    return db_to_response(cadastro)
+
+
+@router.post("/", response_model=CadastroEventoResponse)
+def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
+    """Cria um novo cadastro de evento"""
+    
+    data_evento = None
+    if data.info_geral.data:
+        try:
+            data_evento = date.fromisoformat(data.info_geral.data)
+        except:
+            pass
+    
+    retirada_dt = None
+    if data.retirada_kit.data_horario:
+        try:
+            retirada_dt = datetime.fromisoformat(data.retirada_kit.data_horario)
+        except:
+            pass
+    
+    cadastro = CadastroEvento(
+        projeto_id=data.projeto_id,
+        nome=data.nome,
+        imagem_kv=data.imagem_kv,
+        status=data.status,
+        modalidade=data.modalidade,
+        data_evento=data_evento,
+        horario_largada=data.info_geral.horario_largada,
+        local=data.info_geral.local,
+        distancias=data.info_geral.distancias,
+        atletas_site_pago=data.atletas.site.get("pago", 0),
+        atletas_site_tkt_medio=Decimal(str(data.atletas.site.get("tkt_medio", 0))),
+        atletas_grupos_pago=data.atletas.grupos.get("pago", 0),
+        atletas_grupos_tkt_medio=Decimal(str(data.atletas.grupos.get("tkt_medio", 0))),
+        atletas_cortesia=data.atletas.cortesia,
+        retirada_kit_local=data.retirada_kit.local,
+        retirada_kit_data_horario=retirada_dt,
+        trofeus=data.trofeus
+    )
+    
+    db.add(cadastro)
+    db.flush()
+    
+    for cortesia in data.cortesias:
+        db.add(CadastroCortesia(
+            cadastro_id=cadastro.id,
+            cliente=cortesia.cliente,
+            quantidade=cortesia.quantidade
+        ))
+    
+    for taxa in data.taxas:
+        data_validacao = None
+        if taxa.data_validacao:
+            try:
+                data_validacao = date.fromisoformat(taxa.data_validacao)
+            except:
+                pass
+        
+        db.add(CadastroTaxa(
+            cadastro_id=cadastro.id,
+            valor_unitario=taxa.valor_unitario,
+            percentual_inscricao=taxa.percentual_inscricao,
+            validado=taxa.validado,
+            data_validacao=data_validacao
+        ))
+    
+    for kit in data.kit_produto:
+        kit_obj = CadastroKitProduto(
+            cadastro_id=cadastro.id,
+            kit=kit.kit
+        )
+        db.add(kit_obj)
+        db.flush()
+        
+        for produto in kit.produtos:
+            db.add(CadastroKitProdutoItem(
+                kit_produto_id=kit_obj.id,
+                nome=produto.nome,
+                valor_unitario=produto.valor_unitario
+            ))
+    
+    for faixa in data.faixas_preco_site.kit_basico:
+        db.add(CadastroFaixaPrecoSite(
+            cadastro_id=cadastro.id,
+            tipo_kit="kit_basico",
+            faixa=faixa.faixa,
+            qtd=faixa.qtd,
+            tkt_medio=faixa.tkt_medio,
+            total=faixa.total
+        ))
+    
+    for faixa in data.faixas_preco_site.kit_participacao:
+        db.add(CadastroFaixaPrecoSite(
+            cadastro_id=cadastro.id,
+            tipo_kit="kit_participacao",
+            faixa=faixa.faixa,
+            qtd=faixa.qtd,
+            tkt_medio=faixa.tkt_medio,
+            total=faixa.total
+        ))
+    
+    for faixa in data.faixas_preco_grupos.kit_basico:
+        db.add(CadastroFaixaPrecoGrupos(
+            cadastro_id=cadastro.id,
+            tipo_kit="kit_basico",
+            faixa=faixa.faixa,
+            qtd=faixa.qtd,
+            tkt_medio=faixa.tkt_medio,
+            total=faixa.total
+        ))
+    
+    for faixa in data.faixas_preco_grupos.kit_participacao:
+        db.add(CadastroFaixaPrecoGrupos(
+            cadastro_id=cadastro.id,
+            tipo_kit="kit_participacao",
+            faixa=faixa.faixa,
+            qtd=faixa.qtd,
+            tkt_medio=faixa.tkt_medio,
+            total=faixa.total
+        ))
+    
+    db.commit()
+    db.refresh(cadastro)
+    
+    return db_to_response(cadastro)
+
+
+@router.put("/{cadastro_id}", response_model=CadastroEventoResponse)
+def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session = Depends(get_db)):
+    """Atualiza um cadastro existente"""
+    cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
+    
+    if not cadastro:
+        raise HTTPException(status_code=404, detail="Cadastro não encontrado")
+    
+    if data.projeto_id is not None:
+        cadastro.projeto_id = data.projeto_id
+    if data.nome is not None:
+        cadastro.nome = data.nome
+    if data.imagem_kv is not None:
+        cadastro.imagem_kv = data.imagem_kv
+    if data.status is not None:
+        cadastro.status = data.status
+    if data.modalidade is not None:
+        cadastro.modalidade = data.modalidade
+    if data.trofeus is not None:
+        cadastro.trofeus = data.trofeus
+    
+    if data.info_geral is not None:
+        if data.info_geral.data:
+            try:
+                cadastro.data_evento = date.fromisoformat(data.info_geral.data)
+            except:
+                pass
+        cadastro.horario_largada = data.info_geral.horario_largada
+        cadastro.local = data.info_geral.local
+        cadastro.distancias = data.info_geral.distancias
+    
+    if data.atletas is not None:
+        cadastro.atletas_site_pago = data.atletas.site.get("pago", 0)
+        cadastro.atletas_site_tkt_medio = Decimal(str(data.atletas.site.get("tkt_medio", 0)))
+        cadastro.atletas_grupos_pago = data.atletas.grupos.get("pago", 0)
+        cadastro.atletas_grupos_tkt_medio = Decimal(str(data.atletas.grupos.get("tkt_medio", 0)))
+        cadastro.atletas_cortesia = data.atletas.cortesia
+    
+    if data.retirada_kit is not None:
+        cadastro.retirada_kit_local = data.retirada_kit.local
+        if data.retirada_kit.data_horario:
+            try:
+                cadastro.retirada_kit_data_horario = datetime.fromisoformat(data.retirada_kit.data_horario)
+            except:
+                pass
+    
+    if data.cortesias is not None:
+        for c in cadastro.cortesias:
+            db.delete(c)
+        for cortesia in data.cortesias:
+            db.add(CadastroCortesia(
+                cadastro_id=cadastro.id,
+                cliente=cortesia.cliente,
+                quantidade=cortesia.quantidade
+            ))
+    
+    if data.taxas is not None:
+        for t in cadastro.taxas:
+            db.delete(t)
+        for taxa in data.taxas:
+            data_validacao = None
+            if taxa.data_validacao:
+                try:
+                    data_validacao = date.fromisoformat(taxa.data_validacao)
+                except:
+                    pass
+            db.add(CadastroTaxa(
+                cadastro_id=cadastro.id,
+                valor_unitario=taxa.valor_unitario,
+                percentual_inscricao=taxa.percentual_inscricao,
+                validado=taxa.validado,
+                data_validacao=data_validacao
+            ))
+    
+    if data.kit_produto is not None:
+        for kp in cadastro.kit_produtos:
+            db.delete(kp)
+        db.flush()
+        for kit in data.kit_produto:
+            kit_obj = CadastroKitProduto(
+                cadastro_id=cadastro.id,
+                kit=kit.kit
+            )
+            db.add(kit_obj)
+            db.flush()
+            for produto in kit.produtos:
+                db.add(CadastroKitProdutoItem(
+                    kit_produto_id=kit_obj.id,
+                    nome=produto.nome,
+                    valor_unitario=produto.valor_unitario
+                ))
+    
+    if data.faixas_preco_site is not None:
+        for f in cadastro.faixas_preco_site:
+            db.delete(f)
+        for faixa in data.faixas_preco_site.kit_basico:
+            db.add(CadastroFaixaPrecoSite(
+                cadastro_id=cadastro.id,
+                tipo_kit="kit_basico",
+                faixa=faixa.faixa,
+                qtd=faixa.qtd,
+                tkt_medio=faixa.tkt_medio,
+                total=faixa.total
+            ))
+        for faixa in data.faixas_preco_site.kit_participacao:
+            db.add(CadastroFaixaPrecoSite(
+                cadastro_id=cadastro.id,
+                tipo_kit="kit_participacao",
+                faixa=faixa.faixa,
+                qtd=faixa.qtd,
+                tkt_medio=faixa.tkt_medio,
+                total=faixa.total
+            ))
+    
+    if data.faixas_preco_grupos is not None:
+        for f in cadastro.faixas_preco_grupos:
+            db.delete(f)
+        for faixa in data.faixas_preco_grupos.kit_basico:
+            db.add(CadastroFaixaPrecoGrupos(
+                cadastro_id=cadastro.id,
+                tipo_kit="kit_basico",
+                faixa=faixa.faixa,
+                qtd=faixa.qtd,
+                tkt_medio=faixa.tkt_medio,
+                total=faixa.total
+            ))
+        for faixa in data.faixas_preco_grupos.kit_participacao:
+            db.add(CadastroFaixaPrecoGrupos(
+                cadastro_id=cadastro.id,
+                tipo_kit="kit_participacao",
+                faixa=faixa.faixa,
+                qtd=faixa.qtd,
+                tkt_medio=faixa.tkt_medio,
+                total=faixa.total
+            ))
+    
+    db.commit()
+    db.refresh(cadastro)
+    
+    return db_to_response(cadastro)
+
+
+@router.delete("/{cadastro_id}")
+def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
+    """Deleta um cadastro"""
+    cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
+    
+    if not cadastro:
+        raise HTTPException(status_code=404, detail="Cadastro não encontrado")
+    
+    db.delete(cadastro)
+    db.commit()
+    
+    return {"message": "Cadastro deletado com sucesso"}
