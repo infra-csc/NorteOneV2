@@ -30,8 +30,8 @@ const Login: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 to-blue-800">
       <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">DW Financeiro</h1>
-          <p className="text-gray-500 mt-2">Sistema de Gestao de Eventos</p>
+          <h1 className="text-3xl font-bold text-gray-800">NorteOne</h1>
+          <p className="text-gray-500 mt-2">Dados que guiam decisões</p>
         </div>
 
         {error && (
