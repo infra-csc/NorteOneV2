@@ -180,7 +180,23 @@ As metricas de atletas estao organizadas em 4 tabelas com vinculo direto a proje
   - Campos: projeto_id, categoria_atleta_id, tempo_id, tipo_custo (AGUA/ISOTONICO/HIDRATACAO/etc), cenario, versao_projecao
   - Metricas: custo_unitario, qtd_por_atleta, custo_total
 
-### 7. Nori - Assistente Virtual
+### 7. Atletas Externos (MySQL via SSH Tunnel)
+Endpoint para busca de dados de atletas do banco MySQL externo em tempo real.
+
+**Endpoints:**
+- GET /api/atletas-externos/resumo - Resumo geral com filtros
+- GET /api/atletas-externos/por-evento - Dados agrupados por evento
+- GET /api/atletas-externos/por-projeto/{codigo_sku} - Dados de um projeto específico
+- GET /api/atletas-externos/vincular-projetos - Lista projetos internos para vinculação
+- DELETE /api/atletas-externos/cache - Limpar cache
+
+**Recursos:**
+- Cache em memória com TTL de 5 minutos
+- Proteção contra SQL injection com parâmetros vinculados
+- Validação de formato de datas e SKUs
+- Vinculação via id_campanha_salesforce (externo) = dim_projeto.codigo (interno)
+
+### 8. Nori - Assistente Virtual
 Assistente virtual inteligente por voz integrado ao sistema.
 
 **Funcionalidades:**
