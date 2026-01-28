@@ -1,0 +1,155 @@
+SELECT
+ 
+    b.ds_evento AS 'Evento',
+   b.id_campanha_salesforce AS 'SKU',
+   h.ds_categoria AS 'Categoria', 
+date(b.dt_evento) AS 'Data Evento',
+case
+WHEN c.fl_local_inscricao = '1' THEN
+    'Site'
+WHEN c.fl_local_inscricao = '2' THEN
+    'Balcão'
+WHEN c.fl_local_inscricao = '3' THEN
+    'Entrega'
+ELSE
+    c.fl_local_inscricao
+END AS 'Local Inscrição',
+count(c.id_pedido) AS 'Quantidade Pedido',
+c.id_pedido AS 'Protocolo',
+a.id_pedido_evento AS 'ID Inscrição',
+g.ds_nomecompleto AS 'Nome Comprador',
+g.nr_documento AS 'Documento',  
+    g.ds_email AS 'e-mail',
+    d.ds_status AS 'Status Pedido',
+    p.`status` AS 'Status Inscrição',
+    date(c.dt_pedido) AS 'Data Pedido',
+		a.nr_preco AS 'Inscrição Bruta',
+f.ds_referencia_externa AS 'Referencia Externa',
+e.nr_cupom AS 'Cupom',
+f.id_cupom_desconto AS 'ID Cupom',
+f.en_cupom_classificacao AS 'Tipo Cupom',
+format(a.nr_desconto_individual, 2) AS 'Desconto',
+IF (
+    a.nr_preco -
+    IF (
+        a.nr_desconto_individual IS NULL,
+        0,
+        a.nr_desconto_individual
+    ) -
+    IF (h.vl_kit IS NULL, 0, h.vl_kit) < 0,
+    0,
+    a.nr_preco -
+IF (
+    a.nr_desconto_individual IS NULL,
+    0,
+    a.nr_desconto_individual
+) -
+IF (h.vl_kit IS NULL, 0, h.vl_kit)
+) AS 'Inscrição Liquida',
+ 
+IF (
+    c.fl_local_inscricao = '1',
+IF (
+    a.nr_preco + a.nr_taxa -
+    IF (
+        a.nr_desconto_individual IS NULL,
+        0,
+        a.nr_desconto_individual
+    ) > a.nr_taxa,
+    a.nr_taxa,
+    a.nr_preco + a.nr_taxa -
+IF (
+    a.nr_desconto_individual IS NULL,
+    0,
+    a.nr_desconto_individual
+)
+),
+c.nr_taxa / (
+    SELECT
+        COUNT(*)
+    FROM
+        sa_pedido_evento AS pe2
+    WHERE
+        pe2.id_pedido = a.id_pedido
+    GROUP BY
+        pe2.id_pedido
+)
+) AS 'Taxa Liquida',
+    IF (
+        (SELECT min(pe2.id_pedido_evento) FROM sa_pedido_evento AS pe2 WHERE pe2.id_pedido = c.id_pedido GROUP BY pe2.id_pedido) = a.id_pedido_evento,
+        sum((i.nr_preco * i.nr_quantidade)),
+        NULL
+    ) AS 'kit produto',
+		IF (
+    (
+        SELECT
+            min(pe2.id_pedido_evento)
+        FROM
+            sa_pedido_evento AS pe2
+        WHERE
+            pe2.id_pedido = c.id_pedido
+        GROUP BY
+            pe2.id_pedido
+    ) = a.id_pedido_evento,
+    sum(
+        (i.nr_preco * i.nr_quantidade)
+    ),
+    NULL
+) AS 'Valor Optin',
+    a.nr_preco_nm_camiseta AS 'Personalização',
+k.nm_pagamento AS 'Forma Pagamento',
+j.nr_parcelas AS 'Parcela',
+    y.ds_cidade as "Cidade",
+    g.ds_endereco as "Endereço",
+    g.ds_cep as "CEP",
+		Null as "Custo Kit",
+		Null As "Tipo inscrição",
+c.nr_total AS 'Valor Total Pedido',
+c.id_pedido as "Referencia Externa",
+IF
+(c.id_combo = 0 OR c.id_combo IS NULL, 'Não', 'Sim' ) AS `combo`,
+Null as "local de inscrição",
+Null as "ativo.com",
+Null as "origem"
+ 
+FROM
+    sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+INNER JOIN sa_pedido_status AS d ON d.id_pedido_status = c.id_pedido_status
+LEFT JOIN sa_usuario AS g ON c.id_usuario = g.id_usuario #usuario que esta inscrito no evento
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_pedido_pagamento AS j ON a.id_pedido = j.id_pedido
+LEFT JOIN sa_formas_pagamento AS k ON j.id_formas_pagamento = k.id_formas_pagamento
+LEFT JOIN sa_status_detalhado AS p ON a.id_status_detalhado = p.id_status_detalhado
+LEFT JOIN sa_evento_modalidade AS q ON h.id_modalidade = q.id_modalidade
+LEFT JOIN sa_combo AS r ON c.id_combo = r.id_combo
+LEFT JOIN sa_usuario_balcao AS w ON w.id_usuario = a.id_usuario_balcao
+LEFT JOIN sa_tamanho_camiseta AS x ON a.id_tamanho_camiseta = x.id_tamanho_camiseta
+LEFT JOIN sa_pedido_produto AS i ON a.id_pedido = i.id_pedido
+LEFT JOIN sa_produto AS s ON i.id_produto = s.id_produto
+LEFT JOIN sa_cidade AS y ON g.id_cidade = y.id_cidade
+LEFT JOIN sa_pedido_retirado pr ON pr.id_pedido_evento = a.id_pedido_evento
+LEFT JOIN sa_pedido_retirado_info pri ON pri.id_pedido_retirado_info = pr.id_pedido_retirado_info
+LEFT JOIN sa_arquivos_retorno AS m ON c.id_pedido = m.nr_protocolo
+LEFT JOIN sa_transacao AS n ON j.id_pedido_pagamento = n.id_pedido_pagamento
+LEFT JOIN sa_usuario AS zp ON c.id_usuario_efetivacao = zp.id_usuario
+LEFT JOIN sa_usuario AS zpp ON c.id_usuario_cancelamento = zpp.id_usuario
+LEFT JOIN sa_pedido_evento_estorno as vp on a.id_pedido_evento = vp.id_pedido_evento
+LEFT JOIN log_sa_pedido_pagamento as lspp on lspp.id_pedido = a.id_pedido
+WHERE
+b.id_evento IN (39548)
+#and a.pa_empresa like "%Itaú%"
+#f.ds_referencia_externa like "Easylive"
+and c.id_pedido_status = 2
+    OR (
+        c.fl_local_inscricao = 2
+        AND c.id_pedido_status = 1
+   )
+ 
+and IF( c.id_combo = 0 OR c.id_combo IS NULL, 'Não', 'Sim' ) = 'Sim'  
+GROUP BY a.id_pedido_evento
+ORDER BY b.id_evento
+limit 1000
