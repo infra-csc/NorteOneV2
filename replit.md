@@ -6,10 +6,11 @@ Sistema web completo para gerenciamento de Data Warehouse financeiro de uma empr
 ## Stack Tecnologica
 - **Backend:** Python com FastAPI
 - **Frontend:** React com TypeScript e Tailwind CSS
-- **Banco de Dados:** PostgreSQL
+- **Banco de Dados:** PostgreSQL, MySQL (via SSH Tunnel)
 - **ORM:** SQLAlchemy
 - **Autenticacao:** JWT
 - **Graficos:** Recharts
+- **SSH Tunnel:** Paramiko para conexao segura a bancos externos
 
 ## Estrutura do Projeto
 
@@ -205,6 +206,13 @@ Assistente virtual inteligente por voz integrado ao sistema.
 - CRUD /api/tarefas/ - Gerenciamento de tarefas
 
 ## Ultimas Modificacoes
+- 28/01/2026: Implementacao de Conexao SSH Tunnel para Banco de Dados Externo
+  - Configuracao de tunel SSH usando Paramiko para acesso seguro a banco MySQL externo
+  - Suporte a chaves SSH Ed25519, RSA e ECDSA
+  - Endpoints de teste: GET /api/ssh/test e GET /api/ssh/tables
+  - Lifecycle management com abertura e fechamento automatico do tunel
+  - Secrets configurados: SSH_HOST, SSH_PORT, SSH_USER, SSH_PRIVATE_KEY, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+
 - 13/01/2026: Implementacao do Nori - Assistente Virtual por Voz
   - Backend: servico de IA com OpenAI, endpoints para chat e analise
   - Frontend: componente de chat com reconhecimento e sintese de voz
