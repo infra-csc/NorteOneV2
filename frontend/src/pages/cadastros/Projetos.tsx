@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { projetosService } from '../../services/api';
+import { projetosService, atletasExternosService, AtletaExternoPorProjeto } from '../../services/api';
 import { Projeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
 import { 
@@ -8,6 +8,7 @@ import {
   Image as ImageIcon, Building2, FileText, Search, Filter,
   ChevronDown, RotateCcw, Eye, BarChart3, ArrowUpRight, 
   ArrowDownRight, Minus, Award, Hash, Briefcase, Landmark,UserStar,Scale,Component,LoaderPinwheel,
+  Database, RefreshCw, DollarSign, Store, ShoppingBag, Truck,
 } from 'lucide-react';
 
 const modalidades = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
@@ -166,6 +167,9 @@ const Projetos: React.FC = () => {
   const [editItem, setEditItem] = useState<ProjetoComAtletas | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filtrosDisponiveis, setFiltrosDisponiveis] = useState<FiltrosDisponiveis | null>(null);
+  const [dadosExternos, setDadosExternos] = useState<AtletaExternoPorProjeto | null>(null);
+  const [loadingExternos, setLoadingExternos] = useState(false);
+  const [erroExternos, setErroExternos] = useState<string | null>(null);
 
   // Estado dos filtros
   const [filtros, setFiltros] = useState<Filtros>({
@@ -294,9 +298,44 @@ const Projetos: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleViewDetails = (projeto: ProjetoComAtletas) => {
+  const handleViewDetails = async (projeto: ProjetoComAtletas) => {
     setSelectedProjeto(projeto);
     setShowDetailsModal(true);
+    setDadosExternos(null);
+    setErroExternos(null);
+    
+    if (projeto.codigo) {
+      setLoadingExternos(true);
+      try {
+        const response = await atletasExternosService.getByProjeto(projeto.codigo);
+        if (response.status === 'success' && response.data) {
+          setDadosExternos(response.data);
+        }
+      } catch (error: any) {
+        if (error.response?.status !== 503) {
+          setErroExternos('Não foi possível carregar dados externos');
+        }
+      } finally {
+        setLoadingExternos(false);
+      }
+    }
+  };
+
+  const handleRefreshExternos = async () => {
+    if (!selectedProjeto?.codigo) return;
+    setLoadingExternos(true);
+    setErroExternos(null);
+    try {
+      await atletasExternosService.clearCache();
+      const response = await atletasExternosService.getByProjeto(selectedProjeto.codigo);
+      if (response.status === 'success' && response.data) {
+        setDadosExternos(response.data);
+      }
+    } catch (error: any) {
+      setErroExternos('Erro ao atualizar dados');
+    } finally {
+      setLoadingExternos(false);
+    }
   };
 
   const openNewModal = () => {
@@ -1032,6 +1071,133 @@ const Projetos: React.FC = () => {
                   );
                 })()}
               </div>
+
+              {/* Dados em Tempo Real - Banco Externo */}
+              {selectedProjeto?.codigo && (
+                <div className={`p-6 rounded-3xl ${isDark ? 'bg-gradient-to-br from-emerald-900/20 to-teal-900/20' : 'bg-gradient-to-br from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-700/50' : 'border-emerald-200'}`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500">
+                        <Database className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                          Dados em Tempo Real
+                        </h3>
+                        <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                          Inscrições do banco de vendas (atualizado a cada 5 min)
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRefreshExternos}
+                      disabled={loadingExternos}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl ${isDark ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400' : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'} transition-all ${loadingExternos ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <RefreshCw className={`w-4 h-4 ${loadingExternos ? 'animate-spin' : ''}`} />
+                      <span className="text-sm font-medium">Atualizar</span>
+                    </button>
+                  </div>
+
+                  {loadingExternos && !dadosExternos && (
+                    <div className="flex items-center justify-center py-8">
+                      <LoaderPinwheel className="w-8 h-8 text-emerald-500 animate-spin" />
+                      <span className={`ml-3 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Carregando dados do banco externo...</span>
+                    </div>
+                  )}
+
+                  {erroExternos && !dadosExternos && (
+                    <div className={`p-4 rounded-xl ${isDark ? 'bg-red-500/20 border border-red-500/30' : 'bg-red-50 border border-red-200'}`}>
+                      <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{erroExternos}</p>
+                    </div>
+                  )}
+
+                  {dadosExternos && (
+                    <>
+                      {/* Totais */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30' : 'bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200'}`}>
+                          <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/20 rounded-full blur-2xl" />
+                          <div className="relative text-center">
+                            <Users className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
+                            <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                              {(dadosExternos.qtd_total || 0).toLocaleString('pt-BR')}
+                            </p>
+                            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                              Inscritos (Tempo Real)
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-green-500/20 to-lime-500/20 border border-green-500/30' : 'bg-gradient-to-br from-green-50 to-lime-50 border border-green-200'}`}>
+                          <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/20 rounded-full blur-2xl" />
+                          <div className="relative text-center">
+                            <DollarSign className="w-6 h-6 text-green-500 mx-auto mb-2" />
+                            <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                              {(dadosExternos.receita_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
+                            </p>
+                            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-green-400' : 'text-green-600'}`}>
+                              Receita Total
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Por Local */}
+                        {dadosExternos.por_local?.slice(0, 2).map((local, idx) => (
+                          <div key={idx} className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200'}`}>
+                            <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/20 rounded-full blur-2xl" />
+                            <div className="relative text-center">
+                              {local.local === 'Site' ? <Globe className="w-6 h-6 text-cyan-500 mx-auto mb-2" /> : 
+                               local.local === 'Balcão' ? <Store className="w-6 h-6 text-cyan-500 mx-auto mb-2" /> :
+                               <Truck className="w-6 h-6 text-cyan-500 mx-auto mb-2" />}
+                              <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                {(local.qtd || 0).toLocaleString('pt-BR')}
+                              </p>
+                              <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
+                                {local.local}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Top Categorias */}
+                      {dadosExternos.por_categoria && dadosExternos.por_categoria.length > 0 && (
+                        <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                          <p className={`text-sm font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            Top Categorias
+                          </p>
+                          <div className="space-y-2">
+                            {dadosExternos.por_categoria.slice(0, 5).map((cat, idx) => (
+                              <div key={idx} className="flex items-center justify-between">
+                                <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  {cat.categoria}
+                                </span>
+                                <div className="flex items-center gap-4">
+                                  <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                    {cat.qtd.toLocaleString('pt-BR')} atletas
+                                  </span>
+                                  <span className={`text-sm ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                                    {cat.receita.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {!dadosExternos && !loadingExternos && !erroExternos && (
+                    <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
+                      <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Nenhum dado encontrado para o SKU: {selectedProjeto?.codigo}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex justify-end gap-3 pt-4">

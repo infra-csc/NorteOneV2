@@ -412,4 +412,63 @@ export const tarefasService = {
   }
 };
 
+export interface AtletaExternoPorCategoria {
+  categoria: string;
+  qtd: number;
+  receita: number;
+}
+
+export interface AtletaExternoPorLocal {
+  local: string;
+  qtd: number;
+  receita: number;
+}
+
+export interface AtletaExternoPorDia {
+  data: string | null;
+  qtd: number;
+  receita: number;
+}
+
+export interface AtletaExternoPorProjeto {
+  sku: string;
+  evento: string | null;
+  data_evento: string | null;
+  qtd_total: number;
+  receita_total: number;
+  por_categoria: AtletaExternoPorCategoria[];
+  por_local: AtletaExternoPorLocal[];
+  por_dia: AtletaExternoPorDia[];
+}
+
+export interface AtletaExternoResponse {
+  status: string;
+  cached: boolean;
+  data: AtletaExternoPorProjeto;
+}
+
+export const atletasExternosService = {
+  getByProjeto: async (codigoSku: string, dataInicio?: string, dataFim?: string): Promise<AtletaExternoResponse> => {
+    const params = new URLSearchParams();
+    if (dataInicio) params.append('data_inicio', dataInicio);
+    if (dataFim) params.append('data_fim', dataFim);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const response = await api.get(`/atletas-externos/por-projeto/${codigoSku}${queryString}`);
+    return response.data;
+  },
+  getResumo: async (idEvento?: number, sku?: string, dataInicio?: string, dataFim?: string) => {
+    const params = new URLSearchParams();
+    if (idEvento) params.append('id_evento', idEvento.toString());
+    if (sku) params.append('sku', sku);
+    if (dataInicio) params.append('data_inicio', dataInicio);
+    if (dataFim) params.append('data_fim', dataFim);
+    const response = await api.get(`/atletas-externos/resumo?${params.toString()}`);
+    return response.data;
+  },
+  clearCache: async () => {
+    const response = await api.delete('/atletas-externos/cache');
+    return response.data;
+  }
+};
+
 export default api;

@@ -222,6 +222,13 @@ Assistente virtual inteligente por voz integrado ao sistema.
 - CRUD /api/tarefas/ - Gerenciamento de tarefas
 
 ## Ultimas Modificacoes
+- 28/01/2026: Integracao Frontend para Dados de Atletas Externos
+  - Novo servico atletasExternosService em api.ts com tipos TypeScript
+  - Modal de detalhes do projeto exibe dados em tempo real do banco MySQL externo
+  - Secao "Dados em Tempo Real" mostra: inscritos, receita, locais de inscricao, top categorias
+  - Botao de atualizar para refresh manual (limpa cache e busca dados novos)
+  - Tratamento de erros e estados de loading
+
 - 28/01/2026: Implementacao de Conexao SSH Tunnel para Banco de Dados Externo
   - Configuracao de tunel SSH usando Paramiko para acesso seguro a banco MySQL externo
   - Suporte a chaves SSH Ed25519, RSA e ECDSA
