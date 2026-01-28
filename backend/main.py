@@ -1,15 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from app.core.database import engine, Base, init_mysql_connections, engine_ativo
+from contextlib import asynccontextmanager
+from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
 from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros
 
-if engine:
-    Base.metadata.create_all(bind=engine)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if engine:
+        Base.metadata.create_all(bind=engine)
+    init_mysql_connections()
+    init_ssh_tunnel()
+    yield
+    close_ssh_tunnel()
 
-init_mysql_connections()
-
-app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0")
+app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -59,6 +64,32 @@ async def list_mysql_ativo_tables():
         return {"status": "error", "message": "MySQL Ativo connection not configured"}
     try:
         with engine_ativo.connect() as conn:
+            result = conn.execute(text("SHOW TABLES"))
+            tables = [row[0] for row in result.fetchall()]
+            return {"status": "success", "tables": tables, "count": len(tables)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/ssh/test")
+async def test_ssh_connection():
+    from app.core.database import engine_ssh
+    if engine_ssh is None:
+        return {"status": "error", "message": "SSH tunnel database connection not configured. Check SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME."}
+    try:
+        with engine_ssh.connect() as conn:
+            result = conn.execute(text("SELECT 1 as test"))
+            row = result.fetchone()
+            return {"status": "success", "message": "Connected to database via SSH tunnel", "test_result": row[0]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/ssh/tables")
+async def list_ssh_tables():
+    from app.core.database import engine_ssh
+    if engine_ssh is None:
+        return {"status": "error", "message": "SSH tunnel database connection not configured"}
+    try:
+        with engine_ssh.connect() as conn:
             result = conn.execute(text("SHOW TABLES"))
             tables = [row[0] for row in result.fetchall()]
             return {"status": "success", "tables": tables, "count": len(tables)}
