@@ -1,0 +1,32 @@
+SELECT
+    b.id_campanha_salesforce AS "SKU",
+    b.id_evento AS "ID Evento",
+    b.ds_evento AS "Evento",
+    COUNT(*) AS "Qtd Vendida",
+    SUM(a.nr_preco) AS "Valor Total"
+
+FROM (
+    SELECT id_evento, ds_evento, id_campanha_salesforce
+    FROM sa_evento
+    WHERE dt_evento BETWEEN DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+                        AND DATE_ADD(CURDATE(), INTERVAL 6 MONTH)
+) AS b
+
+INNER JOIN sa_pedido_evento AS a
+    ON a.id_evento = b.id_evento
+
+INNER JOIN (
+    SELECT id_pedido
+    FROM sa_pedido
+    WHERE id_pedido_status = 2
+       OR (fl_local_inscricao = 2 AND id_pedido_status = 1)
+) AS c
+    ON c.id_pedido = a.id_pedido
+
+GROUP BY
+    b.id_campanha_salesforce,
+    b.id_evento,
+    b.ds_evento
+
+ORDER BY
+    "Qtd Vendida" DESC;

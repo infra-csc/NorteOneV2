@@ -1,0 +1,43 @@
+SELECT
+    d.sku AS "SKU",
+    p.value AS "ID Evento",
+    j.value AS "Evento",
+    COUNT(DISTINCT b.item_id) AS "Qtd Vendida",
+    SUM(DISTINCT b.price) AS "Valor Total"
+
+FROM
+    sales_order AS a
+    INNER JOIN sales_order_item AS b ON b.order_id = a.entity_id
+    
+    -- SKU Pai
+    LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = b.product_id AND pai.attribute_id = 321
+    LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
+    
+    -- Evento
+    LEFT JOIN catalog_product_entity_varchar AS p ON b.product_id = p.entity_id
+    LEFT JOIN catalog_product_entity_varchar AS j ON p.value = j.entity_id
+    
+    -- Filtros de atributos
+    LEFT JOIN catalog_product_link AS g ON b.product_id = g.linked_product_id
+    LEFT JOIN catalog_product_entity_varchar AS q ON g.product_id = q.entity_id
+    LEFT JOIN catalog_product_entity_datetime AS k ON p.value = k.entity_id
+    LEFT JOIN sales_order_item AS ab ON ab.parent_item_id = b.item_id
+    LEFT JOIN catalog_product_entity_int AS r ON r.entity_id = ab.product_id
+
+WHERE
+    k.value BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH) AND DATE_ADD(CURRENT_DATE, INTERVAL 6 MONTH)
+    AND b.product_type = 'Bundle'
+    AND j.attribute_id = 73
+    AND q.attribute_id = 73
+    AND r.attribute_id IN (206, 207)
+    AND (k.attribute_id = 195 OR k.attribute_id IS NULL)
+    AND a.status IN ('Processing', 'Complete', 'approved', 'aprovado_link', 'pending')
+    AND a.state != 'canceled'
+
+GROUP BY
+    d.sku,
+    p.value,
+    j.value
+
+ORDER BY
+    "Qtd Vendida" DESC;
