@@ -12,9 +12,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-class InscricaoFonte(BaseModel):
-    qtd_vendida: int
-    valor_total: float
+class InscricaoFonteDetalhe(BaseModel):
+    qtd: int
+    valor: float
+
+class InscricaoPorFonte(BaseModel):
+    ativo: Optional[InscricaoFonteDetalhe] = None
+    magento: Optional[InscricaoFonteDetalhe] = None
 
 class InscricaoConsolidada(BaseModel):
     sku: str
@@ -22,8 +26,7 @@ class InscricaoConsolidada(BaseModel):
     evento: Optional[str] = None
     qtd_vendida_total: int
     valor_total: float
-    fonte_ativo: Optional[InscricaoFonte] = None
-    fonte_magento: Optional[InscricaoFonte] = None
+    por_fonte: InscricaoPorFonte
 
 class InscricoesConsolidadasResponse(BaseModel):
     status: str
@@ -192,12 +195,11 @@ async def get_inscricoes_consolidadas(
                         "evento": row["evento"],
                         "qtd_vendida_total": 0,
                         "valor_total": 0.0,
-                        "fonte_ativo": None,
-                        "fonte_magento": None
+                        "por_fonte": {"ativo": None, "magento": None}
                     }
-                consolidado[row_sku]["fonte_ativo"] = {
-                    "qtd_vendida": row["qtd_vendida"],
-                    "valor_total": row["valor_total"]
+                consolidado[row_sku]["por_fonte"]["ativo"] = {
+                    "qtd": row["qtd_vendida"],
+                    "valor": row["valor_total"]
                 }
                 consolidado[row_sku]["qtd_vendida_total"] += row["qtd_vendida"]
                 consolidado[row_sku]["valor_total"] += row["valor_total"]
@@ -215,12 +217,11 @@ async def get_inscricoes_consolidadas(
                         "evento": row["evento"],
                         "qtd_vendida_total": 0,
                         "valor_total": 0.0,
-                        "fonte_ativo": None,
-                        "fonte_magento": None
+                        "por_fonte": {"ativo": None, "magento": None}
                     }
-                consolidado[row_sku]["fonte_magento"] = {
-                    "qtd_vendida": row["qtd_vendida"],
-                    "valor_total": row["valor_total"]
+                consolidado[row_sku]["por_fonte"]["magento"] = {
+                    "qtd": row["qtd_vendida"],
+                    "valor": row["valor_total"]
                 }
                 consolidado[row_sku]["qtd_vendida_total"] += row["qtd_vendida"]
                 consolidado[row_sku]["valor_total"] += row["valor_total"]

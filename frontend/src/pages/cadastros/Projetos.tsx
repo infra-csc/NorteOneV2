@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { projetosService, atletasExternosService, AtletaExternoPorProjeto } from '../../services/api';
+import { projetosService, atletasExternosService, AtletaExternoPorProjeto, inscricoesConsolidadasService, InscricaoConsolidada } from '../../services/api';
 import { Projeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
 import { 
@@ -168,6 +168,7 @@ const Projetos: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [filtrosDisponiveis, setFiltrosDisponiveis] = useState<FiltrosDisponiveis | null>(null);
   const [dadosExternos, setDadosExternos] = useState<AtletaExternoPorProjeto | null>(null);
+  const [dadosConsolidados, setDadosConsolidados] = useState<InscricaoConsolidada | null>(null);
   const [loadingExternos, setLoadingExternos] = useState(false);
   const [erroExternos, setErroExternos] = useState<string | null>(null);
 
@@ -302,14 +303,22 @@ const Projetos: React.FC = () => {
     setSelectedProjeto(projeto);
     setShowDetailsModal(true);
     setDadosExternos(null);
+    setDadosConsolidados(null);
     setErroExternos(null);
     
     if (projeto.codigo) {
       setLoadingExternos(true);
       try {
-        const response = await atletasExternosService.getByProjeto(projeto.codigo);
-        if (response.status === 'success' && response.data) {
-          setDadosExternos(response.data);
+        const [externalResponse, consolidadoData] = await Promise.all([
+          atletasExternosService.getByProjeto(projeto.codigo).catch(() => null),
+          inscricoesConsolidadasService.getBySku(projeto.codigo).catch(() => null)
+        ]);
+        
+        if (externalResponse?.status === 'success' && externalResponse.data) {
+          setDadosExternos(externalResponse.data);
+        }
+        if (consolidadoData) {
+          setDadosConsolidados(consolidadoData);
         }
       } catch (error: any) {
         if (error.response?.status !== 503) {
@@ -327,9 +336,16 @@ const Projetos: React.FC = () => {
     setErroExternos(null);
     try {
       await atletasExternosService.clearCache();
-      const response = await atletasExternosService.getByProjeto(selectedProjeto.codigo);
-      if (response.status === 'success' && response.data) {
-        setDadosExternos(response.data);
+      const [externalResponse, consolidadoData] = await Promise.all([
+        atletasExternosService.getByProjeto(selectedProjeto.codigo).catch(() => null),
+        inscricoesConsolidadasService.getBySku(selectedProjeto.codigo).catch(() => null)
+      ]);
+      
+      if (externalResponse?.status === 'success' && externalResponse.data) {
+        setDadosExternos(externalResponse.data);
+      }
+      if (consolidadoData) {
+        setDadosConsolidados(consolidadoData);
       }
     } catch (error: any) {
       setErroExternos('Erro ao atualizar dados');
@@ -1112,38 +1128,80 @@ const Projetos: React.FC = () => {
                     </div>
                   )}
 
-                  {dadosExternos && (
+                  {(dadosExternos || dadosConsolidados) && (
                     <>
-                      {/* Totais */}
+                      {/* Totais Consolidados */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                        <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30' : 'bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200'}`}>
+                        {/* Card Inscritos com Tooltip */}
+                        <div className={`group relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30' : 'bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200'} cursor-pointer`}>
                           <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/20 rounded-full blur-2xl" />
                           <div className="relative text-center">
                             <Users className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
                             <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                              {(dadosExternos.qtd_total || 0).toLocaleString('pt-BR')}
+                              {(dadosConsolidados?.qtd_vendida_total || dadosExternos?.qtd_total || 0).toLocaleString('pt-BR')}
                             </p>
                             <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                              Inscritos (Tempo Real)
+                              Inscritos (Consolidado)
                             </span>
                           </div>
+                          {/* Tooltip com breakdown por fonte */}
+                          {dadosConsolidados?.por_fonte && (
+                            <div className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 rounded-lg ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap pointer-events-none`}>
+                              <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {dadosConsolidados.por_fonte.ativo && (
+                                  <div className="flex justify-between gap-4">
+                                    <span>Ativo:</span>
+                                    <span className="font-bold">{dadosConsolidados.por_fonte.ativo.qtd.toLocaleString('pt-BR')}</span>
+                                  </div>
+                                )}
+                                {dadosConsolidados.por_fonte.magento && (
+                                  <div className="flex justify-between gap-4">
+                                    <span>Magento:</span>
+                                    <span className="font-bold">{dadosConsolidados.por_fonte.magento.qtd.toLocaleString('pt-BR')}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className={`absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent ${isDark ? 'border-t-gray-800' : 'border-t-white'}`} />
+                            </div>
+                          )}
                         </div>
 
-                        <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-green-500/20 to-lime-500/20 border border-green-500/30' : 'bg-gradient-to-br from-green-50 to-lime-50 border border-green-200'}`}>
+                        {/* Card Receita com Tooltip */}
+                        <div className={`group relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-green-500/20 to-lime-500/20 border border-green-500/30' : 'bg-gradient-to-br from-green-50 to-lime-50 border border-green-200'} cursor-pointer`}>
                           <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/20 rounded-full blur-2xl" />
                           <div className="relative text-center">
                             <DollarSign className="w-6 h-6 text-green-500 mx-auto mb-2" />
                             <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                              {(dadosExternos.receita_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
+                              {(dadosConsolidados?.valor_total || dadosExternos?.receita_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
                             </p>
                             <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-green-400' : 'text-green-600'}`}>
                               Receita Total
                             </span>
                           </div>
+                          {/* Tooltip com breakdown por fonte */}
+                          {dadosConsolidados?.por_fonte && (
+                            <div className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 rounded-lg ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap pointer-events-none`}>
+                              <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {dadosConsolidados.por_fonte.ativo && (
+                                  <div className="flex justify-between gap-4">
+                                    <span>Ativo:</span>
+                                    <span className="font-bold">{dadosConsolidados.por_fonte.ativo.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}</span>
+                                  </div>
+                                )}
+                                {dadosConsolidados.por_fonte.magento && (
+                                  <div className="flex justify-between gap-4">
+                                    <span>Magento:</span>
+                                    <span className="font-bold">{dadosConsolidados.por_fonte.magento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className={`absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent ${isDark ? 'border-t-gray-800' : 'border-t-white'}`} />
+                            </div>
+                          )}
                         </div>
 
                         {/* Por Local */}
-                        {dadosExternos.por_local?.slice(0, 2).map((local, idx) => (
+                        {dadosExternos?.por_local?.slice(0, 2).map((local, idx) => (
                           <div key={idx} className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200'}`}>
                             <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/20 rounded-full blur-2xl" />
                             <div className="relative text-center">
@@ -1162,13 +1220,13 @@ const Projetos: React.FC = () => {
                       </div>
 
                       {/* Top Categorias */}
-                      {dadosExternos.por_categoria && dadosExternos.por_categoria.length > 0 && (
+                      {dadosExternos?.por_categoria && dadosExternos.por_categoria.length > 0 && (
                         <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                           <p className={`text-sm font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                             Top Categorias
                           </p>
                           <div className="space-y-2">
-                            {dadosExternos.por_categoria.slice(0, 5).map((cat, idx) => (
+                            {dadosExternos?.por_categoria.slice(0, 5).map((cat, idx) => (
                               <div key={idx} className="flex items-center justify-between">
                                 <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                                   {cat.categoria}
@@ -1189,7 +1247,7 @@ const Projetos: React.FC = () => {
                     </>
                   )}
 
-                  {!dadosExternos && !loadingExternos && !erroExternos && (
+                  {!dadosExternos && !dadosConsolidados && !loadingExternos && !erroExternos && (
                     <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
                       <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                         Nenhum dado encontrado para o SKU: {selectedProjeto?.codigo}

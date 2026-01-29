@@ -471,4 +471,50 @@ export const atletasExternosService = {
   }
 };
 
+export interface FonteDisponivel {
+  disponivel: boolean;
+  erro: string | null;
+}
+
+export interface InscricaoConsolidadaPorFonte {
+  ativo?: { qtd: number; valor: number };
+  magento?: { qtd: number; valor: number };
+}
+
+export interface InscricaoConsolidada {
+  sku: string;
+  id_evento: string | null;
+  evento: string | null;
+  qtd_vendida_total: number;
+  valor_total: number;
+  por_fonte: InscricaoConsolidadaPorFonte;
+}
+
+export interface InscricoesConsolidadasResponse {
+  status: string;
+  total_eventos: number;
+  qtd_vendida_total: number;
+  valor_total: number;
+  fontes_disponiveis: {
+    ativo: FonteDisponivel;
+    magento: FonteDisponivel;
+  };
+  dados: InscricaoConsolidada[];
+}
+
+export const inscricoesConsolidadasService = {
+  getConsolidado: async (sku?: string, incluirMagento: boolean = false): Promise<InscricoesConsolidadasResponse> => {
+    const params = new URLSearchParams();
+    if (sku) params.append('sku', sku);
+    if (incluirMagento) params.append('incluir_magento', 'true');
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const response = await api.get(`/inscricoes/consolidado${queryString}`);
+    return response.data;
+  },
+  getBySku: async (sku: string, incluirMagento: boolean = false): Promise<InscricaoConsolidada | null> => {
+    const data = await inscricoesConsolidadasService.getConsolidado(sku, incluirMagento);
+    return data.dados.length > 0 ? data.dados[0] : null;
+  }
+};
+
 export default api;
