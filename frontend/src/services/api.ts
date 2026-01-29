@@ -503,16 +503,17 @@ export interface InscricoesConsolidadasResponse {
 }
 
 export const inscricoesConsolidadasService = {
-  getConsolidado: async (sku?: string, incluirMagento: boolean = true): Promise<InscricoesConsolidadasResponse> => {
+  getConsolidado: async (sku?: string, incluirMagento: boolean = true, ano: number = 2026): Promise<InscricoesConsolidadasResponse> => {
     const params = new URLSearchParams();
     if (sku) params.append('sku', sku);
     params.append('incluir_magento', incluirMagento ? 'true' : 'false');
+    params.append('ano', ano.toString());
     const queryString = params.toString() ? `?${params.toString()}` : '';
     const response = await api.get(`/inscricoes/consolidado${queryString}`);
     return response.data;
   },
-  getBySku: async (sku: string, incluirMagento: boolean = true): Promise<InscricaoConsolidada | null> => {
-    const data = await inscricoesConsolidadasService.getConsolidado(sku, incluirMagento);
+  getBySku: async (sku: string, incluirMagento: boolean = true, ano: number = 2026): Promise<InscricaoConsolidada | null> => {
+    const data = await inscricoesConsolidadasService.getConsolidado(sku, incluirMagento, ano);
     return data.dados.length > 0 ? data.dados[0] : null;
   }
 };

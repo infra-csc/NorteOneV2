@@ -6,6 +6,7 @@ import app.core.database as db_module
 from datetime import datetime, timedelta
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 import logging
 import re
 
@@ -65,7 +66,11 @@ class InscricoesConsolidadasResponse(BaseModel):
     dados: List[InscricaoConsolidada]
     fontes_disponiveis: dict
 
-QUERY_ATIVO = """
+def build_query_ativo(ano: int) -> str:
+    """
+    Constroi query do Ativo filtrando por ano do evento (dt_evento).
+    """
+    return f"""
 SELECT
     b.id_campanha_salesforce AS sku,
     CAST(b.id_evento AS CHAR) AS id_evento,
@@ -75,8 +80,7 @@ SELECT
 FROM (
     SELECT id_evento, ds_evento, id_campanha_salesforce
     FROM sa_evento
-    WHERE dt_evento BETWEEN DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                        AND DATE_ADD(CURDATE(), INTERVAL 6 MONTH)
+    WHERE YEAR(dt_evento) = {ano}
 ) AS b
 INNER JOIN sa_pedido_evento AS a
     ON a.id_evento = b.id_evento
@@ -94,7 +98,14 @@ GROUP BY
 ORDER BY qtd_vendida DESC
 """
 
-QUERY_MAGENTO = """
+def build_query_magento(ano: int) -> str:
+    """
+    Constroi query do Magento filtrando por padrão de ano no SKU.
+    Ex: ano=2026 -> filtra SKUs que contenham '26' após letras iniciais.
+    Padrão: letras + 2 dígitos do ano (ex: SOL26, CPA26, EVSOL26)
+    """
+    ano_curto = str(ano)[-2:]  # 2026 -> "26"
+    return f"""
 SELECT
     b.sku AS sku,
     NULL AS id_evento,
@@ -105,12 +116,12 @@ FROM
     sales_order AS a
     INNER JOIN sales_order_item AS b ON b.order_id = a.entity_id
 WHERE
-    a.created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH)
-    AND a.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'pending')
+    a.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'pending')
     AND a.state != 'canceled'
     AND b.sku IS NOT NULL
     AND b.sku != ''
     AND b.row_total > 0
+    AND b.sku REGEXP '^(EV)?[A-Z]{{2,4}}{ano_curto}'
 GROUP BY
     b.sku,
     b.name
@@ -118,15 +129,16 @@ ORDER BY qtd_vendida DESC
 LIMIT 500
 """
 
-def fetch_ativo_data():
+def fetch_ativo_data(ano: int = 2026):
     if db_module.engine_ssh is None:
         return None, "SSH tunnel não configurado"
     try:
-        logger.info("Buscando dados do banco Ativo...")
+        query = build_query_ativo(ano)
+        logger.info(f"Buscando dados do banco Ativo (ano={ano})...")
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(QUERY_ATIVO))
+            result = conn.execute(text(query))
             rows = result.fetchall()
-            logger.info(f"Banco Ativo: {len(rows)} registros")
+            logger.info(f"Banco Ativo: {len(rows)} registros para {ano}")
             return [
                 {
                     "sku": row[0],
@@ -141,19 +153,18 @@ def fetch_ativo_data():
         logger.error(f"Erro banco Ativo: {e}")
         return None, str(e)
 
-def fetch_magento_data():
+def fetch_magento_data(ano: int = 2026):
     if db_module.engine_magento is None:
         return None, "Conexão Magento não configurada"
     try:
-        logger.info("Buscando dados do banco Magento...")
-        from sqlalchemy import create_engine
-        from sqlalchemy.pool import NullPool
+        query = build_query_magento(ano)
+        logger.info(f"Buscando dados do banco Magento (ano={ano})...")
         
         engine_with_timeout = db_module.engine_magento.execution_options(timeout=30)
         with engine_with_timeout.connect() as conn:
-            result = conn.execute(text(QUERY_MAGENTO))
+            result = conn.execute(text(query))
             rows = result.fetchall()
-            logger.info(f"Banco Magento: {len(rows)} registros")
+            logger.info(f"Banco Magento: {len(rows)} registros para {ano}")
             return [
                 {
                     "sku": row[0],
@@ -171,18 +182,19 @@ def fetch_magento_data():
 @router.get("/consolidado", response_model=InscricoesConsolidadasResponse)
 async def get_inscricoes_consolidadas(
     sku: Optional[str] = Query(None, description="Filtrar por SKU específico"),
-    incluir_magento: bool = Query(True, description="Incluir dados do Magento")
+    incluir_magento: bool = Query(True, description="Incluir dados do Magento"),
+    ano: int = Query(2026, description="Ano do evento para filtrar (default: 2026)")
 ):
     executor = ThreadPoolExecutor(max_workers=2)
     loop = asyncio.get_event_loop()
     
-    ativo_future = loop.run_in_executor(executor, fetch_ativo_data)
+    ativo_future = loop.run_in_executor(executor, partial(fetch_ativo_data, ano))
     
     magento_result = None
     magento_error = None
     
     if incluir_magento:
-        magento_future = loop.run_in_executor(executor, fetch_magento_data)
+        magento_future = loop.run_in_executor(executor, partial(fetch_magento_data, ano))
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(ativo_future, magento_future, return_exceptions=True),
@@ -330,18 +342,20 @@ async def get_inscricoes_por_projeto(codigo_sku: str):
     }
 
 @router.get("/test-ativo")
-async def test_ativo_query():
+async def test_ativo_query(ano: int = 2026):
     if db_module.engine_ssh is None:
         return {"status": "error", "message": "SSH tunnel não configurado"}
     
     try:
-        logger.info("Iniciando query Ativo...")
+        query = build_query_ativo(ano)
+        logger.info(f"Iniciando query Ativo (ano={ano})...")
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(QUERY_ATIVO))
+            result = conn.execute(text(query))
             rows = result.fetchall()
             logger.info(f"Query Ativo retornou {len(rows)} linhas")
             return {
                 "status": "success",
+                "ano": ano,
                 "total_rows": len(rows),
                 "sample": [
                     {"sku": row[0], "id_evento": str(row[1]), "evento": row[2], "qtd": int(row[3]), "valor": float(row[4])}
@@ -353,18 +367,20 @@ async def test_ativo_query():
         return {"status": "error", "message": str(e)}
 
 @router.get("/test-magento")
-async def test_magento_query():
+async def test_magento_query(ano: int = 2026):
     if db_module.engine_magento is None:
         return {"status": "error", "message": "Conexão Magento não configurada"}
     
     try:
-        logger.info("Iniciando query Magento...")
+        query = build_query_magento(ano)
+        logger.info(f"Iniciando query Magento (ano={ano})...")
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(QUERY_MAGENTO))
+            result = conn.execute(text(query))
             rows = result.fetchall()
             logger.info(f"Query Magento retornou {len(rows)} linhas")
             return {
                 "status": "success",
+                "ano": ano,
                 "total_rows": len(rows),
                 "sample": [
                     {"sku": row[0], "id_evento": str(row[1]) if row[1] else None, "evento": row[2], "qtd": int(row[3]), "valor": float(row[4])}
