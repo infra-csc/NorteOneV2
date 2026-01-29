@@ -26,11 +26,11 @@ class Settings(BaseSettings):
     MYSQL_ATIVO_PASSWORD: str = os.getenv("MYSQL_ATIVO_PASSWORD", "")
     MYSQL_ATIVO_DATABASE: str = os.getenv("MYSQL_ATIVO_DATABASE", "")
     
-    MYSQL_MAGENTO_HOST: str = "prod-magento2-runningland-db-ro.cxogiuqtlrun.us-east-2.rds.amazonaws.com"
-    MYSQL_MAGENTO_PORT: int = 3306
-    MYSQL_MAGENTO_USER: str = "leonardo.urbano"
-    MYSQL_MAGENTO_PASSWORD: str = os.getenv("MYSQL_MAGENTO_PASSWORD", "")
-    MYSQL_MAGENTO_DATABASE: str = os.getenv("MYSQL_MAGENTO_DATABASE", "")
+    MYSQL_MAGENTO_HOST: str = os.getenv("MAGENTO_DB_HOST", "")
+    MYSQL_MAGENTO_PORT: int = int(os.getenv("MAGENTO_DB_PORT", "3306"))
+    MYSQL_MAGENTO_USER: str = os.getenv("MAGENTO_DB_USER", "")
+    MYSQL_MAGENTO_PASSWORD: str = os.getenv("MAGENTO_DB_PASSWORD", "")
+    MYSQL_MAGENTO_DATABASE: str = os.getenv("MAGENTO_DB_NAME", "")
     
     @property
     def MYSQL_ATIVO_URL(self) -> str:

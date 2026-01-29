@@ -234,20 +234,32 @@ def init_mysql_connections():
     global engine_ativo, SessionLocalAtivo, engine_magento, SessionLocalMagento
     
     if settings.MYSQL_ATIVO_PASSWORD and settings.MYSQL_ATIVO_DATABASE:
-        engine_ativo = create_engine(
-            settings.MYSQL_ATIVO_URL,
-            pool_pre_ping=True,
-            pool_recycle=3600
-        )
-        SessionLocalAtivo = sessionmaker(autocommit=False, autoflush=False, bind=engine_ativo)
+        try:
+            engine_ativo = create_engine(
+                settings.MYSQL_ATIVO_URL,
+                pool_pre_ping=True,
+                pool_recycle=3600
+            )
+            SessionLocalAtivo = sessionmaker(autocommit=False, autoflush=False, bind=engine_ativo)
+            print("MySQL Ativo connection configured")
+        except Exception as e:
+            print(f"Failed to configure MySQL Ativo: {e}")
     
-    if settings.MYSQL_MAGENTO_PASSWORD and settings.MYSQL_MAGENTO_DATABASE:
-        engine_magento = create_engine(
-            settings.MYSQL_MAGENTO_URL,
-            pool_pre_ping=True,
-            pool_recycle=3600
-        )
-        SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)
+    if settings.MYSQL_MAGENTO_HOST and settings.MYSQL_MAGENTO_PASSWORD and settings.MYSQL_MAGENTO_DATABASE:
+        try:
+            from urllib.parse import quote_plus
+            password_encoded = quote_plus(settings.MYSQL_MAGENTO_PASSWORD)
+            magento_url = f"mysql+pymysql://{settings.MYSQL_MAGENTO_USER}:{password_encoded}@{settings.MYSQL_MAGENTO_HOST}:{settings.MYSQL_MAGENTO_PORT}/{settings.MYSQL_MAGENTO_DATABASE}"
+            engine_magento = create_engine(
+                magento_url,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+                connect_args={'connect_timeout': 30}
+            )
+            SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)
+            print(f"MySQL Magento connection configured for database '{settings.MYSQL_MAGENTO_DATABASE}'")
+        except Exception as e:
+            print(f"Failed to configure MySQL Magento: {e}")
 
 def get_db_ativo():
     if SessionLocalAtivo is None:
