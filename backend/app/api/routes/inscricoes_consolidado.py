@@ -102,7 +102,8 @@ def build_query_magento(ano: int) -> str:
     """
     Constroi query do Magento filtrando por padrão de ano no SKU.
     Ex: ano=2026 -> filtra SKUs que contenham '26' após letras iniciais.
-    Padrão: letras + 2 dígitos do ano (ex: SOL26, CPA26, EVSOL26)
+    Usa LIKE ao invés de REGEXP para melhor performance (pode usar índices).
+    Padrões: XX26%, XXX26%, XXXX26%, EVXX26%, EVXXX26%, EVXXXX26%
     """
     ano_curto = str(ano)[-2:]  # 2026 -> "26"
     return f"""
@@ -121,7 +122,14 @@ WHERE
     AND b.sku IS NOT NULL
     AND b.sku != ''
     AND b.row_total > 0
-    AND b.sku REGEXP '^(EV)?[A-Z]{{2,4}}{ano_curto}'
+    AND (
+        b.sku LIKE '__{ano_curto}%'
+        OR b.sku LIKE '___{ano_curto}%'
+        OR b.sku LIKE '____{ano_curto}%'
+        OR b.sku LIKE 'EV__{ano_curto}%'
+        OR b.sku LIKE 'EV___{ano_curto}%'
+        OR b.sku LIKE 'EV____{ano_curto}%'
+    )
 GROUP BY
     b.sku,
     b.name
