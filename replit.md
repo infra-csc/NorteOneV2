@@ -222,6 +222,14 @@ Assistente virtual inteligente por voz integrado ao sistema.
 - CRUD /api/tarefas/ - Gerenciamento de tarefas
 
 ## Ultimas Modificacoes
+- 29/01/2026: Endpoint de Inscricoes Consolidadas (Multi-Database)
+  - Novo endpoint /api/inscricoes/consolidado que agrega dados dos bancos Ativo e Magento
+  - Retorna totais consolidados com breakdown por fonte (por_fonte: {ativo, magento})
+  - Frontend atualizado com inscricoesConsolidadasService e tipos TypeScript
+  - Modal de projetos exibe dados consolidados com tooltips mostrando origem dos dados
+  - Parametro incluir_magento para habilitar consulta ao Magento (desabilitado por padrao por lentidao)
+  - Query Magento otimizada com timeout de 60 segundos para evitar travamentos
+
 - 28/01/2026: Integracao Frontend para Dados de Atletas Externos
   - Novo servico atletasExternosService em api.ts com tipos TypeScript
   - Modal de detalhes do projeto exibe dados em tempo real do banco MySQL externo
