@@ -321,41 +321,62 @@ const DadosConsolidados: React.FC = () => {
         )}
 
         <div className={`rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}>
+          <style>{`
+            .resizable-th {
+              position: relative;
+              overflow: hidden;
+              resize: horizontal;
+              min-width: 80px;
+            }
+            .resizable-th::after {
+              content: '';
+              position: absolute;
+              right: 0;
+              top: 25%;
+              height: 50%;
+              width: 4px;
+              background: linear-gradient(90deg, transparent, ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'});
+              cursor: col-resize;
+            }
+            .resizable-th:hover::after {
+              background: linear-gradient(90deg, transparent, ${isDark ? 'rgba(59,130,246,0.5)' : 'rgba(59,130,246,0.3)'});
+            }
+          `}</style>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full" style={{ tableLayout: 'fixed' }}>
               <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-100'}>
                 <tr>
-                  <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`resizable-th px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '120px' }}>
                     <button onClick={() => handleSort('sku')} className="flex items-center gap-1 hover:text-blue-500">
                       SKU <SortIcon field="sku" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`resizable-th px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '280px' }}>
                     <button onClick={() => handleSort('evento')} className="flex items-center gap-1 hover:text-blue-500">
                       Evento <SortIcon field="evento" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '100px' }}>
                     <button onClick={() => handleSort('qtd_vendida_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
                       Qtd Total <SortIcon field="qtd_vendida_total" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '130px' }}>
                     <button onClick={() => handleSort('valor_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
                       Valor Total <SortIcon field="valor_total" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '130px' }}>
                     <button onClick={() => handleSort('ativo_qtd')} className="flex items-center gap-1 justify-end hover:text-blue-500">
                       <Store className="w-4 h-4 text-blue-500" /> Ativo <SortIcon field="ativo_qtd" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '130px' }}>
                     <button onClick={() => handleSort('magento_qtd')} className="flex items-center gap-1 justify-end hover:text-blue-500">
                       <ShoppingBag className="w-4 h-4 text-orange-500" /> Magento <SortIcon field="magento_qtd" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                  <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '70px' }}>
                     Ações
                   </th>
                 </tr>
