@@ -1,0 +1,345 @@
+from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import text
+from typing import Optional, List
+from pydantic import BaseModel
+import app.core.database as db_module
+from datetime import datetime, timedelta
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+class InscricaoFonte(BaseModel):
+    qtd_vendida: int
+    valor_total: float
+
+class InscricaoConsolidada(BaseModel):
+    sku: str
+    id_evento: Optional[str] = None
+    evento: Optional[str] = None
+    qtd_vendida_total: int
+    valor_total: float
+    fonte_ativo: Optional[InscricaoFonte] = None
+    fonte_magento: Optional[InscricaoFonte] = None
+
+class InscricoesConsolidadasResponse(BaseModel):
+    status: str
+    total_eventos: int
+    qtd_vendida_total: int
+    valor_total: float
+    dados: List[InscricaoConsolidada]
+    fontes_disponiveis: dict
+
+QUERY_ATIVO = """
+SELECT
+    b.id_campanha_salesforce AS sku,
+    CAST(b.id_evento AS CHAR) AS id_evento,
+    b.ds_evento AS evento,
+    COUNT(*) AS qtd_vendida,
+    COALESCE(SUM(a.nr_preco), 0) AS valor_total
+FROM (
+    SELECT id_evento, ds_evento, id_campanha_salesforce
+    FROM sa_evento
+    WHERE dt_evento BETWEEN DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+                        AND DATE_ADD(CURDATE(), INTERVAL 6 MONTH)
+) AS b
+INNER JOIN sa_pedido_evento AS a
+    ON a.id_evento = b.id_evento
+INNER JOIN (
+    SELECT id_pedido
+    FROM sa_pedido
+    WHERE id_pedido_status = 2
+       OR (fl_local_inscricao = 2 AND id_pedido_status = 1)
+) AS c
+    ON c.id_pedido = a.id_pedido
+GROUP BY
+    b.id_campanha_salesforce,
+    b.id_evento,
+    b.ds_evento
+ORDER BY qtd_vendida DESC
+"""
+
+QUERY_MAGENTO = """
+SELECT
+    d.sku AS sku,
+    CAST(p.value AS CHAR) AS id_evento,
+    j.value AS evento,
+    COUNT(DISTINCT b.item_id) AS qtd_vendida,
+    COALESCE(SUM(DISTINCT b.price), 0) AS valor_total
+FROM
+    sales_order AS a
+    INNER JOIN sales_order_item AS b ON b.order_id = a.entity_id
+    LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = b.product_id AND pai.attribute_id = 321
+    LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
+    LEFT JOIN catalog_product_entity_varchar AS p ON b.product_id = p.entity_id
+    LEFT JOIN catalog_product_entity_varchar AS j ON p.value = j.entity_id
+    LEFT JOIN catalog_product_link AS g ON b.product_id = g.linked_product_id
+    LEFT JOIN catalog_product_entity_varchar AS q ON g.product_id = q.entity_id
+    LEFT JOIN catalog_product_entity_datetime AS k ON p.value = k.entity_id
+    LEFT JOIN sales_order_item AS ab ON ab.parent_item_id = b.item_id
+    LEFT JOIN catalog_product_entity_int AS r ON r.entity_id = ab.product_id
+WHERE
+    k.value BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH) AND DATE_ADD(CURRENT_DATE, INTERVAL 6 MONTH)
+    AND b.product_type = 'Bundle'
+    AND j.attribute_id = 73
+    AND q.attribute_id = 73
+    AND r.attribute_id IN (206, 207)
+    AND (k.attribute_id = 195 OR k.attribute_id IS NULL)
+    AND a.status IN ('Processing', 'Complete', 'approved', 'aprovado_link', 'pending')
+    AND a.state != 'canceled'
+GROUP BY
+    d.sku,
+    p.value,
+    j.value
+ORDER BY qtd_vendida DESC
+"""
+
+def fetch_ativo_data():
+    if db_module.engine_ssh is None:
+        return None, "SSH tunnel não configurado"
+    try:
+        logger.info("Buscando dados do banco Ativo...")
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(QUERY_ATIVO))
+            rows = result.fetchall()
+            logger.info(f"Banco Ativo: {len(rows)} registros")
+            return [
+                {
+                    "sku": row[0],
+                    "id_evento": str(row[1]) if row[1] else None,
+                    "evento": row[2],
+                    "qtd_vendida": int(row[3]) if row[3] else 0,
+                    "valor_total": float(row[4]) if row[4] else 0.0
+                }
+                for row in rows
+            ], None
+    except Exception as e:
+        logger.error(f"Erro banco Ativo: {e}")
+        return None, str(e)
+
+def fetch_magento_data():
+    if db_module.engine_magento is None:
+        return None, "Conexão Magento não configurada"
+    try:
+        logger.info("Buscando dados do banco Magento...")
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import NullPool
+        
+        engine_with_timeout = db_module.engine_magento.execution_options(timeout=30)
+        with engine_with_timeout.connect() as conn:
+            result = conn.execute(text(QUERY_MAGENTO))
+            rows = result.fetchall()
+            logger.info(f"Banco Magento: {len(rows)} registros")
+            return [
+                {
+                    "sku": row[0],
+                    "id_evento": str(row[1]) if row[1] else None,
+                    "evento": row[2],
+                    "qtd_vendida": int(row[3]) if row[3] else 0,
+                    "valor_total": float(row[4]) if row[4] else 0.0
+                }
+                for row in rows
+            ], None
+    except Exception as e:
+        logger.error(f"Erro banco Magento: {e}")
+        return None, f"Query timeout ou erro: {str(e)[:100]}"
+
+@router.get("/consolidado", response_model=InscricoesConsolidadasResponse)
+async def get_inscricoes_consolidadas(
+    sku: Optional[str] = Query(None, description="Filtrar por SKU específico"),
+    incluir_magento: bool = Query(False, description="Incluir dados do Magento (pode ser lento)")
+):
+    executor = ThreadPoolExecutor(max_workers=2)
+    loop = asyncio.get_event_loop()
+    
+    ativo_future = loop.run_in_executor(executor, fetch_ativo_data)
+    ativo_result, ativo_error = await ativo_future
+    
+    magento_result = None
+    magento_error = "Desabilitado por padrão (query lenta). Use incluir_magento=true para incluir."
+    
+    if incluir_magento:
+        try:
+            magento_future = loop.run_in_executor(executor, fetch_magento_data)
+            magento_result, magento_error = await asyncio.wait_for(magento_future, timeout=60.0)
+        except asyncio.TimeoutError:
+            magento_error = "Timeout após 60 segundos"
+    
+    fontes_disponiveis = {
+        "ativo": {"disponivel": ativo_result is not None, "erro": ativo_error},
+        "magento": {"disponivel": magento_result is not None, "erro": magento_error}
+    }
+    
+    if ativo_result is None and magento_result is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Nenhuma fonte de dados disponível. Ativo: {ativo_error}. Magento: {magento_error}"
+        )
+    
+    consolidado = {}
+    
+    if ativo_result:
+        for row in ativo_result:
+            row_sku = row["sku"]
+            if row_sku:
+                if row_sku not in consolidado:
+                    consolidado[row_sku] = {
+                        "sku": row_sku,
+                        "id_evento": row["id_evento"],
+                        "evento": row["evento"],
+                        "qtd_vendida_total": 0,
+                        "valor_total": 0.0,
+                        "fonte_ativo": None,
+                        "fonte_magento": None
+                    }
+                consolidado[row_sku]["fonte_ativo"] = {
+                    "qtd_vendida": row["qtd_vendida"],
+                    "valor_total": row["valor_total"]
+                }
+                consolidado[row_sku]["qtd_vendida_total"] += row["qtd_vendida"]
+                consolidado[row_sku]["valor_total"] += row["valor_total"]
+                if not consolidado[row_sku]["evento"] and row["evento"]:
+                    consolidado[row_sku]["evento"] = row["evento"]
+    
+    if magento_result:
+        for row in magento_result:
+            row_sku = row["sku"]
+            if row_sku:
+                if row_sku not in consolidado:
+                    consolidado[row_sku] = {
+                        "sku": row_sku,
+                        "id_evento": row["id_evento"],
+                        "evento": row["evento"],
+                        "qtd_vendida_total": 0,
+                        "valor_total": 0.0,
+                        "fonte_ativo": None,
+                        "fonte_magento": None
+                    }
+                consolidado[row_sku]["fonte_magento"] = {
+                    "qtd_vendida": row["qtd_vendida"],
+                    "valor_total": row["valor_total"]
+                }
+                consolidado[row_sku]["qtd_vendida_total"] += row["qtd_vendida"]
+                consolidado[row_sku]["valor_total"] += row["valor_total"]
+                if not consolidado[row_sku]["evento"] and row["evento"]:
+                    consolidado[row_sku]["evento"] = row["evento"]
+    
+    dados = list(consolidado.values())
+    
+    if sku:
+        dados = [d for d in dados if d["sku"] and sku.upper() in d["sku"].upper()]
+    
+    dados.sort(key=lambda x: x["qtd_vendida_total"], reverse=True)
+    
+    return InscricoesConsolidadasResponse(
+        status="success",
+        total_eventos=len(dados),
+        qtd_vendida_total=sum(d["qtd_vendida_total"] for d in dados),
+        valor_total=sum(d["valor_total"] for d in dados),
+        dados=[InscricaoConsolidada(**d) for d in dados],
+        fontes_disponiveis=fontes_disponiveis
+    )
+
+@router.get("/por-projeto/{codigo_sku}")
+async def get_inscricoes_por_projeto(codigo_sku: str):
+    executor = ThreadPoolExecutor(max_workers=2)
+    loop = asyncio.get_event_loop()
+    
+    ativo_future = loop.run_in_executor(executor, fetch_ativo_data)
+    magento_future = loop.run_in_executor(executor, fetch_magento_data)
+    
+    ativo_result, ativo_error = await ativo_future
+    magento_result, magento_error = await magento_future
+    
+    ativo_data = None
+    magento_data = None
+    
+    if ativo_result:
+        for row in ativo_result:
+            if row["sku"] and row["sku"].upper() == codigo_sku.upper():
+                ativo_data = row
+                break
+    
+    if magento_result:
+        for row in magento_result:
+            if row["sku"] and row["sku"].upper() == codigo_sku.upper():
+                magento_data = row
+                break
+    
+    qtd_total = 0
+    valor_total = 0.0
+    
+    if ativo_data:
+        qtd_total += ativo_data["qtd_vendida"]
+        valor_total += ativo_data["valor_total"]
+    
+    if magento_data:
+        qtd_total += magento_data["qtd_vendida"]
+        valor_total += magento_data["valor_total"]
+    
+    return {
+        "status": "success",
+        "sku": codigo_sku,
+        "evento": (ativo_data or magento_data or {}).get("evento"),
+        "qtd_vendida_total": qtd_total,
+        "valor_total": valor_total,
+        "fonte_ativo": {
+            "disponivel": ativo_error is None,
+            "erro": ativo_error,
+            "dados": ativo_data
+        } if ativo_result is not None or ativo_error else None,
+        "fonte_magento": {
+            "disponivel": magento_error is None,
+            "erro": magento_error,
+            "dados": magento_data
+        } if magento_result is not None or magento_error else None
+    }
+
+@router.get("/test-ativo")
+async def test_ativo_query():
+    if db_module.engine_ssh is None:
+        return {"status": "error", "message": "SSH tunnel não configurado"}
+    
+    try:
+        logger.info("Iniciando query Ativo...")
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(QUERY_ATIVO))
+            rows = result.fetchall()
+            logger.info(f"Query Ativo retornou {len(rows)} linhas")
+            return {
+                "status": "success",
+                "total_rows": len(rows),
+                "sample": [
+                    {"sku": row[0], "id_evento": str(row[1]), "evento": row[2], "qtd": int(row[3]), "valor": float(row[4])}
+                    for row in rows[:5]
+                ]
+            }
+    except Exception as e:
+        logger.error(f"Erro query Ativo: {e}")
+        return {"status": "error", "message": str(e)}
+
+@router.get("/test-magento")
+async def test_magento_query():
+    if db_module.engine_magento is None:
+        return {"status": "error", "message": "Conexão Magento não configurada"}
+    
+    try:
+        logger.info("Iniciando query Magento...")
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(QUERY_MAGENTO))
+            rows = result.fetchall()
+            logger.info(f"Query Magento retornou {len(rows)} linhas")
+            return {
+                "status": "success",
+                "total_rows": len(rows),
+                "sample": [
+                    {"sku": row[0], "id_evento": str(row[1]) if row[1] else None, "evento": row[2], "qtd": int(row[3]), "valor": float(row[4])}
+                    for row in rows[:5]
+                ]
+            }
+    except Exception as e:
+        logger.error(f"Erro query Magento: {e}")
+        return {"status": "error", "message": str(e)}
