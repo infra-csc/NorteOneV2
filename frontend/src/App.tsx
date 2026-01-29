@@ -16,6 +16,7 @@ import EventDetail from './pages/marketing/EventDetail';
 import EventComparison from './pages/marketing/EventComparison';
 import MarketingSettings from './pages/marketing/MarketingSettings';
 import NoriAssistant from './pages/nori/NoriAssistant';
+import DadosConsolidados from './pages/admin/DadosConsolidados';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
@@ -51,6 +52,7 @@ function App() {
             <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
             <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
             <Route path="/nori" element={<PrivateRoute><Layout><NoriAssistant /></Layout></PrivateRoute>} />
+            <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
           </Routes>
         </Router>
       </AuthProvider>

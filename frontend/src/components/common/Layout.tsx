@@ -21,7 +21,9 @@ import {
   Activity,
   BarChart3,
   Settings,
-  Sparkles
+  Sparkles,
+  Database,
+  ShieldCheck
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -45,6 +47,10 @@ const marketingItems = [
   { path: '/marketing/configuracoes', icon: Settings, label: 'Configurações' },
 ];
 
+const adminItems = [
+  { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados' },
+];
+
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
@@ -53,6 +59,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [cadastrosOpen, setCadastrosOpen] = useState(true);
   const [marketingOpen, setMarketingOpen] = useState(location.pathname.startsWith('/marketing'));
+  const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin'));
 
   const handleLogout = () => {
     logout();
@@ -190,6 +197,50 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
             )}
           </div>
+
+          {user?.perfil === 'ADMIN' && (
+            <div>
+              <button
+                onClick={() => setAdminOpen(!adminOpen)}
+                className={`flex items-center justify-between w-full px-4 py-2 rounded-lg transition-colors ${
+                  location.pathname.startsWith('/admin')
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                    : isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <span className="flex items-center">
+                  <ShieldCheck className="w-5 h-5 mr-3" />
+                  Admin
+                </span>
+                <ChevronDown className={`w-4 h-4 transition-transform ${adminOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {adminOpen && (
+                <div className="ml-4 mt-1 space-y-1">
+                  {adminItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                          isActive
+                            ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                            : isDark
+                            ? 'text-gray-300 hover:bg-gray-700'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 mr-3" />
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
       </aside>
 
