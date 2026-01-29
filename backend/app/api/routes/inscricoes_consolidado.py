@@ -7,10 +7,39 @@ from datetime import datetime, timedelta
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def normalize_sku(sku: str) -> str:
+    """
+    Normaliza o SKU para o código base do evento.
+    Exemplos:
+    - SOL26SP1 -> SOL26SP1 (já é base)
+    - EVSOL26SP1MB-5Km -> SOL26SP1
+    - EVSOL26SP1KB-EVSOL26SP1MB-5Km-EVSOL26SP1CFINAL-M -> SOL26SP1
+    - CPA25SP1 -> CPA25SP1
+    - CDE25RJ3 -> CDE25RJ3
+    
+    Padrão: 2-4 letras + 2 dígitos (ano) + 2-3 letras (cidade) + 1 dígito (edição)
+    """
+    if not sku:
+        return sku
+    
+    sku_upper = sku.upper()
+    
+    if sku_upper.startswith('EV'):
+        sku_upper = sku_upper[2:]
+    
+    pattern = r'^([A-Z]{2,4}\d{2}[A-Z]{2,3}\d)'
+    match = re.match(pattern, sku_upper)
+    
+    if match:
+        return match.group(1)
+    
+    return sku
 
 class InscricaoFonteDetalhe(BaseModel):
     qtd: int
@@ -183,47 +212,51 @@ async def get_inscricoes_consolidadas(
     
     if ativo_result:
         for row in ativo_result:
-            row_sku = row["sku"]
-            if row_sku:
-                if row_sku not in consolidado:
-                    consolidado[row_sku] = {
-                        "sku": row_sku,
+            raw_sku = row["sku"]
+            if raw_sku:
+                normalized = normalize_sku(raw_sku)
+                if normalized not in consolidado:
+                    consolidado[normalized] = {
+                        "sku": normalized,
                         "id_evento": row["id_evento"],
                         "evento": row["evento"],
                         "qtd_vendida_total": 0,
                         "valor_total": 0.0,
-                        "por_fonte": {"ativo": None, "magento": None}
+                        "por_fonte": {"ativo": {"qtd": 0, "valor": 0.0}, "magento": {"qtd": 0, "valor": 0.0}}
                     }
-                consolidado[row_sku]["por_fonte"]["ativo"] = {
-                    "qtd": row["qtd_vendida"],
-                    "valor": row["valor_total"]
-                }
-                consolidado[row_sku]["qtd_vendida_total"] += row["qtd_vendida"]
-                consolidado[row_sku]["valor_total"] += row["valor_total"]
-                if not consolidado[row_sku]["evento"] and row["evento"]:
-                    consolidado[row_sku]["evento"] = row["evento"]
+                consolidado[normalized]["por_fonte"]["ativo"]["qtd"] += row["qtd_vendida"]
+                consolidado[normalized]["por_fonte"]["ativo"]["valor"] += row["valor_total"]
+                consolidado[normalized]["qtd_vendida_total"] += row["qtd_vendida"]
+                consolidado[normalized]["valor_total"] += row["valor_total"]
+                if not consolidado[normalized]["evento"] and row["evento"]:
+                    consolidado[normalized]["evento"] = row["evento"]
     
     if magento_result:
         for row in magento_result:
-            row_sku = row["sku"]
-            if row_sku:
-                if row_sku not in consolidado:
-                    consolidado[row_sku] = {
-                        "sku": row_sku,
+            raw_sku = row["sku"]
+            if raw_sku:
+                normalized = normalize_sku(raw_sku)
+                if normalized not in consolidado:
+                    consolidado[normalized] = {
+                        "sku": normalized,
                         "id_evento": row["id_evento"],
                         "evento": row["evento"],
                         "qtd_vendida_total": 0,
                         "valor_total": 0.0,
-                        "por_fonte": {"ativo": None, "magento": None}
+                        "por_fonte": {"ativo": {"qtd": 0, "valor": 0.0}, "magento": {"qtd": 0, "valor": 0.0}}
                     }
-                consolidado[row_sku]["por_fonte"]["magento"] = {
-                    "qtd": row["qtd_vendida"],
-                    "valor": row["valor_total"]
-                }
-                consolidado[row_sku]["qtd_vendida_total"] += row["qtd_vendida"]
-                consolidado[row_sku]["valor_total"] += row["valor_total"]
-                if not consolidado[row_sku]["evento"] and row["evento"]:
-                    consolidado[row_sku]["evento"] = row["evento"]
+                consolidado[normalized]["por_fonte"]["magento"]["qtd"] += row["qtd_vendida"]
+                consolidado[normalized]["por_fonte"]["magento"]["valor"] += row["valor_total"]
+                consolidado[normalized]["qtd_vendida_total"] += row["qtd_vendida"]
+                consolidado[normalized]["valor_total"] += row["valor_total"]
+                if not consolidado[normalized]["evento"] and row["evento"]:
+                    consolidado[normalized]["evento"] = row["evento"]
+    
+    for key in consolidado:
+        if consolidado[key]["por_fonte"]["ativo"]["qtd"] == 0:
+            consolidado[key]["por_fonte"]["ativo"] = None
+        if consolidado[key]["por_fonte"]["magento"]["qtd"] == 0:
+            consolidado[key]["por_fonte"]["magento"] = None
     
     dados = list(consolidado.values())
     
