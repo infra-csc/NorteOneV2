@@ -222,6 +222,12 @@ Assistente virtual inteligente por voz integrado ao sistema.
 - CRUD /api/tarefas/ - Gerenciamento de tarefas
 
 ## Ultimas Modificacoes
+- 29/01/2026: Normalizacao de SKU para Consolidacao Multi-Database
+  - Funcao normalize_sku() extrai codigo base do evento (ex: EVSOL26SP1MB-5Km -> SOL26SP1)
+  - Padrao regex: 2-4 letras + 2 digitos (ano) + 2-3 letras (cidade) + 1 digito (edicao)
+  - Dados de fontes diferentes agora consolidados corretamente por evento
+  - Exemplo: SOL26SP1 mostra 8.934 inscritos (2.139 Ativo + 6.795 Magento)
+
 - 29/01/2026: Endpoint de Inscricoes Consolidadas (Multi-Database)
   - Novo endpoint /api/inscricoes/consolidado que agrega dados dos bancos Ativo e Magento
   - Retorna totais consolidados com breakdown por fonte (por_fonte: {ativo, magento})
