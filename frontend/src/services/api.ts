@@ -503,15 +503,15 @@ export interface InscricoesConsolidadasResponse {
 }
 
 export const inscricoesConsolidadasService = {
-  getConsolidado: async (sku?: string, incluirMagento: boolean = false): Promise<InscricoesConsolidadasResponse> => {
+  getConsolidado: async (sku?: string, incluirMagento: boolean = true): Promise<InscricoesConsolidadasResponse> => {
     const params = new URLSearchParams();
     if (sku) params.append('sku', sku);
-    if (incluirMagento) params.append('incluir_magento', 'true');
+    params.append('incluir_magento', incluirMagento ? 'true' : 'false');
     const queryString = params.toString() ? `?${params.toString()}` : '';
     const response = await api.get(`/inscricoes/consolidado${queryString}`);
     return response.data;
   },
-  getBySku: async (sku: string, incluirMagento: boolean = false): Promise<InscricaoConsolidada | null> => {
+  getBySku: async (sku: string, incluirMagento: boolean = true): Promise<InscricaoConsolidada | null> => {
     const data = await inscricoesConsolidadasService.getConsolidado(sku, incluirMagento);
     return data.dados.length > 0 ? data.dados[0] : null;
   }

@@ -67,37 +67,26 @@ ORDER BY qtd_vendida DESC
 
 QUERY_MAGENTO = """
 SELECT
-    d.sku AS sku,
-    CAST(p.value AS CHAR) AS id_evento,
-    j.value AS evento,
-    COUNT(DISTINCT b.item_id) AS qtd_vendida,
-    COALESCE(SUM(DISTINCT b.price), 0) AS valor_total
+    b.sku AS sku,
+    NULL AS id_evento,
+    b.name AS evento,
+    COUNT(b.item_id) AS qtd_vendida,
+    COALESCE(SUM(b.row_total), 0) AS valor_total
 FROM
     sales_order AS a
     INNER JOIN sales_order_item AS b ON b.order_id = a.entity_id
-    LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = b.product_id AND pai.attribute_id = 321
-    LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
-    LEFT JOIN catalog_product_entity_varchar AS p ON b.product_id = p.entity_id
-    LEFT JOIN catalog_product_entity_varchar AS j ON p.value = j.entity_id
-    LEFT JOIN catalog_product_link AS g ON b.product_id = g.linked_product_id
-    LEFT JOIN catalog_product_entity_varchar AS q ON g.product_id = q.entity_id
-    LEFT JOIN catalog_product_entity_datetime AS k ON p.value = k.entity_id
-    LEFT JOIN sales_order_item AS ab ON ab.parent_item_id = b.item_id
-    LEFT JOIN catalog_product_entity_int AS r ON r.entity_id = ab.product_id
 WHERE
-    k.value BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH) AND DATE_ADD(CURRENT_DATE, INTERVAL 6 MONTH)
-    AND b.product_type = 'Bundle'
-    AND j.attribute_id = 73
-    AND q.attribute_id = 73
-    AND r.attribute_id IN (206, 207)
-    AND (k.attribute_id = 195 OR k.attribute_id IS NULL)
-    AND a.status IN ('Processing', 'Complete', 'approved', 'aprovado_link', 'pending')
+    a.created_at >= DATE_SUB(CURRENT_DATE, INTERVAL 6 MONTH)
+    AND a.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'pending')
     AND a.state != 'canceled'
+    AND b.sku IS NOT NULL
+    AND b.sku != ''
+    AND b.row_total > 0
 GROUP BY
-    d.sku,
-    p.value,
-    j.value
+    b.sku,
+    b.name
 ORDER BY qtd_vendida DESC
+LIMIT 500
 """
 
 def fetch_ativo_data():
@@ -153,23 +142,31 @@ def fetch_magento_data():
 @router.get("/consolidado", response_model=InscricoesConsolidadasResponse)
 async def get_inscricoes_consolidadas(
     sku: Optional[str] = Query(None, description="Filtrar por SKU específico"),
-    incluir_magento: bool = Query(False, description="Incluir dados do Magento (pode ser lento)")
+    incluir_magento: bool = Query(True, description="Incluir dados do Magento")
 ):
     executor = ThreadPoolExecutor(max_workers=2)
     loop = asyncio.get_event_loop()
     
     ativo_future = loop.run_in_executor(executor, fetch_ativo_data)
-    ativo_result, ativo_error = await ativo_future
     
     magento_result = None
-    magento_error = "Desabilitado por padrão (query lenta). Use incluir_magento=true para incluir."
+    magento_error = None
     
     if incluir_magento:
+        magento_future = loop.run_in_executor(executor, fetch_magento_data)
         try:
-            magento_future = loop.run_in_executor(executor, fetch_magento_data)
-            magento_result, magento_error = await asyncio.wait_for(magento_future, timeout=60.0)
+            results = await asyncio.wait_for(
+                asyncio.gather(ativo_future, magento_future, return_exceptions=True),
+                timeout=90.0
+            )
+            ativo_result, ativo_error = results[0] if not isinstance(results[0], Exception) else (None, str(results[0]))
+            magento_result, magento_error = results[1] if not isinstance(results[1], Exception) else (None, str(results[1]))
         except asyncio.TimeoutError:
-            magento_error = "Timeout após 60 segundos"
+            ativo_result, ativo_error = await ativo_future if not ativo_future.done() else (None, "Timeout")
+            magento_error = "Timeout após 90 segundos"
+    else:
+        ativo_result, ativo_error = await ativo_future
+        magento_error = "Desabilitado. Use incluir_magento=true para incluir."
     
     fontes_disponiveis = {
         "ativo": {"disponivel": ativo_result is not None, "erro": ativo_error},
