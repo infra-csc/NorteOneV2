@@ -222,6 +222,15 @@ Assistente virtual inteligente por voz integrado ao sistema.
 - CRUD /api/tarefas/ - Gerenciamento de tarefas
 
 ## Ultimas Modificacoes
+- 29/01/2026: Tela Admin de Dados Consolidados
+  - Nova pagina /admin/dados-consolidados para analise de dados de inscricoes
+  - Tabela com SKU, evento, quantidades e valores de ambas fontes (Ativo e Magento)
+  - Filtros por SKU, nome do evento e fonte de dados
+  - Ordenacao por todas as colunas
+  - Exportacao para CSV
+  - Modal de detalhes com breakdown por fonte
+  - Acessivel apenas para usuarios ADMIN via menu lateral
+
 - 29/01/2026: Normalizacao de SKU para Consolidacao Multi-Database
   - Funcao normalize_sku() extrai codigo base do evento (ex: EVSOL26SP1MB-5Km -> SOL26SP1)
   - Padrao regex: 2-4 letras + 2 digitos (ano) + 2-3 letras (cidade) + 1 digito (edicao)
