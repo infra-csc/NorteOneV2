@@ -406,7 +406,7 @@ const DadosConsolidados: React.FC = () => {
                         <span className="font-mono font-semibold">{item.sku}</span>
                       </td>
                       <td className={`px-4 py-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <div className="max-w-xs truncate" title={item.evento || '-'}>
+                        <div className="break-words" title={item.evento || '-'}>
                           {item.evento || <span className="text-gray-500 italic">Sem nome</span>}
                         </div>
                         {item.id_evento && (
