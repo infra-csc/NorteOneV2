@@ -1,0 +1,90 @@
+SELECT
+    -- GERAL DO EVENTO
+    b.id_evento AS "id de evento",
+    b.ds_evento AS "Evento",
+    DATE(b.dt_evento) AS "Data Evento",
+    COUNT(a.id_pedido_evento) AS "Quantidade Total",
+    
+    -- CORTESIA (valor total = 0)
+    SUM(CASE WHEN c.nr_total = 0 THEN 1 ELSE 0 END) AS "Cortesia",
+    
+    -- INSCRIÇÃO LÍQUIDA GERAL
+    SUM(
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ) AS "Inscrição Líquida",
+    
+    -- TICKET MÉDIO GERAL
+    SUM(
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ) / COUNT(a.id_pedido_evento) AS "Ticket Médio Geral",
+    
+    -- TAXA LÍQUIDA
+    SUM(
+        IF(c.fl_local_inscricao = '1',
+            IF(a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0) > a.nr_taxa, 
+                a.nr_taxa, 
+                a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0)),
+            c.nr_taxa / (SELECT COUNT(*) FROM sa_pedido_evento AS pe2 
+                         WHERE pe2.id_pedido = a.id_pedido GROUP BY pe2.id_pedido)
+        )
+    ) AS "Taxa Líquida",
+    
+    -- KIT PRODUTO
+    SUM(
+        IF(
+            (SELECT MIN(pe2.id_pedido_evento) FROM sa_pedido_evento AS pe2 
+             WHERE pe2.id_pedido = c.id_pedido GROUP BY pe2.id_pedido) = a.id_pedido_evento,
+            i.nr_preco * i.nr_quantidade,
+            NULL
+        )
+    ) AS "Kit Produto",
+    
+    -- ============ GRUPOS ============
+    -- Qtd Grupos (AJUSTAR CAMPO DE IDENTIFICAÇÃO)
+    SUM(CASE WHEN f.en_cupom_classificacao  or h.ds_categoria LIKE '%Grup%' THEN 1 ELSE 0 END) AS "Qtd Grupos",
+    
+    -- Inscrição Líquida Grupos
+    SUM(CASE WHEN f.en_cupom_classificacao or h.ds_categoria LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) AS "Inscrição Líquida Grupos",
+    
+    -- Ticket Médio Grupos
+    SUM(CASE WHEN f.en_cupom_classificacao  or   h.ds_categoria LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) / NULLIF(SUM(CASE WHEN f.en_cupom_classificacao LIKE '%Grup%' THEN 1 ELSE 0 END), 0) AS "Ticket Médio Grupos",
+    
+    -- ============ SITE ============
+    -- Qtd Site (não é grupo E valor > 0)
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao  or   h.ds_categoria NOT LIKE '%Grup%') 
+        AND c.nr_total > 0 THEN 1 ELSE 0 END) AS "Qtd Site",
+    
+    -- Inscrição Líquida Site
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao or   h.ds_categoria NOT LIKE '%Grup%') THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) AS "Inscrição Líquida Site",
+    
+    -- Ticket Médio Site
+
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao or   h.ds_categoria NOT LIKE '%Grup%') THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) /   SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao  or   h.ds_categoria NOT LIKE '%Grup%') 
+        AND c.nr_total > 0 THEN 1 ELSE 0 END) AS "Ticket Médio Site"
+
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+LEFT JOIN sa_pedido_produto AS i ON a.id_pedido = i.id_pedido
+WHERE 
+    DATE(b.dt_evento) BETWEEN '2025-02-01' AND '2025-12-31'
+    AND c.id_pedido_status = 2
+GROUP BY b.id_evento, b.ds_evento, b.dt_evento
+ORDER BY b.dt_evento;

@@ -476,17 +476,45 @@ export interface FonteDisponivel {
   erro: string | null;
 }
 
+export interface InscricaoFonteDetalhe {
+  qtd: number;
+  valor: number;
+  cortesia: number;
+  inscricao_liquida: number;
+  ticket_medio: number;
+  taxa_liquida: number;
+  kit_produto: number;
+  qtd_grupos: number;
+  inscricao_liquida_grupos: number;
+  ticket_medio_grupos: number;
+  qtd_site: number;
+  inscricao_liquida_site: number;
+  ticket_medio_site: number;
+}
+
 export interface InscricaoConsolidadaPorFonte {
-  ativo?: { qtd: number; valor: number };
-  magento?: { qtd: number; valor: number };
+  ativo?: InscricaoFonteDetalhe;
+  magento?: InscricaoFonteDetalhe;
 }
 
 export interface InscricaoConsolidada {
   sku: string;
   id_evento: string | null;
   evento: string | null;
+  data_evento: string | null;
+  categoria_evento: string | null;
+  cidade: string | null;
   qtd_vendida_total: number;
   valor_total: number;
+  cortesia_total: number;
+  inscricao_liquida_total: number;
+  ticket_medio_total: number;
+  taxa_liquida_total: number;
+  kit_produto_total: number;
+  qtd_grupos_total: number;
+  inscricao_liquida_grupos_total: number;
+  qtd_site_total: number;
+  inscricao_liquida_site_total: number;
   por_fonte: InscricaoConsolidadaPorFonte;
 }
 

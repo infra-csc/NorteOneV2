@@ -1,0 +1,185 @@
+SELECT
+    -- GERAL DO EVENTO
+  wl.location_id as "id de evento",
+  
+ REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+    REPLACE(wl.`name`, 'Retirada de kit - CE', 'Circuito das Estações'),
+    'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
+     'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
+     'SSA', 'Salvador') AS "Evento",
+    wl.final_date as "data de Evento",
+    COUNT(wl.`name`) as "Quantidade total",
+SUM(CASE WHEN so.base_grand_total = 0 THEN 1 ELSE 0 END) as 'cortesia',
+
+
+    SUM(soi.price - CASE WHEN soi.price = 0 THEN 0 
+    WHEN soi.name LIKE '%plus%' THEN 69.00
+    WHEN soi.name LIKE '%super%' THEN 269.00
+    WHEN soi.name LIKE '%vip%' THEN 199.99
+    ELSE 0  END + COALESCE(so.base_discount_invoiced, 0) 
+  * (soi.price / NULLIF(so.base_subtotal, 1))
+    - CASE WHEN cg.customer_group_id = 4 THEN 0
+    WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+    ELSE 0  END ) AS "Inscrição Líquida",
+SUM(soi.price - CASE WHEN soi.price = 0 THEN 0 
+    WHEN soi.name LIKE '%plus%' THEN 69.00
+    WHEN soi.name LIKE '%super%' THEN 269.00
+    WHEN soi.name LIKE '%vip%' THEN 199.99
+    ELSE 0  END + COALESCE(so.base_discount_invoiced, 0) 
+  * (soi.price / NULLIF(so.base_subtotal, 1))
+    - CASE WHEN cg.customer_group_id = 4 THEN 0
+    WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+    ELSE 0  END ) / COUNT(wl.`name`)  AS "Ticket medio Geral",
+   -- Taxa Líquida
+    SUM(sot.amount / (SELECT COUNT(*) FROM sales_order_item AS ba 
+        WHERE ba.order_id = soi.order_id AND ba.product_type = 'Bundle'
+        GROUP BY ba.order_id)) AS "Taxa Liquida",
+    -- Kit Produto
+    SUM(CASE
+        WHEN soi.name LIKE '%plus%' THEN 69.00
+        WHEN soi.name LIKE '%super%' THEN 269.00
+        WHEN soi.name LIKE '%vip%' THEN 199.99
+        ELSE 0
+    END) AS "Kit Produto",
+
+
+## ----------- CALCULO DE COMPANY ----------------------
+    SUM(CASE WHEN so.discount_description LIKE '%Grup%'  THEN 1 ELSE 0 END) AS "Qtd Grupos",
+      
+   SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 
+      (soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0  END + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE  WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0  END ) ELSE 0 END) AS "Inscrição Líquida Grupos",
+
+   SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 
+      (soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0  END + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE  WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0  END ) ELSE 0 END) / SUM(CASE WHEN so.discount_description LIKE '%Grup%'  THEN 1 ELSE 0 END) as "Ticket medio Grupos",
+
+
+#--------------------------------- Calculo de Marketing Perfomance
+
+
+
+SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+    AND  (so.base_grand_total) > 0 THEN 1 
+    ELSE 0 END) AS "Qtd Site",
+
+SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
+(soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0 END 
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0   END) ELSE 0 END) AS "Inscrição Líquida Site",
+
+
+
+SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
+(soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0 END 
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0   END) ELSE 0 END)/SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+    AND  (so.base_grand_total) > 0 THEN 1 
+    ELSE 0 END) as "Ticket medio Site",
+
+
+      CASE
+        WHEN wl.`name` LIKE '%Night Run%' THEN 'Night Run'
+        WHEN wl.`name` LIKE '% CE %' THEN 'Circuito das Estações'
+    WHEN wl.`name` LIKE '%verão%' THEN 'Circuito das Estações'
+    WHEN wl.`name` LIKE '%Banco%' THEN 'Banco Do Brasil'
+    WHEN wl.`name` LIKE '%Eco Run%' THEN 'Eco Run'
+    WHEN wl.`name` LIKE '%Girl%' THEN 'Girl Power'
+    WHEN wl.`name` LIKE '%Meia%' THEN 'Meias e Maratonas'
+    WHEN wl.`name` LIKE '%Maratona%' THEN 'Meias e Maratonas'
+    WHEN wl.`name` LIKE '%21k%' THEN 'Meias e Maratonas'
+    WHEN wl.`name` LIKE '%sol%' THEN 'Circuito Sol'
+    WHEN wl.`name` LIKE '%Treinão%' THEN 'Treinão'
+    WHEN wl.`name` LIKE '%cruz%' THEN 'Vera Cruz'
+    WHEN wl.`name` LIKE '%Rios%' THEN 'Meias e Maratonas'
+    WHEN wl.`name` LIKE '%Bravus%' THEN 'Bravus'
+    WHEN wl.`name` LIKE '%Bem%' THEN 'Corrida do Bem'
+    WHEN wl.`name` LIKE '%Triathlon%' THEN 'Triathlon'
+    WHEN wl.`name` LIKE '%Estações%' THEN 'Circuito das Estações'
+    WHEN wl.`name` LIKE '%Primavera%' THEN 'Circuito das Estações'
+       WHEN wl.`name` LIKE '%Outono%' THEN 'Circuito das Estações'
+    WHEN wl.`name` LIKE '%Troféu %' THEN 'Troféu Brasil'
+    WHEN wl.`name` LIKE '%Parcel%' THEN 'Triathlon'
+    WHEN wl.`name` LIKE '%ilha%' THEN 'Triathlon'
+    WHEN wl.`name` LIKE '%Eco%' THEN 'Eco Run'
+    WHEN wl.`name` LIKE '%Bull%' THEN ' Bull Run'
+    WHEN wl.`name` LIKE '%Juntos%' THEN 'Juntos'
+    WHEN wl.`name` LIKE '%Blue%' THEN 'Blue Run'
+    WHEN wl.name LIKE '%Energy%' THEN 'Energy'
+    WHEN wl.name LIKE '%Pedelar%' THEN 'Eventos de Ciclismo'
+    WHEN wl.name LIKE '%Bike%' THEN 'Eventos de Ciclismo'
+    WHEN wl.name LIKE '%Riders%' THEN 'Eventos de Ciclismo'    
+    WHEN wl.name LIKE '%humans%' THEN 'Humans'    
+    WHEN wl.name LIKE '%S RUN%' THEN 'S RUN'  
+    WHEN wl.name LIKE '%Agro%' THEN 'Agro'  
+    WHEN wl.name LIKE '%Running%' THEN 'Treinão'  
+    WHEN wl.name LIKE '%Teste%' THEN 'Treinão'  
+    WHEN wl.name LIKE '%S21%' THEN 'Meias e Maratonas'  
+    WHEN wl.name LIKE '%gilr%' THEN 'Girl Power'  
+     WHEN wl.name LIKE '%testar%' THEN 'Treinão'  
+    WHEN wl.`name` LIKE '%pão%' THEN 'Pão De Açucar'
+    WHEN wl.`name` LIKE '%Floripa%' THEN 'Meias e Maratonas'
+    WHEN wl.`name` LIKE '%Tis%' THEN 'Meias e Maratonas'
+        WHEN wl.`name` LIKE '%Biomas%' THEN 'Biomas'
+    ELSE 'Outra Categoria'
+    END AS "categoria_evento",
+
+     city as "Cidade"
+    
+FROM sales_order as so
+LEFT JOIN sales_order_item as soi ON soi.order_id = so.entity_id  
+LEFT JOIN sales_order_tax as sot ON sot.order_id = so.entity_id  
+LEFT JOIN sales_order_payment AS sop ON sop.parent_id = so.entity_id  
+LEFT JOIN customer_group as cg on cg.customer_group_id = so.customer_group_id  
+LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
+LEFT JOIN (SELECT * FROM sales_order_item WHERE name LIKE "%persona%") as soiaa ON soiaa.parent_item_id = soi.item_id  
+WHERE 
+    wl.final_date >= '2026-01-01' 
+    AND wl.final_date <= '2026-12-31'
+    AND so.increment_id NOT LIKE "%-1%"
+    AND so.increment_id NOT LIKE "%-2%"
+    AND so.increment_id NOT LIKE "%-3%"
+    AND so.increment_id NOT LIKE "%-4%"
+    AND so.increment_id NOT LIKE "%-5%"
+    AND so.increment_id NOT LIKE "%-6%"
+    AND so.increment_id NOT LIKE "%-7%"
+    AND so.increment_id NOT LIKE "%-8%"
+    AND so.increment_id NOT LIKE "%-9%"
+    AND so.increment_id NOT LIKE "%-10%"
+    AND so.increment_id NOT LIKE "%-11%"
+    AND so.increment_id NOT LIKE "%-12%"
+    AND so.increment_id NOT LIKE "%-13%"
+    AND so.increment_id NOT LIKE "%-14%"
+    AND so.increment_id NOT LIKE "%-15%"
+    AND so.increment_id NOT LIKE "%-16%"
+    AND so.increment_id NOT LIKE "%-17%"
+ # and wl.`name` like "%rio%"
+  
+    AND so.status IN ('Processing','Complete','approved')
+    AND soi.product_type = 'Bundle'
+GROUP BY wl.name, wl.final_date
+ORDER BY so.increment_id DESC;

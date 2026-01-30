@@ -7,7 +7,7 @@ import {
   Eye, DollarSign, Users, Store, ShoppingBag
 } from 'lucide-react';
 
-type SortField = 'sku' | 'evento' | 'qtd_vendida_total' | 'valor_total' | 'ativo_qtd' | 'magento_qtd';
+type SortField = 'evento' | 'data_evento' | 'qtd_vendida_total' | 'inscricao_liquida_total' | 'ticket_medio_total' | 'qtd_grupos_total' | 'qtd_site_total';
 type SortDirection = 'asc' | 'desc';
 
 const DadosConsolidados: React.FC = () => {
@@ -63,29 +63,33 @@ const DadosConsolidados: React.FC = () => {
       let bVal: number | string = 0;
       
       switch (sortField) {
-        case 'sku':
-          aVal = a.sku || '';
-          bVal = b.sku || '';
-          break;
         case 'evento':
           aVal = a.evento || '';
           bVal = b.evento || '';
+          break;
+        case 'data_evento':
+          aVal = a.data_evento || '';
+          bVal = b.data_evento || '';
           break;
         case 'qtd_vendida_total':
           aVal = a.qtd_vendida_total;
           bVal = b.qtd_vendida_total;
           break;
-        case 'valor_total':
-          aVal = a.valor_total;
-          bVal = b.valor_total;
+        case 'inscricao_liquida_total':
+          aVal = a.inscricao_liquida_total;
+          bVal = b.inscricao_liquida_total;
           break;
-        case 'ativo_qtd':
-          aVal = a.por_fonte.ativo?.qtd || 0;
-          bVal = b.por_fonte.ativo?.qtd || 0;
+        case 'ticket_medio_total':
+          aVal = a.ticket_medio_total;
+          bVal = b.ticket_medio_total;
           break;
-        case 'magento_qtd':
-          aVal = a.por_fonte.magento?.qtd || 0;
-          bVal = b.por_fonte.magento?.qtd || 0;
+        case 'qtd_grupos_total':
+          aVal = a.qtd_grupos_total;
+          bVal = b.qtd_grupos_total;
+          break;
+        case 'qtd_site_total':
+          aVal = a.qtd_site_total;
+          bVal = b.qtd_site_total;
           break;
       }
       
@@ -118,17 +122,39 @@ const DadosConsolidados: React.FC = () => {
   const exportToCSV = () => {
     if (!filteredAndSortedData.length) return;
     
-    const headers = ['SKU', 'ID Evento', 'Evento', 'Qtd Total', 'Valor Total', 'Ativo Qtd', 'Ativo Valor', 'Magento Qtd', 'Magento Valor'];
+    const headers = [
+      'Data Evento', 'Evento', 'Cidade', 'Categoria', 
+      'Qtd Total', 'Valor Total', 'Cortesias', 'Inscricao Liquida Total', 'Ticket Medio Total',
+      'Taxa Liquida Total', 'Kit Produto Total',
+      'Qtd Grupos', 'Inscricao Liquida Grupos',
+      'Qtd Site', 'Inscricao Liquida Site',
+      'Fonte Ativo', 'Ativo Qtd', 'Ativo Inscricao Liquida', 'Ativo Ticket Medio',
+      'Fonte Magento', 'Magento Qtd', 'Magento Inscricao Liquida', 'Magento Ticket Medio'
+    ];
     const rows = filteredAndSortedData.map(item => [
-      item.sku,
-      item.id_evento || '',
+      item.data_evento || '',
       item.evento || '',
+      item.cidade || '',
+      item.categoria_evento || '',
       item.qtd_vendida_total,
       item.valor_total,
+      item.cortesia_total,
+      item.inscricao_liquida_total,
+      item.ticket_medio_total,
+      item.taxa_liquida_total,
+      item.kit_produto_total,
+      item.qtd_grupos_total,
+      item.inscricao_liquida_grupos_total,
+      item.qtd_site_total,
+      item.inscricao_liquida_site_total,
+      item.por_fonte.ativo ? 'Sim' : 'Nao',
       item.por_fonte.ativo?.qtd || 0,
-      item.por_fonte.ativo?.valor || 0,
+      item.por_fonte.ativo?.inscricao_liquida || 0,
+      item.por_fonte.ativo?.ticket_medio || 0,
+      item.por_fonte.magento ? 'Sim' : 'Nao',
       item.por_fonte.magento?.qtd || 0,
-      item.por_fonte.magento?.valor || 0
+      item.por_fonte.magento?.inscricao_liquida || 0,
+      item.por_fonte.magento?.ticket_medio || 0
     ]);
     
     const csvContent = [headers.join(';'), ...rows.map(row => row.join(';'))].join('\n');
@@ -346,52 +372,60 @@ const DadosConsolidados: React.FC = () => {
             <table className="w-full" style={{ tableLayout: 'fixed' }}>
               <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-100'}>
                 <tr>
-                  <th className={`resizable-th px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '120px' }}>
-                    <button onClick={() => handleSort('sku')} className="flex items-center gap-1 hover:text-blue-500">
-                      SKU <SortIcon field="sku" />
+                  <th className={`resizable-th px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '100px' }}>
+                    <button onClick={() => handleSort('data_evento')} className="flex items-center gap-1 hover:text-blue-500">
+                      Data <SortIcon field="data_evento" />
                     </button>
                   </th>
-                  <th className={`resizable-th px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '280px' }}>
+                  <th className={`resizable-th px-4 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '250px' }}>
                     <button onClick={() => handleSort('evento')} className="flex items-center gap-1 hover:text-blue-500">
                       Evento <SortIcon field="evento" />
                     </button>
                   </th>
-                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '100px' }}>
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '80px' }}>
                     <button onClick={() => handleSort('qtd_vendida_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
-                      Qtd Total <SortIcon field="qtd_vendida_total" />
+                      Qtd <SortIcon field="qtd_vendida_total" />
                     </button>
                   </th>
-                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '130px' }}>
-                    <button onClick={() => handleSort('valor_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
-                      Valor Total <SortIcon field="valor_total" />
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '120px' }}>
+                    <button onClick={() => handleSort('inscricao_liquida_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
+                      Insc. Líquida <SortIcon field="inscricao_liquida_total" />
                     </button>
                   </th>
-                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '130px' }}>
-                    <button onClick={() => handleSort('ativo_qtd')} className="flex items-center gap-1 justify-end hover:text-blue-500">
-                      <Store className="w-4 h-4 text-blue-500" /> Ativo <SortIcon field="ativo_qtd" />
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '100px' }}>
+                    <button onClick={() => handleSort('ticket_medio_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
+                      Ticket Médio <SortIcon field="ticket_medio_total" />
                     </button>
                   </th>
-                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '130px' }}>
-                    <button onClick={() => handleSort('magento_qtd')} className="flex items-center gap-1 justify-end hover:text-blue-500">
-                      <ShoppingBag className="w-4 h-4 text-orange-500" /> Magento <SortIcon field="magento_qtd" />
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '80px' }}>
+                    <button onClick={() => handleSort('qtd_grupos_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
+                      Grupos <SortIcon field="qtd_grupos_total" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '70px' }}>
-                    Ações
+                  <th className={`resizable-th px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '80px' }}>
+                    <button onClick={() => handleSort('qtd_site_total')} className="flex items-center gap-1 justify-end hover:text-blue-500">
+                      Site <SortIcon field="qtd_site_total" />
+                    </button>
+                  </th>
+                  <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '60px' }}>
+                    Fonte
+                  </th>
+                  <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '50px' }}>
+                    
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-700">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center">
+                    <td colSpan={9} className="px-4 py-12 text-center">
                       <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando dados...</p>
                     </td>
                   </tr>
                 ) : filteredAndSortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center">
+                    <td colSpan={9} className="px-4 py-12 text-center">
                       <Database className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum dado encontrado</p>
                     </td>
@@ -402,51 +436,49 @@ const DadosConsolidados: React.FC = () => {
                       key={`${item.sku}-${index}`}
                       className={`${isDark ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'} transition-colors`}
                     >
-                      <td className={`px-4 py-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        <span className="font-mono font-semibold">{item.sku}</span>
+                      <td className={`px-4 py-3 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <span className="text-sm">{item.data_evento || '-'}</span>
                       </td>
                       <td className={`px-4 py-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <div className="break-words" title={item.evento || '-'}>
+                        <div className="break-words font-medium" title={item.evento || '-'}>
                           {item.evento || <span className="text-gray-500 italic">Sem nome</span>}
                         </div>
-                        {item.id_evento && (
+                        {item.cidade && (
                           <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                            ID: {item.id_evento}
+                            {item.cidade}
                           </span>
                         )}
                       </td>
                       <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                         {formatNumber(item.qtd_vendida_total)}
-                      </td>
-                      <td className={`px-4 py-3 text-right ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                        {formatCurrency(item.valor_total)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {item.por_fonte.ativo ? (
-                          <div>
-                            <span className={`font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
-                              {formatNumber(item.por_fonte.ativo.qtd)}
-                            </span>
-                            <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                              {formatCurrency(item.por_fonte.ativo.valor)}
-                            </div>
+                        {item.cortesia_total > 0 && (
+                          <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                            ({item.cortesia_total} cortesias)
                           </div>
-                        ) : (
-                          <span className={`text-xs ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>-</span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        {item.por_fonte.magento ? (
-                          <div>
-                            <span className={`font-semibold ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
-                              {formatNumber(item.por_fonte.magento.qtd)}
-                            </span>
-                            <div className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                              {formatCurrency(item.por_fonte.magento.valor)}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className={`text-xs ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>-</span>
+                      <td className={`px-4 py-3 text-right ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                        {formatCurrency(item.inscricao_liquida_total)}
+                      </td>
+                      <td className={`px-4 py-3 text-right ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                        {formatCurrency(item.ticket_medio_total)}
+                      </td>
+                      <td className={`px-4 py-3 text-right ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                        {formatNumber(item.qtd_grupos_total)}
+                      </td>
+                      <td className={`px-4 py-3 text-right ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                        {formatNumber(item.qtd_site_total)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {item.por_fonte.ativo && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-400" title="Ativo">
+                            <Store className="w-3 h-3" />
+                          </span>
+                        )}
+                        {item.por_fonte.magento && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-orange-500/20 text-orange-400 ml-1" title="Magento">
+                            <ShoppingBag className="w-3 h-3" />
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">
@@ -473,15 +505,15 @@ const DadosConsolidados: React.FC = () => {
 
       {selectedItem && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className={`w-full max-w-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl overflow-hidden`}>
+          <div className={`w-full max-w-3xl max-h-[90vh] ${isDark ? 'bg-gray-800' : 'bg-white'} rounded-2xl shadow-2xl overflow-hidden`}>
             <div className="p-6 border-b border-gray-700">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    Detalhes do Evento
+                    {selectedItem.evento || 'Evento sem nome'}
                   </h2>
                   <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    SKU: <span className="font-mono font-semibold">{selectedItem.sku}</span>
+                    {selectedItem.data_evento} {selectedItem.cidade && `- ${selectedItem.cidade}`}
                   </p>
                 </div>
                 <button
@@ -492,37 +524,57 @@ const DadosConsolidados: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div className="p-6 space-y-4">
-              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                <label className={`text-xs uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Nome do Evento
-                </label>
-                <p className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  {selectedItem.evento || 'Sem nome definido'}
-                </p>
-                {selectedItem.id_evento && (
-                  <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                    ID: {selectedItem.id_evento}
-                  </p>
-                )}
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+              <div className="grid grid-cols-4 gap-3">
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd Total</label>
+                  <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(selectedItem.qtd_vendida_total)}</p>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Cortesias</label>
+                  <p className={`text-xl font-bold ${isDark ? 'text-yellow-400' : 'text-yellow-600'}`}>{formatNumber(selectedItem.cortesia_total)}</p>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Insc. Líquida</label>
+                  <p className={`text-xl font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{formatCurrency(selectedItem.inscricao_liquida_total)}</p>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio</label>
+                  <p className={`text-xl font-bold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{formatCurrency(selectedItem.ticket_medio_total)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Taxa Líquida</label>
+                  <p className={`text-lg font-bold ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>{formatCurrency(selectedItem.taxa_liquida_total)}</p>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Kit/Produto</label>
+                  <p className={`text-lg font-bold ${isDark ? 'text-pink-400' : 'text-pink-600'}`}>{formatCurrency(selectedItem.kit_produto_total)}</p>
+                </div>
+                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className={`text-xs uppercase ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Total</label>
+                  <p className={`text-lg font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{formatCurrency(selectedItem.valor_total)}</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                  <label className={`text-xs uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Quantidade Total
-                  </label>
-                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    {formatNumber(selectedItem.qtd_vendida_total)}
-                  </p>
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-purple-900/20' : 'bg-purple-50'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="w-5 h-5 text-purple-500" />
+                    <label className={`text-sm font-semibold ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Grupos</label>
+                  </div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(selectedItem.qtd_grupos_total)}</p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{formatCurrency(selectedItem.inscricao_liquida_grupos_total)}</p>
                 </div>
-                <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
-                  <label className={`text-xs uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Valor Total
-                  </label>
-                  <p className={`text-2xl font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                    {formatCurrency(selectedItem.valor_total)}
-                  </p>
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-orange-900/20' : 'bg-orange-50'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShoppingBag className="w-5 h-5 text-orange-500" />
+                    <label className={`text-sm font-semibold ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>Site</label>
+                  </div>
+                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(selectedItem.qtd_site_total)}</p>
+                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{formatCurrency(selectedItem.inscricao_liquida_site_total)}</p>
                 </div>
               </div>
 
@@ -530,45 +582,31 @@ const DadosConsolidados: React.FC = () => {
                 <div className={`p-4 rounded-lg border-2 ${isDark ? 'bg-blue-900/20 border-blue-500/50' : 'bg-blue-50 border-blue-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
                     <Store className="w-5 h-5 text-blue-500" />
-                    <label className={`text-sm font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
-                      Ativo
-                    </label>
+                    <label className={`text-sm font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Fonte: Ativo</label>
                   </div>
                   {selectedItem.por_fonte.ativo ? (
-                    <>
-                      <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {formatNumber(selectedItem.por_fonte.ativo.qtd)} inscritos
-                      </p>
-                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        {formatCurrency(selectedItem.por_fonte.ativo.valor)}
-                      </p>
-                    </>
+                    <div className="space-y-1">
+                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(selectedItem.por_fonte.ativo.qtd)} inscritos</p>
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Insc. Líq: {formatCurrency(selectedItem.por_fonte.ativo.inscricao_liquida)}</p>
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ticket: {formatCurrency(selectedItem.por_fonte.ativo.ticket_medio)}</p>
+                    </div>
                   ) : (
-                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                      Sem dados nesta fonte
-                    </p>
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Sem dados</p>
                   )}
                 </div>
                 <div className={`p-4 rounded-lg border-2 ${isDark ? 'bg-orange-900/20 border-orange-500/50' : 'bg-orange-50 border-orange-200'}`}>
                   <div className="flex items-center gap-2 mb-2">
                     <ShoppingBag className="w-5 h-5 text-orange-500" />
-                    <label className={`text-sm font-semibold ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
-                      Magento
-                    </label>
+                    <label className={`text-sm font-semibold ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>Fonte: Magento</label>
                   </div>
                   {selectedItem.por_fonte.magento ? (
-                    <>
-                      <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {formatNumber(selectedItem.por_fonte.magento.qtd)} inscritos
-                      </p>
-                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        {formatCurrency(selectedItem.por_fonte.magento.valor)}
-                      </p>
-                    </>
+                    <div className="space-y-1">
+                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(selectedItem.por_fonte.magento.qtd)} inscritos</p>
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Insc. Líq: {formatCurrency(selectedItem.por_fonte.magento.inscricao_liquida)}</p>
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ticket: {formatCurrency(selectedItem.por_fonte.magento.ticket_medio)}</p>
+                    </div>
                   ) : (
-                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                      Sem dados nesta fonte
-                    </p>
+                    <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Sem dados</p>
                   )}
                 </div>
               </div>

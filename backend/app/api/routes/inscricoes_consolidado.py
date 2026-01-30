@@ -45,6 +45,17 @@ def normalize_sku(sku: str) -> str:
 class InscricaoFonteDetalhe(BaseModel):
     qtd: int
     valor: float
+    cortesia: int = 0
+    inscricao_liquida: float = 0.0
+    ticket_medio: float = 0.0
+    taxa_liquida: float = 0.0
+    kit_produto: float = 0.0
+    qtd_grupos: int = 0
+    inscricao_liquida_grupos: float = 0.0
+    ticket_medio_grupos: float = 0.0
+    qtd_site: int = 0
+    inscricao_liquida_site: float = 0.0
+    ticket_medio_site: float = 0.0
 
 class InscricaoPorFonte(BaseModel):
     ativo: Optional[InscricaoFonteDetalhe] = None
@@ -54,8 +65,20 @@ class InscricaoConsolidada(BaseModel):
     sku: str
     id_evento: Optional[str] = None
     evento: Optional[str] = None
+    data_evento: Optional[str] = None
+    categoria_evento: Optional[str] = None
+    cidade: Optional[str] = None
     qtd_vendida_total: int
     valor_total: float
+    cortesia_total: int = 0
+    inscricao_liquida_total: float = 0.0
+    ticket_medio_total: float = 0.0
+    taxa_liquida_total: float = 0.0
+    kit_produto_total: float = 0.0
+    qtd_grupos_total: int = 0
+    inscricao_liquida_grupos_total: float = 0.0
+    qtd_site_total: int = 0
+    inscricao_liquida_site_total: float = 0.0
     por_fonte: InscricaoPorFonte
 
 class InscricoesConsolidadasResponse(BaseModel):
@@ -69,72 +92,242 @@ class InscricoesConsolidadasResponse(BaseModel):
 def build_query_ativo(ano: int) -> str:
     """
     Constroi query do Ativo filtrando por ano do evento (dt_evento).
+    Retorna métricas completas: quantidade, cortesia, inscrição líquida, ticket médio,
+    taxa líquida, kit produto, e breakdown por grupos/site.
     """
     return f"""
 SELECT
-    b.id_campanha_salesforce AS sku,
-    CAST(b.id_evento AS CHAR) AS id_evento,
+    b.id_evento AS id_evento,
     b.ds_evento AS evento,
-    COUNT(*) AS qtd_vendida,
-    COALESCE(SUM(a.nr_preco), 0) AS valor_total
-FROM (
-    SELECT id_evento, ds_evento, id_campanha_salesforce
-    FROM sa_evento
-    WHERE YEAR(dt_evento) = {ano}
-) AS b
-INNER JOIN sa_pedido_evento AS a
-    ON a.id_evento = b.id_evento
-INNER JOIN (
-    SELECT id_pedido
-    FROM sa_pedido
-    WHERE id_pedido_status = 2
-       OR (fl_local_inscricao = 2 AND id_pedido_status = 1)
-) AS c
-    ON c.id_pedido = a.id_pedido
-GROUP BY
-    b.id_campanha_salesforce,
-    b.id_evento,
-    b.ds_evento
-ORDER BY qtd_vendida DESC
+    DATE(b.dt_evento) AS data_evento,
+    COUNT(a.id_pedido_evento) AS qtd_total,
+    SUM(CASE WHEN c.nr_total = 0 THEN 1 ELSE 0 END) AS cortesia,
+    SUM(
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ) AS inscricao_liquida,
+    SUM(
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ) / COUNT(a.id_pedido_evento) AS ticket_medio,
+    SUM(
+        IF(c.fl_local_inscricao = '1',
+            IF(a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0) > a.nr_taxa, 
+                a.nr_taxa, 
+                a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0)),
+            c.nr_taxa / (SELECT COUNT(*) FROM sa_pedido_evento AS pe2 
+                         WHERE pe2.id_pedido = a.id_pedido GROUP BY pe2.id_pedido)
+        )
+    ) AS taxa_liquida,
+    SUM(
+        IF(
+            (SELECT MIN(pe2.id_pedido_evento) FROM sa_pedido_evento AS pe2 
+             WHERE pe2.id_pedido = c.id_pedido GROUP BY pe2.id_pedido) = a.id_pedido_evento,
+            i.nr_preco * i.nr_quantidade,
+            NULL
+        )
+    ) AS kit_produto,
+    SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 1 ELSE 0 END) AS qtd_grupos,
+    SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) AS inscricao_liquida_grupos,
+    SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) / NULLIF(SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 1 ELSE 0 END), 0) AS ticket_medio_grupos,
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao) 
+        AND h.ds_categoria NOT LIKE '%Grup%'
+        AND c.nr_total > 0 THEN 1 ELSE 0 END) AS qtd_site,
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND h.ds_categoria NOT LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) AS inscricao_liquida_site,
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND h.ds_categoria NOT LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) / NULLIF(SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND h.ds_categoria NOT LIKE '%Grup%'
+        AND c.nr_total > 0 THEN 1 ELSE 0 END), 0) AS ticket_medio_site
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+LEFT JOIN sa_pedido_produto AS i ON a.id_pedido = i.id_pedido
+WHERE 
+    YEAR(b.dt_evento) = {ano}
+    AND c.id_pedido_status = 2
+GROUP BY b.id_evento, b.ds_evento, b.dt_evento
+ORDER BY b.dt_evento
 """
 
 def build_query_magento(ano: int) -> str:
     """
-    Constroi query do Magento filtrando por padrão de ano no SKU.
-    Ex: ano=2026 -> filtra SKUs que contenham '26' após letras iniciais.
-    Usa LIKE ao invés de REGEXP para melhor performance (pode usar índices).
-    Padrões: XX26%, XXX26%, XXXX26%, EVXX26%, EVXXX26%, EVXXXX26%
+    Constroi query do Magento filtrando por ano do evento (wl.final_date).
+    Retorna métricas completas: quantidade, cortesia, inscrição líquida, ticket médio,
+    taxa líquida, kit produto, e breakdown por grupos/site.
     """
-    ano_curto = str(ano)[-2:]  # 2026 -> "26"
     return f"""
 SELECT
-    b.sku AS sku,
-    NULL AS id_evento,
-    b.name AS evento,
-    COUNT(b.item_id) AS qtd_vendida,
-    COALESCE(SUM(b.row_total), 0) AS valor_total
-FROM
-    sales_order AS a
-    INNER JOIN sales_order_item AS b ON b.order_id = a.entity_id
-WHERE
-    a.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'pending')
-    AND a.state != 'canceled'
-    AND b.sku IS NOT NULL
-    AND b.sku != ''
-    AND b.row_total > 0
-    AND (
-        b.sku LIKE '__{ano_curto}%'
-        OR b.sku LIKE '___{ano_curto}%'
-        OR b.sku LIKE '____{ano_curto}%'
-        OR b.sku LIKE 'EV__{ano_curto}%'
-        OR b.sku LIKE 'EV___{ano_curto}%'
-        OR b.sku LIKE 'EV____{ano_curto}%'
-    )
-GROUP BY
-    b.sku,
-    b.name
-ORDER BY qtd_vendida DESC
-LIMIT 500
+    wl.location_id AS id_evento,
+    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        REPLACE(wl.name, 'Retirada de kit - CE', 'Circuito das Estações'),
+        'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
+        'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
+        'SSA', 'Salvador') AS evento,
+    wl.final_date AS data_evento,
+    COUNT(wl.name) AS qtd_total,
+    SUM(CASE WHEN so.base_grand_total = 0 THEN 1 ELSE 0 END) AS cortesia,
+    SUM(soi.price - CASE WHEN soi.price = 0 THEN 0 
+        WHEN soi.name LIKE '%plus%' THEN 69.00
+        WHEN soi.name LIKE '%super%' THEN 269.00
+        WHEN soi.name LIKE '%vip%' THEN 199.99
+        ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) 
+        * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+        WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+        ELSE 0 END) AS inscricao_liquida,
+    SUM(soi.price - CASE WHEN soi.price = 0 THEN 0 
+        WHEN soi.name LIKE '%plus%' THEN 69.00
+        WHEN soi.name LIKE '%super%' THEN 269.00
+        WHEN soi.name LIKE '%vip%' THEN 199.99
+        ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) 
+        * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+        WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+        ELSE 0 END) / COUNT(wl.name) AS ticket_medio,
+    SUM(sot.amount / (SELECT COUNT(*) FROM sales_order_item AS ba 
+        WHERE ba.order_id = soi.order_id AND ba.product_type = 'Bundle'
+        GROUP BY ba.order_id)) AS taxa_liquida,
+    SUM(CASE
+        WHEN soi.name LIKE '%plus%' THEN 69.00
+        WHEN soi.name LIKE '%super%' THEN 269.00
+        WHEN soi.name LIKE '%vip%' THEN 199.99
+        ELSE 0
+    END) AS kit_produto,
+    SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 1 ELSE 0 END) AS qtd_grupos,
+    SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 
+        (soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END) ELSE 0 END) AS inscricao_liquida_grupos,
+    SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 
+        (soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END) ELSE 0 END) / NULLIF(SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 1 ELSE 0 END), 0) AS ticket_medio_grupos,
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+        AND so.base_grand_total > 0 THEN 1 ELSE 0 END) AS qtd_site,
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
+        (soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0 END 
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END) ELSE 0 END) AS inscricao_liquida_site,
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
+        (soi.price - CASE WHEN soi.price = 0 THEN 0 
+            WHEN soi.name LIKE '%plus%' THEN 69.00
+            WHEN soi.name LIKE '%super%' THEN 269.00
+            WHEN soi.name LIKE '%vip%' THEN 199.99
+            ELSE 0 END 
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END) ELSE 0 END) / NULLIF(SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+        AND so.base_grand_total > 0 THEN 1 ELSE 0 END), 0) AS ticket_medio_site,
+    CASE
+        WHEN wl.name LIKE '%Night Run%' THEN 'Night Run'
+        WHEN wl.name LIKE '% CE %' THEN 'Circuito das Estações'
+        WHEN wl.name LIKE '%verão%' THEN 'Circuito das Estações'
+        WHEN wl.name LIKE '%Banco%' THEN 'Banco Do Brasil'
+        WHEN wl.name LIKE '%Eco Run%' THEN 'Eco Run'
+        WHEN wl.name LIKE '%Girl%' THEN 'Girl Power'
+        WHEN wl.name LIKE '%Meia%' THEN 'Meias e Maratonas'
+        WHEN wl.name LIKE '%Maratona%' THEN 'Meias e Maratonas'
+        WHEN wl.name LIKE '%21k%' THEN 'Meias e Maratonas'
+        WHEN wl.name LIKE '%sol%' THEN 'Circuito Sol'
+        WHEN wl.name LIKE '%Treinão%' THEN 'Treinão'
+        WHEN wl.name LIKE '%cruz%' THEN 'Vera Cruz'
+        WHEN wl.name LIKE '%Rios%' THEN 'Meias e Maratonas'
+        WHEN wl.name LIKE '%Bravus%' THEN 'Bravus'
+        WHEN wl.name LIKE '%Bem%' THEN 'Corrida do Bem'
+        WHEN wl.name LIKE '%Triathlon%' THEN 'Triathlon'
+        WHEN wl.name LIKE '%Estações%' THEN 'Circuito das Estações'
+        WHEN wl.name LIKE '%Primavera%' THEN 'Circuito das Estações'
+        WHEN wl.name LIKE '%Outono%' THEN 'Circuito das Estações'
+        WHEN wl.name LIKE '%Troféu %' THEN 'Troféu Brasil'
+        WHEN wl.name LIKE '%Parcel%' THEN 'Triathlon'
+        WHEN wl.name LIKE '%ilha%' THEN 'Triathlon'
+        WHEN wl.name LIKE '%Eco%' THEN 'Eco Run'
+        WHEN wl.name LIKE '%Bull%' THEN 'Bull Run'
+        WHEN wl.name LIKE '%Juntos%' THEN 'Juntos'
+        WHEN wl.name LIKE '%Blue%' THEN 'Blue Run'
+        WHEN wl.name LIKE '%Energy%' THEN 'Energy'
+        WHEN wl.name LIKE '%Pedelar%' THEN 'Eventos de Ciclismo'
+        WHEN wl.name LIKE '%Bike%' THEN 'Eventos de Ciclismo'
+        WHEN wl.name LIKE '%Riders%' THEN 'Eventos de Ciclismo'    
+        WHEN wl.name LIKE '%humans%' THEN 'Humans'    
+        WHEN wl.name LIKE '%S RUN%' THEN 'S RUN'  
+        WHEN wl.name LIKE '%Agro%' THEN 'Agro'  
+        WHEN wl.name LIKE '%Running%' THEN 'Treinão'  
+        WHEN wl.name LIKE '%Teste%' THEN 'Treinão'  
+        WHEN wl.name LIKE '%S21%' THEN 'Meias e Maratonas'  
+        WHEN wl.name LIKE '%gilr%' THEN 'Girl Power'  
+        WHEN wl.name LIKE '%testar%' THEN 'Treinão'  
+        WHEN wl.name LIKE '%pão%' THEN 'Pão De Açucar'
+        WHEN wl.name LIKE '%Floripa%' THEN 'Meias e Maratonas'
+        WHEN wl.name LIKE '%Tis%' THEN 'Meias e Maratonas'
+        WHEN wl.name LIKE '%Biomas%' THEN 'Biomas'
+        ELSE 'Outra Categoria'
+    END AS categoria_evento,
+    city AS cidade
+FROM sales_order AS so
+LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
+LEFT JOIN sales_order_tax AS sot ON sot.order_id = so.entity_id  
+LEFT JOIN sales_order_payment AS sop ON sop.parent_id = so.entity_id  
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id  
+LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
+LEFT JOIN (SELECT * FROM sales_order_item WHERE name LIKE '%persona%') AS soiaa ON soiaa.parent_item_id = soi.item_id  
+WHERE 
+    wl.final_date >= '{ano}-01-01' 
+    AND wl.final_date <= '{ano}-12-31'
+    AND so.increment_id NOT LIKE '%-1%'
+    AND so.increment_id NOT LIKE '%-2%'
+    AND so.increment_id NOT LIKE '%-3%'
+    AND so.increment_id NOT LIKE '%-4%'
+    AND so.increment_id NOT LIKE '%-5%'
+    AND so.increment_id NOT LIKE '%-6%'
+    AND so.increment_id NOT LIKE '%-7%'
+    AND so.increment_id NOT LIKE '%-8%'
+    AND so.increment_id NOT LIKE '%-9%'
+    AND so.increment_id NOT LIKE '%-10%'
+    AND so.increment_id NOT LIKE '%-11%'
+    AND so.increment_id NOT LIKE '%-12%'
+    AND so.increment_id NOT LIKE '%-13%'
+    AND so.increment_id NOT LIKE '%-14%'
+    AND so.increment_id NOT LIKE '%-15%'
+    AND so.increment_id NOT LIKE '%-16%'
+    AND so.increment_id NOT LIKE '%-17%'
+    AND so.status IN ('Processing','Complete','approved')
+    AND soi.product_type = 'Bundle'
+GROUP BY wl.name, wl.final_date, wl.location_id, city
+ORDER BY wl.final_date
 """
 
 def fetch_ativo_data(ano: int = 2026):
@@ -149,11 +342,21 @@ def fetch_ativo_data(ano: int = 2026):
             logger.info(f"Banco Ativo: {len(rows)} registros para {ano}")
             return [
                 {
-                    "sku": row[0],
-                    "id_evento": str(row[1]) if row[1] else None,
-                    "evento": row[2],
+                    "id_evento": str(row[0]) if row[0] else None,
+                    "evento": row[1],
+                    "data_evento": str(row[2]) if row[2] else None,
                     "qtd_vendida": int(row[3]) if row[3] else 0,
-                    "valor_total": float(row[4]) if row[4] else 0.0
+                    "cortesia": int(row[4]) if row[4] else 0,
+                    "inscricao_liquida": float(row[5]) if row[5] else 0.0,
+                    "ticket_medio": float(row[6]) if row[6] else 0.0,
+                    "taxa_liquida": float(row[7]) if row[7] else 0.0,
+                    "kit_produto": float(row[8]) if row[8] else 0.0,
+                    "qtd_grupos": int(row[9]) if row[9] else 0,
+                    "inscricao_liquida_grupos": float(row[10]) if row[10] else 0.0,
+                    "ticket_medio_grupos": float(row[11]) if row[11] else 0.0,
+                    "qtd_site": int(row[12]) if row[12] else 0,
+                    "inscricao_liquida_site": float(row[13]) if row[13] else 0.0,
+                    "ticket_medio_site": float(row[14]) if row[14] else 0.0,
                 }
                 for row in rows
             ], None
@@ -168,18 +371,30 @@ def fetch_magento_data(ano: int = 2026):
         query = build_query_magento(ano)
         logger.info(f"Buscando dados do banco Magento (ano={ano})...")
         
-        engine_with_timeout = db_module.engine_magento.execution_options(timeout=30)
+        engine_with_timeout = db_module.engine_magento.execution_options(timeout=60)
         with engine_with_timeout.connect() as conn:
             result = conn.execute(text(query))
             rows = result.fetchall()
             logger.info(f"Banco Magento: {len(rows)} registros para {ano}")
             return [
                 {
-                    "sku": row[0],
-                    "id_evento": str(row[1]) if row[1] else None,
-                    "evento": row[2],
+                    "id_evento": str(row[0]) if row[0] else None,
+                    "evento": row[1],
+                    "data_evento": str(row[2]) if row[2] else None,
                     "qtd_vendida": int(row[3]) if row[3] else 0,
-                    "valor_total": float(row[4]) if row[4] else 0.0
+                    "cortesia": int(row[4]) if row[4] else 0,
+                    "inscricao_liquida": float(row[5]) if row[5] else 0.0,
+                    "ticket_medio": float(row[6]) if row[6] else 0.0,
+                    "taxa_liquida": float(row[7]) if row[7] else 0.0,
+                    "kit_produto": float(row[8]) if row[8] else 0.0,
+                    "qtd_grupos": int(row[9]) if row[9] else 0,
+                    "inscricao_liquida_grupos": float(row[10]) if row[10] else 0.0,
+                    "ticket_medio_grupos": float(row[11]) if row[11] else 0.0,
+                    "qtd_site": int(row[12]) if row[12] else 0,
+                    "inscricao_liquida_site": float(row[13]) if row[13] else 0.0,
+                    "ticket_medio_site": float(row[14]) if row[14] else 0.0,
+                    "categoria_evento": row[15] if row[15] else None,
+                    "cidade": row[16] if row[16] else None,
                 }
                 for row in rows
             ], None
@@ -228,62 +443,83 @@ async def get_inscricoes_consolidadas(
             detail=f"Nenhuma fonte de dados disponível. Ativo: {ativo_error}. Magento: {magento_error}"
         )
     
-    consolidado = {}
+    dados = []
+    
+    def create_fonte_detalhe(row):
+        return {
+            "qtd": row.get("qtd_vendida", 0),
+            "valor": row.get("inscricao_liquida", 0.0),
+            "cortesia": row.get("cortesia", 0),
+            "inscricao_liquida": row.get("inscricao_liquida", 0.0),
+            "ticket_medio": row.get("ticket_medio", 0.0),
+            "taxa_liquida": row.get("taxa_liquida", 0.0),
+            "kit_produto": row.get("kit_produto", 0.0),
+            "qtd_grupos": row.get("qtd_grupos", 0),
+            "inscricao_liquida_grupos": row.get("inscricao_liquida_grupos", 0.0),
+            "ticket_medio_grupos": row.get("ticket_medio_grupos", 0.0),
+            "qtd_site": row.get("qtd_site", 0),
+            "inscricao_liquida_site": row.get("inscricao_liquida_site", 0.0),
+            "ticket_medio_site": row.get("ticket_medio_site", 0.0),
+        }
     
     if ativo_result:
         for row in ativo_result:
-            raw_sku = row["sku"]
-            if raw_sku:
-                normalized = normalize_sku(raw_sku)
-                if normalized not in consolidado:
-                    consolidado[normalized] = {
-                        "sku": normalized,
-                        "id_evento": row["id_evento"],
-                        "evento": row["evento"],
-                        "qtd_vendida_total": 0,
-                        "valor_total": 0.0,
-                        "por_fonte": {"ativo": {"qtd": 0, "valor": 0.0}, "magento": {"qtd": 0, "valor": 0.0}}
-                    }
-                consolidado[normalized]["por_fonte"]["ativo"]["qtd"] += row["qtd_vendida"]
-                consolidado[normalized]["por_fonte"]["ativo"]["valor"] += row["valor_total"]
-                consolidado[normalized]["qtd_vendida_total"] += row["qtd_vendida"]
-                consolidado[normalized]["valor_total"] += row["valor_total"]
-                if not consolidado[normalized]["evento"] and row["evento"]:
-                    consolidado[normalized]["evento"] = row["evento"]
+            evento_key = f"ativo_{row['id_evento']}"
+            dados.append({
+                "sku": evento_key,
+                "id_evento": row["id_evento"],
+                "evento": row["evento"],
+                "data_evento": row.get("data_evento"),
+                "categoria_evento": None,
+                "cidade": None,
+                "qtd_vendida_total": row.get("qtd_vendida", 0),
+                "valor_total": row.get("inscricao_liquida", 0.0),
+                "cortesia_total": row.get("cortesia", 0),
+                "inscricao_liquida_total": row.get("inscricao_liquida", 0.0),
+                "ticket_medio_total": row.get("ticket_medio", 0.0),
+                "taxa_liquida_total": row.get("taxa_liquida", 0.0),
+                "kit_produto_total": row.get("kit_produto", 0.0),
+                "qtd_grupos_total": row.get("qtd_grupos", 0),
+                "inscricao_liquida_grupos_total": row.get("inscricao_liquida_grupos", 0.0),
+                "qtd_site_total": row.get("qtd_site", 0),
+                "inscricao_liquida_site_total": row.get("inscricao_liquida_site", 0.0),
+                "por_fonte": {
+                    "ativo": create_fonte_detalhe(row),
+                    "magento": None
+                }
+            })
     
     if magento_result:
         for row in magento_result:
-            raw_sku = row["sku"]
-            if raw_sku:
-                normalized = normalize_sku(raw_sku)
-                if normalized not in consolidado:
-                    consolidado[normalized] = {
-                        "sku": normalized,
-                        "id_evento": row["id_evento"],
-                        "evento": row["evento"],
-                        "qtd_vendida_total": 0,
-                        "valor_total": 0.0,
-                        "por_fonte": {"ativo": {"qtd": 0, "valor": 0.0}, "magento": {"qtd": 0, "valor": 0.0}}
-                    }
-                consolidado[normalized]["por_fonte"]["magento"]["qtd"] += row["qtd_vendida"]
-                consolidado[normalized]["por_fonte"]["magento"]["valor"] += row["valor_total"]
-                consolidado[normalized]["qtd_vendida_total"] += row["qtd_vendida"]
-                consolidado[normalized]["valor_total"] += row["valor_total"]
-                if not consolidado[normalized]["evento"] and row["evento"]:
-                    consolidado[normalized]["evento"] = row["evento"]
-    
-    for key in consolidado:
-        if consolidado[key]["por_fonte"]["ativo"]["qtd"] == 0:
-            consolidado[key]["por_fonte"]["ativo"] = None
-        if consolidado[key]["por_fonte"]["magento"]["qtd"] == 0:
-            consolidado[key]["por_fonte"]["magento"] = None
-    
-    dados = list(consolidado.values())
+            evento_key = f"magento_{row['id_evento']}"
+            dados.append({
+                "sku": evento_key,
+                "id_evento": row["id_evento"],
+                "evento": row["evento"],
+                "data_evento": row.get("data_evento"),
+                "categoria_evento": row.get("categoria_evento"),
+                "cidade": row.get("cidade"),
+                "qtd_vendida_total": row.get("qtd_vendida", 0),
+                "valor_total": row.get("inscricao_liquida", 0.0),
+                "cortesia_total": row.get("cortesia", 0),
+                "inscricao_liquida_total": row.get("inscricao_liquida", 0.0),
+                "ticket_medio_total": row.get("ticket_medio", 0.0),
+                "taxa_liquida_total": row.get("taxa_liquida", 0.0),
+                "kit_produto_total": row.get("kit_produto", 0.0),
+                "qtd_grupos_total": row.get("qtd_grupos", 0),
+                "inscricao_liquida_grupos_total": row.get("inscricao_liquida_grupos", 0.0),
+                "qtd_site_total": row.get("qtd_site", 0),
+                "inscricao_liquida_site_total": row.get("inscricao_liquida_site", 0.0),
+                "por_fonte": {
+                    "ativo": None,
+                    "magento": create_fonte_detalhe(row)
+                }
+            })
     
     if sku:
-        dados = [d for d in dados if d["sku"] and sku.upper() in d["sku"].upper()]
+        dados = [d for d in dados if d["evento"] and sku.upper() in d["evento"].upper()]
     
-    dados.sort(key=lambda x: x["qtd_vendida_total"], reverse=True)
+    dados.sort(key=lambda x: x.get("data_evento") or "", reverse=False)
     
     return InscricoesConsolidadasResponse(
         status="success",
@@ -366,7 +602,15 @@ async def test_ativo_query(ano: int = 2026):
                 "ano": ano,
                 "total_rows": len(rows),
                 "sample": [
-                    {"sku": row[0], "id_evento": str(row[1]), "evento": row[2], "qtd": int(row[3]), "valor": float(row[4])}
+                    {
+                        "id_evento": str(row[0]),
+                        "evento": row[1],
+                        "data_evento": str(row[2]) if row[2] else None,
+                        "qtd_total": int(row[3]) if row[3] else 0,
+                        "cortesia": int(row[4]) if row[4] else 0,
+                        "inscricao_liquida": float(row[5]) if row[5] else 0.0,
+                        "ticket_medio": float(row[6]) if row[6] else 0.0,
+                    }
                     for row in rows[:5]
                 ]
             }
@@ -391,7 +635,15 @@ async def test_magento_query(ano: int = 2026):
                 "ano": ano,
                 "total_rows": len(rows),
                 "sample": [
-                    {"sku": row[0], "id_evento": str(row[1]) if row[1] else None, "evento": row[2], "qtd": int(row[3]), "valor": float(row[4])}
+                    {
+                        "id_evento": str(row[0]) if row[0] else None,
+                        "evento": row[1],
+                        "data_evento": str(row[2]) if row[2] else None,
+                        "qtd_total": int(row[3]) if row[3] else 0,
+                        "cortesia": int(row[4]) if row[4] else 0,
+                        "inscricao_liquida": float(row[5]) if row[5] else 0.0,
+                        "ticket_medio": float(row[6]) if row[6] else 0.0,
+                    }
                     for row in rows[:5]
                 ]
             }
