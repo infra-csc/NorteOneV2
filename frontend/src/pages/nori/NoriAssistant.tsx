@@ -6,7 +6,8 @@ import {
   Clock, 
   AlertTriangle,
   Trash2,
-  Calendar
+  Calendar,
+  Sparkles
 } from 'lucide-react';
 import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
 import NoriChat from '../../components/nori/NoriChat';

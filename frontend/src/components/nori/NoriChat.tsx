@@ -315,6 +315,29 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
     }
   };
 
+  const detectTaskCreation = (text: string): { isTask: boolean; taskTitle: string } => {
+    const taskPatterns = [
+      /^(?:criar?|crie|adicionar?|adicione|nova?)\s+(?:uma?\s+)?tarefa\s*[:\-]?\s*(.+)/i,
+      /^(?:lembrar?|lembre|me\s+lembr[ea]r?)\s+(?:de\s+)?(.+)/i,
+      /^(?:agendar?|agende|marcar?|marque)\s+(.+)/i,
+      /^tarefa\s*[:\-]\s*(.+)/i,
+      /^(?:preciso|tenho\s+que|devo)\s+(.+)/i,
+    ];
+
+    for (const pattern of taskPatterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        let taskTitle = match[1].trim();
+        taskTitle = taskTitle.replace(/^(para\s+|de\s+)/i, '');
+        if (taskTitle.length > 3) {
+          return { isTask: true, taskTitle };
+        }
+      }
+    }
+
+    return { isTask: false, taskTitle: '' };
+  };
+
   const sendMessage = async (messageText?: string) => {
     const text = messageText || inputValue.trim();
     if (!text || isLoading) return;
@@ -325,6 +348,14 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
     setIsLoading(true);
 
     try {
+      const taskDetection = detectTaskCreation(text);
+      
+      if (taskDetection.isTask) {
+        await createQuickTask(taskDetection.taskTitle);
+        setIsLoading(false);
+        return;
+      }
+
       const eventsData = mockEvents.map(e => ({
         name: e.name,
         location: e.location,
