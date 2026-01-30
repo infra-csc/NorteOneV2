@@ -407,8 +407,15 @@ const DadosConsolidados: React.FC = () => {
                       Site <SortIcon field="qtd_site_total" />
                     </button>
                   </th>
-                  <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '60px' }}>
-                    Fonte
+                  <th className={`px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`} style={{ width: '80px' }}>
+                    <div className="flex items-center gap-1 justify-end">
+                      <Store className="w-4 h-4" /> Ativo
+                    </div>
+                  </th>
+                  <th className={`px-4 py-3 text-right text-xs font-medium uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`} style={{ width: '80px' }}>
+                    <div className="flex items-center gap-1 justify-end">
+                      <ShoppingBag className="w-4 h-4" /> Magento
+                    </div>
                   </th>
                   <th className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`} style={{ width: '50px' }}>
                     
@@ -418,14 +425,14 @@ const DadosConsolidados: React.FC = () => {
               <tbody className="divide-y divide-gray-700">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center">
+                    <td colSpan={10} className="px-4 py-12 text-center">
                       <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando dados...</p>
                     </td>
                   </tr>
                 ) : filteredAndSortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center">
+                    <td colSpan={10} className="px-4 py-12 text-center">
                       <Database className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum dado encontrado</p>
                     </td>
@@ -466,20 +473,14 @@ const DadosConsolidados: React.FC = () => {
                       <td className={`px-4 py-3 text-right ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
                         {formatNumber(item.qtd_grupos_total)}
                       </td>
-                      <td className={`px-4 py-3 text-right ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                      <td className={`px-4 py-3 text-right ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
                         {formatNumber(item.qtd_site_total)}
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        {item.por_fonte.ativo && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-400" title="Ativo">
-                            <Store className="w-3 h-3" />
-                          </span>
-                        )}
-                        {item.por_fonte.magento && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-orange-500/20 text-orange-400 ml-1" title="Magento">
-                            <ShoppingBag className="w-3 h-3" />
-                          </span>
-                        )}
+                      <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                        {item.por_fonte.ativo ? formatNumber(item.por_fonte.ativo.qtd) : '-'}
+                      </td>
+                      <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
+                        {item.por_fonte.magento ? formatNumber(item.por_fonte.magento.qtd) : '-'}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button

@@ -443,8 +443,6 @@ async def get_inscricoes_consolidadas(
             detail=f"Nenhuma fonte de dados disponível. Ativo: {ativo_error}. Magento: {magento_error}"
         )
     
-    dados = []
-    
     def create_fonte_detalhe(row):
         return {
             "qtd": row.get("qtd_vendida", 0),
@@ -462,59 +460,108 @@ async def get_inscricoes_consolidadas(
             "ticket_medio_site": row.get("ticket_medio_site", 0.0),
         }
     
+    def normalize_event_name(name: str) -> str:
+        """Normaliza nome do evento para matching entre bancos"""
+        if not name:
+            return ""
+        normalized = name.upper().strip()
+        normalized = re.sub(r'\s+', ' ', normalized)
+        normalized = re.sub(r'[^\w\s]', '', normalized)
+        return normalized
+    
+    eventos_consolidados = {}
+    
     if ativo_result:
         for row in ativo_result:
-            evento_key = f"ativo_{row['id_evento']}"
-            dados.append({
-                "sku": evento_key,
-                "id_evento": row["id_evento"],
-                "evento": row["evento"],
-                "data_evento": row.get("data_evento"),
-                "categoria_evento": None,
-                "cidade": None,
-                "qtd_vendida_total": row.get("qtd_vendida", 0),
-                "valor_total": row.get("inscricao_liquida", 0.0),
-                "cortesia_total": row.get("cortesia", 0),
-                "inscricao_liquida_total": row.get("inscricao_liquida", 0.0),
-                "ticket_medio_total": row.get("ticket_medio", 0.0),
-                "taxa_liquida_total": row.get("taxa_liquida", 0.0),
-                "kit_produto_total": row.get("kit_produto", 0.0),
-                "qtd_grupos_total": row.get("qtd_grupos", 0),
-                "inscricao_liquida_grupos_total": row.get("inscricao_liquida_grupos", 0.0),
-                "qtd_site_total": row.get("qtd_site", 0),
-                "inscricao_liquida_site_total": row.get("inscricao_liquida_site", 0.0),
-                "por_fonte": {
-                    "ativo": create_fonte_detalhe(row),
-                    "magento": None
+            evento_nome = row.get("evento") or ""
+            data_evento = row.get("data_evento") or ""
+            evento_key = f"{normalize_event_name(evento_nome)}_{data_evento}"
+            
+            if evento_key not in eventos_consolidados:
+                eventos_consolidados[evento_key] = {
+                    "sku": evento_key,
+                    "id_evento": row["id_evento"],
+                    "evento": evento_nome,
+                    "data_evento": data_evento,
+                    "categoria_evento": None,
+                    "cidade": None,
+                    "ativo_data": create_fonte_detalhe(row),
+                    "magento_data": None
                 }
-            })
+            else:
+                existing = eventos_consolidados[evento_key].get("ativo_data")
+                if existing:
+                    new_data = create_fonte_detalhe(row)
+                    for k in ["qtd", "cortesia", "qtd_grupos", "qtd_site"]:
+                        existing[k] = existing.get(k, 0) + new_data.get(k, 0)
+                    for k in ["valor", "inscricao_liquida", "taxa_liquida", "kit_produto", 
+                              "inscricao_liquida_grupos", "inscricao_liquida_site"]:
+                        existing[k] = existing.get(k, 0.0) + new_data.get(k, 0.0)
+                else:
+                    eventos_consolidados[evento_key]["ativo_data"] = create_fonte_detalhe(row)
     
     if magento_result:
         for row in magento_result:
-            evento_key = f"magento_{row['id_evento']}"
-            dados.append({
-                "sku": evento_key,
-                "id_evento": row["id_evento"],
-                "evento": row["evento"],
-                "data_evento": row.get("data_evento"),
-                "categoria_evento": row.get("categoria_evento"),
-                "cidade": row.get("cidade"),
-                "qtd_vendida_total": row.get("qtd_vendida", 0),
-                "valor_total": row.get("inscricao_liquida", 0.0),
-                "cortesia_total": row.get("cortesia", 0),
-                "inscricao_liquida_total": row.get("inscricao_liquida", 0.0),
-                "ticket_medio_total": row.get("ticket_medio", 0.0),
-                "taxa_liquida_total": row.get("taxa_liquida", 0.0),
-                "kit_produto_total": row.get("kit_produto", 0.0),
-                "qtd_grupos_total": row.get("qtd_grupos", 0),
-                "inscricao_liquida_grupos_total": row.get("inscricao_liquida_grupos", 0.0),
-                "qtd_site_total": row.get("qtd_site", 0),
-                "inscricao_liquida_site_total": row.get("inscricao_liquida_site", 0.0),
-                "por_fonte": {
-                    "ativo": None,
-                    "magento": create_fonte_detalhe(row)
+            evento_nome = row.get("evento") or ""
+            data_evento = row.get("data_evento") or ""
+            evento_key = f"{normalize_event_name(evento_nome)}_{data_evento}"
+            
+            if evento_key not in eventos_consolidados:
+                eventos_consolidados[evento_key] = {
+                    "sku": evento_key,
+                    "id_evento": row["id_evento"],
+                    "evento": evento_nome,
+                    "data_evento": data_evento,
+                    "categoria_evento": row.get("categoria_evento"),
+                    "cidade": row.get("cidade"),
+                    "ativo_data": None,
+                    "magento_data": create_fonte_detalhe(row)
                 }
-            })
+            else:
+                eventos_consolidados[evento_key]["categoria_evento"] = row.get("categoria_evento")
+                eventos_consolidados[evento_key]["cidade"] = row.get("cidade")
+                existing = eventos_consolidados[evento_key].get("magento_data")
+                if existing:
+                    new_data = create_fonte_detalhe(row)
+                    for k in ["qtd", "cortesia", "qtd_grupos", "qtd_site"]:
+                        existing[k] = existing.get(k, 0) + new_data.get(k, 0)
+                    for k in ["valor", "inscricao_liquida", "taxa_liquida", "kit_produto",
+                              "inscricao_liquida_grupos", "inscricao_liquida_site"]:
+                        existing[k] = existing.get(k, 0.0) + new_data.get(k, 0.0)
+                else:
+                    eventos_consolidados[evento_key]["magento_data"] = create_fonte_detalhe(row)
+    
+    dados = []
+    for evento_key, ev in eventos_consolidados.items():
+        ativo = ev.get("ativo_data") or {}
+        magento = ev.get("magento_data") or {}
+        
+        qtd_total = ativo.get("qtd", 0) + magento.get("qtd", 0)
+        inscricao_total = ativo.get("inscricao_liquida", 0.0) + magento.get("inscricao_liquida", 0.0)
+        
+        dados.append({
+            "sku": ev["sku"],
+            "id_evento": ev["id_evento"],
+            "evento": ev["evento"],
+            "data_evento": ev["data_evento"],
+            "categoria_evento": ev.get("categoria_evento"),
+            "cidade": ev.get("cidade"),
+            "qtd_vendida_total": qtd_total,
+            "valor_total": inscricao_total,
+            "cortesia_total": ativo.get("cortesia", 0) + magento.get("cortesia", 0),
+            "inscricao_liquida_total": inscricao_total,
+            "ticket_medio_total": inscricao_total / qtd_total if qtd_total > 0 else 0.0,
+            "taxa_liquida_total": ativo.get("taxa_liquida", 0.0) + magento.get("taxa_liquida", 0.0),
+            "kit_produto_total": ativo.get("kit_produto", 0.0) + magento.get("kit_produto", 0.0),
+            "qtd_grupos_total": ativo.get("qtd_grupos", 0) + magento.get("qtd_grupos", 0),
+            "inscricao_liquida_grupos_total": ativo.get("inscricao_liquida_grupos", 0.0) + magento.get("inscricao_liquida_grupos", 0.0),
+            "qtd_site_total": ativo.get("qtd_site", 0) + magento.get("qtd_site", 0),
+            "inscricao_liquida_site_total": ativo.get("inscricao_liquida_site", 0.0) + magento.get("inscricao_liquida_site", 0.0),
+            "por_fonte": {
+                "ativo": ev.get("ativo_data"),
+                "magento": ev.get("magento_data")
+            }
+        })
     
     if sku:
         dados = [d for d in dados if d["evento"] and sku.upper() in d["evento"].upper()]
