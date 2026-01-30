@@ -32,6 +32,7 @@ interface LayoutProps {
 
 const menuItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/nori', icon: Sparkles, label: 'Nori - Assistente' },
   { path: '/cadastros/centros-custo', icon: Building2, label: 'Centros de Custo' },
   { path: '/cadastros/contas', icon: FileSpreadsheet, label: 'Contas' },
   { path: '/cadastros/projetos', icon: Target, label: 'Projetos' },
