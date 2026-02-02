@@ -1,0 +1,184 @@
+SELECT
+    -- GERAL DO EVENTO
+    b.id_evento AS "id de evento",
+		CASE 
+WHEN b.id_evento = '40048' THEN 'CDE26PL1'
+WHEN b.id_evento = '40145' THEN 'CDE26RP1'
+WHEN b.id_evento = '39969' THEN 'CDE26RJ1'
+WHEN b.id_evento = '40120' THEN 'CDE26FL1'
+WHEN b.id_evento = '39996' THEN 'CDE26PA1'
+WHEN b.id_evento = '39964' THEN 'CDE26SP1'
+WHEN b.id_evento = '40052' THEN 'CDE26AN1'
+WHEN b.id_evento = '39974' THEN 'CDE26BH1'
+WHEN b.id_evento = '39970' THEN 'CDE26BS1'
+WHEN b.id_evento = '40001' THEN 'CDE26CP1'
+WHEN b.id_evento = '39986' THEN 'CDE26RC1'
+WHEN b.id_evento = '40010' THEN 'CDE26BL1'
+WHEN b.id_evento = '39980' THEN 'CDE26FT1'
+WHEN b.id_evento = '40149' THEN 'CDE26SJ1'
+WHEN b.id_evento = '39994' THEN 'CDE26CT1'
+WHEN b.id_evento = '40157' THEN 'CDE26TS1'
+WHEN b.id_evento = '40015' THEN 'CDE26VT1'
+WHEN b.id_evento = '40144' THEN 'CDE26MN4'
+WHEN b.id_evento = '40142' THEN 'CDE26MN2'
+WHEN b.id_evento = '40143' THEN 'CDE26MN3'
+WHEN b.id_evento = '39990' THEN 'CDE26SV1'
+WHEN b.id_evento = '40075' THEN 'TBT26ST1'
+WHEN b.id_evento = '40108' THEN 'NRU26RF1'
+WHEN b.id_evento = '40073' THEN 'BRV26SP4'
+WHEN b.id_evento = '39999' THEN 'CDE26PA2'
+WHEN b.id_evento = '39971' THEN 'CDE26RJ2'
+WHEN b.id_evento = '40122' THEN 'CDE26FL3'
+WHEN b.id_evento = '40121' THEN 'CDE26FL2'
+WHEN b.id_evento = '40076' THEN 'TBT26ST2'
+WHEN b.id_evento = '40049' THEN 'CDE26PL2'
+WHEN b.id_evento = '40158' THEN 'CDE26TS2'
+WHEN b.id_evento = '40072' THEN 'BRV26SP2'
+WHEN b.id_evento = '40150' THEN 'CDE26SJ2'
+WHEN b.id_evento = '40151' THEN 'CDE26SJ3'
+WHEN b.id_evento = '40146' THEN 'CDE26RP2'
+WHEN b.id_evento = '40053' THEN 'CDE26AN2'
+WHEN b.id_evento = '40003' THEN 'CDE26CP2'
+WHEN b.id_evento = '39987' THEN 'CDE26RC2'
+WHEN b.id_evento = '39965' THEN 'CDE26SP2'
+WHEN b.id_evento = '39975' THEN 'CDE26BS2'
+WHEN b.id_evento = '39982' THEN 'CDE26FT2'
+WHEN b.id_evento = '40107' THEN 'NRU26CW1'
+WHEN b.id_evento = '40074' THEN 'BRV26SJ1'
+WHEN b.id_evento = '39995' THEN 'CDE26CT2'
+WHEN b.id_evento = '40016' THEN 'CDE26VT2'
+WHEN b.id_evento = '39991' THEN 'CDE26SV2'
+WHEN b.id_evento = '40011' THEN 'CDE26BL2'
+WHEN b.id_evento = '40148' THEN 'CDE26RP4'
+WHEN b.id_evento = '40147' THEN 'CDE26RP3'
+WHEN b.id_evento = '39978' THEN 'CDE26BH2'
+WHEN b.id_evento = '40070' THEN 'AQA26RJ2'
+WHEN b.id_evento = '40050' THEN 'CDE26PL3'
+WHEN b.id_evento = '40054' THEN 'CDE26AN3'
+WHEN b.id_evento = '40005' THEN 'CDE26CP3'
+WHEN b.id_evento = '39983' THEN 'CDE26FT3'
+WHEN b.id_evento = '39976' THEN 'CDE26BS3'
+WHEN b.id_evento = '40017' THEN 'CDE26VT3'
+WHEN b.id_evento = '39988' THEN 'CDE26RC3'
+WHEN b.id_evento = '39966' THEN 'CDE26SP3'
+WHEN b.id_evento = '39997' THEN 'CDE26CT3'
+WHEN b.id_evento = '40159' THEN 'CDE26TS3'
+WHEN b.id_evento = '39992' THEN 'CDE26SV3'
+WHEN b.id_evento = '40012' THEN 'CDE26BL3'
+WHEN b.id_evento = '40077' THEN 'TBT26ST3'
+WHEN b.id_evento = '39972' THEN 'CDE26RJ3'
+WHEN b.id_evento = '40000' THEN 'CDE26PA3'
+WHEN b.id_evento = '40113' THEN 'NRU26FT1'
+WHEN b.id_evento = '40109' THEN 'NRU26SV1'
+WHEN b.id_evento = '40081' THEN 'NRU26RJ2'
+WHEN b.id_evento = '40112' THEN 'NRU26BS1'
+WHEN b.id_evento = '40063' THEN 'NRU26SP3'
+WHEN b.id_evento = '40123' THEN 'CDE26FL4'
+WHEN b.id_evento = '40105' THEN 'NRU26PA1'
+WHEN b.id_evento = '39973' THEN 'CDE26RJ4'
+WHEN b.id_evento = '40047' THEN 'CDE26PL4'
+WHEN b.id_evento = '40160' THEN 'CDE26TS4'
+WHEN b.id_evento = '40055' THEN 'CDE26AN4'
+WHEN b.id_evento = '39967' THEN 'CDE26SP4'
+WHEN b.id_evento = '40078' THEN 'TBT26ST4'
+WHEN b.id_evento = '40152' THEN 'CDE26SJ4'
+WHEN b.id_evento = '39998' THEN 'CDE26CT4'
+WHEN b.id_evento = '39985' THEN 'CDE26FT4'
+WHEN b.id_evento = '39993' THEN 'CDE26SV4'
+WHEN b.id_evento = '40014' THEN 'CDE26BL4'
+WHEN b.id_evento = '39984' THEN 'CDE26BH4'
+WHEN b.id_evento = '39977' THEN 'CDE26BS4'
+WHEN b.id_evento = '40002' THEN 'CDE26PA4'
+WHEN b.id_evento = '40004' THEN 'CDE26CP4'
+WHEN b.id_evento = '40018' THEN 'CDE26VT4'
+WHEN b.id_evento = '39989' THEN 'CDE26RC4'	
+	ELSE
+		b.id_campanha_salesforce
+END AS 'SKU', -- EU ADD ESSE CAMPO 
+    b.ds_evento AS "Evento",
+    DATE(b.dt_evento) AS "Data Evento",
+    COUNT(a.id_pedido_evento) AS "Quantidade Total",
+    
+    -- CORTESIA (valor total = 0)
+    SUM(CASE WHEN c.nr_total = 0 THEN 1 ELSE 0 END) AS "Cortesia",
+    
+    -- INSCRIÇÃO LÍQUIDA GERAL
+    SUM(
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ) AS "Inscrição Líquida",
+    
+    -- TICKET MÉDIO GERAL
+    SUM(
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ) / COUNT(a.id_pedido_evento) AS "Ticket Médio Geral",
+    
+    -- TAXA LÍQUIDA
+    SUM(
+        IF(c.fl_local_inscricao = '1',
+            IF(a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0) > a.nr_taxa, 
+                a.nr_taxa, 
+                a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0)),
+            c.nr_taxa / (SELECT COUNT(*) FROM sa_pedido_evento AS pe2 
+                         WHERE pe2.id_pedido = a.id_pedido GROUP BY pe2.id_pedido)
+        )
+    ) AS "Taxa Líquida",
+    
+    -- KIT PRODUTO
+    SUM(
+        IF(
+            (SELECT MIN(pe2.id_pedido_evento) FROM sa_pedido_evento AS pe2 
+             WHERE pe2.id_pedido = c.id_pedido GROUP BY pe2.id_pedido) = a.id_pedido_evento,
+            i.nr_preco * i.nr_quantidade,
+            NULL
+        )
+    ) AS "Kit Produto",
+    
+    -- ============ GRUPOS ============
+    -- Qtd Grupos (AJUSTAR CAMPO DE IDENTIFICAÇÃO)
+    SUM(CASE WHEN f.en_cupom_classificacao  or h.ds_categoria LIKE '%Grup%' THEN 1 ELSE 0 END) AS "Qtd Grupos",
+    
+    -- Inscrição Líquida Grupos
+    SUM(CASE WHEN f.en_cupom_classificacao or h.ds_categoria LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) AS "Inscrição Líquida Grupos",
+    
+    -- Ticket Médio Grupos
+    SUM(CASE WHEN f.en_cupom_classificacao  or   h.ds_categoria LIKE '%Grup%' THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) / NULLIF(SUM(CASE WHEN f.en_cupom_classificacao LIKE '%Grup%' THEN 1 ELSE 0 END), 0) AS "Ticket Médio Grupos",
+    
+    -- ============ SITE ============
+    -- Qtd Site (não é grupo E valor > 0)
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao  or   h.ds_categoria NOT LIKE '%Grup%') 
+        AND c.nr_total > 0 THEN 1 ELSE 0 END) AS "Qtd Site",
+    
+    -- Inscrição Líquida Site
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao or   h.ds_categoria NOT LIKE '%Grup%') THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) AS "Inscrição Líquida Site",
+    
+    -- Ticket Médio Site
+
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao or   h.ds_categoria NOT LIKE '%Grup%') THEN 
+        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+    ELSE 0 END) /   SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR f.en_cupom_classificacao  or   h.ds_categoria NOT LIKE '%Grup%') 
+        AND c.nr_total > 0 THEN 1 ELSE 0 END) AS "Ticket Médio Site"
+
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+LEFT JOIN sa_pedido_produto AS i ON a.id_pedido = i.id_pedido
+WHERE 
+    DATE(b.dt_evento) BETWEEN '2026-01-01' AND '2026-12-31'
+    AND c.id_pedido_status = 2
+GROUP BY b.id_evento, b.ds_evento, b.dt_evento
+ORDER BY b.dt_evento;
