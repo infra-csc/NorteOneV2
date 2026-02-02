@@ -56,6 +56,19 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 ## Recent Changes
 
 ### 2026-02-02
+- **Updated 'Análise de Atletas' cards in Projetos screen:**
+  - Cards now display consolidated data from both Ativo and Magento databases.
+  - "Realizado" shows qtd_vendida_total (consolidated total).
+  - "Site" shows qtd_site_total (site sales).
+  - "Grupo" shows qtd_grupos_total (group sales).
+  - Added new "Cortesia" card showing cortesia_total (courtesy entries).
+- **Implemented auto-refresh for consolidated data:** 5-minute interval with last update timestamp display and proper cleanup on modal close.
+- **Separated data loading flows:**
+  - Consolidated data (Análise de Atletas) auto-refreshes every 5 minutes.
+  - External data (Dados em Tempo Real) requires manual button click for performance optimization.
+- **Removed monetary values from Dados em Tempo Real section:**
+  - Removed "Receita Total" card.
+  - "Top Categorias" now shows only quantities (no monetary values).
 - **Updated SQL queries for Ativo and Magento databases:** Added comprehensive CASE WHEN mappings to convert id_evento (Ativo) and location_id (Magento) to standardized SKU codes. This enables proper relation between both databases using SKU as the matching key.
 - **SKU Mappings Added:**
   - Ativo: 91 id_evento mappings to SKU codes (e.g., 40048 → CDE26PL1, 39969 → CDE26RJ1)
