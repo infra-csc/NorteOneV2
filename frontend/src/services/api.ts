@@ -611,9 +611,26 @@ export const marketingService = {
     status: string; 
     evento: MarketingEvent; 
     dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number }[];
+    commercialActions?: { id: string; type: string; description: string; date: string; impact?: string }[];
     ultima_atualizacao: string 
   }> => {
     const response = await api.get(`/marketing/eventos/${id}`);
+    return response.data;
+  },
+  getAcoesComerciais: async (projetoId: string): Promise<{ status: string; acoes: any[] }> => {
+    const response = await api.get(`/marketing/acoes-comerciais/${projetoId}`);
+    return response.data;
+  },
+  createAcaoComercial: async (data: { projeto_id: number; tipo: string; descricao: string; data_acao: string }): Promise<any> => {
+    const response = await api.post('/marketing/acoes-comerciais', data);
+    return response.data;
+  },
+  updateAcaoComercial: async (id: number, data: { tipo?: string; descricao?: string; data_acao?: string }): Promise<any> => {
+    const response = await api.put(`/marketing/acoes-comerciais/${id}`, data);
+    return response.data;
+  },
+  deleteAcaoComercial: async (id: number): Promise<any> => {
+    const response = await api.delete(`/marketing/acoes-comerciais/${id}`);
     return response.data;
   }
 };

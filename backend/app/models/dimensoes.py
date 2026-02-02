@@ -81,3 +81,26 @@ class DimCategoriaAtleta(Base):
     custo_kit_padrao = Column(Numeric(10, 2))
     ativo = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
+
+class AcaoComercial(Base):
+    __tablename__ = "acoes_comerciais"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=False)
+    tipo = Column(String(50), nullable=False)
+    descricao = Column(Text, nullable=False)
+    data_acao = Column(Date, nullable=False)
+    impacto_percentual = Column(Numeric(5, 2))
+    vendas_antes = Column(Integer)
+    vendas_depois = Column(Integer)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    projeto = relationship("DimProjeto", backref="acoes_comerciais")
+    
+    __table_args__ = (
+        CheckConstraint(
+            "tipo IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO')",
+            name="check_tipo_acao"
+        ),
+    )

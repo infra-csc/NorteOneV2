@@ -14,7 +14,10 @@ import {
   Clock,
   CheckCircle,
   Info,
-  Loader2
+  Loader2,
+  Plus,
+  X,
+  Trash2
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -56,6 +59,13 @@ const EventDetail: React.FC = () => {
   const [event, setEvent] = useState<ExtendedEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [actionForm, setActionForm] = useState({
+    tipo: 'PROMOCAO',
+    descricao: '',
+    data_acao: new Date().toISOString().split('T')[0]
+  });
+  const [savingAction, setSavingAction] = useState(false);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -68,7 +78,7 @@ const EventDetail: React.FC = () => {
       try {
         setLoading(true);
         const response = await marketingService.getEventoById(id);
-        const eventWithDailySales = {
+        const eventWithData = {
           ...response.evento,
           dailySales: response.dailySales?.map(d => ({
             date: d.date,
@@ -76,9 +86,16 @@ const EventDetail: React.FC = () => {
             expected: d.expected,
             cumulativeSales: d.cumulativeSales,
             cumulativeExpected: d.cumulativeExpected
+          })),
+          commercialActions: response.commercialActions?.map(a => ({
+            id: a.id,
+            type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
+            description: a.description,
+            date: a.date,
+            impact: a.impact
           }))
         };
-        setEvent(eventWithDailySales);
+        setEvent(eventWithData);
         setError(null);
       } catch (err) {
         console.error('Erro ao carregar evento:', err);
@@ -128,6 +145,87 @@ const EventDetail: React.FC = () => {
   const formatNumber = (value: number) => {
     return new Intl.NumberFormat('pt-BR').format(value);
   };
+
+  const handleSaveAction = async () => {
+    if (!id || !actionForm.descricao.trim()) return;
+    
+    setSavingAction(true);
+    try {
+      await marketingService.createAcaoComercial({
+        projeto_id: parseInt(id),
+        tipo: actionForm.tipo,
+        descricao: actionForm.descricao,
+        data_acao: actionForm.data_acao
+      });
+      
+      const response = await marketingService.getEventoById(id);
+      const eventWithData = {
+        ...response.evento,
+        dailySales: response.dailySales?.map(d => ({
+          date: d.date,
+          sales: d.sales,
+          expected: d.expected,
+          cumulativeSales: d.cumulativeSales,
+          cumulativeExpected: d.cumulativeExpected
+        })),
+        commercialActions: response.commercialActions?.map(a => ({
+          id: a.id,
+          type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
+          description: a.description,
+          date: a.date,
+          impact: a.impact
+        }))
+      };
+      setEvent(eventWithData);
+      
+      setShowActionModal(false);
+      setActionForm({
+        tipo: 'PROMOCAO',
+        descricao: '',
+        data_acao: new Date().toISOString().split('T')[0]
+      });
+    } catch (err) {
+      console.error('Erro ao salvar ação:', err);
+    } finally {
+      setSavingAction(false);
+    }
+  };
+
+  const handleDeleteAction = async (actionId: string) => {
+    if (!id) return;
+    try {
+      await marketingService.deleteAcaoComercial(parseInt(actionId));
+      const response = await marketingService.getEventoById(id);
+      const eventWithData = {
+        ...response.evento,
+        dailySales: response.dailySales?.map(d => ({
+          date: d.date,
+          sales: d.sales,
+          expected: d.expected,
+          cumulativeSales: d.cumulativeSales,
+          cumulativeExpected: d.cumulativeExpected
+        })),
+        commercialActions: response.commercialActions?.map(a => ({
+          id: a.id,
+          type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
+          description: a.description,
+          date: a.date,
+          impact: a.impact
+        }))
+      };
+      setEvent(eventWithData);
+    } catch (err) {
+      console.error('Erro ao excluir ação:', err);
+    }
+  };
+
+  const tipoOptions = [
+    { value: 'AUMENTO_PRECO', label: 'Aumento de Preço' },
+    { value: 'REDUCAO_PRECO', label: 'Redução de Preço' },
+    { value: 'PROMOCAO', label: 'Promoção/Desconto' },
+    { value: 'CAMPANHA', label: 'Campanha de Marketing' },
+    { value: 'COMUNICACAO', label: 'Comunicação/Email' }
+  ];
 
   const cumulativeData = (event.dailySales || []).reduce((acc, day, index) => {
     const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
@@ -502,9 +600,18 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-          Timeline de Ações Comerciais
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white">
+            Timeline de Ações Comerciais
+          </h3>
+          <button
+            onClick={() => setShowActionModal(true)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar Ação
+          </button>
+        </div>
         {event.commercialActions && event.commercialActions.length > 0 ? (
           <div className="space-y-4">
             {event.commercialActions.map((action: CommercialAction, index: number) => (
@@ -532,9 +639,18 @@ const EventDetail: React.FC = () => {
                     <p className="font-medium text-gray-900 dark:text-white">
                       {action.description}
                     </p>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      {new Date(action.date).toLocaleDateString('pt-BR')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        {new Date(action.date).toLocaleDateString('pt-BR')}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteAction(action.id)}
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                        title="Excluir ação"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                   {action.impact && (
                     <p className="text-sm text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
@@ -548,10 +664,93 @@ const EventDetail: React.FC = () => {
           </div>
         ) : (
           <p className="text-gray-500 dark:text-gray-400 text-center py-4">
-            Nenhuma ação comercial registrada.
+            Nenhuma ação comercial registrada. Clique em "Adicionar Ação" para registrar uma ação realizada.
           </p>
         )}
       </div>
+
+      {showActionModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Adicionar Ação Comercial
+              </h3>
+              <button
+                onClick={() => setShowActionModal(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Tipo de Ação
+                </label>
+                <select
+                  value={actionForm.tipo}
+                  onChange={(e) => setActionForm({ ...actionForm, tipo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                >
+                  {tipoOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Data da Ação
+                </label>
+                <input
+                  type="date"
+                  value={actionForm.data_acao}
+                  onChange={(e) => setActionForm({ ...actionForm, data_acao: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Descrição
+                </label>
+                <textarea
+                  value={actionForm.descricao}
+                  onChange={(e) => setActionForm({ ...actionForm, descricao: e.target.value })}
+                  placeholder="Descreva a ação realizada..."
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+            </div>
+            
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowActionModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveAction}
+                disabled={savingAction || !actionForm.descricao.trim()}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {savingAction ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Salvando...
+                  </>
+                ) : (
+                  'Salvar Ação'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

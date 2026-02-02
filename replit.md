@@ -84,3 +84,16 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - Implemented 5-minute auto-refresh with timestamp display and manual refresh button.
   - Added loading states and error handling.
   - Uses DimProjeto.capacidade_maxima as sales goal and DimProjeto.evento for event names.
+- **Event Detail Charts:**
+  - Added daily sales data generation (generate_daily_sales_data function) for event detail charts.
+  - Charts show "Curva de Vendas Acumuladas vs Esperado" and "Vendas Diárias (Últimos 30 dias)".
+  - Event detail API now returns dailySales with cumulative and expected values.
+- **Commercial Actions (Timeline de Ações Comerciais):**
+  - Created `acoes_comerciais` table in PostgreSQL with fields: id, projeto_id, tipo, descricao, data_acao, impacto_percentual, vendas_antes, vendas_depois.
+  - Added AcaoComercial model in dimensoes.py with relationship to DimProjeto.
+  - Created CRUD endpoints: GET/POST/PUT/DELETE `/api/marketing/acoes-comerciais`.
+  - Action types: AUMENTO_PRECO, REDUCAO_PRECO, PROMOCAO, CAMPANHA, COMUNICACAO.
+  - Event detail API now returns commercialActions for the timeline display.
+  - Frontend modal form to add new commercial actions (type, date, description).
+  - Delete functionality with trash icon on each timeline entry.
+  - Timeline shows action icon based on type, date, and impact percentage if available.

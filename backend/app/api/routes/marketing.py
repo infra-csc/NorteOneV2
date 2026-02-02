@@ -483,9 +483,186 @@ async def get_marketing_event_by_id(
         days_history=60
     )
     
+    from ...models.dimensoes import AcaoComercial
+    acoes = db.query(AcaoComercial).filter(
+        AcaoComercial.projeto_id == int(evento_id)
+    ).order_by(AcaoComercial.data_acao.desc()).all()
+    
+    commercial_actions = []
+    for a in acoes:
+        tipo_map = {
+            'AUMENTO_PRECO': 'price_increase',
+            'REDUCAO_PRECO': 'price_decrease',
+            'PROMOCAO': 'promotion',
+            'CAMPANHA': 'campaign',
+            'COMUNICACAO': 'communication'
+        }
+        commercial_actions.append({
+            "id": str(a.id),
+            "type": tipo_map.get(a.tipo, 'communication'),
+            "description": a.descricao,
+            "date": a.data_acao.isoformat() if a.data_acao else None,
+            "impact": f"+{a.impacto_percentual}%" if a.impacto_percentual and a.impacto_percentual > 0 else f"{a.impacto_percentual}%" if a.impacto_percentual else None
+        })
+    
     return {
         "status": "success",
         "evento": evento,
         "dailySales": daily_sales,
+        "commercialActions": commercial_actions,
         "ultima_atualizacao": datetime.now().isoformat()
+    }
+
+
+class AcaoComercialCreate(BaseModel):
+    projeto_id: int
+    tipo: str
+    descricao: str
+    data_acao: date
+
+class AcaoComercialUpdate(BaseModel):
+    tipo: Optional[str] = None
+    descricao: Optional[str] = None
+    data_acao: Optional[date] = None
+
+class AcaoComercialResponse(BaseModel):
+    id: int
+    projeto_id: int
+    tipo: str
+    descricao: str
+    data_acao: str
+    impacto_percentual: Optional[float] = None
+    vendas_antes: Optional[int] = None
+    vendas_depois: Optional[int] = None
+    created_at: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/acoes-comerciais/{projeto_id}")
+async def get_acoes_comerciais(
+    projeto_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Lista todas as ações comerciais de um projeto/evento"""
+    from ...models.dimensoes import AcaoComercial
+    
+    acoes = db.query(AcaoComercial).filter(
+        AcaoComercial.projeto_id == projeto_id
+    ).order_by(AcaoComercial.data_acao.desc()).all()
+    
+    return {
+        "status": "success",
+        "acoes": [
+            {
+                "id": a.id,
+                "projeto_id": a.projeto_id,
+                "tipo": a.tipo,
+                "descricao": a.descricao,
+                "data_acao": a.data_acao.isoformat() if a.data_acao else None,
+                "impacto_percentual": float(a.impacto_percentual) if a.impacto_percentual else None,
+                "vendas_antes": a.vendas_antes,
+                "vendas_depois": a.vendas_depois,
+                "created_at": a.created_at.isoformat() if a.created_at else None
+            }
+            for a in acoes
+        ]
+    }
+
+
+@router.post("/acoes-comerciais")
+async def create_acao_comercial(
+    acao: AcaoComercialCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Cria uma nova ação comercial"""
+    from ...models.dimensoes import AcaoComercial
+    
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == acao.projeto_id).first()
+    if not projeto:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    
+    nova_acao = AcaoComercial(
+        projeto_id=acao.projeto_id,
+        tipo=acao.tipo,
+        descricao=acao.descricao,
+        data_acao=acao.data_acao
+    )
+    
+    db.add(nova_acao)
+    db.commit()
+    db.refresh(nova_acao)
+    
+    return {
+        "status": "success",
+        "message": "Ação comercial criada com sucesso",
+        "acao": {
+            "id": nova_acao.id,
+            "projeto_id": nova_acao.projeto_id,
+            "tipo": nova_acao.tipo,
+            "descricao": nova_acao.descricao,
+            "data_acao": nova_acao.data_acao.isoformat() if nova_acao.data_acao else None
+        }
+    }
+
+
+@router.put("/acoes-comerciais/{acao_id}")
+async def update_acao_comercial(
+    acao_id: int,
+    acao_update: AcaoComercialUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Atualiza uma ação comercial existente"""
+    from ...models.dimensoes import AcaoComercial
+    
+    acao = db.query(AcaoComercial).filter(AcaoComercial.id == acao_id).first()
+    if not acao:
+        raise HTTPException(status_code=404, detail="Ação comercial não encontrada")
+    
+    if acao_update.tipo is not None:
+        acao.tipo = acao_update.tipo
+    if acao_update.descricao is not None:
+        acao.descricao = acao_update.descricao
+    if acao_update.data_acao is not None:
+        acao.data_acao = acao_update.data_acao
+    
+    db.commit()
+    db.refresh(acao)
+    
+    return {
+        "status": "success",
+        "message": "Ação comercial atualizada com sucesso",
+        "acao": {
+            "id": acao.id,
+            "projeto_id": acao.projeto_id,
+            "tipo": acao.tipo,
+            "descricao": acao.descricao,
+            "data_acao": acao.data_acao.isoformat() if acao.data_acao else None
+        }
+    }
+
+
+@router.delete("/acoes-comerciais/{acao_id}")
+async def delete_acao_comercial(
+    acao_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Remove uma ação comercial"""
+    from ...models.dimensoes import AcaoComercial
+    
+    acao = db.query(AcaoComercial).filter(AcaoComercial.id == acao_id).first()
+    if not acao:
+        raise HTTPException(status_code=404, detail="Ação comercial não encontrada")
+    
+    db.delete(acao)
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": "Ação comercial removida com sucesso"
     }
