@@ -61,6 +61,110 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         return {}
 
 
+def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date) -> dict:
+    """
+    Busca vendas diárias do Magento para um evento específico (por location_id) dentro de um período.
+    Retorna um dicionário {data: quantidade_vendida}
+    Usa os mesmos filtros da query build_query_magento para consistência.
+    """
+    if db_module.engine_magento is None:
+        return {}
+    
+    try:
+        query = f"""
+        SELECT 
+            DATE(so.created_at) AS data_venda,
+            COUNT(soi.item_id) AS quantidade
+        FROM sales_order AS so
+        LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
+        LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
+        WHERE 
+            wl.location_id = '{location_id}'
+            AND so.status IN ('Processing', 'Complete', 'approved')
+            AND soi.product_type = 'Bundle'
+            AND DATE(so.created_at) >= '{start_date.isoformat()}'
+            AND DATE(so.created_at) <= '{end_date.isoformat()}'
+            AND so.increment_id NOT LIKE '%-1%'
+            AND so.increment_id NOT LIKE '%-2%'
+            AND so.increment_id NOT LIKE '%-3%'
+            AND so.increment_id NOT LIKE '%-4%'
+            AND so.increment_id NOT LIKE '%-5%'
+            AND so.increment_id NOT LIKE '%-6%'
+            AND so.increment_id NOT LIKE '%-7%'
+            AND so.increment_id NOT LIKE '%-8%'
+            AND so.increment_id NOT LIKE '%-9%'
+            AND so.increment_id NOT LIKE '%-10%'
+            AND so.increment_id NOT LIKE '%-11%'
+            AND so.increment_id NOT LIKE '%-12%'
+            AND so.increment_id NOT LIKE '%-13%'
+            AND so.increment_id NOT LIKE '%-14%'
+            AND so.increment_id NOT LIKE '%-15%'
+            AND so.increment_id NOT LIKE '%-16%'
+            AND so.increment_id NOT LIKE '%-17%'
+        GROUP BY DATE(so.created_at)
+        ORDER BY data_venda
+        """
+        
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            
+        daily_sales = {}
+        for row in rows:
+            data_venda = row[0]
+            quantidade = row[1]
+            if isinstance(data_venda, str):
+                data_venda = datetime.strptime(data_venda, '%Y-%m-%d').date()
+            daily_sales[data_venda] = quantidade
+            
+        return daily_sales
+    except Exception as e:
+        logger.error(f"Erro ao buscar vendas diárias do Magento: {e}")
+        return {}
+
+
+def get_location_id_from_sku(sku: str) -> Optional[str]:
+    """
+    Obtém o location_id do Magento a partir do SKU.
+    Mapeamento completo baseado na query build_query_magento em inscricoes_consolidado.py.
+    """
+    sku_to_location_id = {
+        'CPLIE26SP1': '587', 'BLU26RJ1': '612', 'CDE26PL4': '539',
+        'CDE26PL1': '536', 'CDE26TS4': '560', 'CDE26TS3': '559',
+        'CDE26TS2': '558', 'CDE26PL2': '537', 'CDE26TS1': '557',
+        'NRU26PA1': '510', 'CDE26RJ4': '438', 'CDE26RJ3': '437',
+        'CDE26RJ2': '436', 'CDE26SV4': '462', 'CDE26SV3': '464',
+        'CDE26SV2': '463', 'CDE26CP4': '469', 'CDE26CP3': '470',
+        'CDE26CP2': '471', 'CDE26SP2': '441', 'CDE26SP4': '443',
+        'CDE26FT4': '455', 'CDE26FT3': '454', 'CDE26FT2': '453',
+        'CDE26CT2': '466', 'NRU26FT1': '518', 'NRU26VT1': '513',
+        'CDE26BS3': '446', 'CDE26BS2': '444', 'CDE26BH2': '449',
+        'CDE26PA4': '473', 'CDE26PA3': '474', 'CDE26PA2': '475',
+        'CDE26CT4': '468', 'CDE26CT3': '467', 'CDE26BS4': '447',
+        'GPW26SP11': '544', 'CDE26SP3': '442', 'CDE26BH4': '451',
+        'NRU26SV1': '519', 'NRU26BS1': '516', 'NRU26RF1': '515',
+        'NRU26CP1': '521', 'BRV26SP1': '491', 'NRU26CW1': '512',
+        'NRU26SP3': '481', 'BRV26SP4': '492',
+        'CDE26RJ1': '435', 'CDE26SP1': '440', 'CDE26BS1': '443',
+        'CDE26BH1': '448', 'CDE26FT1': '452', 'CDE26SV1': '461',
+        'CDE26CT1': '465', 'CDE26CP1': '472', 'CDE26PA1': '476',
+        'CDE26VT1': '477', 'CDE26VT2': '478', 'CDE26VT3': '479',
+        'CDE26VT4': '480', 'CDE26AN1': '482', 'CDE26AN2': '483',
+        'CDE26AN3': '484', 'CDE26AN4': '485', 'CDE26RC1': '486',
+        'CDE26RC2': '487', 'CDE26RC3': '488', 'CDE26RC4': '489',
+        'CDE26BL1': '493', 'CDE26BL2': '494', 'CDE26BL3': '495',
+        'CDE26BL4': '496', 'CDE26FL1': '497', 'CDE26FL2': '498',
+        'CDE26FL3': '499', 'CDE26FL4': '500', 'CDE26RP1': '501',
+        'CDE26RP2': '502', 'CDE26RP3': '503', 'CDE26RP4': '504',
+        'CDE26SJ1': '505', 'CDE26SJ2': '506', 'CDE26SJ3': '507',
+        'CDE26SJ4': '508', 'NRU26RJ1': '509', 'NRU26RJ2': '511',
+        'TBT26ST1': '520', 'TBT26ST2': '522', 'TBT26ST3': '523',
+        'TBT26ST4': '524', 'BRV26SP2': '525', 'BRV26SJ1': '526',
+    }
+    
+    return sku_to_location_id.get(sku.upper().strip())
+
+
 def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
     """
     Obtém o id_evento do Ativo a partir do projeto (via codigo/SKU).
@@ -102,14 +206,21 @@ def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
 
 def calculate_action_impact(db: Session, acao) -> dict:
     """
-    Calcula o impacto de uma ação comercial comparando vendas
+    Calcula o impacto de uma ação comercial comparando vendas consolidadas (Ativo + Magento)
     7 dias antes vs 7 dias depois da ação.
     """
     if not acao.data_acao:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
     
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == acao.projeto_id).first()
+    if not projeto or not projeto.codigo:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+    
+    sku = projeto.codigo.upper().strip()
     id_evento = get_id_evento_from_projeto(db, acao.projeto_id)
-    if not id_evento:
+    location_id = get_location_id_from_sku(sku)
+    
+    if not id_evento and not location_id:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
     
     data_acao = acao.data_acao
@@ -127,11 +238,19 @@ def calculate_action_impact(db: Session, acao) -> dict:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None, 
                 "status": "aguardando_dados"}
     
-    sales_before = fetch_daily_sales_ativo(id_evento, start_before, end_before)
-    sales_after = fetch_daily_sales_ativo(id_evento, start_after, end_after)
+    sales_before_ativo = fetch_daily_sales_ativo(id_evento, start_before, end_before) if id_evento else {}
+    sales_after_ativo = fetch_daily_sales_ativo(id_evento, start_after, end_after) if id_evento else {}
     
-    vendas_antes = sum(sales_before.values()) if sales_before else 0
-    vendas_depois = sum(sales_after.values()) if sales_after else 0
+    sales_before_magento = fetch_daily_sales_magento(location_id, start_before, end_before) if location_id else {}
+    sales_after_magento = fetch_daily_sales_magento(location_id, start_after, end_after) if location_id else {}
+    
+    vendas_antes_ativo = sum(sales_before_ativo.values()) if sales_before_ativo else 0
+    vendas_depois_ativo = sum(sales_after_ativo.values()) if sales_after_ativo else 0
+    vendas_antes_magento = sum(sales_before_magento.values()) if sales_before_magento else 0
+    vendas_depois_magento = sum(sales_after_magento.values()) if sales_after_magento else 0
+    
+    vendas_antes = vendas_antes_ativo + vendas_antes_magento
+    vendas_depois = vendas_depois_ativo + vendas_depois_magento
     
     if vendas_antes > 0:
         impacto_percentual = ((vendas_depois - vendas_antes) / vendas_antes) * 100
