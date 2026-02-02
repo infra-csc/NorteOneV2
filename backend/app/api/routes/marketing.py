@@ -63,13 +63,13 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
 
 def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
     """
-    Obtém o id_evento do Ativo a partir do projeto (via SKU).
+    Obtém o id_evento do Ativo a partir do projeto (via codigo/SKU).
     """
     projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
-    if not projeto or not projeto.sku:
+    if not projeto or not projeto.codigo:
         return None
     
-    sku = projeto.sku.upper().strip()
+    sku = projeto.codigo.upper().strip()
     
     sku_to_id_evento = {
         'CDE26PL1': '40048', 'CDE26RP1': '40145', 'CDE26RJ1': '39969',
