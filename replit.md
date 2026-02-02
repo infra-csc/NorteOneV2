@@ -75,3 +75,12 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - Magento: 48 location_id mappings to SKU codes (e.g., 587 → CPLIE26SP1, 612 → BLU26RJ1)
 - **Data consolidation logic updated:** Changed from event name-based matching to SKU-based matching for more accurate aggregation across databases.
 - **Added JOINs for Magento SKU fallback:** Included catalog_product_entity_varchar and catalog_product_entity tables to provide SKU fallback when location_id is not mapped.
+- **Marketing ISC Dashboard with Real Data:**
+  - Created `/api/marketing/eventos` endpoint that fetches events from DimProjeto with consolidated sales data from Ativo/Magento.
+  - Created `/api/marketing/resumo` endpoint for summary counts by ISC zone (green/yellow/red).
+  - Implemented ISC calculation logic: IA 7/30 (acceleration index), Curva D-% (sales progress vs goal), Rolling 14d average, D-minus (days until event).
+  - ISC zones: Green (>1.10 accelerating), Yellow (0.90-1.10 stable), Red (<0.90 decelerating).
+  - Updated MarketingDashboard.tsx to use real API data instead of mock data.
+  - Implemented 5-minute auto-refresh with timestamp display and manual refresh button.
+  - Added loading states and error handling.
+  - Uses DimProjeto.capacidade_maxima as sales goal and DimProjeto.evento for event names.
