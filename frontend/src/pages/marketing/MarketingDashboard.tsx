@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, 
@@ -10,19 +10,17 @@ import {
   AlertTriangle,
   Target,
   ChevronRight,
-  Info
+  Info,
+  RefreshCw,
+  Loader2,
+  Clock
 } from 'lucide-react';
-import { 
-  mockEvents, 
-  getDashboardSummary, 
-  getFilteredEvents,
-  getCategories 
-} from '../../data/mockMarketingData';
 import { 
   getISCColor, 
   getISCEmoji, 
   isInCriticalWindow 
 } from '../../types/marketingPerformance';
+import { marketingService, MarketingEvent, MarketingDashboardSummary } from '../../services/api';
 
 const MarketingDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -30,16 +28,70 @@ const MarketingDashboard: React.FC = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('active');
   
-  const summary = getDashboardSummary();
-  const categories = getCategories();
+  const [eventos, setEventos] = useState<MarketingEvent[]>([]);
+  const [summary, setSummary] = useState<MarketingDashboardSummary>({
+    totalActiveEvents: 0,
+    eventsGreen: 0,
+    eventsYellow: 0,
+    eventsRed: 0
+  });
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   
-  const filteredEvents = useMemo(() => {
-    return getFilteredEvents({
-      category: categoryFilter,
-      status: statusFilter,
-      search
-    });
-  }, [categoryFilter, statusFilter, search]);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+
+  const fetchData = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+      
+      const response = await marketingService.getEventos({
+        ano: new Date().getFullYear(),
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        categoria: categoryFilter === 'all' ? undefined : categoryFilter,
+        busca: search || undefined
+      });
+      
+      setEventos(response.eventos);
+      setSummary(response.resumo);
+      setCategories(response.categorias);
+      setLastUpdate(new Date(response.ultima_atualizacao));
+    } catch (err) {
+      console.error('Erro ao carregar dados:', err);
+      setError('Erro ao carregar dados. Tente novamente.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [statusFilter, categoryFilter, search]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    autoRefreshRef.current = setInterval(() => {
+      fetchData(true);
+    }, AUTO_REFRESH_INTERVAL);
+
+    return () => {
+      if (autoRefreshRef.current) {
+        clearInterval(autoRefreshRef.current);
+      }
+    };
+  }, [fetchData]);
+
+  const handleManualRefresh = () => {
+    fetchData(true);
+  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -50,6 +102,11 @@ const MarketingDashboard: React.FC = () => {
 
   const formatNumber = (value: number) => {
     return new Intl.NumberFormat('pt-BR').format(value);
+  };
+
+  const formatLastUpdate = (date: Date | null) => {
+    if (!date) return '';
+    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   };
 
   const getActionChipStyle = (isc: number, dMinus: number) => {
@@ -72,6 +129,17 @@ const MarketingDashboard: React.FC = () => {
     return 'Ação Promocional';
   };
 
+  if (loading) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+          <p className="text-gray-500 dark:text-gray-400">Carregando dados de marketing...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -83,7 +151,30 @@ const MarketingDashboard: React.FC = () => {
             Acompanhamento de vendas e ISC dos eventos
           </p>
         </div>
+        
+        <div className="flex items-center gap-3">
+          {lastUpdate && (
+            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <Clock className="w-4 h-4" />
+              <span>Atualizado às {formatLastUpdate(lastUpdate)}</span>
+            </div>
+          )}
+          <button
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">{refreshing ? 'Atualizando...' : 'Atualizar'}</span>
+          </button>
+        </div>
       </div>
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+          <p className="text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -169,7 +260,7 @@ const MarketingDashboard: React.FC = () => {
                   className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                 >
                   <option value="all">Todas Categorias</option>
-                  {categories.filter(c => c !== 'all').map(cat => (
+                  {categories.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -248,14 +339,11 @@ const MarketingDashboard: React.FC = () => {
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Ação Sugerida
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Última Ação
-                </th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {filteredEvents.map((event) => (
+              {eventos.map((event) => (
                 <tr 
                   key={event.id}
                   onClick={() => navigate(`/marketing/evento/${event.id}`)}
@@ -284,7 +372,7 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-4 py-4 text-sm text-gray-900 dark:text-white">
-                    {new Date(event.date).toLocaleDateString('pt-BR')}
+                    {event.date ? new Date(event.date).toLocaleDateString('pt-BR') : '-'}
                   </td>
                   <td className="px-4 py-4 text-center">
                     <span className={`font-bold ${
@@ -332,9 +420,6 @@ const MarketingDashboard: React.FC = () => {
                       {getActionText(event.isc, event.dMinus)}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-center text-sm text-gray-500 dark:text-gray-400 max-w-[150px] truncate">
-                    {event.lastAction?.description || '-'}
-                  </td>
                   <td className="px-4 py-4">
                     <ChevronRight className="w-5 h-5 text-gray-400" />
                   </td>
@@ -344,7 +429,7 @@ const MarketingDashboard: React.FC = () => {
           </table>
         </div>
 
-        {filteredEvents.length === 0 && (
+        {eventos.length === 0 && !loading && (
           <div className="p-8 text-center">
             <p className="text-gray-500 dark:text-gray-400">
               Nenhum evento encontrado com os filtros selecionados.

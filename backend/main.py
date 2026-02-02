@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
-from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado
+from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,6 +42,7 @@ app.include_router(cadastros.router, prefix="/api")
 app.include_router(atletas_externos.router, prefix="/api")
 app.include_router(magento.router, prefix="/api/magento", tags=["Magento"])
 app.include_router(inscricoes_consolidado.router, prefix="/api/inscricoes", tags=["Inscricoes Consolidadas"])
+app.include_router(marketing.router, prefix="/api", tags=["Marketing ISC"])
 
 @app.get("/api/health")
 async def health_check():

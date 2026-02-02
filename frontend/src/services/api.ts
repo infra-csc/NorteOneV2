@@ -546,4 +546,67 @@ export const inscricoesConsolidadasService = {
   }
 };
 
+export interface MarketingISCComponents {
+  ia730: number;
+  curvaDPercent: number;
+  rolling14d: number;
+}
+
+export interface MarketingEvent {
+  id: string;
+  name: string;
+  date: string;
+  location: string;
+  category: string;
+  totalCapacity: number;
+  currentSales: number;
+  salesGoal: number;
+  averageTicket: number;
+  dMinus: number;
+  isc: number;
+  iscComponents: MarketingISCComponents;
+  iscStatus: 'accelerating' | 'stable' | 'decelerating';
+  suggestedAction: string;
+  isActive: boolean;
+  sku?: string;
+}
+
+export interface MarketingDashboardSummary {
+  totalActiveEvents: number;
+  eventsGreen: number;
+  eventsYellow: number;
+  eventsRed: number;
+}
+
+export interface MarketingEventsResponse {
+  status: string;
+  eventos: MarketingEvent[];
+  resumo: MarketingDashboardSummary;
+  categorias: string[];
+  ultima_atualizacao: string;
+}
+
+export const marketingService = {
+  getEventos: async (params?: {
+    ano?: number;
+    status?: string;
+    categoria?: string;
+    busca?: string;
+  }): Promise<MarketingEventsResponse> => {
+    const queryParams = new URLSearchParams();
+    if (params?.ano) queryParams.append('ano', params.ano.toString());
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.categoria) queryParams.append('categoria', params.categoria);
+    if (params?.busca) queryParams.append('busca', params.busca);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const response = await api.get(`/marketing/eventos${queryString}`);
+    return response.data;
+  },
+  getResumo: async (ano?: number): Promise<{ status: string; resumo: MarketingDashboardSummary; ultima_atualizacao: string }> => {
+    const queryString = ano ? `?ano=${ano}` : '';
+    const response = await api.get(`/marketing/resumo${queryString}`);
+    return response.data;
+  }
+};
+
 export default api;
