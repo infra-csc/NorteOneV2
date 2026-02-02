@@ -606,6 +606,10 @@ export const marketingService = {
     const queryString = ano ? `?ano=${ano}` : '';
     const response = await api.get(`/marketing/resumo${queryString}`);
     return response.data;
+  },
+  getEventoById: async (id: string): Promise<{ status: string; evento: MarketingEvent; ultima_atualizacao: string }> => {
+    const response = await api.get(`/marketing/eventos/${id}`);
+    return response.data;
   }
 };
 

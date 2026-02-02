@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -13,7 +13,8 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle,
-  Info
+  Info,
+  Loader2
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -28,7 +29,7 @@ import {
   ResponsiveContainer,
   ReferenceLine
 } from 'recharts';
-import { getEventById } from '../../data/mockMarketingData';
+import { marketingService, MarketingEvent } from '../../services/api';
 import { 
   getISCColor, 
   getISCEmoji, 
@@ -36,17 +37,57 @@ import {
   getISCStatus
 } from '../../types/marketingPerformance';
 
+interface ExtendedEvent extends MarketingEvent {
+  dailySales?: { date: string; sales: number; expected: number }[];
+}
+
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [event, setEvent] = useState<ExtendedEvent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchEvent = async () => {
+      if (!id) {
+        setError('ID do evento não fornecido');
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        const response = await marketingService.getEventoById(id);
+        setEvent(response.evento);
+        setError(null);
+      } catch (err) {
+        console.error('Erro ao carregar evento:', err);
+        setError('Erro ao carregar dados do evento');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchEvent();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 flex flex-col items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <p className="mt-4 text-gray-500 dark:text-gray-400">Carregando dados do evento...</p>
+        </div>
+      </div>
+    );
+  }
   
-  const event = getEventById(id || '');
-  
-  if (!event) {
+  if (error || !event) {
     return (
       <div className="p-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center">
-          <p className="text-gray-500 dark:text-gray-400">Evento não encontrado.</p>
+          <p className="text-gray-500 dark:text-gray-400">{error || 'Evento não encontrado.'}</p>
           <button
             onClick={() => navigate('/marketing')}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -69,7 +110,7 @@ const EventDetail: React.FC = () => {
     return new Intl.NumberFormat('pt-BR').format(value);
   };
 
-  const cumulativeData = event.dailySales.reduce((acc, day, index) => {
+  const cumulativeData = (event.dailySales || []).reduce((acc, day, index) => {
     const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
     const prevExpected = index > 0 ? acc[index - 1].cumulativeExpected : 0;
     
@@ -83,7 +124,7 @@ const EventDetail: React.FC = () => {
     return acc;
   }, [] as { date: string; cumulative: number; cumulativeExpected: number; daily: number }[]);
 
-  const last30Days = event.dailySales.slice(-30);
+  const last30Days = (event.dailySales || []).slice(-30);
 
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
