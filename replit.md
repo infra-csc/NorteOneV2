@@ -24,7 +24,7 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 - **Charting:** Recharts for data visualization in dashboards.
 - **SSH Tunnel:** Paramiko for secure connections to external MySQL databases, including support for various SSH key types and automatic tunnel lifecycle management.
 - **Virtual Assistant (Nori):** Integrated AI-powered virtual assistant utilizing OpenAI GPT-4o-mini for natural language processing, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese. It provides event scenario analysis, conversational chat, and task scheduling.
-- **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) by normalizing SKUs, providing a unified view of event registrations.
+- **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) using SKU as the primary key for matching events across databases. SKU mappings are defined via CASE statements that convert id_evento (Ativo) and location_id (Magento) to standardized SKU codes (e.g., CDE26PL1, NRU26FT1), enabling accurate data aggregation across both platforms.
 
 ### Feature Specifications
 - **Authentication:** Login with email/password, JWT sessions, and role-based access.
@@ -52,3 +52,13 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 - **Web Speech API:** Browser-based API for speech-to-text functionality in Nori.
 - **SpeechSynthesis API:** Browser-based API for text-to-speech functionality in Nori.
 - **Paramiko:** Python library for establishing SSH Tunnels to external databases.
+
+## Recent Changes
+
+### 2026-02-02
+- **Updated SQL queries for Ativo and Magento databases:** Added comprehensive CASE WHEN mappings to convert id_evento (Ativo) and location_id (Magento) to standardized SKU codes. This enables proper relation between both databases using SKU as the matching key.
+- **SKU Mappings Added:**
+  - Ativo: 91 id_evento mappings to SKU codes (e.g., 40048 → CDE26PL1, 39969 → CDE26RJ1)
+  - Magento: 48 location_id mappings to SKU codes (e.g., 587 → CPLIE26SP1, 612 → BLU26RJ1)
+- **Data consolidation logic updated:** Changed from event name-based matching to SKU-based matching for more accurate aggregation across databases.
+- **Added JOINs for Magento SKU fallback:** Included catalog_product_entity_varchar and catalog_product_entity tables to provide SKU fallback when location_id is not mapped.

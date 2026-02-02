@@ -94,10 +94,104 @@ def build_query_ativo(ano: int) -> str:
     Constroi query do Ativo filtrando por ano do evento (dt_evento).
     Retorna métricas completas: quantidade, cortesia, inscrição líquida, ticket médio,
     taxa líquida, kit produto, e breakdown por grupos/site.
+    Inclui mapeamento de id_evento para SKU.
     """
     return f"""
 SELECT
     b.id_evento AS id_evento,
+    CASE 
+        WHEN b.id_evento = '40048' THEN 'CDE26PL1'
+        WHEN b.id_evento = '40145' THEN 'CDE26RP1'
+        WHEN b.id_evento = '39969' THEN 'CDE26RJ1'
+        WHEN b.id_evento = '40120' THEN 'CDE26FL1'
+        WHEN b.id_evento = '39996' THEN 'CDE26PA1'
+        WHEN b.id_evento = '39964' THEN 'CDE26SP1'
+        WHEN b.id_evento = '40052' THEN 'CDE26AN1'
+        WHEN b.id_evento = '39974' THEN 'CDE26BH1'
+        WHEN b.id_evento = '39970' THEN 'CDE26BS1'
+        WHEN b.id_evento = '40001' THEN 'CDE26CP1'
+        WHEN b.id_evento = '39986' THEN 'CDE26RC1'
+        WHEN b.id_evento = '40010' THEN 'CDE26BL1'
+        WHEN b.id_evento = '39980' THEN 'CDE26FT1'
+        WHEN b.id_evento = '40149' THEN 'CDE26SJ1'
+        WHEN b.id_evento = '39994' THEN 'CDE26CT1'
+        WHEN b.id_evento = '40157' THEN 'CDE26TS1'
+        WHEN b.id_evento = '40015' THEN 'CDE26VT1'
+        WHEN b.id_evento = '40144' THEN 'CDE26MN4'
+        WHEN b.id_evento = '40142' THEN 'CDE26MN2'
+        WHEN b.id_evento = '40143' THEN 'CDE26MN3'
+        WHEN b.id_evento = '39990' THEN 'CDE26SV1'
+        WHEN b.id_evento = '40075' THEN 'TBT26ST1'
+        WHEN b.id_evento = '40108' THEN 'NRU26RF1'
+        WHEN b.id_evento = '40073' THEN 'BRV26SP4'
+        WHEN b.id_evento = '39999' THEN 'CDE26PA2'
+        WHEN b.id_evento = '39971' THEN 'CDE26RJ2'
+        WHEN b.id_evento = '40122' THEN 'CDE26FL3'
+        WHEN b.id_evento = '40121' THEN 'CDE26FL2'
+        WHEN b.id_evento = '40076' THEN 'TBT26ST2'
+        WHEN b.id_evento = '40049' THEN 'CDE26PL2'
+        WHEN b.id_evento = '40158' THEN 'CDE26TS2'
+        WHEN b.id_evento = '40072' THEN 'BRV26SP2'
+        WHEN b.id_evento = '40150' THEN 'CDE26SJ2'
+        WHEN b.id_evento = '40151' THEN 'CDE26SJ3'
+        WHEN b.id_evento = '40146' THEN 'CDE26RP2'
+        WHEN b.id_evento = '40053' THEN 'CDE26AN2'
+        WHEN b.id_evento = '40003' THEN 'CDE26CP2'
+        WHEN b.id_evento = '39987' THEN 'CDE26RC2'
+        WHEN b.id_evento = '39965' THEN 'CDE26SP2'
+        WHEN b.id_evento = '39975' THEN 'CDE26BS2'
+        WHEN b.id_evento = '39982' THEN 'CDE26FT2'
+        WHEN b.id_evento = '40107' THEN 'NRU26CW1'
+        WHEN b.id_evento = '40074' THEN 'BRV26SJ1'
+        WHEN b.id_evento = '39995' THEN 'CDE26CT2'
+        WHEN b.id_evento = '40016' THEN 'CDE26VT2'
+        WHEN b.id_evento = '39991' THEN 'CDE26SV2'
+        WHEN b.id_evento = '40011' THEN 'CDE26BL2'
+        WHEN b.id_evento = '40148' THEN 'CDE26RP4'
+        WHEN b.id_evento = '40147' THEN 'CDE26RP3'
+        WHEN b.id_evento = '39978' THEN 'CDE26BH2'
+        WHEN b.id_evento = '40070' THEN 'AQA26RJ2'
+        WHEN b.id_evento = '40050' THEN 'CDE26PL3'
+        WHEN b.id_evento = '40054' THEN 'CDE26AN3'
+        WHEN b.id_evento = '40005' THEN 'CDE26CP3'
+        WHEN b.id_evento = '39983' THEN 'CDE26FT3'
+        WHEN b.id_evento = '39976' THEN 'CDE26BS3'
+        WHEN b.id_evento = '40017' THEN 'CDE26VT3'
+        WHEN b.id_evento = '39988' THEN 'CDE26RC3'
+        WHEN b.id_evento = '39966' THEN 'CDE26SP3'
+        WHEN b.id_evento = '39997' THEN 'CDE26CT3'
+        WHEN b.id_evento = '40159' THEN 'CDE26TS3'
+        WHEN b.id_evento = '39992' THEN 'CDE26SV3'
+        WHEN b.id_evento = '40012' THEN 'CDE26BL3'
+        WHEN b.id_evento = '40077' THEN 'TBT26ST3'
+        WHEN b.id_evento = '39972' THEN 'CDE26RJ3'
+        WHEN b.id_evento = '40000' THEN 'CDE26PA3'
+        WHEN b.id_evento = '40113' THEN 'NRU26FT1'
+        WHEN b.id_evento = '40109' THEN 'NRU26SV1'
+        WHEN b.id_evento = '40081' THEN 'NRU26RJ2'
+        WHEN b.id_evento = '40112' THEN 'NRU26BS1'
+        WHEN b.id_evento = '40063' THEN 'NRU26SP3'
+        WHEN b.id_evento = '40123' THEN 'CDE26FL4'
+        WHEN b.id_evento = '40105' THEN 'NRU26PA1'
+        WHEN b.id_evento = '39973' THEN 'CDE26RJ4'
+        WHEN b.id_evento = '40047' THEN 'CDE26PL4'
+        WHEN b.id_evento = '40160' THEN 'CDE26TS4'
+        WHEN b.id_evento = '40055' THEN 'CDE26AN4'
+        WHEN b.id_evento = '39967' THEN 'CDE26SP4'
+        WHEN b.id_evento = '40078' THEN 'TBT26ST4'
+        WHEN b.id_evento = '40152' THEN 'CDE26SJ4'
+        WHEN b.id_evento = '39998' THEN 'CDE26CT4'
+        WHEN b.id_evento = '39985' THEN 'CDE26FT4'
+        WHEN b.id_evento = '39993' THEN 'CDE26SV4'
+        WHEN b.id_evento = '40014' THEN 'CDE26BL4'
+        WHEN b.id_evento = '39984' THEN 'CDE26BH4'
+        WHEN b.id_evento = '39977' THEN 'CDE26BS4'
+        WHEN b.id_evento = '40002' THEN 'CDE26PA4'
+        WHEN b.id_evento = '40004' THEN 'CDE26CP4'
+        WHEN b.id_evento = '40018' THEN 'CDE26VT4'
+        WHEN b.id_evento = '39989' THEN 'CDE26RC4'
+        ELSE b.id_campanha_salesforce
+    END AS sku,
     b.ds_evento AS evento,
     DATE(b.dt_evento) AS data_evento,
     COUNT(a.id_pedido_evento) AS qtd_total,
@@ -170,10 +264,61 @@ def build_query_magento(ano: int) -> str:
     Constroi query do Magento filtrando por ano do evento (wl.final_date).
     Retorna métricas completas: quantidade, cortesia, inscrição líquida, ticket médio,
     taxa líquida, kit produto, e breakdown por grupos/site.
+    Inclui mapeamento de location_id para SKU.
     """
     return f"""
 SELECT
     wl.location_id AS id_evento,
+    CASE 
+        WHEN wl.location_id = '587' THEN 'CPLIE26SP1'
+        WHEN wl.location_id = '612' THEN 'BLU26RJ1'
+        WHEN wl.location_id = '539' THEN 'CDE26PL4'
+        WHEN wl.location_id = '536' THEN 'CDE26PL1'
+        WHEN wl.location_id = '560' THEN 'CDE26TS4'
+        WHEN wl.location_id = '559' THEN 'CDE26TS3'
+        WHEN wl.location_id = '558' THEN 'CDE26TS2'
+        WHEN wl.location_id = '537' THEN 'CDE26PL2'
+        WHEN wl.location_id = '557' THEN 'CDE26TS1'
+        WHEN wl.location_id = '510' THEN 'NRU26PA1'
+        WHEN wl.location_id = '438' THEN 'CDE26RJ4'
+        WHEN wl.location_id = '437' THEN 'CDE26RJ3'
+        WHEN wl.location_id = '436' THEN 'CDE26RJ2'
+        WHEN wl.location_id = '462' THEN 'CDE26SV4'
+        WHEN wl.location_id = '464' THEN 'CDE26SV3'
+        WHEN wl.location_id = '463' THEN 'CDE26SV2'
+        WHEN wl.location_id = '469' THEN 'CDE26CP4'
+        WHEN wl.location_id = '470' THEN 'CDE26CP3'
+        WHEN wl.location_id = '471' THEN 'CDE26CP2'
+        WHEN wl.location_id = '441' THEN 'CDE26SP2'
+        WHEN wl.location_id = '443' THEN 'CDE26SP4'
+        WHEN wl.location_id = '455' THEN 'CDE26FT4'
+        WHEN wl.location_id = '454' THEN 'CDE26FT3'
+        WHEN wl.location_id = '453' THEN 'CDE26FT2'
+        WHEN wl.location_id = '466' THEN 'CDE26CT2'
+        WHEN wl.location_id = '518' THEN 'NRU26FT1'
+        WHEN wl.location_id = '513' THEN 'NRU26VT1'
+        WHEN wl.location_id = '446' THEN 'CDE26BS3'
+        WHEN wl.location_id = '444' THEN 'CDE26BS2'
+        WHEN wl.location_id = '449' THEN 'CDE26BH2'
+        WHEN wl.location_id = '473' THEN 'CDE26PA4'
+        WHEN wl.location_id = '474' THEN 'CDE26PA3'
+        WHEN wl.location_id = '475' THEN 'CDE26PA2'
+        WHEN wl.location_id = '468' THEN 'CDE26CT4'
+        WHEN wl.location_id = '467' THEN 'CDE26CT3'
+        WHEN wl.location_id = '447' THEN 'CDE26BS4'
+        WHEN wl.location_id = '544' THEN 'GPW26SP11'
+        WHEN wl.location_id = '442' THEN 'CDE26SP3'
+        WHEN wl.location_id = '451' THEN 'CDE26BH4'
+        WHEN wl.location_id = '519' THEN 'NRU26SV1'
+        WHEN wl.location_id = '516' THEN 'NRU26BS1'
+        WHEN wl.location_id = '515' THEN 'NRU26RF1'
+        WHEN wl.location_id = '521' THEN 'NRU26CP1'
+        WHEN wl.location_id = '491' THEN 'BRV26SP1'
+        WHEN wl.location_id = '512' THEN 'NRU26CW1'
+        WHEN wl.location_id = '481' THEN 'NRU26SP3'
+        WHEN wl.location_id = '492' THEN 'BRV26SP4'
+        ELSE d.sku
+    END AS sku,
     REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
         REPLACE(wl.name, 'Retirada de kit - CE', 'Circuito das Estações'),
         'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
@@ -304,6 +449,8 @@ LEFT JOIN sales_order_payment AS sop ON sop.parent_id = so.entity_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id  
 LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
 LEFT JOIN (SELECT * FROM sales_order_item WHERE name LIKE '%persona%') AS soiaa ON soiaa.parent_item_id = soi.item_id  
+LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
+LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
 WHERE 
     wl.final_date >= '{ano}-01-01' 
     AND wl.final_date <= '{ano}-12-31'
@@ -343,20 +490,21 @@ def fetch_ativo_data(ano: int = 2026):
             return [
                 {
                     "id_evento": str(row[0]) if row[0] else None,
-                    "evento": row[1],
-                    "data_evento": str(row[2]) if row[2] else None,
-                    "qtd_vendida": int(row[3]) if row[3] else 0,
-                    "cortesia": int(row[4]) if row[4] else 0,
-                    "inscricao_liquida": float(row[5]) if row[5] else 0.0,
-                    "ticket_medio": float(row[6]) if row[6] else 0.0,
-                    "taxa_liquida": float(row[7]) if row[7] else 0.0,
-                    "kit_produto": float(row[8]) if row[8] else 0.0,
-                    "qtd_grupos": int(row[9]) if row[9] else 0,
-                    "inscricao_liquida_grupos": float(row[10]) if row[10] else 0.0,
-                    "ticket_medio_grupos": float(row[11]) if row[11] else 0.0,
-                    "qtd_site": int(row[12]) if row[12] else 0,
-                    "inscricao_liquida_site": float(row[13]) if row[13] else 0.0,
-                    "ticket_medio_site": float(row[14]) if row[14] else 0.0,
+                    "sku": row[1] if row[1] else None,
+                    "evento": row[2],
+                    "data_evento": str(row[3]) if row[3] else None,
+                    "qtd_vendida": int(row[4]) if row[4] else 0,
+                    "cortesia": int(row[5]) if row[5] else 0,
+                    "inscricao_liquida": float(row[6]) if row[6] else 0.0,
+                    "ticket_medio": float(row[7]) if row[7] else 0.0,
+                    "taxa_liquida": float(row[8]) if row[8] else 0.0,
+                    "kit_produto": float(row[9]) if row[9] else 0.0,
+                    "qtd_grupos": int(row[10]) if row[10] else 0,
+                    "inscricao_liquida_grupos": float(row[11]) if row[11] else 0.0,
+                    "ticket_medio_grupos": float(row[12]) if row[12] else 0.0,
+                    "qtd_site": int(row[13]) if row[13] else 0,
+                    "inscricao_liquida_site": float(row[14]) if row[14] else 0.0,
+                    "ticket_medio_site": float(row[15]) if row[15] else 0.0,
                 }
                 for row in rows
             ], None
@@ -379,22 +527,23 @@ def fetch_magento_data(ano: int = 2026):
             return [
                 {
                     "id_evento": str(row[0]) if row[0] else None,
-                    "evento": row[1],
-                    "data_evento": str(row[2]) if row[2] else None,
-                    "qtd_vendida": int(row[3]) if row[3] else 0,
-                    "cortesia": int(row[4]) if row[4] else 0,
-                    "inscricao_liquida": float(row[5]) if row[5] else 0.0,
-                    "ticket_medio": float(row[6]) if row[6] else 0.0,
-                    "taxa_liquida": float(row[7]) if row[7] else 0.0,
-                    "kit_produto": float(row[8]) if row[8] else 0.0,
-                    "qtd_grupos": int(row[9]) if row[9] else 0,
-                    "inscricao_liquida_grupos": float(row[10]) if row[10] else 0.0,
-                    "ticket_medio_grupos": float(row[11]) if row[11] else 0.0,
-                    "qtd_site": int(row[12]) if row[12] else 0,
-                    "inscricao_liquida_site": float(row[13]) if row[13] else 0.0,
-                    "ticket_medio_site": float(row[14]) if row[14] else 0.0,
-                    "categoria_evento": row[15] if row[15] else None,
-                    "cidade": row[16] if row[16] else None,
+                    "sku": row[1] if row[1] else None,
+                    "evento": row[2],
+                    "data_evento": str(row[3]) if row[3] else None,
+                    "qtd_vendida": int(row[4]) if row[4] else 0,
+                    "cortesia": int(row[5]) if row[5] else 0,
+                    "inscricao_liquida": float(row[6]) if row[6] else 0.0,
+                    "ticket_medio": float(row[7]) if row[7] else 0.0,
+                    "taxa_liquida": float(row[8]) if row[8] else 0.0,
+                    "kit_produto": float(row[9]) if row[9] else 0.0,
+                    "qtd_grupos": int(row[10]) if row[10] else 0,
+                    "inscricao_liquida_grupos": float(row[11]) if row[11] else 0.0,
+                    "ticket_medio_grupos": float(row[12]) if row[12] else 0.0,
+                    "qtd_site": int(row[13]) if row[13] else 0,
+                    "inscricao_liquida_site": float(row[14]) if row[14] else 0.0,
+                    "ticket_medio_site": float(row[15]) if row[15] else 0.0,
+                    "categoria_evento": row[16] if row[16] else None,
+                    "cidade": row[17] if row[17] else None,
                 }
                 for row in rows
             ], None
@@ -460,26 +609,17 @@ async def get_inscricoes_consolidadas(
             "ticket_medio_site": row.get("ticket_medio_site", 0.0),
         }
     
-    def normalize_event_name(name: str) -> str:
-        """Normaliza nome do evento para matching entre bancos"""
-        if not name:
-            return ""
-        normalized = name.upper().strip()
-        normalized = re.sub(r'\s+', ' ', normalized)
-        normalized = re.sub(r'[^\w\s]', '', normalized)
-        return normalized
-    
     eventos_consolidados = {}
     
     if ativo_result:
         for row in ativo_result:
+            sku_key = row.get("sku") or ""
             evento_nome = row.get("evento") or ""
             data_evento = row.get("data_evento") or ""
-            evento_key = f"{normalize_event_name(evento_nome)}_{data_evento}"
             
-            if evento_key not in eventos_consolidados:
-                eventos_consolidados[evento_key] = {
-                    "sku": evento_key,
+            if sku_key not in eventos_consolidados:
+                eventos_consolidados[sku_key] = {
+                    "sku": sku_key,
                     "id_evento": row["id_evento"],
                     "evento": evento_nome,
                     "data_evento": data_evento,
@@ -489,7 +629,7 @@ async def get_inscricoes_consolidadas(
                     "magento_data": None
                 }
             else:
-                existing = eventos_consolidados[evento_key].get("ativo_data")
+                existing = eventos_consolidados[sku_key].get("ativo_data")
                 if existing:
                     new_data = create_fonte_detalhe(row)
                     for k in ["qtd", "cortesia", "qtd_grupos", "qtd_site"]:
@@ -498,17 +638,17 @@ async def get_inscricoes_consolidadas(
                               "inscricao_liquida_grupos", "inscricao_liquida_site"]:
                         existing[k] = existing.get(k, 0.0) + new_data.get(k, 0.0)
                 else:
-                    eventos_consolidados[evento_key]["ativo_data"] = create_fonte_detalhe(row)
+                    eventos_consolidados[sku_key]["ativo_data"] = create_fonte_detalhe(row)
     
     if magento_result:
         for row in magento_result:
+            sku_key = row.get("sku") or ""
             evento_nome = row.get("evento") or ""
             data_evento = row.get("data_evento") or ""
-            evento_key = f"{normalize_event_name(evento_nome)}_{data_evento}"
             
-            if evento_key not in eventos_consolidados:
-                eventos_consolidados[evento_key] = {
-                    "sku": evento_key,
+            if sku_key not in eventos_consolidados:
+                eventos_consolidados[sku_key] = {
+                    "sku": sku_key,
                     "id_evento": row["id_evento"],
                     "evento": evento_nome,
                     "data_evento": data_evento,
@@ -518,9 +658,13 @@ async def get_inscricoes_consolidadas(
                     "magento_data": create_fonte_detalhe(row)
                 }
             else:
-                eventos_consolidados[evento_key]["categoria_evento"] = row.get("categoria_evento")
-                eventos_consolidados[evento_key]["cidade"] = row.get("cidade")
-                existing = eventos_consolidados[evento_key].get("magento_data")
+                eventos_consolidados[sku_key]["categoria_evento"] = row.get("categoria_evento")
+                eventos_consolidados[sku_key]["cidade"] = row.get("cidade")
+                if not eventos_consolidados[sku_key]["evento"]:
+                    eventos_consolidados[sku_key]["evento"] = evento_nome
+                if not eventos_consolidados[sku_key]["data_evento"]:
+                    eventos_consolidados[sku_key]["data_evento"] = data_evento
+                existing = eventos_consolidados[sku_key].get("magento_data")
                 if existing:
                     new_data = create_fonte_detalhe(row)
                     for k in ["qtd", "cortesia", "qtd_grupos", "qtd_site"]:
@@ -529,7 +673,7 @@ async def get_inscricoes_consolidadas(
                               "inscricao_liquida_grupos", "inscricao_liquida_site"]:
                         existing[k] = existing.get(k, 0.0) + new_data.get(k, 0.0)
                 else:
-                    eventos_consolidados[evento_key]["magento_data"] = create_fonte_detalhe(row)
+                    eventos_consolidados[sku_key]["magento_data"] = create_fonte_detalhe(row)
     
     dados = []
     for evento_key, ev in eventos_consolidados.items():
@@ -564,7 +708,7 @@ async def get_inscricoes_consolidadas(
         })
     
     if sku:
-        dados = [d for d in dados if d["evento"] and sku.upper() in d["evento"].upper()]
+        dados = [d for d in dados if d["sku"] and sku.upper() in d["sku"].upper()]
     
     dados.sort(key=lambda x: x.get("data_evento") or "", reverse=False)
     
