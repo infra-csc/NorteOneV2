@@ -46,6 +46,10 @@ interface CommercialAction {
   description: string;
   date: string;
   impact?: string;
+  vendas_antes?: number;
+  vendas_depois?: number;
+  impacto_percentual?: number;
+  status_impacto?: string;
 }
 
 interface ExtendedEvent extends MarketingEvent {
@@ -87,12 +91,16 @@ const EventDetail: React.FC = () => {
             cumulativeSales: d.cumulativeSales,
             cumulativeExpected: d.cumulativeExpected
           })),
-          commercialActions: response.commercialActions?.map(a => ({
+          commercialActions: response.commercialActions?.map((a: any) => ({
             id: a.id,
             type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
             description: a.description,
             date: a.date,
-            impact: a.impact
+            impact: a.impact,
+            vendas_antes: a.vendas_antes,
+            vendas_depois: a.vendas_depois,
+            impacto_percentual: a.impacto_percentual,
+            status_impacto: a.status_impacto
           }))
         };
         setEvent(eventWithData);
@@ -168,12 +176,16 @@ const EventDetail: React.FC = () => {
           cumulativeSales: d.cumulativeSales,
           cumulativeExpected: d.cumulativeExpected
         })),
-        commercialActions: response.commercialActions?.map(a => ({
+        commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
           type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
           description: a.description,
           date: a.date,
-          impact: a.impact
+          impact: a.impact,
+          vendas_antes: a.vendas_antes,
+          vendas_depois: a.vendas_depois,
+          impacto_percentual: a.impacto_percentual,
+          status_impacto: a.status_impacto
         }))
       };
       setEvent(eventWithData);
@@ -205,12 +217,16 @@ const EventDetail: React.FC = () => {
           cumulativeSales: d.cumulativeSales,
           cumulativeExpected: d.cumulativeExpected
         })),
-        commercialActions: response.commercialActions?.map(a => ({
+        commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
           type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
           description: a.description,
           date: a.date,
-          impact: a.impact
+          impact: a.impact,
+          vendas_antes: a.vendas_antes,
+          vendas_depois: a.vendas_depois,
+          impacto_percentual: a.impacto_percentual,
+          status_impacto: a.status_impacto
         }))
       };
       setEvent(eventWithData);
@@ -652,12 +668,30 @@ const EventDetail: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  {action.impact && (
-                    <p className="text-sm text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
-                      <CheckCircle className="w-4 h-4" />
-                      {action.impact}
+                  {action.impact ? (
+                    <div className="mt-1">
+                      <p className={`text-sm flex items-center gap-1 ${
+                        action.impacto_percentual && action.impacto_percentual > 0 
+                          ? 'text-green-600 dark:text-green-400' 
+                          : action.impacto_percentual && action.impacto_percentual < 0
+                            ? 'text-red-600 dark:text-red-400'
+                            : 'text-gray-600 dark:text-gray-400'
+                      }`}>
+                        <CheckCircle className="w-4 h-4" />
+                        Impacto: {action.impact}
+                      </p>
+                      {action.vendas_antes !== undefined && action.vendas_depois !== undefined && (
+                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5 ml-5">
+                          7d antes: {action.vendas_antes} vendas → 7d depois: {action.vendas_depois} vendas
+                        </p>
+                      )}
+                    </div>
+                  ) : action.status_impacto === 'aguardando_dados' ? (
+                    <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1 flex items-center gap-1">
+                      <Clock className="w-4 h-4" />
+                      Aguardando dados (7 dias após a ação)
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </div>
             ))}

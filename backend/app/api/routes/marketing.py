@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional, List
 from pydantic import BaseModel
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from ...core.database import get_db, engine_ativo, engine_ssh
+from ...core import database as db_module
 from ...core.security import get_current_user
 from ...models.dimensoes import DimProjeto
 from ...models.user import Usuario
@@ -15,6 +16,135 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) -> dict:
+    """
+    Busca vendas diárias do Ativo para um evento específico dentro de um período.
+    Retorna um dicionário {data: quantidade_vendida}
+    """
+    if db_module.engine_ssh is None:
+        return {}
+    
+    try:
+        query = f"""
+        SELECT 
+            DATE(c.dt_cadastro) AS data_venda,
+            COUNT(a.id_pedido_evento) AS quantidade
+        FROM sa_pedido_evento AS a
+        INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+        INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+        WHERE 
+            b.id_evento = '{id_evento}'
+            AND c.id_pedido_status = 2
+            AND DATE(c.dt_cadastro) >= '{start_date.isoformat()}'
+            AND DATE(c.dt_cadastro) <= '{end_date.isoformat()}'
+        GROUP BY DATE(c.dt_cadastro)
+        ORDER BY data_venda
+        """
+        
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            
+        daily_sales = {}
+        for row in rows:
+            data_venda = row[0]
+            quantidade = row[1]
+            if isinstance(data_venda, str):
+                data_venda = datetime.strptime(data_venda, '%Y-%m-%d').date()
+            daily_sales[data_venda] = quantidade
+            
+        return daily_sales
+    except Exception as e:
+        logger.error(f"Erro ao buscar vendas diárias do Ativo: {e}")
+        return {}
+
+
+def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
+    """
+    Obtém o id_evento do Ativo a partir do projeto (via SKU).
+    """
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+    if not projeto or not projeto.sku:
+        return None
+    
+    sku = projeto.sku.upper().strip()
+    
+    sku_to_id_evento = {
+        'CDE26PL1': '40048', 'CDE26RP1': '40145', 'CDE26RJ1': '39969',
+        'CDE26FL1': '40120', 'CDE26PA1': '39996', 'CDE26SP1': '39964',
+        'CDE26AN1': '40052', 'CDE26BH1': '39974', 'CDE26BS1': '39970',
+        'CDE26CP1': '40001', 'CDE26RC1': '39986', 'CDE26BL1': '40010',
+        'CDE26FT1': '39980', 'CDE26SJ1': '40149', 'CDE26CT1': '39994',
+        'CDE26TS1': '40157', 'CDE26VT1': '40015', 'CDE26MN4': '40144',
+        'CDE26MN2': '40142', 'CDE26MN3': '40143', 'CDE26SV1': '39990',
+        'TBT26ST1': '40075', 'NRU26RF1': '40108', 'BRV26SP4': '40073',
+        'CDE26PA2': '39999', 'CDE26RJ2': '39971', 'CDE26FL3': '40122',
+        'CDE26FL2': '40121', 'TBT26ST2': '40076', 'CDE26PL2': '40049',
+        'CDE26TS2': '40158', 'BRV26SP2': '40072', 'CDE26SJ2': '40150',
+        'CDE26SJ3': '40151', 'CDE26RP2': '40146', 'CDE26AN2': '40053',
+        'CDE26CP2': '40003', 'CDE26RC2': '39987', 'CDE26SP2': '39965',
+        'CDE26BS2': '39975', 'CDE26FT2': '39982', 'NRU26CW1': '40107',
+        'BRV26SJ1': '40074', 'CDE26CT2': '39995', 'CDE26VT2': '40016',
+        'CDE26SV2': '39991', 'CDE26BL2': '40011', 'CDE26RP4': '40148',
+        'CDE26RP3': '40147', 'CDE26BH2': '39978', 'AQA26RJ2': '40070',
+        'CDE26PL3': '40050', 'CDE26AN3': '40054', 'CDE26CP3': '40005',
+        'CDE26FT3': '39983', 'CDE26BS3': '39976', 'CDE26VT3': '40017',
+        'CDE26RC3': '39988', 'CDE26SP3': '39966', 'CDE26CT3': '39997',
+        'CDE26TS3': '40159', 'CDE26SV3': '39992', 'CDE26BL3': '40012',
+        'TBT26ST3': '40077', 'CDE26RJ3': '39972', 'CDE26PA3': '40000',
+        'NRU26FT1': '40113', 'NRU26SV1': '40109', 'NRU26RJ2': '40081',
+    }
+    
+    return sku_to_id_evento.get(sku)
+
+
+def calculate_action_impact(db: Session, acao) -> dict:
+    """
+    Calcula o impacto de uma ação comercial comparando vendas
+    7 dias antes vs 7 dias depois da ação.
+    """
+    if not acao.data_acao:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+    
+    id_evento = get_id_evento_from_projeto(db, acao.projeto_id)
+    if not id_evento:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+    
+    data_acao = acao.data_acao
+    if isinstance(data_acao, datetime):
+        data_acao = data_acao.date()
+    
+    start_before = data_acao - timedelta(days=7)
+    end_before = data_acao - timedelta(days=1)
+    
+    start_after = data_acao + timedelta(days=1)
+    end_after = data_acao + timedelta(days=7)
+    
+    today = date.today()
+    if end_after > today:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None, 
+                "status": "aguardando_dados"}
+    
+    sales_before = fetch_daily_sales_ativo(id_evento, start_before, end_before)
+    sales_after = fetch_daily_sales_ativo(id_evento, start_after, end_after)
+    
+    vendas_antes = sum(sales_before.values()) if sales_before else 0
+    vendas_depois = sum(sales_after.values()) if sales_after else 0
+    
+    if vendas_antes > 0:
+        impacto_percentual = ((vendas_depois - vendas_antes) / vendas_antes) * 100
+    elif vendas_depois > 0:
+        impacto_percentual = 100.0
+    else:
+        impacto_percentual = 0.0
+    
+    return {
+        "vendas_antes": vendas_antes,
+        "vendas_depois": vendas_depois,
+        "impacto_percentual": round(impacto_percentual, 1)
+    }
 
 router = APIRouter(prefix="/marketing", tags=["Marketing ISC"])
 
@@ -497,12 +627,30 @@ async def get_marketing_event_by_id(
             'CAMPANHA': 'campaign',
             'COMUNICACAO': 'communication'
         }
+        
+        impacto = calculate_action_impact(db, a)
+        impacto_percentual = impacto.get("impacto_percentual")
+        vendas_antes = impacto.get("vendas_antes")
+        vendas_depois = impacto.get("vendas_depois")
+        
+        if impacto_percentual is not None:
+            if impacto_percentual > 0:
+                impact_str = f"+{impacto_percentual}%"
+            else:
+                impact_str = f"{impacto_percentual}%"
+        else:
+            impact_str = None
+        
         commercial_actions.append({
             "id": str(a.id),
             "type": tipo_map.get(a.tipo, 'communication'),
             "description": a.descricao,
             "date": a.data_acao.isoformat() if a.data_acao else None,
-            "impact": f"+{a.impacto_percentual}%" if a.impacto_percentual and a.impacto_percentual > 0 else f"{a.impacto_percentual}%" if a.impacto_percentual else None
+            "impact": impact_str,
+            "vendas_antes": vendas_antes,
+            "vendas_depois": vendas_depois,
+            "impacto_percentual": impacto_percentual,
+            "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados"
         })
     
     return {
@@ -543,32 +691,43 @@ class AcaoComercialResponse(BaseModel):
 @router.get("/acoes-comerciais/{projeto_id}")
 async def get_acoes_comerciais(
     projeto_id: int,
+    calcular_impacto: bool = Query(default=True, description="Calcular impacto em tempo real"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Lista todas as ações comerciais de um projeto/evento"""
+    """Lista todas as ações comerciais de um projeto/evento com cálculo de impacto"""
     from ...models.dimensoes import AcaoComercial
     
     acoes = db.query(AcaoComercial).filter(
         AcaoComercial.projeto_id == projeto_id
     ).order_by(AcaoComercial.data_acao.desc()).all()
     
+    acoes_list = []
+    for a in acoes:
+        acao_data = {
+            "id": a.id,
+            "projeto_id": a.projeto_id,
+            "tipo": a.tipo,
+            "descricao": a.descricao,
+            "data_acao": a.data_acao.isoformat() if a.data_acao else None,
+            "impacto_percentual": float(a.impacto_percentual) if a.impacto_percentual else None,
+            "vendas_antes": a.vendas_antes,
+            "vendas_depois": a.vendas_depois,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        }
+        
+        if calcular_impacto and a.data_acao:
+            impacto = calculate_action_impact(db, a)
+            acao_data["vendas_antes"] = impacto.get("vendas_antes")
+            acao_data["vendas_depois"] = impacto.get("vendas_depois")
+            acao_data["impacto_percentual"] = impacto.get("impacto_percentual")
+            acao_data["status_impacto"] = impacto.get("status", "calculado")
+        
+        acoes_list.append(acao_data)
+    
     return {
         "status": "success",
-        "acoes": [
-            {
-                "id": a.id,
-                "projeto_id": a.projeto_id,
-                "tipo": a.tipo,
-                "descricao": a.descricao,
-                "data_acao": a.data_acao.isoformat() if a.data_acao else None,
-                "impacto_percentual": float(a.impacto_percentual) if a.impacto_percentual else None,
-                "vendas_antes": a.vendas_antes,
-                "vendas_depois": a.vendas_depois,
-                "created_at": a.created_at.isoformat() if a.created_at else None
-            }
-            for a in acoes
-        ]
+        "acoes": acoes_list
     }
 
 

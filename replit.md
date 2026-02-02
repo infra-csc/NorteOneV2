@@ -97,3 +97,7 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - Frontend modal form to add new commercial actions (type, date, description).
   - Delete functionality with trash icon on each timeline entry.
   - Timeline shows action icon based on type, date, and impact percentage if available.
+  - **Impact Calculation:** Implemented automatic calculation comparing sales 7 days before vs 7 days after each action.
+  - Functions added: `fetch_daily_sales_ativo()`, `get_id_evento_from_projeto()`, `calculate_action_impact()`.
+  - Impact displayed with color coding: green for positive, red for negative, yellow for "aguardando dados" (when 7 days haven't passed yet).
+  - Shows detailed breakdown: "7d antes: X vendas → 7d depois: Y vendas".
