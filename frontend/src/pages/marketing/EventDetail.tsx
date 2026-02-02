@@ -37,8 +37,17 @@ import {
   getISCStatus
 } from '../../types/marketingPerformance';
 
+interface CommercialAction {
+  id: string;
+  type: 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication';
+  description: string;
+  date: string;
+  impact?: string;
+}
+
 interface ExtendedEvent extends MarketingEvent {
   dailySales?: { date: string; sales: number; expected: number }[];
+  commercialActions?: CommercialAction[];
 }
 
 const EventDetail: React.FC = () => {
@@ -486,9 +495,9 @@ const EventDetail: React.FC = () => {
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
           Timeline de Ações Comerciais
         </h3>
-        {event.commercialActions.length > 0 ? (
+        {event.commercialActions && event.commercialActions.length > 0 ? (
           <div className="space-y-4">
-            {event.commercialActions.map((action, index) => (
+            {event.commercialActions.map((action: CommercialAction, index: number) => (
               <div key={action.id} className="flex gap-4">
                 <div className="flex flex-col items-center">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -504,7 +513,7 @@ const EventDetail: React.FC = () => {
                     {action.type === 'campaign' && <Activity className="w-5 h-5 text-blue-600" />}
                     {action.type === 'communication' && <Clock className="w-5 h-5 text-gray-600" />}
                   </div>
-                  {index < event.commercialActions.length - 1 && (
+                  {index < (event.commercialActions?.length ?? 0) - 1 && (
                     <div className="w-0.5 h-full bg-gray-200 dark:bg-gray-600 mt-2" />
                   )}
                 </div>
