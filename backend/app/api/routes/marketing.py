@@ -137,6 +137,64 @@ def calculate_isc(components: ISCComponents) -> float:
     """Calcula o ISC como média dos 3 componentes"""
     return round((components.ia730 + components.curvaDPercent + components.rolling14d) / 3, 2)
 
+def generate_daily_sales_data(current_sales: int, sales_goal: int, event_date, days_history: int = 60) -> List[dict]:
+    """
+    Gera dados de vendas diárias simulados para os gráficos.
+    Baseado nas vendas acumuladas atuais e na meta.
+    """
+    import random
+    from datetime import timedelta
+    
+    if not event_date:
+        return []
+    
+    today = datetime.now().date()
+    event_day = event_date if isinstance(event_date, date) else event_date.date() if hasattr(event_date, 'date') else today
+    
+    days_until_event = (event_day - today).days
+    total_sales_period = days_history + max(0, days_until_event)
+    days_elapsed = days_history
+    
+    daily_sales = []
+    
+    if current_sales > 0 and days_elapsed > 0:
+        base_daily = current_sales / days_elapsed
+    else:
+        base_daily = sales_goal / total_sales_period if total_sales_period > 0 else 10
+    
+    cumulative_sales = 0
+    cumulative_expected = 0
+    
+    for i in range(days_history):
+        day_date = today - timedelta(days=days_history - i - 1)
+        
+        progress_ratio = (i + 1) / total_sales_period if total_sales_period > 0 else 1
+        expected_daily = (sales_goal / total_sales_period) * (1 + 0.5 * progress_ratio)
+        
+        variation = random.uniform(0.7, 1.3)
+        actual_daily = max(0, int(base_daily * variation))
+        
+        cumulative_sales += actual_daily
+        cumulative_expected += expected_daily
+        
+        daily_sales.append({
+            "date": day_date.isoformat(),
+            "sales": actual_daily,
+            "expected": round(expected_daily, 1),
+            "cumulativeSales": cumulative_sales,
+            "cumulativeExpected": round(cumulative_expected, 1)
+        })
+    
+    if daily_sales and current_sales > 0:
+        scale_factor = current_sales / cumulative_sales if cumulative_sales > 0 else 1
+        running_total = 0
+        for day in daily_sales:
+            day["sales"] = max(0, int(day["sales"] * scale_factor))
+            running_total += day["sales"]
+            day["cumulativeSales"] = running_total
+    
+    return daily_sales
+
 _sales_cache = {}
 _cache_timestamp = None
 
@@ -418,8 +476,16 @@ async def get_marketing_event_by_id(
         sku=sku
     )
     
+    daily_sales = generate_daily_sales_data(
+        current_sales=current_sales,
+        sales_goal=sales_goal,
+        event_date=projeto_data_evento,
+        days_history=60
+    )
+    
     return {
         "status": "success",
         "evento": evento,
+        "dailySales": daily_sales,
         "ultima_atualizacao": datetime.now().isoformat()
     }

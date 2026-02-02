@@ -46,7 +46,7 @@ interface CommercialAction {
 }
 
 interface ExtendedEvent extends MarketingEvent {
-  dailySales?: { date: string; sales: number; expected: number }[];
+  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number }[];
   commercialActions?: CommercialAction[];
 }
 
@@ -68,7 +68,17 @@ const EventDetail: React.FC = () => {
       try {
         setLoading(true);
         const response = await marketingService.getEventoById(id);
-        setEvent(response.evento);
+        const eventWithDailySales = {
+          ...response.evento,
+          dailySales: response.dailySales?.map(d => ({
+            date: d.date,
+            sales: d.sales,
+            expected: d.expected,
+            cumulativeSales: d.cumulativeSales,
+            cumulativeExpected: d.cumulativeExpected
+          }))
+        };
+        setEvent(eventWithDailySales);
         setError(null);
       } catch (err) {
         console.error('Erro ao carregar evento:', err);

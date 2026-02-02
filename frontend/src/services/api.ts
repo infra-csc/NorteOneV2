@@ -607,7 +607,12 @@ export const marketingService = {
     const response = await api.get(`/marketing/resumo${queryString}`);
     return response.data;
   },
-  getEventoById: async (id: string): Promise<{ status: string; evento: MarketingEvent; ultima_atualizacao: string }> => {
+  getEventoById: async (id: string): Promise<{ 
+    status: string; 
+    evento: MarketingEvent; 
+    dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number }[];
+    ultima_atualizacao: string 
+  }> => {
     const response = await api.get(`/marketing/eventos/${id}`);
     return response.data;
   }
