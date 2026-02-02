@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { projetosService, atletasExternosService, AtletaExternoPorProjeto, inscricoesConsolidadasService, InscricaoConsolidada } from '../../services/api';
 import { Projeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
@@ -8,7 +8,7 @@ import {
   Image as ImageIcon, Building2, FileText, Search, Filter,
   ChevronDown, RotateCcw, Eye, BarChart3, ArrowUpRight, 
   ArrowDownRight, Minus, Award, Hash, Briefcase, Landmark,UserStar,Scale,Component,LoaderPinwheel,
-  Database, RefreshCw, DollarSign, Store, ShoppingBag, Truck,
+  Database, RefreshCw, DollarSign, Store, ShoppingBag, Truck, Gift, Clock,
 } from 'lucide-react';
 
 const modalidades = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
@@ -171,6 +171,8 @@ const Projetos: React.FC = () => {
   const [dadosConsolidados, setDadosConsolidados] = useState<InscricaoConsolidada | null>(null);
   const [loadingExternos, setLoadingExternos] = useState(false);
   const [erroExternos, setErroExternos] = useState<string | null>(null);
+  const [loadingConsolidados, setLoadingConsolidados] = useState(false);
+  const [lastConsolidadosUpdate, setLastConsolidadosUpdate] = useState<Date | null>(null);
 
   // Estado dos filtros
   const [filtros, setFiltros] = useState<Filtros>({
@@ -299,36 +301,60 @@ const Projetos: React.FC = () => {
     setShowModal(true);
   };
 
+  const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+
+  const loadConsolidadosData = useCallback(async (sku: string) => {
+    setLoadingConsolidados(true);
+    try {
+      const consolidadoData = await inscricoesConsolidadasService.getBySku(sku).catch(() => null);
+      if (consolidadoData) {
+        setDadosConsolidados(consolidadoData);
+        setLastConsolidadosUpdate(new Date());
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados consolidados:', error);
+    } finally {
+      setLoadingConsolidados(false);
+    }
+  }, []);
+
   const handleViewDetails = async (projeto: ProjetoComAtletas) => {
     setSelectedProjeto(projeto);
     setShowDetailsModal(true);
     setDadosExternos(null);
     setDadosConsolidados(null);
     setErroExternos(null);
+    setLastConsolidadosUpdate(null);
     
     if (projeto.codigo) {
-      setLoadingExternos(true);
-      try {
-        const [externalResponse, consolidadoData] = await Promise.all([
-          atletasExternosService.getByProjeto(projeto.codigo).catch(() => null),
-          inscricoesConsolidadasService.getBySku(projeto.codigo).catch(() => null)
-        ]);
-        
-        if (externalResponse?.status === 'success' && externalResponse.data) {
-          setDadosExternos(externalResponse.data);
-        }
-        if (consolidadoData) {
-          setDadosConsolidados(consolidadoData);
-        }
-      } catch (error: any) {
-        if (error.response?.status !== 503) {
-          setErroExternos('Não foi possível carregar dados externos');
-        }
-      } finally {
-        setLoadingExternos(false);
+      loadConsolidadosData(projeto.codigo);
+      
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
       }
+      autoRefreshIntervalRef.current = setInterval(() => {
+        loadConsolidadosData(projeto.codigo);
+      }, AUTO_REFRESH_INTERVAL);
     }
   };
+
+  useEffect(() => {
+    if (!showDetailsModal) {
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+        autoRefreshIntervalRef.current = null;
+      }
+    }
+  }, [showDetailsModal]);
+
+  useEffect(() => {
+    return () => {
+      if (autoRefreshIntervalRef.current) {
+        clearInterval(autoRefreshIntervalRef.current);
+      }
+    };
+  }, []);
 
   const handleRefreshExternos = async () => {
     if (!selectedProjeto?.codigo) return;
@@ -336,16 +362,10 @@ const Projetos: React.FC = () => {
     setErroExternos(null);
     try {
       await atletasExternosService.clearCache();
-      const [externalResponse, consolidadoData] = await Promise.all([
-        atletasExternosService.getByProjeto(selectedProjeto.codigo).catch(() => null),
-        inscricoesConsolidadasService.getBySku(selectedProjeto.codigo).catch(() => null)
-      ]);
+      const externalResponse = await atletasExternosService.getByProjeto(selectedProjeto.codigo).catch(() => null);
       
       if (externalResponse?.status === 'success' && externalResponse.data) {
         setDadosExternos(externalResponse.data);
-      }
-      if (consolidadoData) {
-        setDadosConsolidados(consolidadoData);
       }
     } catch (error: any) {
       setErroExternos('Erro ao atualizar dados');
@@ -958,21 +978,34 @@ const Projetos: React.FC = () => {
 
               {/* Atletas Analysis Section */}
               <div className={`p-6 rounded-3xl ${isDark ? 'bg-gradient-to-br from-gray-800 to-gray-800/50' : 'bg-gradient-to-br from-gray-50 to-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
-                    <BarChart3 className="w-5 h-5 text-white" />
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
+                      <BarChart3 className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        Análise de Atletas
+                      </h3>
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Comparativo entre orçado, projetado e realizado (dados consolidados)
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      Análise de Atletas
-                    </h3>
-                    <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Comparativo entre orçado, projetado e realizado
-                    </p>
+                  <div className="flex items-center gap-2">
+                    {loadingConsolidados && (
+                      <LoaderPinwheel className="w-4 h-4 text-purple-500 animate-spin" />
+                    )}
+                    {lastConsolidadosUpdate && (
+                      <div className={`flex items-center gap-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                        <Clock className="w-3 h-3" />
+                        <span>Atualizado: {lastConsolidadosUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
                   {/* Orçado */}
                   <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200'}`}>
                     <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/20 rounded-full blur-2xl" />
@@ -1001,13 +1034,13 @@ const Projetos: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Total Realizado */}
+                  {/* Total Realizado - from consolidated data */}
                   <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200'}`}>
                     <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/20 rounded-full blur-2xl" />
                     <div className="relative text-center">
                       <Users className="w-6 h-6 text-purple-500 mx-auto mb-2" />
                       <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(selectedProjeto.atletas_total || 0).toLocaleString('pt-BR')}
+                        {(dadosConsolidados?.qtd_vendida_total || selectedProjeto.atletas_total || 0).toLocaleString('pt-BR')}
                       </p>
                       <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
                         Realizado
@@ -1015,13 +1048,13 @@ const Projetos: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Site */}
+                  {/* Site - from consolidated data */}
                   <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200'}`}>
                     <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/20 rounded-full blur-2xl" />
                     <div className="relative text-center">
                       <Globe className="w-6 h-6 text-cyan-500 mx-auto mb-2" />
                       <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(selectedProjeto.atletas_site || 0).toLocaleString('pt-BR')}
+                        {(dadosConsolidados?.qtd_site_total || selectedProjeto.atletas_site || 0).toLocaleString('pt-BR')}
                       </p>
                       <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
                         Site
@@ -1029,16 +1062,30 @@ const Projetos: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Grupo */}
+                  {/* Grupo - from consolidated data */}
                   <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200'}`}>
                     <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/20 rounded-full blur-2xl" />
                     <div className="relative text-center">
                       <Award className="w-6 h-6 text-orange-500 mx-auto mb-2" />
                       <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(selectedProjeto.atletas_grupo || 0).toLocaleString('pt-BR')}
+                        {(dadosConsolidados?.qtd_grupos_total || selectedProjeto.atletas_grupo || 0).toLocaleString('pt-BR')}
                       </p>
                       <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
                         Grupo
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Cortesia - from consolidated data */}
+                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-rose-500/20 to-pink-500/20 border border-rose-500/30' : 'bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200'}`}>
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/20 rounded-full blur-2xl" />
+                    <div className="relative text-center">
+                      <Gift className="w-6 h-6 text-rose-500 mx-auto mb-2" />
+                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {(dadosConsolidados?.cortesia_total || 0).toLocaleString('pt-BR')}
+                      </p>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
+                        Cortesia
                       </span>
                     </div>
                   </div>
@@ -1046,9 +1093,10 @@ const Projetos: React.FC = () => {
 
                 {/* Insight Card */}
                 {(() => {
+                  const realizadoTotal = dadosConsolidados?.qtd_vendida_total || selectedProjeto.atletas_total || 0;
                   const insight = getAtletasInsight(
                     selectedProjeto.qtd_atletas_orcado || 0,
-                    selectedProjeto.atletas_total || 0
+                    realizadoTotal
                   );
 
                   const bgColor = insight.type === 'positive' 
@@ -1101,7 +1149,7 @@ const Projetos: React.FC = () => {
                           Dados em Tempo Real
                         </h3>
                         <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                          Inscrições do banco de vendas (atualizado a cada 5 min)
+                          Clique no botão para carregar dados detalhados do banco externo
                         </p>
                       </div>
                     </div>
@@ -1111,7 +1159,7 @@ const Projetos: React.FC = () => {
                       className={`flex items-center gap-2 px-3 py-2 rounded-xl ${isDark ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400' : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'} transition-all ${loadingExternos ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <RefreshCw className={`w-4 h-4 ${loadingExternos ? 'animate-spin' : ''}`} />
-                      <span className="text-sm font-medium">Atualizar</span>
+                      <span className="text-sm font-medium">{dadosExternos ? 'Atualizar' : 'Carregar Dados'}</span>
                     </button>
                   </div>
 
@@ -1128,80 +1176,19 @@ const Projetos: React.FC = () => {
                     </div>
                   )}
 
-                  {(dadosExternos || dadosConsolidados) && (
+                  {!dadosExternos && !loadingExternos && !erroExternos && (
+                    <div className={`p-4 rounded-xl text-center ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
+                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Clique em "Carregar Dados" para visualizar dados detalhados por categoria e local de venda.
+                      </p>
+                    </div>
+                  )}
+
+                  {dadosExternos && (
                     <>
-                      {/* Totais Consolidados */}
+                      {/* Cards por Local */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                        {/* Card Inscritos com Tooltip */}
-                        <div className={`group relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-500/30' : 'bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200'} cursor-pointer`}>
-                          <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/20 rounded-full blur-2xl" />
-                          <div className="relative text-center">
-                            <Users className="w-6 h-6 text-emerald-500 mx-auto mb-2" />
-                            <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                              {(dadosConsolidados?.qtd_vendida_total || dadosExternos?.qtd_total || 0).toLocaleString('pt-BR')}
-                            </p>
-                            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                              Inscritos (Consolidado)
-                            </span>
-                          </div>
-                          {/* Tooltip com breakdown por fonte */}
-                          {dadosConsolidados?.por_fonte && (
-                            <div className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 rounded-lg ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap pointer-events-none`}>
-                              <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                {dadosConsolidados.por_fonte.ativo && (
-                                  <div className="flex justify-between gap-4">
-                                    <span>Ativo:</span>
-                                    <span className="font-bold">{dadosConsolidados.por_fonte.ativo.qtd.toLocaleString('pt-BR')}</span>
-                                  </div>
-                                )}
-                                {dadosConsolidados.por_fonte.magento && (
-                                  <div className="flex justify-between gap-4">
-                                    <span>Magento:</span>
-                                    <span className="font-bold">{dadosConsolidados.por_fonte.magento.qtd.toLocaleString('pt-BR')}</span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className={`absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent ${isDark ? 'border-t-gray-800' : 'border-t-white'}`} />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Card Receita com Tooltip */}
-                        <div className={`group relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-green-500/20 to-lime-500/20 border border-green-500/30' : 'bg-gradient-to-br from-green-50 to-lime-50 border border-green-200'} cursor-pointer`}>
-                          <div className="absolute top-0 right-0 w-16 h-16 bg-green-500/20 rounded-full blur-2xl" />
-                          <div className="relative text-center">
-                            <DollarSign className="w-6 h-6 text-green-500 mx-auto mb-2" />
-                            <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                              {(dadosConsolidados?.valor_total || dadosExternos?.receita_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                            </p>
-                            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-green-400' : 'text-green-600'}`}>
-                              Receita Total
-                            </span>
-                          </div>
-                          {/* Tooltip com breakdown por fonte */}
-                          {dadosConsolidados?.por_fonte && (
-                            <div className={`absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-3 py-2 rounded-lg ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white border border-gray-200'} shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap pointer-events-none`}>
-                              <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                                {dadosConsolidados.por_fonte.ativo && (
-                                  <div className="flex justify-between gap-4">
-                                    <span>Ativo:</span>
-                                    <span className="font-bold">{dadosConsolidados.por_fonte.ativo.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}</span>
-                                  </div>
-                                )}
-                                {dadosConsolidados.por_fonte.magento && (
-                                  <div className="flex justify-between gap-4">
-                                    <span>Magento:</span>
-                                    <span className="font-bold">{dadosConsolidados.por_fonte.magento.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}</span>
-                                  </div>
-                                )}
-                              </div>
-                              <div className={`absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent ${isDark ? 'border-t-gray-800' : 'border-t-white'}`} />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Por Local */}
-                        {dadosExternos?.por_local?.slice(0, 2).map((local, idx) => (
+                        {dadosExternos?.por_local?.map((local, idx) => (
                           <div key={idx} className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200'}`}>
                             <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/20 rounded-full blur-2xl" />
                             <div className="relative text-center">
@@ -1219,7 +1206,7 @@ const Projetos: React.FC = () => {
                         ))}
                       </div>
 
-                      {/* Top Categorias */}
+                      {/* Top Categorias - apenas quantidades */}
                       {dadosExternos?.por_categoria && dadosExternos.por_categoria.length > 0 && (
                         <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                           <p className={`text-sm font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -1231,14 +1218,9 @@ const Projetos: React.FC = () => {
                                 <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                                   {cat.categoria}
                                 </span>
-                                <div className="flex items-center gap-4">
-                                  <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                    {cat.qtd.toLocaleString('pt-BR')} atletas
-                                  </span>
-                                  <span className={`text-sm ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                                    {cat.receita.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                                  </span>
-                                </div>
+                                <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                  {cat.qtd.toLocaleString('pt-BR')} atletas
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -1247,13 +1229,6 @@ const Projetos: React.FC = () => {
                     </>
                   )}
 
-                  {!dadosExternos && !dadosConsolidados && !loadingExternos && !erroExternos && (
-                    <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
-                      <p className={`text-sm text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Nenhum dado encontrado para o SKU: {selectedProjeto?.codigo}
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
 
