@@ -18,11 +18,14 @@ async def list_tarefas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from sqlalchemy import or_
+    from sqlalchemy import or_, and_
     query = db.query(Tarefa).filter(
         or_(
-            Tarefa.usuario_id == current_user.id,
-            Tarefa.responsavel_id == current_user.id
+            Tarefa.responsavel_id == current_user.id,
+            and_(
+                Tarefa.usuario_id == current_user.id,
+                Tarefa.responsavel_id.is_(None)
+            )
         )
     )
     
@@ -40,11 +43,14 @@ async def list_tarefas_pendentes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from sqlalchemy import or_
+    from sqlalchemy import or_, and_
     tarefas = db.query(Tarefa).filter(
         or_(
-            Tarefa.usuario_id == current_user.id,
-            Tarefa.responsavel_id == current_user.id
+            Tarefa.responsavel_id == current_user.id,
+            and_(
+                Tarefa.usuario_id == current_user.id,
+                Tarefa.responsavel_id.is_(None)
+            )
         ),
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
     ).order_by(Tarefa.data_vencimento.asc().nullsfirst()).all()
@@ -56,14 +62,17 @@ async def list_tarefas_hoje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from sqlalchemy import or_
+    from sqlalchemy import or_, and_
     hoje = datetime.now().date()
     amanha = hoje + timedelta(days=1)
     
     tarefas = db.query(Tarefa).filter(
         or_(
-            Tarefa.usuario_id == current_user.id,
-            Tarefa.responsavel_id == current_user.id
+            Tarefa.responsavel_id == current_user.id,
+            and_(
+                Tarefa.usuario_id == current_user.id,
+                Tarefa.responsavel_id.is_(None)
+            )
         ),
         Tarefa.data_vencimento >= hoje,
         Tarefa.data_vencimento < amanha,
@@ -72,43 +81,80 @@ async def list_tarefas_hoje(
     return tarefas
 
 
+@router.get("/delegadas", response_model=List[TarefaResponse])
+async def list_tarefas_delegadas(
+    status: Optional[StatusTarefa] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    from sqlalchemy import and_
+    query = db.query(Tarefa).filter(
+        and_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id.isnot(None),
+            Tarefa.responsavel_id != current_user.id
+        )
+    )
+    
+    if status:
+        query = query.filter(Tarefa.status == status)
+    
+    tarefas = query.order_by(Tarefa.created_at.desc()).all()
+    return tarefas
+
+
 @router.get("/resumo")
 async def get_resumo_tarefas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from sqlalchemy import or_
+    from sqlalchemy import or_, and_
     
-    base_filter = or_(
-        Tarefa.usuario_id == current_user.id,
-        Tarefa.responsavel_id == current_user.id
+    minhas_tarefas_filter = or_(
+        Tarefa.responsavel_id == current_user.id,
+        and_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id.is_(None)
+        )
     )
     
-    total = db.query(Tarefa).filter(base_filter).count()
+    delegadas_filter = and_(
+        Tarefa.usuario_id == current_user.id,
+        Tarefa.responsavel_id.isnot(None),
+        Tarefa.responsavel_id != current_user.id
+    )
+    
+    total = db.query(Tarefa).filter(minhas_tarefas_filter).count()
     pendentes = db.query(Tarefa).filter(
-        base_filter,
+        minhas_tarefas_filter,
         Tarefa.status == ModelStatusTarefa.PENDENTE
     ).count()
     em_andamento = db.query(Tarefa).filter(
-        base_filter,
+        minhas_tarefas_filter,
         Tarefa.status == ModelStatusTarefa.EM_ANDAMENTO
     ).count()
     concluidas = db.query(Tarefa).filter(
-        base_filter,
+        minhas_tarefas_filter,
         Tarefa.status == ModelStatusTarefa.CONCLUIDA
     ).count()
     
     hoje = datetime.now().date()
     vencendo_hoje = db.query(Tarefa).filter(
-        base_filter,
+        minhas_tarefas_filter,
         Tarefa.data_vencimento >= hoje,
         Tarefa.data_vencimento < hoje + timedelta(days=1),
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
     ).count()
     
     atrasadas = db.query(Tarefa).filter(
-        base_filter,
+        minhas_tarefas_filter,
         Tarefa.data_vencimento < hoje,
+        Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
+    ).count()
+    
+    delegadas_total = db.query(Tarefa).filter(delegadas_filter).count()
+    delegadas_pendentes = db.query(Tarefa).filter(
+        delegadas_filter,
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
     ).count()
     
@@ -118,7 +164,9 @@ async def get_resumo_tarefas(
         "em_andamento": em_andamento,
         "concluidas": concluidas,
         "vencendo_hoje": vencendo_hoje,
-        "atrasadas": atrasadas
+        "atrasadas": atrasadas,
+        "delegadas_total": delegadas_total,
+        "delegadas_pendentes": delegadas_pendentes
     }
 
 

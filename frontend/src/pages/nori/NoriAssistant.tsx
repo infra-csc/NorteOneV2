@@ -10,13 +10,14 @@ import {
   Sparkles,
   Play,
   CheckCircle2,
-  User
+  User,
+  Users
 } from 'lucide-react';
 import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
 import NoriChat from '../../components/nori/NoriChat';
 import noriAvatar from '@assets/Nori_1768273889454.png';
 
-type StatusFilter = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'TODAS';
+type StatusFilter = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'TODAS' | 'DELEGADAS';
 
 const NoriAssistant: React.FC = () => {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
@@ -38,12 +39,15 @@ const NoriAssistant: React.FC = () => {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [tarefasData, resumoData] = await Promise.all([
-        activeTab === 'TODAS' 
-          ? tarefasService.list() 
-          : tarefasService.list(activeTab),
-        tarefasService.getResumo()
-      ]);
+      let tarefasData;
+      if (activeTab === 'DELEGADAS') {
+        tarefasData = await tarefasService.getDelegadas();
+      } else if (activeTab === 'TODAS') {
+        tarefasData = await tarefasService.list();
+      } else {
+        tarefasData = await tarefasService.list(activeTab);
+      }
+      const resumoData = await tarefasService.getResumo();
       setTarefas(tarefasData);
       setResumo(resumoData);
     } catch (error) {
@@ -117,6 +121,7 @@ const NoriAssistant: React.FC = () => {
     { id: 'PENDENTE' as StatusFilter, label: 'Pendentes', icon: ListTodo, count: resumo?.pendentes || 0 },
     { id: 'EM_ANDAMENTO' as StatusFilter, label: 'Em Andamento', icon: Play, count: resumo?.em_andamento || 0 },
     { id: 'CONCLUIDA' as StatusFilter, label: 'Concluídas', icon: CheckCircle2, count: resumo?.concluidas || 0 },
+    { id: 'DELEGADAS' as StatusFilter, label: 'Delegadas', icon: Users, count: resumo?.delegadas_total || 0 },
     { id: 'TODAS' as StatusFilter, label: 'Todas', icon: ListTodo, count: resumo?.total || 0 },
   ];
 
@@ -125,6 +130,7 @@ const NoriAssistant: React.FC = () => {
       case 'PENDENTE': return 'Tarefas Pendentes';
       case 'EM_ANDAMENTO': return 'Tarefas em Andamento';
       case 'CONCLUIDA': return 'Tarefas Concluídas';
+      case 'DELEGADAS': return 'Tarefas Delegadas';
       default: return 'Todas as Tarefas';
     }
   };
@@ -399,13 +405,19 @@ const NoriAssistant: React.FC = () => {
                         </p>
                       )}
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
-                        {tarefa.usuario && tarefa.responsavel && tarefa.usuario.id !== tarefa.responsavel.id && (
+                        {activeTab !== 'DELEGADAS' && tarefa.usuario && tarefa.responsavel && tarefa.usuario.id !== tarefa.responsavel.id && (
                           <span className="text-xs px-2 py-1 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 rounded-full flex items-center gap-1">
                             <User className="w-3 h-3" />
                             Atribuída por @{tarefa.usuario.nome}
                           </span>
                         )}
-                        {tarefa.responsavel && (
+                        {activeTab === 'DELEGADAS' && tarefa.responsavel && (
+                          <span className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-full flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            Delegada para: @{tarefa.responsavel.nome}
+                          </span>
+                        )}
+                        {activeTab !== 'DELEGADAS' && tarefa.responsavel && (
                           <span className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-full flex items-center gap-1">
                             <User className="w-3 h-3" />
                             Para: @{tarefa.responsavel.nome}

@@ -397,6 +397,12 @@ export const tarefasService = {
     const response = await api.get('/tarefas/resumo');
     return response.data;
   },
+  getDelegadas: async (status?: string) => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    const response = await api.get(`/tarefas/delegadas?${params.toString()}`);
+    return response.data;
+  },
   get: async (id: number) => {
     const response = await api.get(`/tarefas/${id}`);
     return response.data;
