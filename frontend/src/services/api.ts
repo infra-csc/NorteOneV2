@@ -339,6 +339,7 @@ export interface Tarefa {
   responsavel_id?: number;
   responsavel?: UsuarioInfo;
   usuario?: UsuarioInfo;
+  dados_analise?: string;
   created_at: string;
   updated_at: string;
 }
@@ -351,6 +352,7 @@ export interface TarefaCreate {
   prioridade?: 'BAIXA' | 'MEDIA' | 'ALTA' | 'URGENTE';
   criado_por_nori?: boolean;
   responsavel_id?: number;
+  dados_analise?: string;
 }
 
 export const cadastrosService = {

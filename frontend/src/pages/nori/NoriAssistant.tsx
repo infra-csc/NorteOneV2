@@ -11,7 +11,12 @@ import {
   Play,
   CheckCircle2,
   User,
-  Users
+  Users,
+  BarChart3,
+  X,
+  TrendingUp,
+  TrendingDown,
+  Minus
 } from 'lucide-react';
 import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
 import NoriChat from '../../components/nori/NoriChat';
@@ -19,6 +24,21 @@ import noriAvatar from '@assets/Nori_1768273889454.png';
 
 type StatusFilter = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'TODAS' | 'DELEGADAS';
 type DelegadasFilter = 'TODAS' | 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA';
+
+interface AnalysisData {
+  timestamp: string;
+  events: Array<{
+    name: string;
+    location: string;
+    category: string;
+    dMinus: number;
+    currentSales: number;
+    salesGoal: number;
+    isc: number;
+    iscStatus: string;
+  }>;
+  analysis: string;
+}
 
 const NoriAssistant: React.FC = () => {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
@@ -28,6 +48,8 @@ const NoriAssistant: React.FC = () => {
   const [showNewTask, setShowNewTask] = useState(false);
   const [activeTab, setActiveTab] = useState<StatusFilter>('PENDENTE');
   const [delegadasFilter, setDelegadasFilter] = useState<DelegadasFilter>('TODAS');
+  const [showAnalysisModal, setShowAnalysisModal] = useState(false);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisData | null>(null);
   const [newTask, setNewTask] = useState<TarefaCreate>({
     titulo: '',
     descricao: '',
@@ -103,6 +125,18 @@ const NoriAssistant: React.FC = () => {
       loadData();
     } catch (error) {
       console.error('Erro ao excluir tarefa:', error);
+    }
+  };
+
+  const handleViewAnalysis = (tarefa: Tarefa) => {
+    if (tarefa.dados_analise) {
+      try {
+        const analysisData = JSON.parse(tarefa.dados_analise) as AnalysisData;
+        setSelectedAnalysis(analysisData);
+        setShowAnalysisModal(true);
+      } catch (error) {
+        console.error('Erro ao parsear dados da análise:', error);
+      }
     }
   };
 
@@ -493,10 +527,16 @@ const NoriAssistant: React.FC = () => {
                             Para: @{tarefa.responsavel.nome}
                           </span>
                         )}
-                        {tarefa.data_vencimento && (
+                        {tarefa.created_at && (
                           <span className="text-xs text-gray-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Criada em {new Date(tarefa.created_at).toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                        {tarefa.data_vencimento && (
+                          <span className="text-xs text-amber-500 flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {new Date(tarefa.data_vencimento).toLocaleString('pt-BR')}
+                            Vence em {new Date(tarefa.data_vencimento).toLocaleString('pt-BR')}
                           </span>
                         )}
                         {tarefa.status === 'CONCLUIDA' && tarefa.updated_at && (
@@ -507,28 +547,39 @@ const NoriAssistant: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    {activeTab !== 'DELEGADAS' && (
-                      <div className="flex items-center gap-2">
-                        {tarefa.status === 'PENDENTE' && (
-                          <button
-                            onClick={() => handleIniciar(tarefa.id)}
-                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
-                            title="Iniciar tarefa"
-                          >
-                            <Play className="w-4 h-4" />
-                          </button>
-                        )}
-                        {tarefa.status !== 'CONCLUIDA' && (
-                          <button
-                            onClick={() => handleDelete(tarefa.id)}
-                            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                            title="Excluir tarefa"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {tarefa.dados_analise && (
+                        <button
+                          onClick={() => handleViewAnalysis(tarefa)}
+                          className="p-2 text-purple-400 hover:text-purple-600 transition-colors"
+                          title="Ver análise anexada"
+                        >
+                          <BarChart3 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {activeTab !== 'DELEGADAS' && (
+                        <>
+                          {tarefa.status === 'PENDENTE' && (
+                            <button
+                              onClick={() => handleIniciar(tarefa.id)}
+                              className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                              title="Iniciar tarefa"
+                            >
+                              <Play className="w-4 h-4" />
+                            </button>
+                          )}
+                          {tarefa.status !== 'CONCLUIDA' && (
+                            <button
+                              onClick={() => handleDelete(tarefa.id)}
+                              className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                              title="Excluir tarefa"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
@@ -542,6 +593,100 @@ const NoriAssistant: React.FC = () => {
         onClose={() => setIsChatOpen(false)} 
         onTaskCreated={loadData}
       />
+
+      {showAnalysisModal && selectedAnalysis && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700">
+            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <BarChart3 className="w-6 h-6 text-white" />
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Análise de Eventos</h2>
+                  <p className="text-sm text-purple-200">
+                    Gerada em {new Date(selectedAnalysis.timestamp).toLocaleString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAnalysisModal(false)}
+                className="p-2 text-white/80 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-auto p-6 space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5" />
+                  Eventos no Momento da Análise
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {selectedAnalysis.events.map((event, idx) => {
+                    const StatusIcon = event.iscStatus === 'accelerating' ? TrendingUp : 
+                                       event.iscStatus === 'stable' ? Minus : TrendingDown;
+                    const statusColor = event.iscStatus === 'accelerating' ? 'text-green-500 border-green-500 bg-green-50 dark:bg-green-900/20' : 
+                                        event.iscStatus === 'stable' ? 'text-yellow-500 border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20' : 
+                                        'text-red-500 border-red-500 bg-red-50 dark:bg-red-900/20';
+                    const progress = (event.currentSales / event.salesGoal) * 100;
+                    
+                    return (
+                      <div key={idx} className={`border-l-4 rounded-lg p-4 ${statusColor}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <StatusIcon className="w-4 h-4" />
+                            <span className="font-semibold text-gray-900 dark:text-white">{event.name}</span>
+                          </div>
+                          <span className="font-bold">ISC: {event.isc.toFixed(2)}</span>
+                        </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                          {event.location} - {event.category}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs">
+                          <span>D-{event.dMinus}</span>
+                          <div className="flex-1">
+                            <div className="h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full ${
+                                  event.iscStatus === 'accelerating' ? 'bg-green-500' : 
+                                  event.iscStatus === 'stable' ? 'bg-yellow-500' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${Math.min(progress, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                          <span>{event.currentSales.toLocaleString()}/{event.salesGoal.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5" />
+                  Análise da Nori
+                </h3>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 prose dark:prose-invert max-w-none">
+                  <div className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">
+                    {selectedAnalysis.analysis}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="border-t border-gray-200 dark:border-gray-700 p-4 flex justify-end">
+              <button
+                onClick={() => setShowAnalysisModal(false)}
+                className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

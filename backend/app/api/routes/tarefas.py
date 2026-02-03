@@ -211,7 +211,8 @@ async def create_tarefa(
         prioridade=tarefa.prioridade,
         criado_por_nori=tarefa.criado_por_nori,
         usuario_id=current_user.id,
-        responsavel_id=responsavel_id
+        responsavel_id=responsavel_id,
+        dados_analise=tarefa.dados_analise
     )
     
     db.add(db_tarefa)

@@ -157,6 +157,7 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
   };
 
   const [showEventCards, setShowEventCards] = useState(false);
+  const [lastAnalysisData, setLastAnalysisData] = useState<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -412,6 +413,13 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
 
       const response = await noriService.analyze(eventsData);
       
+      const analysisSnapshot = {
+        timestamp: new Date().toISOString(),
+        events: eventsData,
+        analysis: response.response
+      };
+      setLastAnalysisData(JSON.stringify(analysisSnapshot));
+      
       const assistantMessage: ChatMessage = { role: 'assistant', content: response.response };
       setMessages(prev => [...prev, assistantMessage]);
       
@@ -439,20 +447,30 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
     }
   };
 
+  const isEventRelatedTask = (titulo: string): boolean => {
+    const keywords = ['evento', 'eventos', 'análise', 'analise', 'isc', 'marketing', 'vendas', 'crítico', 'critico', 'desacelerando', 'acelerando'];
+    const lowerTitulo = titulo.toLowerCase();
+    return keywords.some(kw => lowerTitulo.includes(kw));
+  };
+
   const createQuickTask = async (titulo: string) => {
     try {
+      const shouldIncludeAnalysis = isEventRelatedTask(titulo) && lastAnalysisData;
+      
       const taskData: TarefaCreate = {
         titulo,
         criado_por_nori: true,
-        responsavel_id: selectedUser?.id
+        responsavel_id: selectedUser?.id,
+        dados_analise: shouldIncludeAnalysis ? lastAnalysisData : undefined
       };
       
       await tarefasService.create(taskData);
       
       const responsavelInfo = selectedUser ? ` para @${selectedUser.nome}` : '';
+      const analysisInfo = shouldIncludeAnalysis ? '\n\n📊 *Dados da análise anexados à tarefa*' : '';
       const confirmMessage: ChatMessage = {
         role: 'assistant',
-        content: `✅ Tarefa criada com sucesso${responsavelInfo}!\n\n**"${titulo}"**\n\nVocê pode ver suas tarefas na tela principal do Nori.`
+        content: `✅ Tarefa criada com sucesso${responsavelInfo}!\n\n**"${titulo}"**${analysisInfo}\n\nVocê pode ver suas tarefas na tela principal do Nori.`
       };
       setMessages(prev => [...prev, confirmMessage]);
       

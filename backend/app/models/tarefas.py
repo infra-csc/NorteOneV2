@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Enum, Text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from datetime import datetime
@@ -37,6 +37,7 @@ class Tarefa(Base):
     criado_por_nori = Column(Boolean, default=False)
     usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
     responsavel_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    dados_analise = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=get_brasilia_now)
     updated_at = Column(DateTime, default=get_brasilia_now, onupdate=get_brasilia_now)

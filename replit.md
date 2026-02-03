@@ -68,6 +68,11 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - Added filter buttons in "Delegadas" tab (Todas, Pendentes, Em Andamento, Concluídas) for tracking progress.
   - Added status indicator tooltip showing task state (Pendente, Em Andamento, Concluída) on hover.
   - Removed action buttons (complete, start, delete) from delegated tasks view - only the assignee can manage them.
+  - Added `dados_analise` field to store event analysis snapshots when creating tasks.
+  - Task list now shows creation date ("Criada em") for all tasks.
+  - Added "Ver Análise" button (chart icon) for tasks that have attached analysis data.
+  - Analysis modal displays: events snapshot at time of analysis, ISC values, sales progress, and Nori's analysis text.
+  - NoriChat automatically attaches current analysis data when creating event-related tasks (keywords: evento, análise, isc, marketing, vendas, crítico, etc.).
 
 - **Improved Nori Assistente Task Management:**
   - Added tab system (Pendentes, Em Andamento, Concluídas, Todas) for better task navigation and tracking.
