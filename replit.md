@@ -56,6 +56,16 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 ## Recent Changes
 
 ### 2026-02-03
+- **Separated User Tasks from Delegated Tasks:**
+  - Modified task listing endpoints to separate "my tasks" (where user is responsável or created for self) from "delegated tasks" (tasks created for other users).
+  - Added new `/api/tarefas/delegadas` endpoint to list tasks delegated to others.
+  - Updated `/api/tarefas/resumo` to include `delegadas_total` and `delegadas_pendentes` counts.
+  - Added "Delegadas" tab in NoriAssistant with Users icon, showing tasks assigned to other users.
+  - In "Delegadas" tab, tasks show "Delegada para: @responsavel.nome" badge.
+  - In other tabs, tasks show "Atribuída por @usuario" when assigned by another user.
+  - Tasks created for other users no longer appear in the creator's main task lists (only in "Delegadas" tab).
+  - Used SQLAlchemy `is_(None)` and `isnot(None)` for proper null comparisons.
+
 - **Improved Nori Assistente Task Management:**
   - Added tab system (Pendentes, Em Andamento, Concluídas, Todas) for better task navigation and tracking.
   - Tasks now display who assigned them ("Atribuída por @usuario") when a different user created the task.
