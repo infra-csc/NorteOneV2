@@ -65,6 +65,9 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - In other tabs, tasks show "Atribuída por @usuario" when assigned by another user.
   - Tasks created for other users no longer appear in the creator's main task lists (only in "Delegadas" tab).
   - Used SQLAlchemy `is_(None)` and `isnot(None)` for proper null comparisons.
+  - Added filter buttons in "Delegadas" tab (Todas, Pendentes, Em Andamento, Concluídas) for tracking progress.
+  - Added status indicator tooltip showing task state (Pendente, Em Andamento, Concluída) on hover.
+  - Removed action buttons (complete, start, delete) from delegated tasks view - only the assignee can manage them.
 
 - **Improved Nori Assistente Task Management:**
   - Added tab system (Pendentes, Em Andamento, Concluídas, Todas) for better task navigation and tracking.

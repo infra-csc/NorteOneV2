@@ -18,6 +18,7 @@ import NoriChat from '../../components/nori/NoriChat';
 import noriAvatar from '@assets/Nori_1768273889454.png';
 
 type StatusFilter = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'TODAS' | 'DELEGADAS';
+type DelegadasFilter = 'TODAS' | 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA';
 
 const NoriAssistant: React.FC = () => {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
@@ -26,6 +27,7 @@ const NoriAssistant: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [activeTab, setActiveTab] = useState<StatusFilter>('PENDENTE');
+  const [delegadasFilter, setDelegadasFilter] = useState<DelegadasFilter>('TODAS');
   const [newTask, setNewTask] = useState<TarefaCreate>({
     titulo: '',
     descricao: '',
@@ -34,14 +36,19 @@ const NoriAssistant: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [activeTab]);
+  }, [activeTab, delegadasFilter]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       let tarefasData;
       if (activeTab === 'DELEGADAS') {
-        tarefasData = await tarefasService.getDelegadas();
+        const allDelegadas = await tarefasService.getDelegadas();
+        if (delegadasFilter === 'TODAS') {
+          tarefasData = allDelegadas;
+        } else {
+          tarefasData = allDelegadas.filter((t: Tarefa) => t.status === delegadasFilter);
+        }
       } else if (activeTab === 'TODAS') {
         tarefasData = await tarefasService.list();
       } else {
@@ -116,6 +123,23 @@ const NoriAssistant: React.FC = () => {
       default: return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400';
     }
   };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'CONCLUIDA': return 'Concluída';
+      case 'EM_ANDAMENTO': return 'Em Andamento';
+      case 'CANCELADA': return 'Cancelada';
+      case 'PENDENTE': return 'Pendente';
+      default: return status;
+    }
+  };
+
+  const delegadasFilterOptions: { id: DelegadasFilter; label: string }[] = [
+    { id: 'TODAS', label: 'Todas' },
+    { id: 'PENDENTE', label: 'Pendentes' },
+    { id: 'EM_ANDAMENTO', label: 'Em Andamento' },
+    { id: 'CONCLUIDA', label: 'Concluídas' },
+  ];
 
   const tabs = [
     { id: 'PENDENTE' as StatusFilter, label: 'Pendentes', icon: ListTodo, count: resumo?.pendentes || 0 },
@@ -327,10 +351,32 @@ const NoriAssistant: React.FC = () => {
           </div>
 
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <ListTodo className="w-5 h-5" />
-              {getTabTitle()}
-            </h3>
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <ListTodo className="w-5 h-5" />
+                {getTabTitle()}
+              </h3>
+              {activeTab === 'DELEGADAS' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Filtrar:</span>
+                  <div className="flex gap-1">
+                    {delegadasFilterOptions.map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setDelegadasFilter(opt.id)}
+                        className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                          delegadasFilter === opt.id
+                            ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -360,7 +406,31 @@ const NoriAssistant: React.FC = () => {
                   }`}
                 >
                   <div className="flex items-start gap-4">
-                    {tarefa.status !== 'CONCLUIDA' && tarefa.status !== 'CANCELADA' ? (
+                    {activeTab === 'DELEGADAS' ? (
+                      <div 
+                        className="mt-1 flex-shrink-0 relative group"
+                        title={`Status: ${getStatusLabel(tarefa.status)}`}
+                      >
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
+                          tarefa.status === 'CONCLUIDA' 
+                            ? 'bg-green-100 dark:bg-green-900/30' 
+                            : tarefa.status === 'EM_ANDAMENTO'
+                            ? 'bg-blue-100 dark:bg-blue-900/30'
+                            : 'bg-indigo-100 dark:bg-indigo-900/30'
+                        }`}>
+                          {tarefa.status === 'CONCLUIDA' ? (
+                            <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                          ) : tarefa.status === 'EM_ANDAMENTO' ? (
+                            <Play className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <Clock className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          )}
+                        </div>
+                        <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 px-2 py-1 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10 pointer-events-none">
+                          {getStatusLabel(tarefa.status)}
+                        </div>
+                      </div>
+                    ) : tarefa.status !== 'CONCLUIDA' && tarefa.status !== 'CANCELADA' ? (
                       <button
                         onClick={() => handleConcluir(tarefa.id)}
                         className="mt-1 w-5 h-5 border-2 border-gray-300 dark:border-gray-600 rounded hover:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors flex-shrink-0"
@@ -437,26 +507,28 @@ const NoriAssistant: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {tarefa.status === 'PENDENTE' && (
-                        <button
-                          onClick={() => handleIniciar(tarefa.id)}
-                          className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
-                          title="Iniciar tarefa"
-                        >
-                          <Play className="w-4 h-4" />
-                        </button>
-                      )}
-                      {tarefa.status !== 'CONCLUIDA' && (
-                        <button
-                          onClick={() => handleDelete(tarefa.id)}
-                          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                          title="Excluir tarefa"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
+                    {activeTab !== 'DELEGADAS' && (
+                      <div className="flex items-center gap-2">
+                        {tarefa.status === 'PENDENTE' && (
+                          <button
+                            onClick={() => handleIniciar(tarefa.id)}
+                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                            title="Iniciar tarefa"
+                          >
+                            <Play className="w-4 h-4" />
+                          </button>
+                        )}
+                        {tarefa.status !== 'CONCLUIDA' && (
+                          <button
+                            onClick={() => handleDelete(tarefa.id)}
+                            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Excluir tarefa"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
