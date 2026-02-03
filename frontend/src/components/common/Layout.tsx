@@ -245,7 +245,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </nav>
       </aside>
 
-      <div className={`${sidebarOpen ? 'lg:ml-64' : ''} transition-all duration-200`}>
+      <div className={`${sidebarOpen ? 'lg:ml-64' : ''} transition-all duration-200 min-h-screen ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
         <header className={`sticky top-0 z-40 h-16 flex items-center justify-between px-4 ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-b shadow-sm`}>
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
             <Menu className={isDark ? 'text-white' : 'text-gray-600'} />
