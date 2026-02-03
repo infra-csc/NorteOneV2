@@ -21,9 +21,11 @@ import {
   isInCriticalWindow 
 } from '../../types/marketingPerformance';
 import { marketingService, MarketingEvent, MarketingDashboardSummary } from '../../services/api';
+import { useTheme } from '../../context/ThemeContext';
 
 const MarketingDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -156,13 +158,20 @@ const MarketingDashboard: React.FC = () => {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-screen">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className={`absolute top-0 left-1/4 w-96 h-96 ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'} rounded-full blur-3xl animate-pulse`} />
+        <div className={`absolute bottom-0 right-1/4 w-96 h-96 ${isDark ? 'bg-purple-500/10' : 'bg-purple-400/20'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '1s' }} />
+        <div className={`absolute top-1/2 left-1/2 w-64 h-64 ${isDark ? 'bg-indigo-500/5' : 'bg-indigo-400/15'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '2s' }} />
+      </div>
+
+      <div className="relative z-10 p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Marketing Performance
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
+          <p className={`mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Acompanhamento de vendas e ISC dos eventos
           </p>
         </div>
@@ -466,6 +475,7 @@ const MarketingDashboard: React.FC = () => {
             </p>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

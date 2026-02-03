@@ -39,6 +39,7 @@ import {
   isInCriticalWindow,
   getISCStatus
 } from '../../types/marketingPerformance';
+import { useTheme } from '../../context/ThemeContext';
 
 interface CommercialAction {
   id: string;
@@ -60,6 +61,7 @@ interface ExtendedEvent extends MarketingEvent {
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const [event, setEvent] = useState<ExtendedEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -275,18 +277,25 @@ const EventDetail: React.FC = () => {
   const gaugeRotation = Math.min(Math.max((event.isc - 0.5) * 180, 0), 180);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-screen">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className={`absolute top-0 left-1/4 w-96 h-96 ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'} rounded-full blur-3xl animate-pulse`} />
+        <div className={`absolute bottom-0 right-1/4 w-96 h-96 ${isDark ? 'bg-purple-500/10' : 'bg-purple-400/20'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '1s' }} />
+        <div className={`absolute top-1/2 left-1/2 w-64 h-64 ${isDark ? 'bg-indigo-500/5' : 'bg-indigo-400/15'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '2s' }} />
+      </div>
+
+      <div className="relative z-10 p-6 space-y-6">
       <div className="flex items-center gap-4">
         <button
           onClick={() => navigate('/marketing')}
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
         >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <ArrowLeft className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
         </button>
-        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+        <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
           <Link to="/marketing" className="hover:text-blue-600">Dashboard</Link>
           <span>/</span>
-          <span className="text-gray-900 dark:text-white">{event.name}</span>
+          <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
         </div>
       </div>
 
@@ -785,6 +794,7 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

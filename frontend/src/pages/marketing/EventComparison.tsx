@@ -21,10 +21,12 @@ import {
 } from 'recharts';
 import { mockEvents } from '../../data/mockMarketingData';
 import { getISCColor, getISCEmoji } from '../../types/marketingPerformance';
+import { useTheme } from '../../context/ThemeContext';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
 const EventComparison: React.FC = () => {
+  const { isDark } = useTheme();
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   
   const availableEvents = mockEvents.filter(e => !selectedEvents.includes(e.id));
@@ -75,19 +77,26 @@ const EventComparison: React.FC = () => {
   const chartData = getComparisonChartData();
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="min-h-screen">
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className={`absolute top-0 left-1/4 w-96 h-96 ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'} rounded-full blur-3xl animate-pulse`} />
+        <div className={`absolute bottom-0 right-1/4 w-96 h-96 ${isDark ? 'bg-purple-500/10' : 'bg-purple-400/20'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '1s' }} />
+        <div className={`absolute top-1/2 left-1/2 w-64 h-64 ${isDark ? 'bg-indigo-500/5' : 'bg-indigo-400/15'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '2s' }} />
+      </div>
+
+      <div className="relative z-10 p-6 space-y-6">
       <div className="flex items-center gap-4">
         <Link
           to="/marketing"
-          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
         >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <ArrowLeft className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
             Comparativo de Eventos
           </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
+          <p className={`mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Compare até 4 eventos lado a lado
           </p>
         </div>
@@ -391,6 +400,7 @@ const EventComparison: React.FC = () => {
           </p>
         </div>
       )}
+      </div>
     </div>
   );
 };
