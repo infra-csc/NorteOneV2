@@ -386,7 +386,7 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-4 py-4 text-sm text-gray-900 dark:text-white">
-                    {event.date ? new Date(event.date).toLocaleDateString('pt-BR') : '-'}
+                    {event.date ? new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
                   </td>
                   <td className="px-4 py-4 text-center">
                     <span className={`font-bold ${

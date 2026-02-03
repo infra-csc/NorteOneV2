@@ -307,7 +307,7 @@ const EventDetail: React.FC = () => {
             <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
               <span className="flex items-center gap-1">
                 <Calendar className="w-4 h-4" />
-                {new Date(event.date).toLocaleDateString('pt-BR', { 
+                {new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR', { 
                   day: '2-digit', 
                   month: 'long', 
                   year: 'numeric' 
@@ -657,7 +657,7 @@ const EventDetail: React.FC = () => {
                     </p>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(action.date).toLocaleDateString('pt-BR')}
+                        {new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}
                       </span>
                       <button
                         onClick={() => handleDeleteAction(action.id)}
