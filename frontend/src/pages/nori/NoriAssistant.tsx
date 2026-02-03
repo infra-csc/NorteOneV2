@@ -161,7 +161,6 @@ const NoriAssistant: React.FC = () => {
               onClick={() => setIsChatOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-colors"
             >
-              <img src={noriAvatar} alt="Nori" className="w-8 h-8" />
               Falar com Nori
             </button>
           </div>
