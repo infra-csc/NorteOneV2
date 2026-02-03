@@ -41,9 +41,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
-            <Route path="/cadastros/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
-            <Route path="/cadastros/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
-            <Route path="/cadastros/projetos" element={<PrivateRoute><Layout><Projetos /></Layout></PrivateRoute>} />
+                        <Route path="/cadastros/projetos" element={<PrivateRoute><Layout><Projetos /></Layout></PrivateRoute>} />
             <Route path="/cadastros/categorias-atletas" element={<PrivateRoute><Layout><CategoriasAtletas /></Layout></PrivateRoute>} />
             <Route path="/cadastros/cadastro" element={<PrivateRoute><Layout><Cadastro /></Layout></PrivateRoute>} />
             <Route path="/orcamento" element={<PrivateRoute><Layout><Orcamento /></Layout></PrivateRoute>} />
@@ -55,6 +53,8 @@ function App() {
             <Route path="/nori" element={<PrivateRoute><Layout><NoriAssistant /></Layout></PrivateRoute>} />
             <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
             <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />
+            <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
+            <Route path="/admin/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
           </Routes>
         </Router>
       </AuthProvider>

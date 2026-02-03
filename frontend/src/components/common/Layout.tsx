@@ -33,8 +33,6 @@ interface LayoutProps {
 const menuItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/nori', icon: Sparkles, label: 'Nori - Assistente' },
-  { path: '/cadastros/centros-custo', icon: Building2, label: 'Centros de Custo' },
-  { path: '/cadastros/contas', icon: FileSpreadsheet, label: 'Contas' },
   { path: '/cadastros/projetos', icon: Target, label: 'Projetos' },
   { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas' },
   { path: '/cadastros/cadastro', icon: CheckCircle, label: 'Cadastro' },
@@ -51,6 +49,8 @@ const marketingItems = [
 const adminItems = [
   { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados' },
   { path: '/admin/usuarios', icon: UserCog, label: 'Usuários' },
+  { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo' },
+  { path: '/admin/contas', icon: FileSpreadsheet, label: 'Contas' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
