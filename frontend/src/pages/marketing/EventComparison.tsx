@@ -130,7 +130,7 @@ const EventComparison: React.FC = () => {
                     e.target.value = '';
                   }
                 }}
-                className="appearance-none px-4 py-2 pr-8 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm cursor-pointer hover:border-blue-500"
+                className="appearance-none px-4 py-2 pr-8 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm cursor-pointer hover:border-blue-500 dark:hover:border-blue-400"
                 defaultValue=""
               >
                 <option value="" disabled>+ Adicionar evento</option>
@@ -220,7 +220,7 @@ const EventComparison: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       D- (Dias para evento)
                     </td>
@@ -230,7 +230,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       <div className="flex items-center gap-1">
                         ISC
@@ -253,7 +253,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       IA 7/30
                     </td>
@@ -270,7 +270,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Curva D-%
                     </td>
@@ -287,7 +287,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Rolling 14d
                     </td>
@@ -297,7 +297,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Vendas Atuais
                     </td>
@@ -307,7 +307,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Meta
                     </td>
@@ -317,7 +317,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       % da Meta
                     </td>
@@ -337,7 +337,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Ticket Médio
                     </td>
@@ -347,7 +347,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Categoria
                     </td>
@@ -357,7 +357,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Local
                     </td>
@@ -367,7 +367,7 @@ const EventComparison: React.FC = () => {
                       </td>
                     ))}
                   </tr>
-                  <tr>
+                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                     <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                       Ação Sugerida
                     </td>
