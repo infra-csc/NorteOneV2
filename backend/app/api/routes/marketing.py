@@ -550,7 +550,7 @@ async def get_marketing_events(
         query = query.filter(DimProjeto.modalidade == categoria)
     
     if busca:
-        query = query.filter(DimProjeto.nome.ilike(f'%{busca}%'))
+        query = query.filter(DimProjeto.evento.ilike(f'%{busca}%'))
     
     projetos = query.all()
     
