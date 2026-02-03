@@ -55,6 +55,16 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 
 ## Recent Changes
 
+### 2026-02-03
+- **Improved Nori Assistente Task Management:**
+  - Added tab system (Pendentes, Em Andamento, Concluídas, Todas) for better task navigation and tracking.
+  - Tasks now display who assigned them ("Atribuída por @usuario") when a different user created the task.
+  - Completed tasks remain visible with differentiated styling (line-through, reduced opacity, green check icon).
+  - Added "Iniciar" button to move tasks from PENDENTE to EM_ANDAMENTO status.
+  - Backend TarefaResponse schema updated to include `usuario` field (task creator info).
+  - All task API endpoints now filter by both creator (usuario_id) and assignee (responsavel_id).
+  - Task summary counts now include tasks where user is the assignee.
+
 ### 2026-02-02
 - **Updated 'Análise de Atletas' cards in Projetos screen:**
   - Cards now display consolidated data from both Ativo and Magento databases.
