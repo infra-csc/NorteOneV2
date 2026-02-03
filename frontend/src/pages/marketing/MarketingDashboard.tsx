@@ -24,7 +24,8 @@ import { marketingService, MarketingEvent, MarketingDashboardSummary } from '../
 
 const MarketingDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('active');
   
@@ -57,7 +58,7 @@ const MarketingDashboard: React.FC = () => {
         ano: new Date().getFullYear(),
         status: statusFilter === 'all' ? undefined : statusFilter,
         categoria: categoryFilter === 'all' ? undefined : categoryFilter,
-        busca: search || undefined
+        busca: debouncedSearch || undefined
       });
       
       setEventos(response.eventos);
@@ -71,11 +72,18 @@ const MarketingDashboard: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [statusFilter, categoryFilter, search]);
+  }, [statusFilter, categoryFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     autoRefreshRef.current = setInterval(() => {
@@ -259,8 +267,8 @@ const MarketingDashboard: React.FC = () => {
               <input
                 type="text"
                 placeholder="Buscar evento..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
