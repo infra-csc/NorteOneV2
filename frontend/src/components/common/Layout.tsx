@@ -50,6 +50,7 @@ const marketingItems = [
 
 const adminItems = [
   { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados' },
+  { path: '/admin/usuarios', icon: UserCog, label: 'Usuários' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
@@ -180,21 +181,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     </Link>
                   );
                 })}
-                {user?.perfil === 'ADMIN' && (
-                  <Link
-                    to="/cadastros/usuarios"
-                    className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
-                      location.pathname === '/cadastros/usuarios'
-                        ? 'bg-blue-600 text-white'
-                        : isDark
-                        ? 'text-gray-300 hover:bg-gray-700'
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <UserCog className="w-4 h-4 mr-3" />
-                    Usuarios
-                  </Link>
-                )}
               </div>
             )}
           </div>

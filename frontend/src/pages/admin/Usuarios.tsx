@@ -1,0 +1,567 @@
+import React, { useEffect, useState } from 'react';
+import { useTheme } from '../../context/ThemeContext';
+import api from '../../services/api';
+import { 
+  Users, Search, Plus, Edit2, Trash2, RefreshCw, 
+  AlertTriangle, CheckCircle, XCircle, X, Building2, ShieldCheck
+} from 'lucide-react';
+
+interface CentroCusto {
+  id: number;
+  nome: string;
+}
+
+interface Usuario {
+  id: number;
+  email: string;
+  nome: string;
+  perfil: string;
+  centro_custo_id: number | null;
+  ativo: boolean;
+}
+
+interface UsuarioForm {
+  email: string;
+  nome: string;
+  password: string;
+  perfil: string;
+  centro_custo_id: number | null;
+}
+
+const perfis = ['ADMIN', 'GERENTE', 'ANALISTA', 'VISUALIZADOR'];
+
+const Usuarios: React.FC = () => {
+  const { isDark } = useTheme();
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [filterPerfil, setFilterPerfil] = useState<string>('todos');
+  const [filterCentroCusto, setFilterCentroCusto] = useState<string>('todos');
+  const [filterStatus, setFilterStatus] = useState<string>('ativos');
+  
+  const [showModal, setShowModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<Usuario | null>(null);
+  const [formData, setFormData] = useState<UsuarioForm>({
+    email: '',
+    nome: '',
+    password: '',
+    perfil: 'VISUALIZADOR',
+    centro_custo_id: null
+  });
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [usersRes, centrosRes] = await Promise.all([
+        api.get('/users/'),
+        api.get('/centros-custo/')
+      ]);
+      setUsuarios(usersRes.data);
+      setCentrosCusto(centrosRes.data);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Erro ao carregar dados');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const getCentroCustoNome = (id: number | null) => {
+    if (!id) return '-';
+    const centro = centrosCusto.find(c => c.id === id);
+    return centro?.nome || '-';
+  };
+
+  const filteredUsuarios = usuarios.filter(user => {
+    const matchesSearch = !search || 
+      user.nome.toLowerCase().includes(search.toLowerCase()) ||
+      user.email.toLowerCase().includes(search.toLowerCase());
+    const matchesPerfil = filterPerfil === 'todos' || user.perfil === filterPerfil;
+    const matchesCentro = filterCentroCusto === 'todos' || 
+      (filterCentroCusto === 'sem_centro' ? !user.centro_custo_id : user.centro_custo_id === parseInt(filterCentroCusto));
+    const matchesStatus = filterStatus === 'todos' || 
+      (filterStatus === 'ativos' ? user.ativo : !user.ativo);
+    return matchesSearch && matchesPerfil && matchesCentro && matchesStatus;
+  });
+
+  const openCreateModal = () => {
+    setEditingUser(null);
+    setFormData({
+      email: '',
+      nome: '',
+      password: '',
+      perfil: 'VISUALIZADOR',
+      centro_custo_id: null
+    });
+    setFormError(null);
+    setShowModal(true);
+  };
+
+  const openEditModal = (user: Usuario) => {
+    setEditingUser(user);
+    setFormData({
+      email: user.email,
+      nome: user.nome,
+      password: '',
+      perfil: user.perfil,
+      centro_custo_id: user.centro_custo_id
+    });
+    setFormError(null);
+    setShowModal(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+    setSaving(true);
+
+    try {
+      if (editingUser) {
+        const updateData: any = {
+          nome: formData.nome,
+          perfil: formData.perfil,
+          centro_custo_id: formData.centro_custo_id
+        };
+        await api.put(`/users/${editingUser.id}`, updateData);
+      } else {
+        if (!formData.password) {
+          setFormError('Senha é obrigatória para novos usuários');
+          setSaving(false);
+          return;
+        }
+        await api.post('/users/', formData);
+      }
+      setShowModal(false);
+      fetchData();
+    } catch (err: any) {
+      setFormError(err.response?.data?.detail || 'Erro ao salvar usuário');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleStatus = async (user: Usuario) => {
+    try {
+      await api.put(`/users/${user.id}`, { ativo: !user.ativo });
+      fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Erro ao atualizar status');
+    }
+  };
+
+  const handleDelete = async (user: Usuario) => {
+    if (!confirm(`Deseja realmente desativar o usuário "${user.nome}"?`)) return;
+    try {
+      await api.delete(`/users/${user.id}`);
+      fetchData();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Erro ao desativar usuário');
+    }
+  };
+
+  const getPerfilBadgeColor = (perfil: string) => {
+    switch (perfil) {
+      case 'ADMIN': return 'bg-red-500/20 text-red-400 border-red-500/30';
+      case 'GERENTE': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+      case 'ANALISTA': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+      case 'VISUALIZADOR': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    }
+  };
+
+  return (
+    <div className={`min-h-screen ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-gradient-to-r from-indigo-500/10 to-purple-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-full blur-3xl" />
+      </div>
+
+      <div className="relative p-6 max-w-[1600px] mx-auto">
+        <div className="mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/25">
+                <Users className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  Gestão de Usuários
+                </h1>
+                <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Gerencie os usuários do sistema com controle de hierarquia e centro de custo
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={openCreateModal}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity shadow-lg shadow-indigo-500/25"
+            >
+              <Plus className="w-5 h-5" />
+              Novo Usuário
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total de Usuários</span>
+              <Users className="w-5 h-5 text-indigo-500" />
+            </div>
+            <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {usuarios.length}
+            </p>
+          </div>
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ativos</span>
+              <CheckCircle className="w-5 h-5 text-green-500" />
+            </div>
+            <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {usuarios.filter(u => u.ativo).length}
+            </p>
+          </div>
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Administradores</span>
+              <ShieldCheck className="w-5 h-5 text-red-500" />
+            </div>
+            <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {usuarios.filter(u => u.perfil === 'ADMIN').length}
+            </p>
+          </div>
+          <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <div className="flex items-center justify-between">
+              <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Centros de Custo</span>
+              <Building2 className="w-5 h-5 text-blue-500" />
+            </div>
+            <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              {centrosCusto.length}
+            </p>
+          </div>
+        </div>
+
+        <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} mb-6`}>
+          <div className="flex flex-wrap gap-4 items-center">
+            <div className="flex-1 min-w-[250px]">
+              <div className="relative">
+                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                <input
+                  type="text"
+                  placeholder="Buscar por nome ou email..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className={`w-full pl-10 pr-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                />
+              </div>
+            </div>
+            <select
+              value={filterPerfil}
+              onChange={(e) => setFilterPerfil(e.target.value)}
+              className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+            >
+              <option value="todos">Todos os perfis</option>
+              {perfis.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <select
+              value={filterCentroCusto}
+              onChange={(e) => setFilterCentroCusto(e.target.value)}
+              className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+            >
+              <option value="todos">Todos os centros</option>
+              <option value="sem_centro">Sem centro de custo</option>
+              {centrosCusto.map(c => (
+                <option key={c.id} value={c.id}>{c.nome}</option>
+              ))}
+            </select>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+            >
+              <option value="ativos">Apenas ativos</option>
+              <option value="inativos">Apenas inativos</option>
+              <option value="todos">Todos</option>
+            </select>
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-xl flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400" />
+            <span className="text-red-400">{error}</span>
+            <button onClick={() => setError(null)} className="ml-auto">
+              <X className="w-4 h-4 text-red-400" />
+            </button>
+          </div>
+        )}
+
+        <div className={`rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-100'}>
+                <tr>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Usuário
+                  </th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Email
+                  </th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Perfil
+                  </th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Centro de Custo
+                  </th>
+                  <th className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Status
+                  </th>
+                  <th className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Ações
+                  </th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
+                {loading ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center">
+                      <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                      <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando usuários...</p>
+                    </td>
+                  </tr>
+                ) : filteredUsuarios.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center">
+                      <Users className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                      <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum usuário encontrado</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredUsuarios.map((user) => (
+                    <tr 
+                      key={user.id}
+                      className={`${isDark ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'} transition-colors`}
+                    >
+                      <td className={`px-6 py-4 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                            <span className="font-medium">
+                              {user.nome.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </span>
+                          </div>
+                          <span className="font-medium">{user.nome}</span>
+                        </div>
+                      </td>
+                      <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {user.email}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPerfilBadgeColor(user.perfil)}`}>
+                          {user.perfil}
+                        </span>
+                      </td>
+                      <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-gray-400" />
+                          {getCentroCustoNome(user.centro_custo_id)}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <button
+                          onClick={() => handleToggleStatus(user)}
+                          className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
+                            user.ativo
+                              ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                              : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                          } transition-colors`}
+                        >
+                          {user.ativo ? (
+                            <>
+                              <CheckCircle className="w-3 h-3" />
+                              Ativo
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3 h-3" />
+                              Inativo
+                            </>
+                          )}
+                        </button>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => openEditModal(user)}
+                            className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'} transition-colors`}
+                            title="Editar usuário"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(user)}
+                            className={`p-2 rounded-lg ${isDark ? 'hover:bg-red-500/20 text-gray-400 hover:text-red-400' : 'hover:bg-red-100 text-gray-500 hover:text-red-600'} transition-colors`}
+                            title="Desativar usuário"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className={`w-full max-w-lg mx-4 rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-2xl`}>
+            <div className={`flex items-center justify-between p-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                {editingUser ? 'Editar Usuário' : 'Novo Usuário'}
+              </h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-4 space-y-4">
+              {formError && (
+                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+                  <AlertTriangle className="w-4 h-4" />
+                  {formError}
+                </div>
+              )}
+
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Nome *
+                </label>
+                <input
+                  type="text"
+                  value={formData.nome}
+                  onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+                  required
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                  placeholder="Nome completo"
+                />
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                  disabled={!!editingUser}
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white disabled:opacity-50' : 'bg-gray-50 border-gray-300 text-gray-900 disabled:opacity-50'} focus:ring-2 focus:ring-indigo-500`}
+                  placeholder="email@exemplo.com"
+                />
+              </div>
+
+              {!editingUser && (
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    Senha *
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    required={!editingUser}
+                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                    placeholder="Senha de acesso"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Perfil de Acesso *
+                </label>
+                <select
+                  value={formData.perfil}
+                  onChange={(e) => setFormData({ ...formData, perfil: e.target.value })}
+                  required
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                >
+                  {perfis.map(p => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Define o nível de acesso do usuário no sistema
+                </p>
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Centro de Custo
+                </label>
+                <select
+                  value={formData.centro_custo_id || ''}
+                  onChange={(e) => setFormData({ ...formData, centro_custo_id: e.target.value ? parseInt(e.target.value) : null })}
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                >
+                  <option value="">Nenhum centro de custo</option>
+                  {centrosCusto.map(c => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Vincula o usuário a um centro de custo específico
+                </p>
+              </div>
+
+              <div className={`flex justify-end gap-3 pt-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className={`px-4 py-2 rounded-lg ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} transition-colors`}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-2"
+                >
+                  {saving && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  {editingUser ? 'Salvar Alterações' : 'Criar Usuário'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default Usuarios;
