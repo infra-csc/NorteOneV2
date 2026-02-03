@@ -410,13 +410,13 @@ const NoriAssistant: React.FC = () => {
                         {tarefa.data_vencimento && (
                           <span className="text-xs text-gray-400 flex items-center gap-1">
                             <Calendar className="w-3 h-3" />
-                            {new Date(tarefa.data_vencimento).toLocaleString('pt-BR')}
+                            {new Date(tarefa.data_vencimento).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
                           </span>
                         )}
                         {tarefa.status === 'CONCLUIDA' && tarefa.updated_at && (
                           <span className="text-xs text-green-500 flex items-center gap-1">
                             <Check className="w-3 h-3" />
-                            Concluída em {new Date(tarefa.updated_at).toLocaleString('pt-BR')}
+                            Concluída em {new Date(tarefa.updated_at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
                           </span>
                         )}
                       </div>
