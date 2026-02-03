@@ -139,8 +139,15 @@ const NoriAssistant: React.FC = () => {
       <div className="relative z-10 space-y-8 p-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <div className="flex items-center gap-4">
-              <img src={noriAvatar} alt="Nori" className="w-24 h-24 drop-shadow-lg" />
+            <div className="flex items-center gap-5">
+              <div className="relative">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-1 shadow-xl shadow-indigo-500/30">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-gray-800">
+                    <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover scale-125" />
+                  </div>
+                </div>
+                <span className="absolute bottom-1 right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-gray-800 animate-pulse" />
+              </div>
               <div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                   Nori
@@ -328,7 +335,11 @@ const NoriAssistant: React.FC = () => {
               </div>
             ) : tarefas.length === 0 ? (
               <div className="p-8 text-center">
-                <img src={noriAvatar} alt="Nori" className="w-24 h-24 mx-auto mb-3 opacity-60" />
+                <div className="w-20 h-20 mx-auto mb-3 rounded-full bg-gradient-to-br from-indigo-500/30 via-purple-500/30 to-pink-500/30 p-1 opacity-60">
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-gray-800">
+                    <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover scale-125" />
+                  </div>
+                </div>
                 <p className="text-gray-500 dark:text-gray-400">
                   {activeTab === 'CONCLUIDA' ? 'Nenhuma tarefa concluída ainda!' : 'Nenhuma tarefa encontrada!'}
                 </p>

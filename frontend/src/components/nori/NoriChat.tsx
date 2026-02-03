@@ -482,7 +482,11 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700">
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src={noriAvatar} alt="Nori" className="w-12 h-12" />
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 via-purple-400 to-pink-400 p-0.5 shadow-lg">
+              <div className="w-full h-full rounded-full overflow-hidden bg-white">
+                <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover scale-125" />
+              </div>
+            </div>
             <div>
               <h2 className="text-white font-bold text-lg">Nori</h2>
               <p className="text-white/80 text-sm">Assistente Virtual</p>
@@ -527,7 +531,11 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {greeting && messages.length === 0 && (
             <div className="flex gap-3">
-              <img src={noriAvatar} alt="Nori" className="w-8 h-8 flex-shrink-0" />
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-0.5 flex-shrink-0">
+                <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-gray-800">
+                  <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover scale-125" />
+                </div>
+              </div>
               <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm p-4 max-w-[80%]">
                 <p className="text-gray-800 dark:text-gray-200">{greeting}</p>
               </div>
@@ -544,7 +552,11 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
                 className={`flex gap-3 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}
               >
                 {message.role === 'assistant' && (
-                  <img src={noriAvatar} alt="Nori" className="w-8 h-8 flex-shrink-0" />
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-0.5 flex-shrink-0">
+                <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-gray-800">
+                  <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover scale-125" />
+                </div>
+              </div>
                 )}
                 <div className={`max-w-[85%] ${message.role === 'user' ? '' : ''}`}>
                   <div
@@ -577,7 +589,11 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
 
           {isLoading && (
             <div className="flex gap-3">
-              <img src={noriAvatar} alt="Nori" className="w-8 h-8 flex-shrink-0" />
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-0.5 flex-shrink-0">
+                <div className="w-full h-full rounded-full overflow-hidden bg-white dark:bg-gray-800">
+                  <img src={noriAvatar} alt="Nori" className="w-full h-full object-cover scale-125" />
+                </div>
+              </div>
               <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm p-4">
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
