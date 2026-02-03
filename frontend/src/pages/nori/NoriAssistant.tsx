@@ -161,7 +161,7 @@ const NoriAssistant: React.FC = () => {
               onClick={() => setIsChatOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-colors"
             >
-              <img src={noriAvatar} alt="Nori" className="w-6 h-6" />
+              <img src={noriAvatar} alt="Nori" className="w-8 h-8" />
               Falar com Nori
             </button>
           </div>
@@ -329,7 +329,7 @@ const NoriAssistant: React.FC = () => {
               </div>
             ) : tarefas.length === 0 ? (
               <div className="p-8 text-center">
-                <img src={noriAvatar} alt="Nori" className="w-16 h-16 mx-auto mb-3 opacity-60" />
+                <img src={noriAvatar} alt="Nori" className="w-24 h-24 mx-auto mb-3 opacity-60" />
                 <p className="text-gray-500 dark:text-gray-400">
                   {activeTab === 'CONCLUIDA' ? 'Nenhuma tarefa concluída ainda!' : 'Nenhuma tarefa encontrada!'}
                 </p>
