@@ -4,6 +4,7 @@ from sqlalchemy import text
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from ...core.database import get_db, engine_ativo, engine_ssh
 from ...core import database as db_module
 from ...core.security import get_current_user
@@ -644,7 +645,7 @@ async def get_marketing_events(
         eventos=eventos,
         resumo=resumo,
         categorias=sorted(list(categorias_set)),
-        ultima_atualizacao=datetime.now().isoformat()
+        ultima_atualizacao=datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
     )
 
 
@@ -777,7 +778,7 @@ async def get_marketing_event_by_id(
         "evento": evento,
         "dailySales": daily_sales,
         "commercialActions": commercial_actions,
-        "ultima_atualizacao": datetime.now().isoformat()
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
     }
 
 
