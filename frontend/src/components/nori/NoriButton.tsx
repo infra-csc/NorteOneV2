@@ -9,11 +9,11 @@ const NoriButton: React.FC = () => {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-40 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110"
+        className="fixed bottom-6 right-6 z-40 w-20 h-20 rounded-full shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 overflow-hidden border-2 border-indigo-500/50"
         title="Falar com Nori"
       >
-        <img src={noriAvatar} alt="Nori" className="w-20 h-20 drop-shadow-lg" />
-        <span className="absolute top-0 right-0 w-4 h-4 bg-green-500 rounded-full border-2 border-white animate-pulse" />
+        <img src={noriAvatar} alt="Nori" className="w-[200%] h-[200%] object-cover -ml-[50%] -mt-[50%]" />
+        <span className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white animate-pulse" />
       </button>
       
       <NoriChat isOpen={isOpen} onClose={() => setIsOpen(false)} />
