@@ -140,9 +140,7 @@ const NoriAssistant: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full overflow-hidden shadow-lg shadow-indigo-500/30 border-2 border-indigo-400">
-                <img src={noriAvatar} alt="Nori" className="w-full h-full scale-[1.8] object-cover" />
-              </div>
+              <img src={noriAvatar} alt="Nori" className="w-16 h-16 drop-shadow-lg" />
               <div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                   Nori
@@ -163,9 +161,7 @@ const NoriAssistant: React.FC = () => {
               onClick={() => setIsChatOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-colors"
             >
-              <div className="w-6 h-6 rounded-full overflow-hidden">
-                <img src={noriAvatar} alt="Nori" className="w-full h-full scale-[1.8] object-cover" />
-              </div>
+              <img src={noriAvatar} alt="Nori" className="w-6 h-6" />
               Falar com Nori
             </button>
           </div>
@@ -333,9 +329,7 @@ const NoriAssistant: React.FC = () => {
               </div>
             ) : tarefas.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="w-16 h-16 mx-auto mb-3 rounded-full overflow-hidden opacity-60">
-                  <img src={noriAvatar} alt="Nori" className="w-full h-full scale-[1.8] object-cover" />
-                </div>
+                <img src={noriAvatar} alt="Nori" className="w-16 h-16 mx-auto mb-3 opacity-60" />
                 <p className="text-gray-500 dark:text-gray-400">
                   {activeTab === 'CONCLUIDA' ? 'Nenhuma tarefa concluída ainda!' : 'Nenhuma tarefa encontrada!'}
                 </p>
