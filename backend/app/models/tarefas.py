@@ -2,7 +2,12 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, E
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import enum
+
+
+def get_brasilia_now():
+    return datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
 
 
 class PrioridadeTarefa(str, enum.Enum):
@@ -33,8 +38,8 @@ class Tarefa(Base):
     usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
     responsavel_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=get_brasilia_now)
+    updated_at = Column(DateTime, default=get_brasilia_now, onupdate=get_brasilia_now)
     
     usuario = relationship("Usuario", foreign_keys=[usuario_id], backref="tarefas_criadas")
     responsavel = relationship("Usuario", foreign_keys=[responsavel_id], backref="tarefas_atribuidas")
