@@ -24,6 +24,7 @@ class UserUpdate(BaseModel):
     perfil: Optional[str] = None
     centro_custo_id: Optional[int] = None
     ativo: Optional[bool] = None
+    password: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: int

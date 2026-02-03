@@ -62,7 +62,13 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="Usuário não encontrado")
     
-    for field, value in user_update.model_dump(exclude_unset=True).items():
+    update_data = user_update.model_dump(exclude_unset=True)
+    
+    if 'password' in update_data and update_data['password']:
+        user.senha_hash = get_password_hash(update_data['password'])
+        del update_data['password']
+    
+    for field, value in update_data.items():
         setattr(user, field, value)
     
     db.commit()

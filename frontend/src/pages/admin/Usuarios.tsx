@@ -26,6 +26,7 @@ interface UsuarioForm {
   password: string;
   perfil: string;
   centro_custo_id: number | null;
+  ativo: boolean;
 }
 
 const perfis = ['ADMIN', 'GERENTE', 'ANALISTA', 'VISUALIZADOR'];
@@ -99,7 +100,8 @@ const Usuarios: React.FC = () => {
       nome: '',
       password: '',
       perfil: 'VISUALIZADOR',
-      centro_custo_id: null
+      centro_custo_id: null,
+      ativo: true
     });
     setFormError(null);
     setShowModal(true);
@@ -112,7 +114,8 @@ const Usuarios: React.FC = () => {
       nome: user.nome,
       password: '',
       perfil: user.perfil,
-      centro_custo_id: user.centro_custo_id
+      centro_custo_id: user.centro_custo_id,
+      ativo: user.ativo
     });
     setFormError(null);
     setShowModal(true);
@@ -128,8 +131,12 @@ const Usuarios: React.FC = () => {
         const updateData: any = {
           nome: formData.nome,
           perfil: formData.perfil,
-          centro_custo_id: formData.centro_custo_id
+          centro_custo_id: formData.centro_custo_id,
+          ativo: formData.ativo
         };
+        if (formData.password) {
+          updateData.password = formData.password;
+        }
         await api.put(`/users/${editingUser.id}`, updateData);
       } else {
         if (!formData.password) {
@@ -485,21 +492,24 @@ const Usuarios: React.FC = () => {
                 />
               </div>
 
-              {!editingUser && (
-                <div>
-                  <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Senha *
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    required={!editingUser}
-                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
-                    placeholder="Senha de acesso"
-                  />
-                </div>
-              )}
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {editingUser ? 'Nova Senha (deixe em branco para manter a atual)' : 'Senha *'}
+                </label>
+                <input
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required={!editingUser}
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                  placeholder={editingUser ? 'Digite para redefinir a senha' : 'Senha de acesso'}
+                />
+                {editingUser && (
+                  <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Preencha apenas se desejar alterar a senha do usuário
+                  </p>
+                )}
+              </div>
 
               <div>
                 <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -538,6 +548,47 @@ const Usuarios: React.FC = () => {
                   Vincula o usuário a um centro de custo específico
                 </p>
               </div>
+
+              {editingUser && (
+                <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className={`block text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                        Status do Usuário
+                      </label>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Usuários inativos não podem acessar o sistema
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, ativo: !formData.ativo })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        formData.ativo ? 'bg-green-500' : 'bg-gray-400'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          formData.ativo ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className={`mt-2 flex items-center gap-2 text-sm ${formData.ativo ? 'text-green-400' : 'text-red-400'}`}>
+                    {formData.ativo ? (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Usuário ativo - pode acessar o sistema
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        Usuário inativo - sem acesso ao sistema
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className={`flex justify-end gap-3 pt-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 <button
