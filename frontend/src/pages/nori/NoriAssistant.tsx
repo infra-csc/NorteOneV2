@@ -140,7 +140,7 @@ const NoriAssistant: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <div className="flex items-center gap-4">
-              <img src={noriAvatar} alt="Nori" className="w-16 h-16 drop-shadow-lg" />
+              <img src={noriAvatar} alt="Nori" className="w-24 h-24 drop-shadow-lg" />
               <div>
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                   Nori
