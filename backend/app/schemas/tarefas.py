@@ -67,7 +67,7 @@ class TarefaUpdate(BaseModel):
     status: Optional[StatusTarefa] = None
 
 
-class ResponsavelInfo(BaseModel):
+class UsuarioInfo(BaseModel):
     id: int
     nome: str
     email: str
@@ -82,7 +82,8 @@ class TarefaResponse(TarefaBase):
     criado_por_nori: bool
     usuario_id: int
     responsavel_id: Optional[int] = None
-    responsavel: Optional[ResponsavelInfo] = None
+    responsavel: Optional[UsuarioInfo] = None
+    usuario: Optional[UsuarioInfo] = None
     created_at: datetime
     updated_at: datetime
     

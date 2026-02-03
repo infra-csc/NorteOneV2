@@ -7,11 +7,16 @@ import {
   AlertTriangle,
   Trash2,
   Calendar,
-  Sparkles
+  Sparkles,
+  Play,
+  CheckCircle2,
+  User
 } from 'lucide-react';
 import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
 import NoriChat from '../../components/nori/NoriChat';
 import noriAvatar from '@assets/Nori_1768273889454.png';
+
+type StatusFilter = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'TODAS';
 
 const NoriAssistant: React.FC = () => {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
@@ -19,6 +24,7 @@ const NoriAssistant: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
+  const [activeTab, setActiveTab] = useState<StatusFilter>('PENDENTE');
   const [newTask, setNewTask] = useState<TarefaCreate>({
     titulo: '',
     descricao: '',
@@ -27,13 +33,15 @@ const NoriAssistant: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [activeTab]);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       const [tarefasData, resumoData] = await Promise.all([
-        tarefasService.getPendentes(),
+        activeTab === 'TODAS' 
+          ? tarefasService.list() 
+          : tarefasService.list(activeTab),
         tarefasService.getResumo()
       ]);
       setTarefas(tarefasData);
@@ -68,6 +76,15 @@ const NoriAssistant: React.FC = () => {
     }
   };
 
+  const handleIniciar = async (id: number) => {
+    try {
+      await tarefasService.update(id, { status: 'EM_ANDAMENTO' } as any);
+      loadData();
+    } catch (error) {
+      console.error('Erro ao iniciar tarefa:', error);
+    }
+  };
+
   const handleDelete = async (id: number) => {
     if (!confirm('Deseja excluir esta tarefa?')) return;
     try {
@@ -84,6 +101,31 @@ const NoriAssistant: React.FC = () => {
       case 'ALTA': return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400';
       case 'MEDIA': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
       default: return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'CONCLUIDA': return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+      case 'EM_ANDAMENTO': return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+      case 'CANCELADA': return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400';
+      default: return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400';
+    }
+  };
+
+  const tabs = [
+    { id: 'PENDENTE' as StatusFilter, label: 'Pendentes', icon: ListTodo, count: resumo?.pendentes || 0 },
+    { id: 'EM_ANDAMENTO' as StatusFilter, label: 'Em Andamento', icon: Play, count: resumo?.em_andamento || 0 },
+    { id: 'CONCLUIDA' as StatusFilter, label: 'Concluídas', icon: CheckCircle2, count: resumo?.concluidas || 0 },
+    { id: 'TODAS' as StatusFilter, label: 'Todas', icon: ListTodo, count: resumo?.total || 0 },
+  ];
+
+  const getTabTitle = () => {
+    switch (activeTab) {
+      case 'PENDENTE': return 'Tarefas Pendentes';
+      case 'EM_ANDAMENTO': return 'Tarefas em Andamento';
+      case 'CONCLUIDA': return 'Tarefas Concluídas';
+      default: return 'Todas as Tarefas';
     }
   };
 
@@ -250,12 +292,39 @@ const NoriAssistant: React.FC = () => {
         )}
 
         <div className="bg-white dark:bg-gray-800/50 backdrop-blur rounded-xl border border-gray-200/50 dark:border-gray-700/50">
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <div className="flex overflow-x-auto">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  }`}
+                >
+                  <tab.icon className="w-4 h-4" />
+                  {tab.label}
+                  <span className={`px-2 py-0.5 text-xs rounded-full ${
+                    activeTab === tab.id
+                      ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                  }`}>
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <ListTodo className="w-5 h-5" />
-              Tarefas Pendentes
+              {getTabTitle()}
             </h3>
           </div>
+          
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
             {isLoading ? (
               <div className="p-8 text-center">
@@ -267,23 +336,48 @@ const NoriAssistant: React.FC = () => {
                 <div className="w-16 h-16 mx-auto mb-3 rounded-full overflow-hidden opacity-60 bg-gray-900">
                   <img src={noriAvatar} alt="Nori" className="w-[140%] h-[140%] object-cover object-center ml-[-20%] mt-[-10%]" />
                 </div>
-                <p className="text-gray-500 dark:text-gray-400">Nenhuma tarefa pendente!</p>
+                <p className="text-gray-500 dark:text-gray-400">
+                  {activeTab === 'CONCLUIDA' ? 'Nenhuma tarefa concluída ainda!' : 'Nenhuma tarefa encontrada!'}
+                </p>
                 <p className="text-sm text-gray-400 mt-1">Use o Nori para criar novas tarefas</p>
               </div>
             ) : (
               tarefas.map((tarefa) => (
-                <div key={tarefa.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                <div 
+                  key={tarefa.id} 
+                  className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                    tarefa.status === 'CONCLUIDA' ? 'opacity-75' : ''
+                  }`}
+                >
                   <div className="flex items-start gap-4">
-                    <button
-                      onClick={() => handleConcluir(tarefa.id)}
-                      className="mt-1 w-5 h-5 border-2 border-gray-300 dark:border-gray-600 rounded hover:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors flex-shrink-0"
-                    />
+                    {tarefa.status !== 'CONCLUIDA' && tarefa.status !== 'CANCELADA' ? (
+                      <button
+                        onClick={() => handleConcluir(tarefa.id)}
+                        className="mt-1 w-5 h-5 border-2 border-gray-300 dark:border-gray-600 rounded hover:border-green-500 hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors flex-shrink-0"
+                        title="Marcar como concluída"
+                      />
+                    ) : (
+                      <div className="mt-1 w-5 h-5 flex-shrink-0">
+                        <CheckCircle2 className="w-5 h-5 text-green-500" />
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium text-gray-900 dark:text-white">{tarefa.titulo}</p>
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <p className={`font-medium ${
+                          tarefa.status === 'CONCLUIDA' 
+                            ? 'text-gray-500 dark:text-gray-400 line-through' 
+                            : 'text-gray-900 dark:text-white'
+                        }`}>
+                          {tarefa.titulo}
+                        </p>
                         <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getPrioridadeColor(tarefa.prioridade)}`}>
                           {tarefa.prioridade}
                         </span>
+                        {activeTab === 'TODAS' && (
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${getStatusColor(tarefa.status)}`}>
+                            {tarefa.status.replace('_', ' ')}
+                          </span>
+                        )}
                         {tarefa.criado_por_nori && (
                           <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
                             <Sparkles className="w-3 h-3 inline mr-1" />
@@ -292,12 +386,25 @@ const NoriAssistant: React.FC = () => {
                         )}
                       </div>
                       {tarefa.descricao && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{tarefa.descricao}</p>
+                        <p className={`text-sm truncate ${
+                          tarefa.status === 'CONCLUIDA'
+                            ? 'text-gray-400 dark:text-gray-500'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {tarefa.descricao}
+                        </p>
                       )}
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <div className="flex items-center gap-3 mt-2 flex-wrap">
+                        {tarefa.usuario && tarefa.responsavel && tarefa.usuario.id !== tarefa.responsavel.id && (
+                          <span className="text-xs px-2 py-1 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 rounded-full flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            Atribuída por @{tarefa.usuario.nome}
+                          </span>
+                        )}
                         {tarefa.responsavel && (
-                          <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full">
-                            @{tarefa.responsavel.nome}
+                          <span className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-full flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            Para: @{tarefa.responsavel.nome}
                           </span>
                         )}
                         {tarefa.data_vencimento && (
@@ -306,14 +413,34 @@ const NoriAssistant: React.FC = () => {
                             {new Date(tarefa.data_vencimento).toLocaleString('pt-BR')}
                           </span>
                         )}
+                        {tarefa.status === 'CONCLUIDA' && tarefa.updated_at && (
+                          <span className="text-xs text-green-500 flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            Concluída em {new Date(tarefa.updated_at).toLocaleString('pt-BR')}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleDelete(tarefa.id)}
-                      className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {tarefa.status === 'PENDENTE' && (
+                        <button
+                          onClick={() => handleIniciar(tarefa.id)}
+                          className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                          title="Iniciar tarefa"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                      )}
+                      {tarefa.status !== 'CONCLUIDA' && (
+                        <button
+                          onClick={() => handleDelete(tarefa.id)}
+                          className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Excluir tarefa"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))

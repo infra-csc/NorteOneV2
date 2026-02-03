@@ -320,6 +320,12 @@ export interface ResponsavelInfo {
   email: string;
 }
 
+export interface UsuarioInfo {
+  id: number;
+  nome: string;
+  email: string;
+}
+
 export interface Tarefa {
   id: number;
   titulo: string;
@@ -331,7 +337,8 @@ export interface Tarefa {
   criado_por_nori: boolean;
   usuario_id: number;
   responsavel_id?: number;
-  responsavel?: ResponsavelInfo;
+  responsavel?: UsuarioInfo;
+  usuario?: UsuarioInfo;
   created_at: string;
   updated_at: string;
 }

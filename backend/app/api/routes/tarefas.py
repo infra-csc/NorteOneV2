@@ -56,11 +56,15 @@ async def list_tarefas_hoje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import or_
     hoje = datetime.now().date()
     amanha = hoje + timedelta(days=1)
     
     tarefas = db.query(Tarefa).filter(
-        Tarefa.usuario_id == current_user.id,
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        ),
         Tarefa.data_vencimento >= hoje,
         Tarefa.data_vencimento < amanha,
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
@@ -73,30 +77,37 @@ async def get_resumo_tarefas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    total = db.query(Tarefa).filter(Tarefa.usuario_id == current_user.id).count()
-    pendentes = db.query(Tarefa).filter(
+    from sqlalchemy import or_
+    
+    base_filter = or_(
         Tarefa.usuario_id == current_user.id,
+        Tarefa.responsavel_id == current_user.id
+    )
+    
+    total = db.query(Tarefa).filter(base_filter).count()
+    pendentes = db.query(Tarefa).filter(
+        base_filter,
         Tarefa.status == ModelStatusTarefa.PENDENTE
     ).count()
     em_andamento = db.query(Tarefa).filter(
-        Tarefa.usuario_id == current_user.id,
+        base_filter,
         Tarefa.status == ModelStatusTarefa.EM_ANDAMENTO
     ).count()
     concluidas = db.query(Tarefa).filter(
-        Tarefa.usuario_id == current_user.id,
+        base_filter,
         Tarefa.status == ModelStatusTarefa.CONCLUIDA
     ).count()
     
     hoje = datetime.now().date()
     vencendo_hoje = db.query(Tarefa).filter(
-        Tarefa.usuario_id == current_user.id,
+        base_filter,
         Tarefa.data_vencimento >= hoje,
         Tarefa.data_vencimento < hoje + timedelta(days=1),
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
     ).count()
     
     atrasadas = db.query(Tarefa).filter(
-        Tarefa.usuario_id == current_user.id,
+        base_filter,
         Tarefa.data_vencimento < hoje,
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
     ).count()
@@ -117,9 +128,13 @@ async def get_tarefa(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import or_
     tarefa = db.query(Tarefa).filter(
         Tarefa.id == tarefa_id,
-        Tarefa.usuario_id == current_user.id
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        )
     ).first()
     
     if not tarefa:
@@ -165,9 +180,13 @@ async def update_tarefa(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import or_
     db_tarefa = db.query(Tarefa).filter(
         Tarefa.id == tarefa_id,
-        Tarefa.usuario_id == current_user.id
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        )
     ).first()
     
     if not db_tarefa:
@@ -189,9 +208,13 @@ async def concluir_tarefa(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import or_
     db_tarefa = db.query(Tarefa).filter(
         Tarefa.id == tarefa_id,
-        Tarefa.usuario_id == current_user.id
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        )
     ).first()
     
     if not db_tarefa:
@@ -210,9 +233,13 @@ async def delete_tarefa(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import or_
     db_tarefa = db.query(Tarefa).filter(
         Tarefa.id == tarefa_id,
-        Tarefa.usuario_id == current_user.id
+        or_(
+            Tarefa.usuario_id == current_user.id,
+            Tarefa.responsavel_id == current_user.id
+        )
     ).first()
     
     if not db_tarefa:
