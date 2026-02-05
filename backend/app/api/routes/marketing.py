@@ -10,6 +10,7 @@ from ...core import database as db_module
 from ...core.security import get_current_user
 from ...models.dimensoes import DimProjeto
 from ...models.user import Usuario
+from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from .inscricoes_consolidado import normalize_sku
 import logging
 import asyncio
@@ -444,6 +445,103 @@ def generate_daily_sales_data(current_sales: int, sales_goal: int, event_date, d
             day["cumulativeSales"] = running_total
     
     return daily_sales
+
+def get_kit_basico_cost(db: Session, projeto_id: int) -> float:
+    """
+    Busca o custo total do Kit Básico para um projeto.
+    Soma os valores unitários de todos os itens do kit com nome 'Básico'.
+    Retorna 50.0 como fallback se não encontrar.
+    """
+    try:
+        cadastro = db.query(CadastroEvento).filter(
+            CadastroEvento.projeto_id == projeto_id
+        ).first()
+        
+        if not cadastro:
+            return 50.0
+        
+        kit_basico = db.query(CadastroKitProduto).filter(
+            CadastroKitProduto.cadastro_id == cadastro.id,
+            CadastroKitProduto.kit.ilike('%básico%')
+        ).first()
+        
+        if not kit_basico:
+            kit_basico = db.query(CadastroKitProduto).filter(
+                CadastroKitProduto.cadastro_id == cadastro.id,
+                CadastroKitProduto.kit.ilike('%basico%')
+            ).first()
+        
+        if not kit_basico:
+            return 50.0
+        
+        itens = db.query(CadastroKitProdutoItem).filter(
+            CadastroKitProdutoItem.kit_produto_id == kit_basico.id
+        ).all()
+        
+        if not itens:
+            return 50.0
+        
+        total = sum(float(item.valor_unitario or 0) for item in itens)
+        return total if total > 0 else 50.0
+        
+    except Exception as e:
+        logger.error(f"Erro ao buscar custo do Kit Básico para projeto {projeto_id}: {e}")
+        return 50.0
+
+def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
+    """
+    Busca o custo do Kit Básico para vários projetos de uma vez.
+    Retorna dict {projeto_id: custo}.
+    """
+    costs = {}
+    
+    try:
+        cadastros = db.query(CadastroEvento).filter(
+            CadastroEvento.projeto_id.in_(projeto_ids)
+        ).all()
+        
+        cadastro_map = {c.projeto_id: c.id for c in cadastros}
+        
+        if not cadastro_map:
+            return {pid: 50.0 for pid in projeto_ids}
+        
+        kits = db.query(CadastroKitProduto).filter(
+            CadastroKitProduto.cadastro_id.in_(list(cadastro_map.values())),
+            (CadastroKitProduto.kit.ilike('%básico%') | CadastroKitProduto.kit.ilike('%basico%'))
+        ).all()
+        
+        kit_map = {}
+        for kit in kits:
+            for pid, cid in cadastro_map.items():
+                if kit.cadastro_id == cid:
+                    kit_map[pid] = kit.id
+                    break
+        
+        if kit_map:
+            itens = db.query(CadastroKitProdutoItem).filter(
+                CadastroKitProdutoItem.kit_produto_id.in_(list(kit_map.values()))
+            ).all()
+            
+            item_costs = {}
+            for item in itens:
+                if item.kit_produto_id not in item_costs:
+                    item_costs[item.kit_produto_id] = 0
+                item_costs[item.kit_produto_id] += float(item.valor_unitario or 0)
+            
+            for pid, kit_id in kit_map.items():
+                costs[pid] = item_costs.get(kit_id, 50.0)
+                if costs[pid] == 0:
+                    costs[pid] = 50.0
+        
+        for pid in projeto_ids:
+            if pid not in costs:
+                costs[pid] = 50.0
+                
+    except Exception as e:
+        logger.error(f"Erro ao buscar custos de Kit Básico em batch: {e}")
+        costs = {pid: 50.0 for pid in projeto_ids}
+    
+    return costs
 
 _sales_cache = {}
 _cache_timestamp = None
@@ -1230,6 +1328,9 @@ async def get_pricing_analysis(
     skus = [str(p.codigo) for p in projetos if p.codigo]
     sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
     
+    projeto_ids = [p.id for p in projetos if p.id]
+    kit_costs = get_kit_basico_costs_batch(db, projeto_ids)
+    
     eventos = []
     categorias_set: set[str] = set()
     events_increase = 0
@@ -1262,7 +1363,7 @@ async def get_pricing_analysis(
         total_capacity = projeto.capacidade_maxima or 10000
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
         
-        kit_cost = 50.0
+        kit_cost = kit_costs.get(projeto.id, 50.0)
         
         pricing_metrics = calculate_pricing_metrics(
             current_sales=current_sales,
