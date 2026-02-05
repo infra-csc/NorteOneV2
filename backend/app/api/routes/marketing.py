@@ -574,7 +574,7 @@ async def get_marketing_events(
     projetos = query.all()
     
     skus = [str(p.codigo) for p in projetos if p.codigo]
-    sales_data = fetch_consolidated_sales_by_skus(skus, ano)
+    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
     
     eventos = []
     categorias_set: set[str] = set()
@@ -705,7 +705,7 @@ async def get_marketing_event_by_id(
     is_active = d_minus > 0
     
     ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
-    sales_data = fetch_consolidated_sales_by_skus([sku] if sku else [], ano)
+    sales_data = fetch_consolidated_sales_by_skus([sku] if sku else [], ano, apenas_site=True)
     
     sales_info = sales_data.get(sku, {}) if sku else {}
     current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
@@ -1228,7 +1228,7 @@ async def get_pricing_analysis(
     projetos = query.all()
     
     skus = [str(p.codigo) for p in projetos if p.codigo]
-    sales_data = fetch_consolidated_sales_by_skus(skus, ano)
+    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
     
     eventos = []
     categorias_set: set[str] = set()
