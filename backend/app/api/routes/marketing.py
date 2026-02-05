@@ -1241,7 +1241,7 @@ async def get_pricing_analysis(
         total_value = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
         
         average_ticket = total_value / current_sales if current_sales > 0 else 120.0
-        total_capacity = projeto.vagas_total or 10000
+        total_capacity = projeto.capacidade_maxima or 10000
         sales_goal = int(total_capacity * 0.8)
         
         kit_cost = 50.0
