@@ -176,3 +176,33 @@ class TempoResponse(TempoBase):
 
     class Config:
         from_attributes = True
+
+
+class SkuMappingBase(BaseModel):
+    fonte: str
+    id_externo: int
+    sku: str
+    evento_grupo: str
+    ano: int
+    nome_evento: str
+    ativo: bool = True
+
+class SkuMappingCreate(SkuMappingBase):
+    pass
+
+class SkuMappingUpdate(BaseModel):
+    fonte: Optional[str] = None
+    id_externo: Optional[int] = None
+    sku: Optional[str] = None
+    evento_grupo: Optional[str] = None
+    ano: Optional[int] = None
+    nome_evento: Optional[str] = None
+    ativo: Optional[bool] = None
+
+class SkuMappingResponse(SkuMappingBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

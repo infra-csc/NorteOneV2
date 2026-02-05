@@ -104,3 +104,22 @@ class AcaoComercial(Base):
             name="check_tipo_acao"
         ),
     )
+
+
+class SkuMapping(Base):
+    __tablename__ = "sku_mappings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fonte = Column(String(20), nullable=False)
+    id_externo = Column(Integer, nullable=False)
+    sku = Column(String(50), nullable=False)
+    evento_grupo = Column(String(50), nullable=False)
+    ano = Column(Integer, nullable=False)
+    nome_evento = Column(String(255), nullable=False)
+    ativo = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    __table_args__ = (
+        CheckConstraint("fonte IN ('ATIVO', 'MAGENTO')", name="check_fonte_sku"),
+    )
