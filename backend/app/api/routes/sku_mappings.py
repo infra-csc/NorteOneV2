@@ -8,6 +8,7 @@ from app.schemas.dimensoes import SkuMappingCreate, SkuMappingUpdate, SkuMapping
 from app.core.security import get_current_user
 from app.models.user import Usuario
 import app.core.database as db_module
+from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from functools import partial
@@ -72,6 +73,10 @@ def normalize_sku_for_match(sku: str) -> str:
 
 def fetch_eventos_ativo(ano: int) -> List[Dict]:
     """Busca eventos distintos do Ativo para um ano."""
+    if db_module.engine_ssh is None:
+        logger.error("SSH tunnel para Ativo não configurado")
+        return []
+    
     query = f"""
     SELECT DISTINCT
         b.id_evento,
@@ -88,8 +93,8 @@ def fetch_eventos_ativo(ano: int) -> List[Dict]:
     """
     
     try:
-        with db_module.mysql_ativo_engine.connect() as connection:
-            result = connection.execute(db_module.text(query))
+        with db_module.engine_ssh.connect() as connection:
+            result = connection.execute(text(query))
             rows = result.fetchall()
             return [
                 {
@@ -107,6 +112,10 @@ def fetch_eventos_ativo(ano: int) -> List[Dict]:
 
 def fetch_eventos_magento(ano: int) -> List[Dict]:
     """Busca eventos distintos do Magento para um ano."""
+    if db_module.engine_magento is None:
+        logger.error("Conexão Magento não configurada")
+        return []
+    
     query = f"""
     SELECT DISTINCT
         wl.location_id AS id_evento,
@@ -124,29 +133,11 @@ def fetch_eventos_magento(ano: int) -> List[Dict]:
     """
     
     try:
-        tunnel = db_module.create_magento_ssh_tunnel()
-        if not tunnel:
-            logger.error("Não foi possível criar túnel SSH para Magento")
-            return []
-        
-        try:
-            tunnel.start()
-            local_port = tunnel.local_bind_port
-            
-            import mysql.connector
-            conn = mysql.connector.connect(
-                host='127.0.0.1',
-                port=local_port,
-                user=db_module.MAGENTO_CONFIG['user'],
-                password=db_module.MAGENTO_CONFIG['password'],
-                database=db_module.MAGENTO_CONFIG['database']
-            )
-            
-            cursor = conn.cursor()
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            
-            eventos = [
+        engine_with_timeout = db_module.engine_magento.execution_options(timeout=60)
+        with engine_with_timeout.connect() as connection:
+            result = connection.execute(text(query))
+            rows = result.fetchall()
+            return [
                 {
                     "id_evento": str(row[0]),
                     "nome_evento": row[1] or "",
@@ -155,14 +146,6 @@ def fetch_eventos_magento(ano: int) -> List[Dict]:
                 }
                 for row in rows
             ]
-            
-            cursor.close()
-            conn.close()
-            return eventos
-            
-        finally:
-            tunnel.stop()
-            
     except Exception as e:
         logger.error(f"Erro ao buscar eventos Magento: {e}")
         return []
