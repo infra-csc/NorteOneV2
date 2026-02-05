@@ -1260,7 +1260,7 @@ async def get_pricing_analysis(
         
         average_ticket = total_value / current_sales if current_sales > 0 else 120.0
         total_capacity = projeto.capacidade_maxima or 10000
-        sales_goal = int(total_capacity * 0.8)
+        sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
         
         kit_cost = 50.0
         
