@@ -350,8 +350,13 @@ async def descobrir_eventos_externos(
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Timeout ao buscar eventos externos")
     
-    eventos_ativo = results[0] if not isinstance(results[0], Exception) else []
-    eventos_magento = results[1] if not isinstance(results[1], Exception) else []
+    eventos_ativo = results[0] if isinstance(results[0], list) else []
+    eventos_magento = results[1] if isinstance(results[1], list) else []
+    
+    if isinstance(results[0], Exception):
+        logger.error(f"Erro ao buscar eventos Ativo: {results[0]}")
+    if isinstance(results[1], Exception):
+        logger.error(f"Erro ao buscar eventos Magento: {results[1]}")
     
     mapeamentos_2026 = db.query(SkuMapping).filter(
         SkuMapping.ano == 2026,
@@ -425,14 +430,16 @@ async def descobrir_eventos_externos(
                     ano=ano
                 ))
     
-    processar_eventos(eventos_ativo, "ATIVO")
-    processar_eventos(eventos_magento, "MAGENTO")
+    if eventos_ativo:
+        processar_eventos(eventos_ativo, "ATIVO")
+    if eventos_magento:
+        processar_eventos(eventos_magento, "MAGENTO")
     
     return DescobertaEventosResponse(
         status="success",
         ano=ano,
-        total_ativo=len(eventos_ativo),
-        total_magento=len(eventos_magento),
+        total_ativo=len(eventos_ativo) if isinstance(eventos_ativo, list) else 0,
+        total_magento=len(eventos_magento) if isinstance(eventos_magento, list) else 0,
         eventos_sugeridos=eventos_sugeridos,
         eventos_sem_match=eventos_sem_match
     )
