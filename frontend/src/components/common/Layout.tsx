@@ -23,7 +23,8 @@ import {
   Settings,
   Sparkles,
   Database,
-  ShieldCheck
+  ShieldCheck,
+  Package
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -48,6 +49,7 @@ const marketingItems = [
 
 const adminItems = [
   { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados' },
+  { path: '/admin/sku-mappings', icon: Package, label: 'Mapeamento SKUs' },
   { path: '/admin/usuarios', icon: UserCog, label: 'Usuários' },
   { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo' },
   { path: '/admin/contas', icon: FileSpreadsheet, label: 'Contas' },

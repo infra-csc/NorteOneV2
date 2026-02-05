@@ -18,6 +18,7 @@ import MarketingSettings from './pages/marketing/MarketingSettings';
 import NoriAssistant from './pages/nori/NoriAssistant';
 import DadosConsolidados from './pages/admin/DadosConsolidados';
 import Usuarios from './pages/admin/Usuarios';
+import SkuMappings from './pages/admin/SkuMappings';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isLoading } = useAuth();
@@ -53,6 +54,7 @@ function App() {
             <Route path="/nori" element={<PrivateRoute><Layout><NoriAssistant /></Layout></PrivateRoute>} />
             <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
             <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />
+            <Route path="/admin/sku-mappings" element={<PrivateRoute><Layout><SkuMappings /></Layout></PrivateRoute>} />
             <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
             <Route path="/admin/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
           </Routes>
