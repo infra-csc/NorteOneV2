@@ -1,8 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from sqlalchemy import text
-from typing import Optional, List
+from sqlalchemy.orm import Session
+from typing import Optional, List, Dict
 from pydantic import BaseModel
 import app.core.database as db_module
+from app.core.database import get_db
+from app.models.dimensoes import SkuMapping
 from datetime import datetime, timedelta
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +16,66 @@ import re
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def get_sku_mappings_from_db(db: Session, ano: Optional[int] = None) -> Dict[str, Dict]:
+    """
+    Busca mapeamentos de SKU do PostgreSQL e retorna dicionários indexados.
+    Retorna dois dicts:
+    - by_ativo: {id_externo: {sku, evento_grupo, nome_evento, ano}}
+    - by_magento: {id_externo: {sku, evento_grupo, nome_evento, ano}}
+    """
+    query = db.query(SkuMapping).filter(SkuMapping.ativo == True)
+    if ano:
+        query = query.filter(SkuMapping.ano == ano)
+    
+    mappings = query.all()
+    
+    by_ativo = {}
+    by_magento = {}
+    
+    for m in mappings:
+        data = {
+            "sku": m.sku,
+            "evento_grupo": m.evento_grupo,
+            "nome_evento": m.nome_evento,
+            "ano": m.ano
+        }
+        key = f"{m.id_externo}_{m.ano}"
+        if m.fonte == "ATIVO":
+            by_ativo[key] = data
+        else:
+            by_magento[key] = data
+    
+    return {"ativo": by_ativo, "magento": by_magento}
+
+
+def enrich_with_mappings(data: List[Dict], mappings: Dict, fonte: str, ano: int) -> List[Dict]:
+    """
+    Enriquece dados vindos do MySQL com mapeamentos do PostgreSQL.
+    Atualiza o SKU e adiciona evento_grupo para cada registro.
+    Fallback: usa SKU normalizado como evento_grupo se não houver mapeamento.
+    """
+    mapping_dict = mappings.get(fonte, {})
+    
+    for row in data:
+        id_evento = row.get("id_evento")
+        if id_evento:
+            key = f"{id_evento}_{ano}"
+            if key in mapping_dict:
+                mapping = mapping_dict[key]
+                row["sku"] = mapping["sku"]
+                row["evento_grupo"] = mapping["evento_grupo"]
+            else:
+                existing_sku = row.get("sku") or ""
+                normalized = normalize_sku(existing_sku)
+                if normalized and len(normalized) >= 6:
+                    base_sku = normalized[:3] + normalized[5:]
+                    row["evento_grupo"] = f"AUTO_{base_sku}"
+                else:
+                    row["evento_grupo"] = f"UNMAPPED_{fonte}_{id_evento}"
+    
+    return data
 
 def normalize_sku(sku: str) -> str:
     """
@@ -841,3 +904,140 @@ async def test_magento_query(ano: int = 2026):
     except Exception as e:
         logger.error(f"Erro query Magento: {e}")
         return {"status": "error", "message": str(e)}
+
+
+class ComparacaoAnoEvento(BaseModel):
+    evento_grupo: str
+    nome_evento: str
+    ano_atual: int
+    ano_anterior: int
+    qtd_atual: int
+    qtd_anterior: int
+    variacao_qtd: float
+    inscricao_atual: float
+    inscricao_anterior: float
+    variacao_inscricao: float
+    ticket_atual: float
+    ticket_anterior: float
+    variacao_ticket: float
+
+
+class ComparacaoAnoResponse(BaseModel):
+    status: str
+    ano_atual: int
+    ano_anterior: int
+    total_grupos: int
+    eventos: List[ComparacaoAnoEvento]
+
+
+@router.get("/comparativo-anual", response_model=ComparacaoAnoResponse)
+async def get_comparativo_anual(
+    ano_atual: int = Query(2026, description="Ano atual para comparação"),
+    ano_anterior: int = Query(2025, description="Ano anterior para comparação"),
+    db: Session = Depends(get_db)
+):
+    """
+    Compara dados de eventos entre dois anos usando o evento_grupo como chave.
+    Permite analisar a performance do mesmo evento em anos diferentes.
+    """
+    executor = ThreadPoolExecutor(max_workers=4)
+    loop = asyncio.get_event_loop()
+    
+    mappings = get_sku_mappings_from_db(db)
+    
+    atual_ativo_future = loop.run_in_executor(executor, partial(fetch_ativo_data, ano_atual))
+    atual_magento_future = loop.run_in_executor(executor, partial(fetch_magento_data, ano_atual))
+    anterior_ativo_future = loop.run_in_executor(executor, partial(fetch_ativo_data, ano_anterior))
+    anterior_magento_future = loop.run_in_executor(executor, partial(fetch_magento_data, ano_anterior))
+    
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(
+                atual_ativo_future, atual_magento_future,
+                anterior_ativo_future, anterior_magento_future,
+                return_exceptions=True
+            ),
+            timeout=120.0
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Timeout ao buscar dados dos bancos externos")
+    
+    atual_ativo = results[0][0] if not isinstance(results[0], Exception) and results[0][0] else []
+    atual_magento = results[1][0] if not isinstance(results[1], Exception) and results[1][0] else []
+    anterior_ativo = results[2][0] if not isinstance(results[2], Exception) and results[2][0] else []
+    anterior_magento = results[3][0] if not isinstance(results[3], Exception) and results[3][0] else []
+    
+    atual_ativo = enrich_with_mappings(atual_ativo, mappings, "ativo", ano_atual)
+    atual_magento = enrich_with_mappings(atual_magento, mappings, "magento", ano_atual)
+    anterior_ativo = enrich_with_mappings(anterior_ativo, mappings, "ativo", ano_anterior)
+    anterior_magento = enrich_with_mappings(anterior_magento, mappings, "magento", ano_anterior)
+    
+    def consolidate_by_grupo(data_list: List[List[Dict]]) -> Dict[str, Dict]:
+        consolidated = {}
+        for data in data_list:
+            for row in data:
+                grupo = row.get("evento_grupo")
+                if not grupo:
+                    continue
+                
+                if grupo not in consolidated:
+                    consolidated[grupo] = {
+                        "nome_evento": row.get("evento") or row.get("sku") or grupo,
+                        "qtd": 0,
+                        "inscricao": 0.0,
+                        "cortesia": 0
+                    }
+                
+                consolidated[grupo]["qtd"] += row.get("qtd_vendida", 0)
+                consolidated[grupo]["inscricao"] += row.get("inscricao_liquida", 0.0)
+                consolidated[grupo]["cortesia"] += row.get("cortesia", 0)
+        
+        return consolidated
+    
+    dados_atual = consolidate_by_grupo([atual_ativo, atual_magento])
+    dados_anterior = consolidate_by_grupo([anterior_ativo, anterior_magento])
+    
+    todos_grupos = set(dados_atual.keys()) | set(dados_anterior.keys())
+    
+    eventos_comparados = []
+    for grupo in sorted(todos_grupos):
+        atual = dados_atual.get(grupo, {"nome_evento": grupo, "qtd": 0, "inscricao": 0.0})
+        anterior = dados_anterior.get(grupo, {"nome_evento": grupo, "qtd": 0, "inscricao": 0.0})
+        
+        qtd_atual = atual["qtd"]
+        qtd_anterior = anterior["qtd"]
+        inscricao_atual = atual["inscricao"]
+        inscricao_anterior = anterior["inscricao"]
+        
+        ticket_atual = inscricao_atual / qtd_atual if qtd_atual > 0 else 0.0
+        ticket_anterior = inscricao_anterior / qtd_anterior if qtd_anterior > 0 else 0.0
+        
+        variacao_qtd = ((qtd_atual - qtd_anterior) / qtd_anterior * 100) if qtd_anterior > 0 else (100.0 if qtd_atual > 0 else 0.0)
+        variacao_inscricao = ((inscricao_atual - inscricao_anterior) / inscricao_anterior * 100) if inscricao_anterior > 0 else (100.0 if inscricao_atual > 0 else 0.0)
+        variacao_ticket = ((ticket_atual - ticket_anterior) / ticket_anterior * 100) if ticket_anterior > 0 else (100.0 if ticket_atual > 0 else 0.0)
+        
+        eventos_comparados.append(ComparacaoAnoEvento(
+            evento_grupo=grupo,
+            nome_evento=atual.get("nome_evento") or anterior.get("nome_evento") or grupo,
+            ano_atual=ano_atual,
+            ano_anterior=ano_anterior,
+            qtd_atual=qtd_atual,
+            qtd_anterior=qtd_anterior,
+            variacao_qtd=round(variacao_qtd, 2),
+            inscricao_atual=round(inscricao_atual, 2),
+            inscricao_anterior=round(inscricao_anterior, 2),
+            variacao_inscricao=round(variacao_inscricao, 2),
+            ticket_atual=round(ticket_atual, 2),
+            ticket_anterior=round(ticket_anterior, 2),
+            variacao_ticket=round(variacao_ticket, 2)
+        ))
+    
+    eventos_comparados.sort(key=lambda x: x.qtd_atual, reverse=True)
+    
+    return ComparacaoAnoResponse(
+        status="success",
+        ano_atual=ano_atual,
+        ano_anterior=ano_anterior,
+        total_grupos=len(eventos_comparados),
+        eventos=eventos_comparados
+    )
