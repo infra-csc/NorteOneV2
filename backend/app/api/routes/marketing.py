@@ -945,3 +945,373 @@ async def delete_acao_comercial(
         "status": "success",
         "message": "Ação comercial removida com sucesso"
     }
+
+
+class PricingMetrics(BaseModel):
+    rollingIndex: float
+    rollingAvg14d: float
+    paceRequired: float
+    ied: float
+    projection: float
+    paceSeguranca: float
+    fem: float
+    ia: float
+
+class ElasticityScenario(BaseModel):
+    priceIncrease: float
+    newPrice: float
+    newMargin: float
+    acceptableVolumeDrop: float
+    minPace: float
+
+class PricingDecision(BaseModel):
+    action: str
+    reason: str
+    confidence: str
+
+class PricingEvent(BaseModel):
+    id: str
+    name: str
+    date: str
+    location: str
+    category: str
+    totalCapacity: int
+    currentSales: int
+    salesGoal: int
+    averageTicket: float
+    kitCost: float
+    dMinus: int
+    isActive: bool
+    sku: Optional[str] = None
+    pricingMetrics: PricingMetrics
+    elasticityScenarios: List[ElasticityScenario]
+    decision: PricingDecision
+    iscStatus: str
+
+class PricingSummary(BaseModel):
+    totalEvents: int
+    eventsToIncrease: int
+    eventsToMaintain: int
+    eventsToDecrease: int
+
+class PricingEventsResponse(BaseModel):
+    status: str
+    eventos: List[PricingEvent]
+    resumo: PricingSummary
+    categorias: List[str]
+    ultima_atualizacao: str
+
+
+def calculate_pricing_metrics(
+    current_sales: int, 
+    sales_goal: int, 
+    d_minus: int, 
+    average_ticket: float,
+    kit_cost: float,
+    total_capacity: int
+) -> PricingMetrics:
+    """
+    Calcula as métricas avançadas de pricing baseadas na análise do documento.
+    
+    - Rolling Index (Sell-out): Média Vendas 14d / (Inscrições Restantes / Dias Restantes)
+    - IED (Índice de Excedente de Demanda): Projeção / Meta
+    - Pace de Segurança: Rolling Atual × FEM
+    - FEM (Fator de Equivalência de Margem): Margem Antiga / Margem Nova
+    """
+    if d_minus <= 0:
+        d_minus = 1
+    
+    total_days = 90
+    elapsed_days = max(1, total_days - d_minus)
+    inscricoes_restantes = max(1, sales_goal - current_sales)
+    
+    if elapsed_days > 14:
+        daily_avg = current_sales / elapsed_days
+        rolling_avg_14d = daily_avg
+    else:
+        rolling_avg_14d = current_sales / max(1, elapsed_days)
+    
+    pace_required = inscricoes_restantes / max(1, d_minus)
+    
+    if pace_required > 0:
+        rolling_index = rolling_avg_14d / pace_required
+    else:
+        rolling_index = 2.0
+    
+    if elapsed_days > 0 and sales_goal > 0:
+        expected_daily = sales_goal / total_days
+        projection = (current_sales / elapsed_days) * total_days
+        
+        if rolling_avg_14d > expected_daily:
+            ia = rolling_avg_14d / expected_daily
+        else:
+            ia = rolling_avg_14d / max(0.01, expected_daily)
+    else:
+        projection = current_sales
+        ia = 1.0
+    
+    if sales_goal > 0:
+        ied = projection / sales_goal
+    else:
+        ied = 1.0
+    
+    current_margin = average_ticket - kit_cost
+    new_margin = (average_ticket * 1.10) - kit_cost
+    
+    if new_margin > 0:
+        fem = current_margin / new_margin
+    else:
+        fem = 1.0
+    
+    pace_seguranca = rolling_avg_14d * fem
+    
+    return PricingMetrics(
+        rollingIndex=round(rolling_index, 2),
+        rollingAvg14d=round(rolling_avg_14d, 2),
+        paceRequired=round(pace_required, 2),
+        ied=round(ied, 2),
+        projection=round(projection, 0),
+        paceSeguranca=round(pace_seguranca, 2),
+        fem=round(fem, 3),
+        ia=round(ia, 2)
+    )
+
+
+def calculate_elasticity_scenarios(
+    average_ticket: float,
+    kit_cost: float,
+    rolling_avg_14d: float
+) -> List[ElasticityScenario]:
+    """
+    Calcula cenários de elasticidade para diferentes aumentos de preço.
+    Mostra a queda de volume aceitável para cada cenário.
+    """
+    scenarios = []
+    increases = [5, 10, 15, 20]
+    
+    current_margin = average_ticket - kit_cost
+    
+    for inc in increases:
+        new_price = average_ticket * (1 + inc / 100)
+        new_margin = new_price - kit_cost
+        
+        if current_margin > 0 and new_margin > 0:
+            fem = current_margin / new_margin
+            acceptable_drop = (1 - fem) * 100
+            min_pace = rolling_avg_14d * fem
+        else:
+            acceptable_drop = 0
+            min_pace = rolling_avg_14d
+        
+        scenarios.append(ElasticityScenario(
+            priceIncrease=inc,
+            newPrice=round(new_price, 2),
+            newMargin=round(new_margin, 2),
+            acceptableVolumeDrop=round(acceptable_drop, 1),
+            minPace=round(min_pace, 2)
+        ))
+    
+    return scenarios
+
+
+def get_pricing_decision(
+    metrics: PricingMetrics,
+    d_minus: int
+) -> PricingDecision:
+    """
+    Determina a decisão de pricing baseada na matriz do documento:
+    
+    | IA (Aceleração) | Projeção vs Meta | Ação Recomendada |
+    |-----------------|------------------|------------------|
+    | Alto (> 1.2)    | Projeção > Meta  | Subir Preço Agora |
+    | Estável (1.0)   | Projeção > Meta  | Subir Gradual |
+    | Caindo (< 0.9)  | Projeção > Meta  | Manter / Focar Volume |
+    """
+    ia = metrics.ia
+    ied = metrics.ied
+    rolling_index = metrics.rollingIndex
+    
+    if ia > 1.2 and ied > 1.0:
+        return PricingDecision(
+            action="increase_now",
+            reason=f"IA alto ({ia:.2f}) e projeção acima da meta (IED {ied:.2f}). Demanda inelástica detectada.",
+            confidence="high"
+        )
+    
+    if ia >= 0.95 and ia <= 1.2 and ied > 1.0:
+        return PricingDecision(
+            action="increase_gradual",
+            reason=f"IA estável ({ia:.2f}) com projeção acima da meta. Capture margem nos próximos lotes.",
+            confidence="medium"
+        )
+    
+    if ia < 0.9 and ied > 1.0:
+        return PricingDecision(
+            action="maintain",
+            reason=f"IA em queda ({ia:.2f}), mas projeção ainda acima da meta. Priorize volume.",
+            confidence="medium"
+        )
+    
+    if rolling_index > 1.3 and ied > 1.1:
+        return PricingDecision(
+            action="increase_now",
+            reason=f"Rolling Index muito alto ({rolling_index:.2f}). Ritmo excelente para sell-out.",
+            confidence="high"
+        )
+    
+    if ied < 0.9 or rolling_index < 0.8:
+        if d_minus >= 40:
+            return PricingDecision(
+                action="decrease",
+                reason=f"Vendas abaixo do esperado (IED {ied:.2f}). Janela aberta para promoção.",
+                confidence="medium"
+            )
+        else:
+            return PricingDecision(
+                action="maintain",
+                reason=f"Vendas fracas, mas fora da janela de promoção (D-{d_minus}).",
+                confidence="low"
+            )
+    
+    return PricingDecision(
+        action="maintain",
+        reason="Métricas dentro do esperado. Continue monitorando.",
+        confidence="medium"
+    )
+
+
+@router.get("/pricing", response_model=PricingEventsResponse)
+async def get_pricing_analysis(
+    ano: int = Query(default=None, description="Ano dos eventos"),
+    status: Optional[str] = Query(None, description="Filtrar por status: active, closed, all"),
+    categoria: Optional[str] = Query(None, description="Filtrar por categoria/modalidade"),
+    busca: Optional[str] = Query(None, description="Buscar por nome do evento"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Retorna análise de pricing avançada para eventos.
+    Inclui Rolling Index, IED, Pace de Segurança e matriz de elasticidade.
+    """
+    if ano is None:
+        ano = datetime.now().year
+    
+    query = db.query(DimProjeto).filter(
+        DimProjeto.codigo.isnot(None),
+        DimProjeto.codigo != ''
+    )
+    
+    if categoria and categoria != 'all':
+        query = query.filter(DimProjeto.modalidade == categoria)
+    
+    if busca:
+        query = query.filter(DimProjeto.evento.ilike(f'%{busca}%'))
+    
+    projetos = query.all()
+    
+    skus = [str(p.codigo) for p in projetos if p.codigo]
+    sales_data = fetch_consolidated_sales_by_skus(skus, ano)
+    
+    eventos = []
+    categorias_set: set[str] = set()
+    events_increase = 0
+    events_maintain = 0
+    events_decrease = 0
+    
+    for projeto in projetos:
+        projeto_codigo = str(projeto.codigo) if projeto.codigo else None
+        if not projeto_codigo:
+            continue
+        
+        sku = projeto_codigo
+        projeto_data_evento = projeto.data_evento
+        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        is_active = d_minus > 0
+        
+        if status == 'active' and not is_active:
+            continue
+        if status == 'closed' and is_active:
+            continue
+        
+        modalidade = projeto.modalidade or 'OUTROS'
+        categorias_set.add(modalidade)
+        
+        sales_info = sales_data.get(sku, {})
+        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
+        total_value = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        
+        average_ticket = total_value / current_sales if current_sales > 0 else 120.0
+        total_capacity = projeto.vagas_total or 10000
+        sales_goal = int(total_capacity * 0.8)
+        
+        kit_cost = 50.0
+        
+        pricing_metrics = calculate_pricing_metrics(
+            current_sales=current_sales,
+            sales_goal=sales_goal,
+            d_minus=d_minus,
+            average_ticket=average_ticket,
+            kit_cost=kit_cost,
+            total_capacity=total_capacity
+        )
+        
+        elasticity_scenarios = calculate_elasticity_scenarios(
+            average_ticket=average_ticket,
+            kit_cost=kit_cost,
+            rolling_avg_14d=pricing_metrics.rollingAvg14d
+        )
+        
+        decision = get_pricing_decision(pricing_metrics, d_minus)
+        
+        if decision.action in ['increase_now', 'increase_gradual']:
+            events_increase += 1
+        elif decision.action == 'decrease':
+            events_decrease += 1
+        else:
+            events_maintain += 1
+        
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        isc = calculate_isc(isc_components)
+        isc_status = get_isc_status(isc)
+        
+        evento = PricingEvent(
+            id=sku,
+            name=projeto.evento or f"Evento {sku}",
+            date=projeto_data_evento.isoformat() if projeto_data_evento else "",
+            location=projeto.cidade or "Local não definido",
+            category=modalidade,
+            totalCapacity=total_capacity,
+            currentSales=current_sales,
+            salesGoal=sales_goal,
+            averageTicket=round(average_ticket, 2),
+            kitCost=kit_cost,
+            dMinus=d_minus,
+            isActive=is_active,
+            sku=sku,
+            pricingMetrics=pricing_metrics,
+            elasticityScenarios=elasticity_scenarios,
+            decision=decision,
+            iscStatus=isc_status
+        )
+        
+        eventos.append(evento)
+    
+    if status == 'active':
+        eventos = [e for e in eventos if e.isActive]
+    
+    eventos.sort(key=lambda x: (-1 if x.decision.action == 'increase_now' else 0 if x.decision.action == 'increase_gradual' else 1, -x.pricingMetrics.ied))
+    
+    resumo = PricingSummary(
+        totalEvents=len([e for e in eventos if e.isActive]),
+        eventsToIncrease=events_increase,
+        eventsToMaintain=events_maintain,
+        eventsToDecrease=events_decrease
+    )
+    
+    return PricingEventsResponse(
+        status="success",
+        eventos=eventos,
+        resumo=resumo,
+        categorias=sorted(list(categorias_set)),
+        ultima_atualizacao=datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
+    )

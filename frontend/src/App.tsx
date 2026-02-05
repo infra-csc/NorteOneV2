@@ -15,6 +15,7 @@ import MarketingDashboard from './pages/marketing/MarketingDashboard';
 import EventDetail from './pages/marketing/EventDetail';
 import EventComparison from './pages/marketing/EventComparison';
 import MarketingSettings from './pages/marketing/MarketingSettings';
+import PricingAnalysis from './pages/marketing/PricingAnalysis';
 import NoriAssistant from './pages/nori/NoriAssistant';
 import DadosConsolidados from './pages/admin/DadosConsolidados';
 import Usuarios from './pages/admin/Usuarios';
@@ -51,6 +52,7 @@ function App() {
             <Route path="/marketing/evento/:id" element={<PrivateRoute><Layout><EventDetail /></Layout></PrivateRoute>} />
             <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
             <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
+            <Route path="/marketing/pricing" element={<PrivateRoute><Layout><PricingAnalysis /></Layout></PrivateRoute>} />
             <Route path="/nori" element={<PrivateRoute><Layout><NoriAssistant /></Layout></PrivateRoute>} />
             <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
             <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />

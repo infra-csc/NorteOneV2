@@ -601,6 +601,84 @@ export interface MarketingEventsResponse {
   ultima_atualizacao: string;
 }
 
+export interface PricingMetrics {
+  rollingIndex: number;
+  rollingAvg14d: number;
+  paceRequired: number;
+  ied: number;
+  projection: number;
+  paceSeguranca: number;
+  fem: number;
+  ia: number;
+}
+
+export interface ElasticityScenario {
+  priceIncrease: number;
+  newPrice: number;
+  newMargin: number;
+  acceptableVolumeDrop: number;
+  minPace: number;
+}
+
+export interface PricingDecision {
+  action: 'increase_now' | 'increase_gradual' | 'maintain' | 'decrease';
+  reason: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface PricingEvent {
+  id: string;
+  name: string;
+  date: string;
+  location: string;
+  category: string;
+  totalCapacity: number;
+  currentSales: number;
+  salesGoal: number;
+  averageTicket: number;
+  kitCost: number;
+  dMinus: number;
+  isActive: boolean;
+  sku?: string;
+  pricingMetrics: PricingMetrics;
+  elasticityScenarios: ElasticityScenario[];
+  decision: PricingDecision;
+  iscStatus: 'accelerating' | 'stable' | 'decelerating';
+}
+
+export interface PricingSummary {
+  totalEvents: number;
+  eventsToIncrease: number;
+  eventsToMaintain: number;
+  eventsToDecrease: number;
+}
+
+export interface PricingEventsResponse {
+  status: string;
+  eventos: PricingEvent[];
+  resumo: PricingSummary;
+  categorias: string[];
+  ultima_atualizacao: string;
+}
+
+export const pricingService = {
+  getAnalysis: async (params?: {
+    ano?: number;
+    status?: string;
+    categoria?: string;
+    busca?: string;
+  }): Promise<PricingEventsResponse> => {
+    const queryParams = new URLSearchParams();
+    if (params?.ano) queryParams.append('ano', params.ano.toString());
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.categoria) queryParams.append('categoria', params.categoria);
+    if (params?.busca) queryParams.append('busca', params.busca);
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const response = await api.get(`/marketing/pricing${queryString}`);
+    return response.data;
+  }
+};
+
 export const marketingService = {
   getEventos: async (params?: {
     ano?: number;

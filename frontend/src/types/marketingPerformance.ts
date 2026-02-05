@@ -100,3 +100,66 @@ export function getSuggestedAction(isc: number, dMinus: number): string {
 export function isInCriticalWindow(dMinus: number): boolean {
   return dMinus >= 40 && dMinus <= 45;
 }
+
+export interface PricingMetrics {
+  rollingIndex: number;
+  rollingAvg14d: number;
+  paceRequired: number;
+  ied: number;
+  projection: number;
+  paceSeguranca: number;
+  fem: number;
+  ia: number;
+}
+
+export interface ElasticityScenario {
+  priceIncrease: number;
+  newPrice: number;
+  newMargin: number;
+  acceptableVolumeDrop: number;
+  minPace: number;
+}
+
+export interface PricingDecision {
+  action: 'increase_now' | 'increase_gradual' | 'maintain' | 'decrease';
+  reason: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+export interface PricingEvent {
+  id: string;
+  name: string;
+  date: string;
+  location: string;
+  category: string;
+  totalCapacity: number;
+  currentSales: number;
+  salesGoal: number;
+  averageTicket: number;
+  kitCost: number;
+  dMinus: number;
+  isActive: boolean;
+  sku?: string;
+  pricingMetrics: PricingMetrics;
+  elasticityScenarios: ElasticityScenario[];
+  decision: PricingDecision;
+  iscStatus: ISCStatus;
+}
+
+export function getPricingDecisionColor(action: PricingDecision['action']): string {
+  switch (action) {
+    case 'increase_now': return '#22c55e';
+    case 'increase_gradual': return '#84cc16';
+    case 'maintain': return '#eab308';
+    case 'decrease': return '#ef4444';
+  }
+}
+
+export function getPricingDecisionLabel(action: PricingDecision['action']): string {
+  switch (action) {
+    case 'increase_now': return 'Subir Preco Agora';
+    case 'increase_gradual': return 'Subir Gradualmente';
+    case 'maintain': return 'Manter Preco';
+    case 'decrease': return 'Considerar Reducao';
+  }
+}

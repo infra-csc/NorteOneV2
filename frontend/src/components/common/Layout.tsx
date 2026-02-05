@@ -23,6 +23,7 @@ import {
   Settings,
   Sparkles,
   Database,
+  DollarSign,
   ShieldCheck,
   Package
 } from 'lucide-react';
@@ -43,8 +44,9 @@ const menuItems = [
 
 const marketingItems = [
   { path: '/marketing', icon: Activity, label: 'Dashboard ISC' },
+  { path: '/marketing/pricing', icon: DollarSign, label: 'Analise de Pricing' },
   { path: '/marketing/comparativo', icon: BarChart3, label: 'Comparativo' },
-  { path: '/marketing/configuracoes', icon: Settings, label: 'Configurações' },
+  { path: '/marketing/configuracoes', icon: Settings, label: 'Configuracoes' },
 ];
 
 const adminItems = [
