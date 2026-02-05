@@ -448,11 +448,17 @@ def generate_daily_sales_data(current_sales: int, sales_goal: int, event_date, d
 _sales_cache = {}
 _cache_timestamp = None
 
-def fetch_consolidated_sales_by_skus(skus: List[str], ano: int) -> dict:
+def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: bool = False) -> dict:
     """
     Busca vendas consolidadas (Ativo + Magento) para uma lista de SKUs.
     Usa cache para evitar queries repetidas.
     Retorna dict com SKU como chave.
+    
+    Args:
+        skus: Lista de SKUs para buscar
+        ano: Ano do evento
+        apenas_site: Se True, retorna apenas vendas do canal Site (excluindo Grupos e Cortesia).
+                     Se False (default), retorna vendas totais (Site + Grupos + Cortesia).
     """
     global _sales_cache, _cache_timestamp
     from .inscricoes_consolidado import fetch_ativo_data, fetch_magento_data
@@ -464,7 +470,7 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int) -> dict:
         return sales_by_sku
     
     skus_normalized = [normalize_sku(s) for s in skus]
-    cache_key = f"{ano}"
+    cache_key = f"{ano}_{'site' if apenas_site else 'total'}"
     
     current_time = time.time()
     cache_valid = _cache_timestamp and (current_time - _cache_timestamp) < 300
@@ -484,9 +490,15 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int) -> dict:
             for row in dados_ativo:
                 sku = normalize_sku(row.get('sku', '') or '')
                 if sku:
+                    if apenas_site:
+                        qtd = int(row.get('qtd_site', 0) or 0)
+                        valor = float(row.get('inscricao_liquida_site', 0) or 0)
+                    else:
+                        qtd = int(row.get('qtd_vendida', 0) or 0)
+                        valor = float(row.get('inscricao_liquida', 0) or 0)
                     all_sales[sku] = {
-                        'qtd_ativo': int(row.get('qtd_vendida', 0) or 0),
-                        'valor_ativo': float(row.get('inscricao_liquida', 0) or 0),
+                        'qtd_ativo': qtd,
+                        'valor_ativo': valor,
                         'qtd_magento': 0,
                         'valor_magento': 0
                     }
@@ -501,15 +513,21 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int) -> dict:
             for row in dados_magento:
                 sku = normalize_sku(row.get('sku', '') or '')
                 if sku:
+                    if apenas_site:
+                        qtd = int(row.get('qtd_site', 0) or 0)
+                        valor = float(row.get('inscricao_liquida_site', 0) or 0)
+                    else:
+                        qtd = int(row.get('qtd_vendida', 0) or 0)
+                        valor = float(row.get('inscricao_liquida', 0) or 0)
                     if sku in all_sales:
-                        all_sales[sku]['qtd_magento'] = int(row.get('qtd_vendida', 0) or 0)
-                        all_sales[sku]['valor_magento'] = float(row.get('inscricao_liquida', 0) or 0)
+                        all_sales[sku]['qtd_magento'] = qtd
+                        all_sales[sku]['valor_magento'] = valor
                     else:
                         all_sales[sku] = {
                             'qtd_ativo': 0,
                             'valor_ativo': 0,
-                            'qtd_magento': int(row.get('qtd_vendida', 0) or 0),
-                            'valor_magento': float(row.get('inscricao_liquida', 0) or 0)
+                            'qtd_magento': qtd,
+                            'valor_magento': valor
                         }
         else:
             logger.warning(f"Sem dados Magento: {error}")
