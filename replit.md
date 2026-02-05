@@ -55,6 +55,31 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 
 ## Recent Changes
 
+### 2026-02-05
+- **Pricing Analysis Dashboard (Analise de Pricing):**
+  - Created new `/marketing/pricing` route with dedicated pricing analysis page.
+  - **New Metrics Implemented:**
+    - **Rolling Index (Sell-out):** Media Vendas 14d / (Inscricoes Restantes / Dias Restantes) - shows if event is on pace for sell-out.
+    - **IED (Indice de Excedente de Demanda):** Projecao / Meta - indicates room for price increase.
+    - **Pace de Seguranca:** Rolling Atual x FEM - minimum acceptable sales velocity after price increase.
+    - **FEM (Fator de Equivalencia de Margem):** Margem Antiga / Margem Nova - margin equivalence factor.
+    - **IA (Indice de Aceleracao):** Rolling 14d / Expected Daily - acceleration indicator.
+  - **Elasticity Simulator:**
+    - Interactive table showing scenarios for +5%, +10%, +15%, +20% price increases.
+    - For each scenario: new price, new margin, acceptable volume drop %, minimum pace.
+  - **Decision Matrix:**
+    - Automated pricing recommendations based on IA x Projection matrix.
+    - Actions: "Subir Agora", "Subir Gradual", "Manter", "Reduzir".
+    - Confidence levels: Alta, Media, Baixa.
+    - Business logic follows document rules: IA > 1.2 + IED > 1.0 = increase now; IA stable + IED > 1.0 = gradual increase; IA falling = maintain/focus volume.
+  - **Backend Endpoint:** `/api/marketing/pricing` returns PricingEventsResponse with eventos, resumo, categorias, and ultima_atualizacao.
+  - **Frontend Components:**
+    - Summary cards: Total Events, Events to Increase, Events to Maintain, Events to Decrease.
+    - Expandable event cards with pricing metrics and elasticity simulator.
+    - Search, category filter, and status filter.
+    - Color-coded decision badges (green=increase, yellow=maintain, red=decrease).
+  - Added navigation link "Analise de Pricing" in Marketing Performance menu.
+
 ### 2026-02-03
 - **Separated User Tasks from Delegated Tasks:**
   - Modified task listing endpoints to separate "my tasks" (where user is responsável or created for self) from "delegated tasks" (tasks created for other users).
