@@ -68,9 +68,9 @@ const SkuMappings: React.FC = () => {
     setError(null);
     try {
       const [mappingsRes, gruposRes, anosRes] = await Promise.all([
-        api.get('/api/admin/sku-mappings'),
-        api.get('/api/admin/sku-mappings/grupos'),
-        api.get('/api/admin/sku-mappings/anos')
+        api.get('/admin/sku-mappings'),
+        api.get('/admin/sku-mappings/grupos'),
+        api.get('/admin/sku-mappings/anos')
       ]);
       setMappings(mappingsRes.data);
       setGrupos(gruposRes.data);
@@ -145,9 +145,9 @@ const SkuMappings: React.FC = () => {
 
     try {
       if (editingMapping) {
-        await api.put(`/api/admin/sku-mappings/${editingMapping.id}`, formData);
+        await api.put(`/admin/sku-mappings/${editingMapping.id}`, formData);
       } else {
-        await api.post('/api/admin/sku-mappings', formData);
+        await api.post('/admin/sku-mappings', formData);
       }
       setShowModal(false);
       fetchData();
@@ -160,7 +160,7 @@ const SkuMappings: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     try {
-      await api.delete(`/api/admin/sku-mappings/${id}`);
+      await api.delete(`/admin/sku-mappings/${id}`);
       setShowDeleteConfirm(null);
       fetchData();
     } catch (err: any) {
