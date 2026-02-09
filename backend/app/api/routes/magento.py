@@ -5,7 +5,7 @@ import app.core.database as db_module
 router = APIRouter()
 
 @router.get("/test")
-async def test_magento_connection():
+def test_magento_connection():
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,
@@ -27,7 +27,7 @@ async def test_magento_connection():
         )
 
 @router.get("/tables")
-async def list_magento_tables():
+def list_magento_tables():
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,
@@ -50,7 +50,7 @@ async def list_magento_tables():
         )
 
 @router.get("/sales-summary")
-async def get_sales_summary():
+def get_sales_summary():
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,

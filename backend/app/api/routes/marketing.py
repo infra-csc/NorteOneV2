@@ -643,7 +643,7 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
 
 
 @router.get("/eventos", response_model=MarketingEventsResponse)
-async def get_marketing_events(
+def get_marketing_events(
     ano: int = Query(default=None, description="Ano dos eventos"),
     status: Optional[str] = Query(None, description="Filtrar por status: active, closed, all"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoria/modalidade"),
@@ -766,7 +766,7 @@ async def get_marketing_events(
 
 
 @router.get("/resumo")
-async def get_marketing_summary(
+def get_marketing_summary(
     ano: int = Query(default=None, description="Ano dos eventos"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -774,7 +774,7 @@ async def get_marketing_summary(
     """
     Retorna apenas o resumo do Dashboard ISC (contagem por zona).
     """
-    response = await get_marketing_events(ano=ano, db=db, current_user=current_user)
+    response = get_marketing_events(ano=ano, db=db, current_user=current_user)
     return {
         "status": "success",
         "resumo": response.resumo,
@@ -783,7 +783,7 @@ async def get_marketing_summary(
 
 
 @router.get("/eventos/{evento_id}")
-async def get_marketing_event_by_id(
+def get_marketing_event_by_id(
     evento_id: str,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -925,7 +925,7 @@ class AcaoComercialResponse(BaseModel):
 
 
 @router.get("/acoes-comerciais/{projeto_id}")
-async def get_acoes_comerciais(
+def get_acoes_comerciais(
     projeto_id: int,
     calcular_impacto: bool = Query(default=True, description="Calcular impacto em tempo real"),
     db: Session = Depends(get_db),
@@ -968,7 +968,7 @@ async def get_acoes_comerciais(
 
 
 @router.post("/acoes-comerciais")
-async def create_acao_comercial(
+def create_acao_comercial(
     acao: AcaoComercialCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -1005,7 +1005,7 @@ async def create_acao_comercial(
 
 
 @router.put("/acoes-comerciais/{acao_id}")
-async def update_acao_comercial(
+def update_acao_comercial(
     acao_id: int,
     acao_update: AcaoComercialUpdate,
     db: Session = Depends(get_db),
@@ -1042,7 +1042,7 @@ async def update_acao_comercial(
 
 
 @router.delete("/acoes-comerciais/{acao_id}")
-async def delete_acao_comercial(
+def delete_acao_comercial(
     acao_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -1537,7 +1537,7 @@ def get_pricing_decision(
 
 
 @router.get("/pricing", response_model=PricingEventsResponse)
-async def get_pricing_analysis(
+def get_pricing_analysis(
     ano: int = Query(default=None, description="Ano dos eventos"),
     status: Optional[str] = Query(None, description="Filtrar por status: active, closed, all"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoria/modalidade"),

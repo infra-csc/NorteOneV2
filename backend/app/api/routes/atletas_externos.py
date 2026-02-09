@@ -62,7 +62,7 @@ def validate_sku(sku: Optional[str]) -> Optional[str]:
     raise HTTPException(status_code=400, detail=f"SKU inválido: {sku}. Use apenas letras, números, hífen e underscore")
 
 @router.get("/resumo")
-async def get_atletas_externos_resumo(
+def get_atletas_externos_resumo(
     id_evento: Optional[int] = Query(None, description="ID do evento para filtrar"),
     sku: Optional[str] = Query(None, description="SKU (id_campanha_salesforce) para filtrar"),
     data_inicio: Optional[str] = Query(None, description="Data início do período (YYYY-MM-DD)"),
@@ -152,7 +152,7 @@ async def get_atletas_externos_resumo(
         raise HTTPException(status_code=500, detail=f"Erro ao consultar banco externo: {str(e)}")
 
 @router.get("/por-evento")
-async def get_atletas_por_evento(
+def get_atletas_por_evento(
     id_evento: Optional[int] = Query(None, description="ID do evento para filtrar"),
     sku: Optional[str] = Query(None, description="SKU (id_campanha_salesforce) para filtrar"),
     data_inicio: Optional[str] = Query(None, description="Data início (YYYY-MM-DD)"),
@@ -314,7 +314,7 @@ async def get_atletas_por_evento(
         raise HTTPException(status_code=500, detail=f"Erro ao consultar banco externo: {str(e)}")
 
 @router.get("/vincular-projetos")
-async def vincular_atletas_projetos(
+def vincular_atletas_projetos(
     db: Session = Depends(get_db)
 ):
     """
@@ -348,7 +348,7 @@ async def vincular_atletas_projetos(
     }
 
 @router.get("/por-projeto/{codigo_sku}")
-async def get_atletas_por_projeto_sku(
+def get_atletas_por_projeto_sku(
     codigo_sku: str,
     data_inicio: Optional[str] = Query(None, description="Data início (YYYY-MM-DD)"),
     data_fim: Optional[str] = Query(None, description="Data fim (YYYY-MM-DD)")
@@ -514,7 +514,7 @@ async def get_atletas_por_projeto_sku(
         raise HTTPException(status_code=500, detail=f"Erro ao consultar banco externo: {str(e)}")
 
 @router.delete("/cache")
-async def limpar_cache():
+def limpar_cache():
     """
     Limpa o cache de dados externos para forçar nova consulta.
     """

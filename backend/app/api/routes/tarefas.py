@@ -12,7 +12,7 @@ router = APIRouter(prefix="/tarefas", tags=["Tarefas"])
 
 
 @router.get("/", response_model=List[TarefaResponse])
-async def list_tarefas(
+def list_tarefas(
     status: Optional[StatusTarefa] = None,
     prioridade: Optional[PrioridadeTarefa] = None,
     db: Session = Depends(get_db),
@@ -39,7 +39,7 @@ async def list_tarefas(
 
 
 @router.get("/pendentes", response_model=List[TarefaResponse])
-async def list_tarefas_pendentes(
+def list_tarefas_pendentes(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -58,7 +58,7 @@ async def list_tarefas_pendentes(
 
 
 @router.get("/hoje", response_model=List[TarefaResponse])
-async def list_tarefas_hoje(
+def list_tarefas_hoje(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -82,7 +82,7 @@ async def list_tarefas_hoje(
 
 
 @router.get("/delegadas", response_model=List[TarefaResponse])
-async def list_tarefas_delegadas(
+def list_tarefas_delegadas(
     status: Optional[StatusTarefa] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -104,7 +104,7 @@ async def list_tarefas_delegadas(
 
 
 @router.get("/resumo")
-async def get_resumo_tarefas(
+def get_resumo_tarefas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -171,7 +171,7 @@ async def get_resumo_tarefas(
 
 
 @router.get("/{tarefa_id}", response_model=TarefaResponse)
-async def get_tarefa(
+def get_tarefa(
     tarefa_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -192,7 +192,7 @@ async def get_tarefa(
 
 
 @router.post("/", response_model=TarefaResponse)
-async def create_tarefa(
+def create_tarefa(
     tarefa: TarefaCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -223,7 +223,7 @@ async def create_tarefa(
 
 
 @router.put("/{tarefa_id}", response_model=TarefaResponse)
-async def update_tarefa(
+def update_tarefa(
     tarefa_id: int,
     tarefa: TarefaUpdate,
     db: Session = Depends(get_db),
@@ -252,7 +252,7 @@ async def update_tarefa(
 
 
 @router.put("/{tarefa_id}/concluir", response_model=TarefaResponse)
-async def concluir_tarefa(
+def concluir_tarefa(
     tarefa_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -277,7 +277,7 @@ async def concluir_tarefa(
 
 
 @router.delete("/{tarefa_id}")
-async def delete_tarefa(
+def delete_tarefa(
     tarefa_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)

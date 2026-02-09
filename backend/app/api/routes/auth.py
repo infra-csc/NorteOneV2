@@ -11,7 +11,7 @@ from ...schemas.auth import Token, LoginRequest, UserCreate, UserResponse
 router = APIRouter(prefix="/auth", tags=["Autenticação"])
 
 @router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(Usuario).filter(Usuario.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.senha_hash):
         raise HTTPException(
@@ -31,5 +31,5 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: Usuario = Depends(get_current_user)):
+def get_me(current_user: Usuario = Depends(get_current_user)):
     return current_user

@@ -11,7 +11,7 @@ from ...models.user import Usuario
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/filtros")
-async def get_filtros(
+def get_filtros(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -67,7 +67,7 @@ def get_projeto_ids_for_filters(db: Session, produto: str = None, tipo_evento: s
     return [p.id for p in query.all()]
 
 @router.get("/resumo-geral")
-async def get_resumo_geral(
+def get_resumo_geral(
     ano: int = 2025,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
@@ -184,7 +184,7 @@ async def get_resumo_geral(
     }
 
 @router.get("/evolucao-mensal")
-async def get_evolucao_mensal(
+def get_evolucao_mensal(
     ano: int = 2025,
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
@@ -231,7 +231,7 @@ async def get_evolucao_mensal(
     return resultado
 
 @router.get("/distribuicao-tipo")
-async def get_distribuicao_tipo(
+def get_distribuicao_tipo(
     ano: int = 2025,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
@@ -262,7 +262,7 @@ async def get_distribuicao_tipo(
     return [{"tipo": d.tipo, "total": float(d.total)} for d in dados]
 
 @router.get("/atletas-por-modalidade")
-async def get_atletas_por_modalidade(
+def get_atletas_por_modalidade(
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
     projeto_id: Optional[int] = Query(None),
@@ -287,7 +287,7 @@ async def get_atletas_por_modalidade(
     return [{"modalidade": d.modalidade or "Nao definida", "total": d.total or 0} for d in dados]
 
 @router.get("/atletas-por-projeto")
-async def get_atletas_por_projeto(
+def get_atletas_por_projeto(
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
     projeto_id: Optional[int] = Query(None),

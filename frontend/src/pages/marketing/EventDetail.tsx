@@ -128,29 +128,34 @@ const EventDetail: React.FC = () => {
     return () => { controller.abort(); };
   }, [id]);
 
-  if (loading) {
+  if (loading || !event) {
     return (
       <div className="p-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 flex flex-col items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-          <p className="mt-4 text-gray-500 dark:text-gray-400">Carregando dados do evento...</p>
-        </div>
-      </div>
-    );
-  }
-  
-  if (error || !event) {
-    return (
-      <div className="p-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center">
-          <p className="text-gray-500 dark:text-gray-400">{error || 'Evento não encontrado.'}</p>
+        <div className="flex items-center gap-2 mb-6">
           <button
             onClick={() => navigate('/marketing')}
-            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline"
           >
+            <ArrowLeft className="w-5 h-5" />
             Voltar ao Dashboard
           </button>
         </div>
+        {error ? (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center">
+            <p className="text-gray-500 dark:text-gray-400">{error}</p>
+            <button
+              onClick={() => navigate('/marketing')}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Voltar ao Dashboard
+            </button>
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-12 flex flex-col items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <p className="mt-4 text-gray-500 dark:text-gray-400">Carregando dados do evento...</p>
+          </div>
+        )}
       </div>
     );
   }

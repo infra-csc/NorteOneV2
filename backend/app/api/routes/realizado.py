@@ -12,7 +12,7 @@ from ...schemas.fatos import RealizadoCreate, RealizadoResponse
 router = APIRouter(prefix="/realizado", tags=["Realizado"])
 
 @router.get("/", response_model=List[RealizadoResponse])
-async def list_realizados(
+def list_realizados(
     skip: int = 0,
     limit: int = 100,
     centro_custo_id: int = None,
@@ -34,7 +34,7 @@ async def list_realizados(
     return realizados
 
 @router.post("/", response_model=RealizadoResponse)
-async def create_realizado(
+def create_realizado(
     realizado: RealizadoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -46,7 +46,7 @@ async def create_realizado(
     return db_realizado
 
 @router.get("/resumo")
-async def get_resumo_realizado(
+def get_resumo_realizado(
     ano: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -77,7 +77,7 @@ async def get_resumo_realizado(
     }
 
 @router.delete("/{realizado_id}")
-async def delete_realizado(
+def delete_realizado(
     realizado_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

@@ -18,7 +18,7 @@ router = APIRouter(prefix="/atletas-satelite", tags=["Atletas Satélite"])
 
 # === METRICAS (principal) ===
 @router.get("/metricas/", response_model=List[AtletasMetricasResponse])
-async def list_metricas(
+def list_metricas(
     projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
     cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
     categoria_atleta_id: Optional[int] = Query(None, description="Filtrar por categoria de atleta"),
@@ -38,7 +38,7 @@ async def list_metricas(
 
 
 @router.post("/metricas/", response_model=AtletasMetricasResponse)
-async def create_metrica(
+def create_metrica(
     data: AtletasMetricasCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -55,7 +55,7 @@ async def create_metrica(
 
 
 @router.put("/metricas/{item_id}", response_model=AtletasMetricasResponse)
-async def update_metrica(
+def update_metrica(
     item_id: int,
     data: AtletasMetricasUpdate,
     db: Session = Depends(get_db),
@@ -74,7 +74,7 @@ async def update_metrica(
 
 
 @router.delete("/metricas/{item_id}")
-async def delete_metrica(
+def delete_metrica(
     item_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -89,7 +89,7 @@ async def delete_metrica(
 
 
 @router.post("/metricas/bulk", response_model=List[AtletasMetricasResponse])
-async def create_metricas_bulk(
+def create_metricas_bulk(
     data: List[AtletasMetricasCreate],
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -104,7 +104,7 @@ async def create_metricas_bulk(
 
 # === CANAIS ===
 @router.get("/canais/", response_model=List[AtletasCanaisResponse])
-async def list_canais(
+def list_canais(
     projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
     canal: Optional[str] = Query(None, description="Filtrar por canal: SITE, GRUPOS, APPAI"),
     cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
@@ -127,7 +127,7 @@ async def list_canais(
 
 
 @router.post("/canais/", response_model=AtletasCanaisResponse)
-async def create_canal(
+def create_canal(
     data: AtletasCanaisCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -144,7 +144,7 @@ async def create_canal(
 
 
 @router.put("/canais/{item_id}", response_model=AtletasCanaisResponse)
-async def update_canal(
+def update_canal(
     item_id: int,
     data: AtletasCanaisUpdate,
     db: Session = Depends(get_db),
@@ -163,7 +163,7 @@ async def update_canal(
 
 
 @router.delete("/canais/{item_id}")
-async def delete_canal(
+def delete_canal(
     item_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -179,7 +179,7 @@ async def delete_canal(
 
 # === KITS ===
 @router.get("/kits/", response_model=List[AtletasKitsResponse])
-async def list_kits(
+def list_kits(
     projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
     tipo_kit: Optional[str] = Query(None, description="Filtrar por tipo de kit: VIP, PLUS, SUPER, PRODUTO"),
     cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
@@ -202,7 +202,7 @@ async def list_kits(
 
 
 @router.post("/kits/", response_model=AtletasKitsResponse)
-async def create_kit(
+def create_kit(
     data: AtletasKitsCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -219,7 +219,7 @@ async def create_kit(
 
 
 @router.put("/kits/{item_id}", response_model=AtletasKitsResponse)
-async def update_kit(
+def update_kit(
     item_id: int,
     data: AtletasKitsUpdate,
     db: Session = Depends(get_db),
@@ -238,7 +238,7 @@ async def update_kit(
 
 
 @router.delete("/kits/{item_id}")
-async def delete_kit(
+def delete_kit(
     item_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -254,7 +254,7 @@ async def delete_kit(
 
 # === CUSTOS ===
 @router.get("/custos/", response_model=List[AtletasCustosResponse])
-async def list_custos(
+def list_custos(
     projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
     tipo_custo: Optional[str] = Query(None, description="Filtrar por tipo de custo"),
     cenario: Optional[str] = Query(None, description="Filtrar por cenário: ORCADO, PROJETADO, REALIZADO"),
@@ -277,7 +277,7 @@ async def list_custos(
 
 
 @router.post("/custos/", response_model=AtletasCustosResponse)
-async def create_custo(
+def create_custo(
     data: AtletasCustosCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -294,7 +294,7 @@ async def create_custo(
 
 
 @router.put("/custos/{item_id}", response_model=AtletasCustosResponse)
-async def update_custo(
+def update_custo(
     item_id: int,
     data: AtletasCustosUpdate,
     db: Session = Depends(get_db),
@@ -313,7 +313,7 @@ async def update_custo(
 
 
 @router.delete("/custos/{item_id}")
-async def delete_custo(
+def delete_custo(
     item_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -329,7 +329,7 @@ async def delete_custo(
 
 # === BULK OPERATIONS ===
 @router.post("/canais/bulk", response_model=List[AtletasCanaisResponse])
-async def create_canais_bulk(
+def create_canais_bulk(
     data: List[AtletasCanaisCreate],
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -343,7 +343,7 @@ async def create_canais_bulk(
 
 
 @router.post("/kits/bulk", response_model=List[AtletasKitsResponse])
-async def create_kits_bulk(
+def create_kits_bulk(
     data: List[AtletasKitsCreate],
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -357,7 +357,7 @@ async def create_kits_bulk(
 
 
 @router.post("/custos/bulk", response_model=List[AtletasCustosResponse])
-async def create_custos_bulk(
+def create_custos_bulk(
     data: List[AtletasCustosCreate],
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))

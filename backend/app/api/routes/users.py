@@ -9,7 +9,7 @@ from ...schemas.auth import UserCreate, UserUpdate, UserResponse
 router = APIRouter(prefix="/users", tags=["Usuários"])
 
 @router.get("/", response_model=List[UserResponse])
-async def list_users(
+def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -19,7 +19,7 @@ async def list_users(
     return users
 
 @router.post("/", response_model=UserResponse)
-async def create_user(
+def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -41,7 +41,7 @@ async def create_user(
     return db_user
 
 @router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
+def get_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -52,7 +52,7 @@ async def get_user(
     return user
 
 @router.put("/{user_id}", response_model=UserResponse)
-async def update_user(
+def update_user(
     user_id: int,
     user_update: UserUpdate,
     db: Session = Depends(get_db),
@@ -76,7 +76,7 @@ async def update_user(
     return user
 
 @router.delete("/{user_id}")
-async def delete_user(
+def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

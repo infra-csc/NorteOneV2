@@ -10,7 +10,7 @@ from ...schemas.dimensoes import ContaCreate, ContaUpdate, ContaResponse
 router = APIRouter(prefix="/contas", tags=["Contas Contábeis"])
 
 @router.get("/", response_model=List[ContaResponse])
-async def list_contas(
+def list_contas(
     skip: int = 0,
     limit: int = 100,
     tipo: str = None,
@@ -24,7 +24,7 @@ async def list_contas(
     return contas
 
 @router.post("/", response_model=ContaResponse)
-async def create_conta(
+def create_conta(
     conta: ContaCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
@@ -40,7 +40,7 @@ async def create_conta(
     return db_conta
 
 @router.get("/{conta_id}", response_model=ContaResponse)
-async def get_conta(
+def get_conta(
     conta_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -51,7 +51,7 @@ async def get_conta(
     return conta
 
 @router.put("/{conta_id}", response_model=ContaResponse)
-async def update_conta(
+def update_conta(
     conta_id: int,
     conta_update: ContaUpdate,
     db: Session = Depends(get_db),
@@ -69,7 +69,7 @@ async def update_conta(
     return conta
 
 @router.delete("/{conta_id}")
-async def delete_conta(
+def delete_conta(
     conta_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

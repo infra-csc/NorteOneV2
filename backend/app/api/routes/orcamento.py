@@ -14,7 +14,7 @@ from ...schemas.fatos import OrcamentoCreate, OrcamentoUpdate, OrcamentoResponse
 router = APIRouter(prefix="/orcamento", tags=["Orçamento"])
 
 @router.get("/", response_model=List[OrcamentoResponse])
-async def list_orcamentos(
+def list_orcamentos(
     skip: int = 0,
     limit: int = 100,
     ano: int = None,
@@ -34,7 +34,7 @@ async def list_orcamentos(
     return orcamentos
 
 @router.post("/", response_model=OrcamentoResponse)
-async def create_orcamento(
+def create_orcamento(
     orcamento: OrcamentoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -46,7 +46,7 @@ async def create_orcamento(
     return db_orcamento
 
 @router.get("/resumo")
-async def get_resumo_orcamento(
+def get_resumo_orcamento(
     ano: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -73,7 +73,7 @@ async def get_resumo_orcamento(
     }
 
 @router.get("/por-mes")
-async def get_orcamento_por_mes(
+def get_orcamento_por_mes(
     ano: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -102,7 +102,7 @@ async def get_orcamento_por_mes(
     return list(resultado.values())
 
 @router.put("/{orcamento_id}", response_model=OrcamentoResponse)
-async def update_orcamento(
+def update_orcamento(
     orcamento_id: int,
     orcamento_update: OrcamentoUpdate,
     db: Session = Depends(get_db),
@@ -120,7 +120,7 @@ async def update_orcamento(
     return orcamento
 
 @router.delete("/{orcamento_id}")
-async def delete_orcamento(
+def delete_orcamento(
     orcamento_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

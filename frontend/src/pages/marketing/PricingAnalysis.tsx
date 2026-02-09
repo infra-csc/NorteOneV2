@@ -151,17 +151,6 @@ const PricingAnalysis: React.FC = () => {
   const textMuted = isDark ? 'text-gray-400' : 'text-gray-500';
   const borderColor = isDark ? 'border-gray-700' : 'border-gray-200';
 
-  if (loading) {
-    return (
-      <div className={`min-h-screen ${bgColor} flex items-center justify-center`}>
-        <div className="text-center">
-          <Loader2 className={`w-12 h-12 animate-spin mx-auto ${textMuted}`} />
-          <p className={`mt-4 ${textMuted}`}>Carregando analise de pricing...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className={`min-h-screen ${bgColor} p-6`}>
       <div className="max-w-7xl mx-auto">
@@ -179,11 +168,11 @@ const PricingAnalysis: React.FC = () => {
             )}
             <button
               onClick={() => fetchData(true)}
-              disabled={refreshing}
+              disabled={refreshing || loading}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg ${cardBg} ${borderColor} border hover:bg-opacity-80 transition-colors`}
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Atualizar
+              <RefreshCw className={`w-4 h-4 ${(refreshing || loading) ? 'animate-spin' : ''}`} />
+              {loading ? 'Carregando...' : 'Atualizar'}
             </button>
           </div>
         </div>
@@ -194,28 +183,28 @@ const PricingAnalysis: React.FC = () => {
               <span className={textMuted}>Eventos Ativos</span>
               <Activity className="w-5 h-5 text-blue-500" />
             </div>
-            <p className={`text-2xl font-bold mt-2 ${textColor}`}>{summary.totalEvents}</p>
+            <p className={`text-2xl font-bold mt-2 ${textColor}`}>{loading ? '-' : summary.totalEvents}</p>
           </div>
           <div className={`${cardBg} rounded-xl p-4 border ${borderColor}`}>
             <div className="flex items-center justify-between">
               <span className={textMuted}>Subir Preco</span>
               <ArrowUpRight className="w-5 h-5 text-green-500" />
             </div>
-            <p className="text-2xl font-bold mt-2 text-green-500">{summary.eventsToIncrease}</p>
+            <p className="text-2xl font-bold mt-2 text-green-500">{loading ? '-' : summary.eventsToIncrease}</p>
           </div>
           <div className={`${cardBg} rounded-xl p-4 border ${borderColor}`}>
             <div className="flex items-center justify-between">
               <span className={textMuted}>Manter Preco</span>
               <Minus className="w-5 h-5 text-yellow-500" />
             </div>
-            <p className="text-2xl font-bold mt-2 text-yellow-500">{summary.eventsToMaintain}</p>
+            <p className="text-2xl font-bold mt-2 text-yellow-500">{loading ? '-' : summary.eventsToMaintain}</p>
           </div>
           <div className={`${cardBg} rounded-xl p-4 border ${borderColor}`}>
             <div className="flex items-center justify-between">
               <span className={textMuted}>Reduzir Preco</span>
               <ArrowDownRight className="w-5 h-5 text-red-500" />
             </div>
-            <p className="text-2xl font-bold mt-2 text-red-500">{summary.eventsToDecrease}</p>
+            <p className="text-2xl font-bold mt-2 text-red-500">{loading ? '-' : summary.eventsToDecrease}</p>
           </div>
         </div>
 
@@ -261,6 +250,12 @@ const PricingAnalysis: React.FC = () => {
           </div>
         )}
 
+        {loading ? (
+          <div className={`${cardBg} rounded-xl border ${borderColor} p-12 text-center`}>
+            <Loader2 className={`w-8 h-8 animate-spin mx-auto ${textMuted}`} />
+            <p className={`mt-3 ${textMuted}`}>Carregando eventos...</p>
+          </div>
+        ) : (
         <div className="space-y-4">
           {eventos.map((evento) => (
             <div
@@ -405,13 +400,14 @@ const PricingAnalysis: React.FC = () => {
               )}
             </div>
           ))}
-        </div>
 
-        {eventos.length === 0 && !loading && (
-          <div className={`${cardBg} rounded-xl p-8 text-center border ${borderColor}`}>
-            <AlertTriangle className={`w-12 h-12 mx-auto ${textMuted} mb-4`} />
-            <p className={textColor}>Nenhum evento encontrado com os filtros selecionados.</p>
-          </div>
+          {eventos.length === 0 && !loading && (
+            <div className={`${cardBg} rounded-xl p-8 text-center border ${borderColor}`}>
+              <AlertTriangle className={`w-12 h-12 mx-auto ${textMuted} mb-4`} />
+              <p className={textColor}>Nenhum evento encontrado com os filtros selecionados.</p>
+            </div>
+          )}
+        </div>
         )}
       </div>
     </div>

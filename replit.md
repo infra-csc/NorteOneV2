@@ -26,7 +26,9 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 - **Virtual Assistant (Nori):** Integrated AI-powered virtual assistant utilizing OpenAI GPT-4o-mini for natural language processing, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese. It provides event scenario analysis, conversational chat, and task scheduling.
 - **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) using SKU as the primary key. SKU mappings use Python dict lookups with SQL catalog_product_entity fallback for unmapped locations.
 - **Performance Optimizations (Feb 2026):**
+  - **Critical fix:** All FastAPI route handlers converted from `async def` to `def` to prevent event loop blocking with synchronous database operations. FastAPI now runs blocking DB calls in thread pools automatically.
   - Frontend AbortController pattern cancels pending API requests on page navigation (PricingAnalysis, MarketingDashboard, EventDetail).
+  - Frontend progressive loading: pages render structure immediately with inline loading indicators instead of full-screen blockers.
   - Rolling average queries optimized: correlated subqueries replaced with conditional COUNT/GROUP BY.
   - MySQL queries use MAX_EXECUTION_TIME(25000) hints for database-level timeout enforcement.
   - Ativo and Magento rolling average queries run in parallel via ThreadPoolExecutor (2 workers, 30s timeout each).

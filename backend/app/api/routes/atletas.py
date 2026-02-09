@@ -12,7 +12,7 @@ from ...schemas.fatos import AtletasMetricasCreate, AtletasMetricasUpdate, Atlet
 router = APIRouter(prefix="/atletas", tags=["Atletas"])
 
 @router.get("/", response_model=List[AtletasMetricasResponse])
-async def list_atletas(
+def list_atletas(
     skip: int = 0,
     limit: int = 100,
     projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
@@ -34,7 +34,7 @@ async def list_atletas(
     return atletas
 
 @router.post("/", response_model=AtletasMetricasResponse)
-async def create_atleta(
+def create_atleta(
     atleta: AtletasMetricasCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -50,7 +50,7 @@ async def create_atleta(
     return db_atleta
 
 @router.get("/resumo")
-async def get_resumo_atletas(
+def get_resumo_atletas(
     projeto_id: Optional[int] = Query(None, description="Filtrar por projeto"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -111,7 +111,7 @@ async def get_resumo_atletas(
     }
 
 @router.get("/por-projeto")
-async def get_atletas_por_projeto(
+def get_atletas_por_projeto(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -140,7 +140,7 @@ async def get_atletas_por_projeto(
     return list(projetos_dict.values())
 
 @router.get("/por-modalidade")
-async def get_atletas_por_modalidade(
+def get_atletas_por_modalidade(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -158,7 +158,7 @@ async def get_atletas_por_modalidade(
     ]
 
 @router.put("/{atleta_id}", response_model=AtletasMetricasResponse)
-async def update_atleta(
+def update_atleta(
     atleta_id: int,
     atleta_update: AtletasMetricasUpdate,
     db: Session = Depends(get_db),
@@ -176,7 +176,7 @@ async def update_atleta(
     return atleta
 
 @router.delete("/{atleta_id}")
-async def delete_atleta(
+def delete_atleta(
     atleta_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

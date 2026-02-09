@@ -13,7 +13,7 @@ router = APIRouter(prefix="/projetos", tags=["Projetos/Eventos"])
 
 
 @router.get("/", response_model=List[ProjetoResponse])
-async def list_projetos(
+def list_projetos(
     skip: int = 0,
     limit: int = 100,
     status: Optional[str] = None,
@@ -31,7 +31,7 @@ async def list_projetos(
 
 
 @router.get("/com-atletas", response_model=List[ProjetoComAtletasResponse])
-async def list_projetos_com_atletas(
+def list_projetos_com_atletas(
     skip: int = 0,
     limit: int = 100,
     status: Optional[str] = Query(None, description="Filtrar por status: EM_ANDAMENTO, CONCLUIDO, CANCELADO"),
@@ -157,7 +157,7 @@ async def list_projetos_com_atletas(
 
 
 @router.get("/filtros")
-async def get_filtros_disponiveis(
+def get_filtros_disponiveis(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -183,7 +183,7 @@ async def get_filtros_disponiveis(
 
 
 @router.post("/", response_model=ProjetoResponse)
-async def create_projeto(
+def create_projeto(
     projeto: ProjetoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -200,7 +200,7 @@ async def create_projeto(
 
 
 @router.get("/{projeto_id}", response_model=ProjetoResponse)
-async def get_projeto(
+def get_projeto(
     projeto_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -212,7 +212,7 @@ async def get_projeto(
 
 
 @router.get("/{projeto_id}/com-atletas")
-async def get_projeto_com_atletas(
+def get_projeto_com_atletas(
     projeto_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -266,7 +266,7 @@ async def get_projeto_com_atletas(
 
 
 @router.put("/{projeto_id}", response_model=ProjetoResponse)
-async def update_projeto(
+def update_projeto(
     projeto_id: int,
     projeto_update: ProjetoUpdate,
     db: Session = Depends(get_db),
@@ -285,7 +285,7 @@ async def update_projeto(
 
 
 @router.delete("/{projeto_id}")
-async def delete_projeto(
+def delete_projeto(
     projeto_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

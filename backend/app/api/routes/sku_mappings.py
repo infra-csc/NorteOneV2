@@ -152,7 +152,7 @@ def fetch_eventos_magento(ano: int) -> List[Dict]:
 
 
 @router.get("", response_model=List[SkuMappingResponse])
-async def list_sku_mappings(
+def list_sku_mappings(
     fonte: Optional[str] = None,
     ano: Optional[int] = None,
     evento_grupo: Optional[str] = None,
@@ -175,7 +175,7 @@ async def list_sku_mappings(
 
 
 @router.get("/grupos", response_model=List[str])
-async def list_evento_grupos(
+def list_evento_grupos(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -184,7 +184,7 @@ async def list_evento_grupos(
 
 
 @router.get("/anos", response_model=List[int])
-async def list_anos(
+def list_anos(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -193,7 +193,7 @@ async def list_anos(
 
 
 @router.get("/{mapping_id}", response_model=SkuMappingResponse)
-async def get_sku_mapping(
+def get_sku_mapping(
     mapping_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -205,7 +205,7 @@ async def get_sku_mapping(
 
 
 @router.post("", response_model=SkuMappingResponse)
-async def create_sku_mapping(
+def create_sku_mapping(
     mapping: SkuMappingCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -230,7 +230,7 @@ async def create_sku_mapping(
 
 
 @router.put("/{mapping_id}", response_model=SkuMappingResponse)
-async def update_sku_mapping(
+def update_sku_mapping(
     mapping_id: int,
     mapping: SkuMappingUpdate,
     db: Session = Depends(get_db),
@@ -269,7 +269,7 @@ async def update_sku_mapping(
 
 
 @router.delete("/{mapping_id}")
-async def delete_sku_mapping(
+def delete_sku_mapping(
     mapping_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -284,7 +284,7 @@ async def delete_sku_mapping(
 
 
 @router.post("/bulk", response_model=List[SkuMappingResponse])
-async def bulk_create_sku_mappings(
+def bulk_create_sku_mappings(
     mappings: List[SkuMappingCreate],
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -310,7 +310,7 @@ async def bulk_create_sku_mappings(
 
 
 @router.get("/descobrir-eventos", response_model=DescobertaEventosResponse)
-async def descobrir_eventos_externos(
+def descobrir_eventos_externos(
     ano: int = Query(2025, description="Ano dos eventos a descobrir"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -320,18 +320,23 @@ async def descobrir_eventos_externos(
     e sugere mapeamentos baseados nos eventos de 2026 já cadastrados.
     """
     executor = ThreadPoolExecutor(max_workers=2)
-    loop = asyncio.get_event_loop()
     
-    ativo_future = loop.run_in_executor(executor, partial(fetch_eventos_ativo, ano))
-    magento_future = loop.run_in_executor(executor, partial(fetch_eventos_magento, ano))
+    ativo_future = executor.submit(fetch_eventos_ativo, ano)
+    magento_future = executor.submit(fetch_eventos_magento, ano)
     
     try:
-        results = await asyncio.wait_for(
-            asyncio.gather(ativo_future, magento_future, return_exceptions=True),
-            timeout=120.0
-        )
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Timeout ao buscar eventos externos")
+        eventos_ativo_result = ativo_future.result(timeout=120.0)
+    except Exception as e:
+        logger.error(f"Erro ao buscar eventos Ativo: {e}")
+        eventos_ativo_result = []
+    
+    try:
+        eventos_magento_result = magento_future.result(timeout=120.0)
+    except Exception as e:
+        logger.error(f"Erro ao buscar eventos Magento: {e}")
+        eventos_magento_result = []
+    
+    results = [eventos_ativo_result, eventos_magento_result]
     
     eventos_ativo = results[0] if isinstance(results[0], list) else []
     eventos_magento = results[1] if isinstance(results[1], list) else []

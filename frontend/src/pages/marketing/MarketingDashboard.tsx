@@ -165,17 +165,6 @@ const MarketingDashboard: React.FC = () => {
     return 'Ação Promocional';
   };
 
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[400px]">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-          <p className="text-gray-500 dark:text-gray-400">Carregando dados de marketing...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen">
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -204,11 +193,11 @@ const MarketingDashboard: React.FC = () => {
           )}
           <button
             onClick={handleManualRefresh}
-            disabled={refreshing}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            disabled={refreshing || loading}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${(refreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            <span className="text-sm font-medium">{refreshing ? 'Atualizando...' : 'Atualizar'}</span>
+            <RefreshCw className={`w-4 h-4 ${(refreshing || loading) ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">{loading ? 'Carregando...' : refreshing ? 'Atualizando...' : 'Atualizar'}</span>
           </button>
         </div>
       </div>
@@ -225,7 +214,7 @@ const MarketingDashboard: React.FC = () => {
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Eventos Ativos</p>
               <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                {summary.totalActiveEvents}
+                {loading ? '-' : summary.totalActiveEvents}
               </p>
             </div>
             <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
@@ -239,7 +228,7 @@ const MarketingDashboard: React.FC = () => {
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Zona Verde 🟢</p>
               <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-1">
-                {summary.eventsGreen}
+                {loading ? '-' : summary.eventsGreen}
               </p>
               <p className="text-xs text-gray-400 mt-1">ISC {'>'} 1.10 - Acelerando</p>
             </div>
@@ -254,7 +243,7 @@ const MarketingDashboard: React.FC = () => {
             <div>
               <p className="text-sm text-gray-500 dark:text-gray-400">Zona Amarela 🟡</p>
               <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
-                {summary.eventsYellow}
+                {loading ? '-' : summary.eventsYellow}
               </p>
               <p className="text-xs text-gray-400 mt-1">ISC 0.90-1.10 - Estável</p>
             </div>
@@ -386,7 +375,20 @@ const MarketingDashboard: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {eventos.map((event) => (
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center">
+                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" />
+                    <p className="mt-3 text-gray-500 dark:text-gray-400">Carregando eventos...</p>
+                  </td>
+                </tr>
+              ) : eventos.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                    Nenhum evento encontrado.
+                  </td>
+                </tr>
+              ) : eventos.map((event) => (
                 <tr 
                   key={event.id}
                   onClick={() => navigate(`/marketing/evento/${event.id}`)}
@@ -472,13 +474,6 @@ const MarketingDashboard: React.FC = () => {
           </table>
         </div>
 
-        {eventos.length === 0 && !loading && (
-          <div className="p-8 text-center">
-            <p className="text-gray-500 dark:text-gray-400">
-              Nenhum evento encontrado com os filtros selecionados.
-            </p>
-          </div>
-        )}
       </div>
 
       <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">

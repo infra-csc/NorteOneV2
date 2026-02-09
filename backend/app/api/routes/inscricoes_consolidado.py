@@ -7,8 +7,6 @@ import app.core.database as db_module
 from app.core.database import get_db
 from app.models.dimensoes import SkuMapping
 from datetime import datetime, timedelta
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 import logging
 import re
@@ -615,33 +613,38 @@ def fetch_magento_data(ano: int = 2026):
         return None, f"Query timeout ou erro: {str(e)[:100]}"
 
 @router.get("/consolidado", response_model=InscricoesConsolidadasResponse)
-async def get_inscricoes_consolidadas(
+def get_inscricoes_consolidadas(
     sku: Optional[str] = Query(None, description="Filtrar por SKU específico"),
     incluir_magento: bool = Query(True, description="Incluir dados do Magento"),
     ano: int = Query(2026, description="Ano do evento para filtrar (default: 2026)")
 ):
+    from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
     executor = ThreadPoolExecutor(max_workers=2)
-    loop = asyncio.get_event_loop()
     
-    ativo_future = loop.run_in_executor(executor, partial(fetch_ativo_data, ano))
+    ativo_future = executor.submit(fetch_ativo_data, ano)
     
     magento_result = None
     magento_error = None
     
     if incluir_magento:
-        magento_future = loop.run_in_executor(executor, partial(fetch_magento_data, ano))
+        magento_future = executor.submit(fetch_magento_data, ano)
         try:
-            results = await asyncio.wait_for(
-                asyncio.gather(ativo_future, magento_future, return_exceptions=True),
-                timeout=90.0
-            )
-            ativo_result, ativo_error = results[0] if not isinstance(results[0], Exception) else (None, str(results[0]))
-            magento_result, magento_error = results[1] if not isinstance(results[1], Exception) else (None, str(results[1]))
-        except asyncio.TimeoutError:
-            ativo_result, ativo_error = await ativo_future if not ativo_future.done() else (None, "Timeout")
+            done, not_done = futures_wait([ativo_future, magento_future], timeout=90.0)
+            if ativo_future.done():
+                result = ativo_future.result()
+                ativo_result, ativo_error = result if not isinstance(result, Exception) else (None, str(result))
+            else:
+                ativo_result, ativo_error = None, "Timeout"
+            if magento_future.done():
+                result = magento_future.result()
+                magento_result, magento_error = result if not isinstance(result, Exception) else (None, str(result))
+            else:
+                magento_result, magento_error = None, "Timeout após 90 segundos"
+        except Exception:
+            ativo_result, ativo_error = ativo_future.result() if ativo_future.done() else (None, "Timeout")
             magento_error = "Timeout após 90 segundos"
     else:
-        ativo_result, ativo_error = await ativo_future
+        ativo_result, ativo_error = ativo_future.result()
         magento_error = "Desabilitado. Use incluir_magento=true para incluir."
     
     fontes_disponiveis = {
@@ -785,15 +788,15 @@ async def get_inscricoes_consolidadas(
     )
 
 @router.get("/por-projeto/{codigo_sku}")
-async def get_inscricoes_por_projeto(codigo_sku: str):
+def get_inscricoes_por_projeto(codigo_sku: str):
+    from concurrent.futures import ThreadPoolExecutor
     executor = ThreadPoolExecutor(max_workers=2)
-    loop = asyncio.get_event_loop()
     
-    ativo_future = loop.run_in_executor(executor, fetch_ativo_data)
-    magento_future = loop.run_in_executor(executor, fetch_magento_data)
+    ativo_future = executor.submit(fetch_ativo_data)
+    magento_future = executor.submit(fetch_magento_data)
     
-    ativo_result, ativo_error = await ativo_future
-    magento_result, magento_error = await magento_future
+    ativo_result, ativo_error = ativo_future.result()
+    magento_result, magento_error = magento_future.result()
     
     ativo_data = None
     magento_data = None
@@ -840,7 +843,7 @@ async def get_inscricoes_por_projeto(codigo_sku: str):
     }
 
 @router.get("/test-ativo")
-async def test_ativo_query(ano: int = 2026):
+def test_ativo_query(ano: int = 2026):
     if db_module.engine_ssh is None:
         return {"status": "error", "message": "SSH tunnel não configurado"}
     
@@ -873,7 +876,7 @@ async def test_ativo_query(ano: int = 2026):
         return {"status": "error", "message": str(e)}
 
 @router.get("/test-magento")
-async def test_magento_query(ano: int = 2026):
+def test_magento_query(ano: int = 2026):
     if db_module.engine_magento is None:
         return {"status": "error", "message": "Conexão Magento não configurada"}
     
@@ -931,7 +934,7 @@ class ComparacaoAnoResponse(BaseModel):
 
 
 @router.get("/comparativo-anual", response_model=ComparacaoAnoResponse)
-async def get_comparativo_anual(
+def get_comparativo_anual(
     ano_atual: int = Query(2026, description="Ano atual para comparação"),
     ano_anterior: int = Query(2025, description="Ano anterior para comparação"),
     db: Session = Depends(get_db)
@@ -940,26 +943,24 @@ async def get_comparativo_anual(
     Compara dados de eventos entre dois anos usando o evento_grupo como chave.
     Permite analisar a performance do mesmo evento em anos diferentes.
     """
+    from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
     executor = ThreadPoolExecutor(max_workers=4)
-    loop = asyncio.get_event_loop()
     
     mappings = get_sku_mappings_from_db(db)
     
-    atual_ativo_future = loop.run_in_executor(executor, partial(fetch_ativo_data, ano_atual))
-    atual_magento_future = loop.run_in_executor(executor, partial(fetch_magento_data, ano_atual))
-    anterior_ativo_future = loop.run_in_executor(executor, partial(fetch_ativo_data, ano_anterior))
-    anterior_magento_future = loop.run_in_executor(executor, partial(fetch_magento_data, ano_anterior))
+    atual_ativo_future = executor.submit(fetch_ativo_data, ano_atual)
+    atual_magento_future = executor.submit(fetch_magento_data, ano_atual)
+    anterior_ativo_future = executor.submit(fetch_ativo_data, ano_anterior)
+    anterior_magento_future = executor.submit(fetch_magento_data, ano_anterior)
+    
+    futures = [atual_ativo_future, atual_magento_future, anterior_ativo_future, anterior_magento_future]
+    done, not_done = futures_wait(futures, timeout=120.0)
+    if not_done:
+        raise HTTPException(status_code=504, detail="Timeout ao buscar dados dos bancos externos")
     
     try:
-        results = await asyncio.wait_for(
-            asyncio.gather(
-                atual_ativo_future, atual_magento_future,
-                anterior_ativo_future, anterior_magento_future,
-                return_exceptions=True
-            ),
-            timeout=120.0
-        )
-    except asyncio.TimeoutError:
+        results = [f.result() for f in futures]
+    except Exception:
         raise HTTPException(status_code=504, detail="Timeout ao buscar dados dos bancos externos")
     
     atual_ativo = results[0][0] if not isinstance(results[0], Exception) and results[0][0] else []

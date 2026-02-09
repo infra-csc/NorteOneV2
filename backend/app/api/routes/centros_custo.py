@@ -10,7 +10,7 @@ from ...schemas.dimensoes import CentroCustoCreate, CentroCustoUpdate, CentroCus
 router = APIRouter(prefix="/centros-custo", tags=["Centros de Custo"])
 
 @router.get("/", response_model=List[CentroCustoResponse])
-async def list_centros_custo(
+def list_centros_custo(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -20,7 +20,7 @@ async def list_centros_custo(
     return centros
 
 @router.post("/", response_model=CentroCustoResponse)
-async def create_centro_custo(
+def create_centro_custo(
     centro: CentroCustoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
@@ -36,7 +36,7 @@ async def create_centro_custo(
     return db_centro
 
 @router.get("/{centro_id}", response_model=CentroCustoResponse)
-async def get_centro_custo(
+def get_centro_custo(
     centro_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -47,7 +47,7 @@ async def get_centro_custo(
     return centro
 
 @router.put("/{centro_id}", response_model=CentroCustoResponse)
-async def update_centro_custo(
+def update_centro_custo(
     centro_id: int,
     centro_update: CentroCustoUpdate,
     db: Session = Depends(get_db),
@@ -65,7 +65,7 @@ async def update_centro_custo(
     return centro
 
 @router.delete("/{centro_id}")
-async def delete_centro_custo(
+def delete_centro_custo(
     centro_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

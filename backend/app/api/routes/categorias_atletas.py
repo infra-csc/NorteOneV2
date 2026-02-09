@@ -10,7 +10,7 @@ from ...schemas.dimensoes import CategoriaAtletaCreate, CategoriaAtletaUpdate, C
 router = APIRouter(prefix="/categorias-atletas", tags=["Categorias de Atletas"])
 
 @router.get("/", response_model=List[CategoriaAtletaResponse])
-async def list_categorias(
+def list_categorias(
     skip: int = 0,
     limit: int = 100,
     modalidade: str = None,
@@ -27,7 +27,7 @@ async def list_categorias(
     return categorias
 
 @router.post("/", response_model=CategoriaAtletaResponse)
-async def create_categoria(
+def create_categoria(
     categoria: CategoriaAtletaCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
@@ -43,7 +43,7 @@ async def create_categoria(
     return db_categoria
 
 @router.get("/{categoria_id}", response_model=CategoriaAtletaResponse)
-async def get_categoria(
+def get_categoria(
     categoria_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
@@ -54,7 +54,7 @@ async def get_categoria(
     return categoria
 
 @router.put("/{categoria_id}", response_model=CategoriaAtletaResponse)
-async def update_categoria(
+def update_categoria(
     categoria_id: int,
     categoria_update: CategoriaAtletaUpdate,
     db: Session = Depends(get_db),
@@ -72,7 +72,7 @@ async def update_categoria(
     return categoria
 
 @router.delete("/{categoria_id}")
-async def delete_categoria(
+def delete_categoria(
     categoria_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))

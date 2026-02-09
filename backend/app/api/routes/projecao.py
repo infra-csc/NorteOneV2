@@ -12,7 +12,7 @@ from ...schemas.fatos import ProjecaoCreate, ProjecaoUpdate, ProjecaoResponse
 router = APIRouter(prefix="/projecao", tags=["Projeções"])
 
 @router.get("/", response_model=List[ProjecaoResponse])
-async def list_projecoes(
+def list_projecoes(
     skip: int = 0,
     limit: int = 100,
     centro_custo_id: int = None,
@@ -37,7 +37,7 @@ async def list_projecoes(
     return projecoes
 
 @router.post("/", response_model=ProjecaoResponse)
-async def create_projecao(
+def create_projecao(
     projecao: ProjecaoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
@@ -53,7 +53,7 @@ async def create_projecao(
     return db_projecao
 
 @router.put("/{projecao_id}", response_model=ProjecaoResponse)
-async def update_projecao(
+def update_projecao(
     projecao_id: int,
     projecao_update: ProjecaoUpdate,
     db: Session = Depends(get_db),
@@ -74,7 +74,7 @@ async def update_projecao(
     return projecao
 
 @router.post("/{projecao_id}/aprovar", response_model=ProjecaoResponse)
-async def aprovar_projecao(
+def aprovar_projecao(
     projecao_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
@@ -90,7 +90,7 @@ async def aprovar_projecao(
     return projecao
 
 @router.post("/{projecao_id}/rejeitar", response_model=ProjecaoResponse)
-async def rejeitar_projecao(
+def rejeitar_projecao(
     projecao_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN"]))
