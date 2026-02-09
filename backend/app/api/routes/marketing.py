@@ -1007,12 +1007,74 @@ def get_marketing_event_by_id(
                     "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados"
                 })
         
+        ano_anterior = ano - 1
+        mappings_anterior = db.query(SkuMapping).filter(
+            SkuMapping.evento_consolidado_id == ec_id,
+            SkuMapping.ano == ano_anterior,
+            SkuMapping.ativo == True
+        ).all()
+        
+        comparacao_anual = None
+        if mappings_anterior:
+            skus_anterior = [m.sku for m in mappings_anterior]
+            sales_data_anterior = fetch_consolidated_sales_by_skus(skus_anterior, ano_anterior, apenas_site=True)
+            
+            vendas_anterior = 0
+            receita_anterior = 0.0
+            for s_sku in skus_anterior:
+                s_norm = normalize_sku(s_sku)
+                info = sales_data_anterior.get(s_norm, {})
+                vendas_anterior += info.get('qtd_ativo', 0) + info.get('qtd_magento', 0)
+                receita_anterior += info.get('valor_ativo', 0) + info.get('valor_magento', 0)
+            
+            proj_skus_anterior = [m.sku for m in mappings_anterior]
+            projetos_anterior = db.query(DimProjeto).filter(
+                DimProjeto.codigo.in_(proj_skus_anterior)
+            ).all() if proj_skus_anterior else []
+            
+            cap_anterior = sum(int(p.capacidade_maxima) for p in projetos_anterior if p.capacidade_maxima)
+            meta_anterior = cap_anterior if cap_anterior > 0 else 1000
+            ticket_anterior = receita_anterior / vendas_anterior if vendas_anterior > 0 else 0
+            
+            variacao_vendas = ((current_sales - vendas_anterior) / vendas_anterior * 100) if vendas_anterior > 0 else None
+            variacao_receita = ((total_revenue - receita_anterior) / receita_anterior * 100) if receita_anterior > 0 else None
+            
+            comparacao_anual = {
+                "ano_atual": ano,
+                "ano_anterior": ano_anterior,
+                "atual": {
+                    "vendas": current_sales,
+                    "receita": round(total_revenue, 2),
+                    "meta": sales_goal,
+                    "ticket_medio": round(avg_ticket, 2),
+                    "ocupacao_pct": round(current_sales / sales_goal * 100, 1) if sales_goal > 0 else 0
+                },
+                "anterior": {
+                    "vendas": vendas_anterior,
+                    "receita": round(receita_anterior, 2),
+                    "meta": meta_anterior,
+                    "ticket_medio": round(ticket_anterior, 2),
+                    "ocupacao_pct": round(vendas_anterior / meta_anterior * 100, 1) if meta_anterior > 0 else 0
+                },
+                "variacao": {
+                    "vendas_pct": round(variacao_vendas, 1) if variacao_vendas is not None else None,
+                    "receita_pct": round(variacao_receita, 1) if variacao_receita is not None else None
+                }
+            }
+        
+        anos_disponiveis = db.query(SkuMapping.ano).filter(
+            SkuMapping.evento_consolidado_id == ec_id,
+            SkuMapping.ativo == True
+        ).distinct().order_by(SkuMapping.ano.desc()).all()
+        
         return {
             "status": "success",
             "evento": evento,
             "dailySales": daily_sales,
             "commercialActions": commercial_actions,
             "projetos_vinculados": [{"id": p.id, "nome": p.evento, "sku": p.codigo} for p in projetos],
+            "comparacao_anual": comparacao_anual,
+            "anos_disponiveis": [a[0] for a in anos_disponiveis],
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
         }
     

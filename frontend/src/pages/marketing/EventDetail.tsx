@@ -71,10 +71,13 @@ const EventDetail: React.FC = () => {
   const [actionForm, setActionForm] = useState({
     tipo: 'PROMOCAO',
     descricao: '',
-    data_acao: new Date().toISOString().split('T')[0]
+    data_acao: new Date().toISOString().split('T')[0],
+    projeto_id_selecionado: 0
   });
   const [savingAction, setSavingAction] = useState(false);
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
+  const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
+  const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
 
   const isConsolidated = id?.startsWith('ec_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -118,6 +121,14 @@ const EventDetail: React.FC = () => {
         setEvent(eventWithData);
         if ((response as any).projetos_vinculados) {
           setProjetosVinculados((response as any).projetos_vinculados);
+        }
+        if ((response as any).comparacao_anual) {
+          setComparacaoAnual((response as any).comparacao_anual);
+        } else {
+          setComparacaoAnual(null);
+        }
+        if ((response as any).anos_disponiveis) {
+          setAnosDisponiveis((response as any).anos_disponiveis);
         }
         setError(null);
       } catch (err: any) {
@@ -179,12 +190,23 @@ const EventDetail: React.FC = () => {
   };
 
   const handleSaveAction = async () => {
-    if (!id || !actionForm.descricao.trim() || isConsolidated) return;
+    if (!id || !actionForm.descricao.trim()) return;
+    
+    let projetoIdParaAcao: number | null;
+    if (isConsolidated) {
+      projetoIdParaAcao = actionForm.projeto_id_selecionado > 0 
+        ? actionForm.projeto_id_selecionado 
+        : (projetosVinculados.length > 0 ? projetosVinculados[0].id : null);
+    } else {
+      projetoIdParaAcao = parseInt(id);
+    }
+    
+    if (!projetoIdParaAcao) return;
     
     setSavingAction(true);
     try {
       await marketingService.createAcaoComercial({
-        projeto_id: parseInt(id),
+        projeto_id: projetoIdParaAcao,
         tipo: actionForm.tipo,
         descricao: actionForm.descricao,
         data_acao: actionForm.data_acao
@@ -218,7 +240,8 @@ const EventDetail: React.FC = () => {
       setActionForm({
         tipo: 'PROMOCAO',
         descricao: '',
-        data_acao: new Date().toISOString().split('T')[0]
+        data_acao: new Date().toISOString().split('T')[0],
+        projeto_id_selecionado: 0
       });
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -475,23 +498,142 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
-      {isConsolidated && projetosVinculados.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-            Projetos Vinculados ({projetosVinculados.length})
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            {projetosVinculados.map((p) => (
-              <span
-                key={p.id}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-sm"
-              >
-                <span className="font-medium">{p.sku}</span>
-                <span className="text-blue-500 dark:text-blue-400">-</span>
-                <span>{p.nome || 'Sem nome'}</span>
-              </span>
-            ))}
-          </div>
+      {isConsolidated && (
+        <div className="flex flex-col gap-6">
+          {projetosVinculados.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  Projetos Vinculados ({projetosVinculados.length})
+                </h3>
+                {anosDisponiveis.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Ano:</span>
+                    <select
+                      value={anoParam || new Date().getFullYear()}
+                      onChange={(e) => {
+                        navigate(`/marketing/evento/${id}?ano=${e.target.value}`);
+                      }}
+                      className="px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    >
+                      {anosDisponiveis.map(a => (
+                        <option key={a} value={a}>{a}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {projetosVinculados.map((p) => (
+                  <span
+                    key={p.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-sm"
+                  >
+                    <span className="font-medium">{p.sku}</span>
+                    <span className="text-blue-500 dark:text-blue-400">-</span>
+                    <span>{p.nome || 'Sem nome'}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {comparacaoAnual && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
+                Comparativo Ano a Ano: {comparacaoAnual.ano_anterior} vs {comparacaoAnual.ano_atual}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Vendas</p>
+                  <div className="flex items-end gap-3">
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
+                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
+                        {formatNumber(comparacaoAnual.anterior.vendas)}
+                      </p>
+                    </div>
+                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        {formatNumber(comparacaoAnual.atual.vendas)}
+                      </p>
+                    </div>
+                  </div>
+                  {comparacaoAnual.variacao.vendas_pct !== null && (
+                    <div className={`flex items-center gap-1 mt-2 text-sm ${comparacaoAnual.variacao.vendas_pct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {comparacaoAnual.variacao.vendas_pct >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                      {comparacaoAnual.variacao.vendas_pct >= 0 ? '+' : ''}{comparacaoAnual.variacao.vendas_pct}%
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Receita</p>
+                  <div className="flex items-end gap-3">
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
+                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
+                        R$ {formatNumber(comparacaoAnual.anterior.receita)}
+                      </p>
+                    </div>
+                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        R$ {formatNumber(comparacaoAnual.atual.receita)}
+                      </p>
+                    </div>
+                  </div>
+                  {comparacaoAnual.variacao.receita_pct !== null && (
+                    <div className={`flex items-center gap-1 mt-2 text-sm ${comparacaoAnual.variacao.receita_pct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {comparacaoAnual.variacao.receita_pct >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                      {comparacaoAnual.variacao.receita_pct >= 0 ? '+' : ''}{comparacaoAnual.variacao.receita_pct}%
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Ticket Medio</p>
+                  <div className="flex items-end gap-3">
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
+                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
+                        R$ {comparacaoAnual.anterior.ticket_medio.toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        R$ {comparacaoAnual.atual.ticket_medio.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Ocupacao</p>
+                  <div className="flex items-end gap-3">
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
+                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
+                        {comparacaoAnual.anterior.ocupacao_pct}%
+                      </p>
+                    </div>
+                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
+                    <div>
+                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">
+                        {comparacaoAnual.atual.ocupacao_pct}%
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -677,15 +819,13 @@ const EventDetail: React.FC = () => {
           <h3 className="font-semibold text-gray-900 dark:text-white">
             Timeline de Ações Comerciais
           </h3>
-          {!isConsolidated && (
-            <button
-              onClick={() => setShowActionModal(true)}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Adicionar Ação
-            </button>
-          )}
+          <button
+            onClick={() => setShowActionModal(true)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar Ação
+          </button>
         </div>
         {event.commercialActions && event.commercialActions.length > 0 ? (
           <div className="space-y-4">
@@ -778,6 +918,22 @@ const EventDetail: React.FC = () => {
             </div>
             
             <div className="space-y-4">
+              {isConsolidated && projetosVinculados.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Projeto Vinculado
+                  </label>
+                  <select
+                    value={actionForm.projeto_id_selecionado}
+                    onChange={(e) => setActionForm({ ...actionForm, projeto_id_selecionado: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                  >
+                    {projetosVinculados.map(p => (
+                      <option key={p.id} value={p.id}>{p.sku} - {p.nome || 'Sem nome'}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Tipo de Ação
