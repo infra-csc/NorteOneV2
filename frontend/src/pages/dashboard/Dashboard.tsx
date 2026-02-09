@@ -201,7 +201,7 @@ const Dashboard: React.FC = () => {
   });
   
   const [filters, setFilters] = useState<Filters>({
-    ano: 2025,
+    ano: null,
     mes: null,
     produto: null,
     tipoEvento: null,
@@ -222,6 +222,7 @@ const Dashboard: React.FC = () => {
   }, [filters]);
 
   const [defaultAno, setDefaultAno] = useState<number>(2025);
+  const filtersRef = React.useRef<string>('');
 
   const clearAllFilters = () => {
     setFilters({
@@ -240,22 +241,25 @@ const Dashboard: React.FC = () => {
       try {
         const data = await dashboardService.getFiltros();
         setFilterOptions(data);
-        if (data.anos.length > 0) {
-          const firstAno = data.anos[0].value;
-          setDefaultAno(firstAno);
-          setFilters(prev => ({ ...prev, ano: firstAno }));
-        }
+        const firstAno = data.anos.length > 0 ? data.anos[0].value : 2025;
+        setDefaultAno(firstAno);
+        setFilters(prev => ({ ...prev, ano: firstAno }));
       } catch (error) {
         console.error('Erro ao carregar filtros:', error);
+        setFilters(prev => ({ ...prev, ano: 2025 }));
       }
     };
     loadFilterOptions();
   }, []);
 
   useEffect(() => {
+    if (!filters.ano) return;
+
+    const filtersKey = JSON.stringify(filters);
+    if (filtersKey === filtersRef.current) return;
+    filtersRef.current = filtersKey;
+    
     const loadData = async () => {
-      if (!filters.ano) return;
-      
       setLoading(true);
       try {
         const apiFilters = {
