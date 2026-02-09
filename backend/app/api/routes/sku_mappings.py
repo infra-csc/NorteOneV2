@@ -3,8 +3,12 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.database import get_db
-from app.models.dimensoes import SkuMapping
-from app.schemas.dimensoes import SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse
+from app.models.dimensoes import SkuMapping, EventoConsolidado
+from app.schemas.dimensoes import (
+    SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
+    EventoConsolidadoCreate, EventoConsolidadoUpdate, EventoConsolidadoResponse,
+    EventoConsolidadoDetailResponse
+)
 from app.core.security import get_current_user
 from app.models.user import Usuario
 import app.core.database as db_module
@@ -431,3 +435,147 @@ def descobrir_eventos_externos(
         eventos_sugeridos=eventos_sugeridos,
         eventos_sem_match=eventos_sem_match
     )
+
+
+consolidado_router = APIRouter(prefix="/api/admin/eventos-consolidados", tags=["Eventos Consolidados"])
+
+
+@consolidado_router.get("", response_model=List[EventoConsolidadoResponse])
+def list_eventos_consolidados(
+    ativo: Optional[bool] = None,
+    busca: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    query = db.query(EventoConsolidado)
+    if ativo is not None:
+        query = query.filter(EventoConsolidado.ativo == ativo)
+    if busca:
+        query = query.filter(EventoConsolidado.nome.ilike(f"%{busca}%"))
+    return query.order_by(EventoConsolidado.nome).all()
+
+
+@consolidado_router.get("/{evento_id}", response_model=EventoConsolidadoDetailResponse)
+def get_evento_consolidado(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    return evento
+
+
+@consolidado_router.post("", response_model=EventoConsolidadoResponse)
+def create_evento_consolidado(
+    evento: EventoConsolidadoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    db_evento = EventoConsolidado(**evento.model_dump())
+    db.add(db_evento)
+    db.commit()
+    db.refresh(db_evento)
+    return db_evento
+
+
+@consolidado_router.put("/{evento_id}", response_model=EventoConsolidadoResponse)
+def update_evento_consolidado(
+    evento_id: int,
+    evento: EventoConsolidadoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    db_evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
+    if not db_evento:
+        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    
+    update_data = evento.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_evento, key, value)
+    
+    db.commit()
+    db.refresh(db_evento)
+    return db_evento
+
+
+@consolidado_router.delete("/{evento_id}")
+def delete_evento_consolidado(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    db_evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
+    if not db_evento:
+        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    
+    db.query(SkuMapping).filter(
+        SkuMapping.evento_consolidado_id == evento_id
+    ).update({"evento_consolidado_id": None})
+    
+    db.delete(db_evento)
+    db.commit()
+    return {"message": "Evento consolidado excluído com sucesso"}
+
+
+@consolidado_router.post("/{evento_id}/vincular")
+def vincular_mapeamentos(
+    evento_id: int,
+    mapping_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    
+    updated = db.query(SkuMapping).filter(
+        SkuMapping.id.in_(mapping_ids)
+    ).update({"evento_consolidado_id": evento_id}, synchronize_session="fetch")
+    
+    db.commit()
+    return {"message": f"{updated} mapeamento(s) vinculado(s) ao evento '{evento.nome}'"}
+
+
+@consolidado_router.post("/{evento_id}/desvincular")
+def desvincular_mapeamentos(
+    evento_id: int,
+    mapping_ids: List[int],
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    
+    updated = db.query(SkuMapping).filter(
+        SkuMapping.id.in_(mapping_ids),
+        SkuMapping.evento_consolidado_id == evento_id
+    ).update({"evento_consolidado_id": None}, synchronize_session="fetch")
+    
+    db.commit()
+    return {"message": f"{updated} mapeamento(s) desvinculado(s) do evento '{evento.nome}'"}
+
+
+@consolidado_router.get("/{evento_id}/mapeamentos-disponiveis", response_model=List[SkuMappingResponse])
+def list_mapeamentos_disponiveis(
+    evento_id: int,
+    fonte: Optional[str] = None,
+    ano: Optional[int] = None,
+    busca: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    query = db.query(SkuMapping).filter(
+        (SkuMapping.evento_consolidado_id == None) | (SkuMapping.evento_consolidado_id == evento_id)
+    )
+    if fonte:
+        query = query.filter(SkuMapping.fonte == fonte)
+    if ano:
+        query = query.filter(SkuMapping.ano == ano)
+    if busca:
+        query = query.filter(
+            (SkuMapping.nome_evento.ilike(f"%{busca}%")) | (SkuMapping.sku.ilike(f"%{busca}%"))
+        )
+    return query.order_by(SkuMapping.fonte, SkuMapping.ano.desc(), SkuMapping.nome_evento).all()

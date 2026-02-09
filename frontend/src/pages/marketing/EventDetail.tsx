@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -61,7 +61,9 @@ interface ExtendedEvent extends MarketingEvent {
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { isDark } = useTheme();
+  const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
   const [event, setEvent] = useState<ExtendedEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +74,9 @@ const EventDetail: React.FC = () => {
     data_acao: new Date().toISOString().split('T')[0]
   });
   const [savingAction, setSavingAction] = useState(false);
+  const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
 
+  const isConsolidated = id?.startsWith('ec_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -88,7 +92,7 @@ const EventDetail: React.FC = () => {
       
       try {
         setLoading(true);
-        const response = await marketingService.getEventoById(id, controller.signal);
+        const response = await marketingService.getEventoById(id, controller.signal, anoParam);
         if (controller.signal.aborted) return;
         const eventWithData = {
           ...response.evento,
@@ -112,6 +116,9 @@ const EventDetail: React.FC = () => {
           }))
         };
         setEvent(eventWithData);
+        if ((response as any).projetos_vinculados) {
+          setProjetosVinculados((response as any).projetos_vinculados);
+        }
         setError(null);
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -126,7 +133,7 @@ const EventDetail: React.FC = () => {
     
     fetchEvent();
     return () => { controller.abort(); };
-  }, [id]);
+  }, [id, anoParam]);
 
   if (loading || !event) {
     return (
@@ -172,7 +179,7 @@ const EventDetail: React.FC = () => {
   };
 
   const handleSaveAction = async () => {
-    if (!id || !actionForm.descricao.trim()) return;
+    if (!id || !actionForm.descricao.trim() || isConsolidated) return;
     
     setSavingAction(true);
     try {
@@ -183,7 +190,7 @@ const EventDetail: React.FC = () => {
         data_acao: actionForm.data_acao
       });
       
-      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal);
+      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam);
       const eventWithData = {
         ...response.evento,
         dailySales: response.dailySales?.map(d => ({
@@ -225,7 +232,7 @@ const EventDetail: React.FC = () => {
     if (!id) return;
     try {
       await marketingService.deleteAcaoComercial(parseInt(actionId));
-      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal);
+      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam);
       const eventWithData = {
         ...response.evento,
         dailySales: response.dailySales?.map(d => ({
@@ -322,6 +329,11 @@ const EventDetail: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {event.name}
               </h1>
+              {isConsolidated && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-full">
+                  Consolidado
+                </span>
+              )}
               {isInCriticalWindow(event.dMinus) && (
                 <span className="px-3 py-1 text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded-full flex items-center gap-1">
                   <Target className="w-4 h-4" />
@@ -462,6 +474,26 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {isConsolidated && projetosVinculados.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
+            Projetos Vinculados ({projetosVinculados.length})
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {projetosVinculados.map((p) => (
+              <span
+                key={p.id}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-sm"
+              >
+                <span className="font-medium">{p.sku}</span>
+                <span className="text-blue-500 dark:text-blue-400">-</span>
+                <span>{p.nome || 'Sem nome'}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -645,13 +677,15 @@ const EventDetail: React.FC = () => {
           <h3 className="font-semibold text-gray-900 dark:text-white">
             Timeline de Ações Comerciais
           </h3>
-          <button
-            onClick={() => setShowActionModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar Ação
-          </button>
+          {!isConsolidated && (
+            <button
+              onClick={() => setShowActionModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Adicionar Ação
+            </button>
+          )}
         </div>
         {event.commercialActions && event.commercialActions.length > 0 ? (
           <div className="space-y-4">

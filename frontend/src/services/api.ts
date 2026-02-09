@@ -700,14 +700,16 @@ export const marketingService = {
     const response = await api.get(`/marketing/resumo${queryString}`, { signal });
     return response.data;
   },
-  getEventoById: async (id: string, signal?: AbortSignal): Promise<{ 
+  getEventoById: async (id: string, signal?: AbortSignal, ano?: number): Promise<{ 
     status: string; 
     evento: MarketingEvent; 
     dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number }[];
     commercialActions?: { id: string; type: string; description: string; date: string; impact?: string }[];
+    projetos_vinculados?: { id: number; nome: string; sku: string }[];
     ultima_atualizacao: string 
   }> => {
-    const response = await api.get(`/marketing/eventos/${id}`, { signal });
+    const queryString = ano ? `?ano=${ano}` : '';
+    const response = await api.get(`/marketing/eventos/${id}${queryString}`, { signal });
     return response.data;
   },
   getAcoesComerciais: async (projetoId: string): Promise<{ status: string; acoes: any[] }> => {

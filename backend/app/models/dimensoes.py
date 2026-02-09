@@ -106,6 +106,19 @@ class AcaoComercial(Base):
     )
 
 
+class EventoConsolidado(Base):
+    __tablename__ = "eventos_consolidados"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(255), nullable=False)
+    descricao = Column(Text, nullable=True)
+    ativo = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+    
+    mapeamentos = relationship("SkuMapping", back_populates="evento_consolidado")
+
+
 class SkuMapping(Base):
     __tablename__ = "sku_mappings"
     
@@ -113,12 +126,15 @@ class SkuMapping(Base):
     fonte = Column(String(20), nullable=False)
     id_externo = Column(Integer, nullable=False)
     sku = Column(String(50), nullable=False)
-    evento_grupo = Column(String(50), nullable=False)
+    evento_grupo = Column(String(50), nullable=True)
     ano = Column(Integer, nullable=False)
     nome_evento = Column(String(255), nullable=False)
     ativo = Column(Boolean, default=True)
+    evento_consolidado_id = Column(Integer, ForeignKey("eventos_consolidados.id"), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+    
+    evento_consolidado = relationship("EventoConsolidado", back_populates="mapeamentos")
     
     __table_args__ = (
         CheckConstraint("fonte IN ('ATIVO', 'MAGENTO')", name="check_fonte_sku"),

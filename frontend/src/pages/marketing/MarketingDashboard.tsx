@@ -391,7 +391,7 @@ const MarketingDashboard: React.FC = () => {
               ) : eventos.map((event) => (
                 <tr 
                   key={event.id}
-                  onClick={() => navigate(`/marketing/evento/${event.id}`)}
+                  onClick={() => navigate(`/marketing/evento/${event.id}${event.id.startsWith('ec_') ? `?ano=${new Date().getFullYear()}` : ''}`)}
                   className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors ${
                     isInCriticalWindow(event.dMinus) 
                       ? 'bg-amber-50 dark:bg-amber-900/10 border-l-4 border-l-amber-500' 
@@ -401,9 +401,16 @@ const MarketingDashboard: React.FC = () => {
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
                       <div>
-                        <p className="font-medium text-gray-900 dark:text-white">
-                          {event.name}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900 dark:text-white">
+                            {event.name}
+                          </p>
+                          {event.id.startsWith('ec_') && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded">
+                              Consolidado
+                            </span>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {event.location}
                         </p>

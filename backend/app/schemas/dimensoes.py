@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -178,14 +178,43 @@ class TempoResponse(TempoBase):
         from_attributes = True
 
 
+class EventoConsolidadoBase(BaseModel):
+    nome: str
+    descricao: Optional[str] = None
+    ativo: bool = True
+
+class EventoConsolidadoCreate(EventoConsolidadoBase):
+    pass
+
+class EventoConsolidadoUpdate(BaseModel):
+    nome: Optional[str] = None
+    descricao: Optional[str] = None
+    ativo: Optional[bool] = None
+
+class EventoConsolidadoResponse(EventoConsolidadoBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class EventoConsolidadoDetailResponse(EventoConsolidadoResponse):
+    mapeamentos: List["SkuMappingResponse"] = []
+
+    class Config:
+        from_attributes = True
+
+
 class SkuMappingBase(BaseModel):
     fonte: str
     id_externo: int
     sku: str
-    evento_grupo: str
+    evento_grupo: Optional[str] = None
     ano: int
     nome_evento: str
     ativo: bool = True
+    evento_consolidado_id: Optional[int] = None
 
 class SkuMappingCreate(SkuMappingBase):
     pass
@@ -198,6 +227,7 @@ class SkuMappingUpdate(BaseModel):
     ano: Optional[int] = None
     nome_evento: Optional[str] = None
     ativo: Optional[bool] = None
+    evento_consolidado_id: Optional[int] = None
 
 class SkuMappingResponse(SkuMappingBase):
     id: int

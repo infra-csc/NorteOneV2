@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from ...core.database import get_db, engine_ativo, engine_ssh
 from ...core import database as db_module
 from ...core.security import get_current_user
-from ...models.dimensoes import DimProjeto
+from ...models.dimensoes import DimProjeto, EventoConsolidado, SkuMapping
 from ...models.user import Usuario
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from .inscricoes_consolidado import normalize_sku
@@ -595,6 +595,44 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
     return sales_by_sku
 
 
+def _build_sku_to_consolidado_map(db: Session, ano: int) -> dict:
+    """
+    Constrói mapeamento: SKU normalizado -> evento_consolidado_id
+    para o ano solicitado.
+    """
+    mappings = db.query(SkuMapping).filter(
+        SkuMapping.ano == ano,
+        SkuMapping.ativo == True,
+        SkuMapping.evento_consolidado_id.isnot(None)
+    ).all()
+    
+    sku_to_ec = {}
+    for m in mappings:
+        sku_norm = normalize_sku(m.sku)
+        if sku_norm:
+            sku_to_ec[sku_norm] = m.evento_consolidado_id
+    return sku_to_ec
+
+
+def _aggregate_consolidated_sales(sales_data: dict, sku_to_ec: dict) -> dict:
+    """
+    Agrega vendas de múltiplos SKUs que pertencem ao mesmo EventoConsolidado.
+    Retorna: {evento_consolidado_id: {qtd_ativo, valor_ativo, qtd_magento, valor_magento}}
+    """
+    ec_sales = {}
+    for sku, sales in sales_data.items():
+        ec_id = sku_to_ec.get(sku)
+        if ec_id is None:
+            continue
+        if ec_id not in ec_sales:
+            ec_sales[ec_id] = {'qtd_ativo': 0, 'valor_ativo': 0.0, 'qtd_magento': 0, 'valor_magento': 0.0}
+        ec_sales[ec_id]['qtd_ativo'] += sales.get('qtd_ativo', 0)
+        ec_sales[ec_id]['valor_ativo'] += sales.get('valor_ativo', 0.0)
+        ec_sales[ec_id]['qtd_magento'] += sales.get('qtd_magento', 0)
+        ec_sales[ec_id]['valor_magento'] += sales.get('valor_magento', 0.0)
+    return ec_sales
+
+
 @router.get("/eventos", response_model=MarketingEventsResponse)
 def get_marketing_events(
     ano: int = Query(default=None, description="Ano dos eventos"),
@@ -607,6 +645,7 @@ def get_marketing_events(
     """
     Retorna eventos para o Dashboard ISC com dados consolidados de vendas
     dos bancos Ativo e Magento.
+    Agrupa projetos por EventoConsolidado quando disponível.
     """
     if ano is None:
         ano = datetime.now().year
@@ -627,6 +666,37 @@ def get_marketing_events(
     skus = [str(p.codigo) for p in projetos if p.codigo]
     sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
     
+    sku_to_ec = _build_sku_to_consolidado_map(db, ano)
+    
+    ec_sales = _aggregate_consolidated_sales(sales_data, sku_to_ec)
+    
+    ec_details = {}
+    if ec_sales:
+        ec_list = db.query(EventoConsolidado).filter(
+            EventoConsolidado.id.in_(list(ec_sales.keys())),
+            EventoConsolidado.ativo == True
+        ).all()
+        for ec in ec_list:
+            ec_details[ec.id] = ec
+    
+    ec_projetos = {}
+    standalone_projetos = []
+    
+    for projeto in projetos:
+        projeto_codigo = str(projeto.codigo) if projeto.codigo else None
+        if not projeto_codigo:
+            continue
+        
+        sku_norm = normalize_sku(projeto_codigo)
+        ec_id = sku_to_ec.get(sku_norm)
+        
+        if ec_id and ec_id in ec_details:
+            if ec_id not in ec_projetos:
+                ec_projetos[ec_id] = []
+            ec_projetos[ec_id].append(projeto)
+        else:
+            standalone_projetos.append(projeto)
+    
     eventos = []
     categorias_set: set[str] = set()
     events_green = 0
@@ -634,7 +704,81 @@ def get_marketing_events(
     events_red = 0
     active_count = 0
     
-    for projeto in projetos:
+    for ec_id, proj_list in ec_projetos.items():
+        ec = ec_details[ec_id]
+        
+        total_capacity = 0
+        latest_date = None
+        rep_projeto = proj_list[0]
+        
+        for p in proj_list:
+            if p.capacidade_maxima:
+                total_capacity += int(p.capacidade_maxima)
+            if p.data_evento:
+                if latest_date is None or p.data_evento > latest_date:
+                    latest_date = p.data_evento
+                    rep_projeto = p
+        
+        projeto_data_evento = latest_date or rep_projeto.data_evento
+        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        is_active = d_minus > 0
+        
+        if status == 'active' and not is_active:
+            continue
+        if status == 'closed' and is_active:
+            continue
+        
+        sales_info = ec_sales.get(ec_id, {})
+        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
+        total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        
+        sales_goal = total_capacity if total_capacity > 0 else 1000
+        avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
+        
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        isc = calculate_isc(isc_components)
+        isc_status = get_isc_status(isc)
+        suggested_action = get_suggested_action(isc, d_minus)
+        
+        if is_active:
+            active_count += 1
+            if isc_status == 'accelerating':
+                events_green += 1
+            elif isc_status == 'stable':
+                events_yellow += 1
+            else:
+                events_red += 1
+        
+        projeto_modalidade = str(rep_projeto.modalidade) if rep_projeto.modalidade else None
+        if projeto_modalidade:
+            categorias_set.add(projeto_modalidade)
+        
+        projeto_cidade = str(rep_projeto.cidade) if rep_projeto.cidade else None
+        projeto_estado = str(rep_projeto.estado) if rep_projeto.estado else None
+        
+        skus_list = [str(p.codigo) for p in proj_list if p.codigo]
+        
+        evento = MarketingEvent(
+            id=f"ec_{ec_id}",
+            name=ec.nome,
+            date=projeto_data_evento.isoformat() if projeto_data_evento else "",
+            location=projeto_cidade or projeto_estado or "Não definido",
+            category=projeto_modalidade or "Corrida",
+            totalCapacity=sales_goal,
+            currentSales=current_sales,
+            salesGoal=sales_goal,
+            averageTicket=round(avg_ticket, 2),
+            dMinus=d_minus,
+            isc=isc,
+            iscComponents=isc_components,
+            iscStatus=isc_status,
+            suggestedAction=suggested_action,
+            isActive=is_active,
+            sku=",".join(skus_list)
+        )
+        eventos.append(evento)
+    
+    for projeto in standalone_projetos:
         projeto_codigo = str(projeto.codigo) if projeto.codigo else None
         if not projeto_codigo:
             continue
@@ -654,7 +798,6 @@ def get_marketing_events(
         total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
         
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
-        
         avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
@@ -738,12 +881,141 @@ def get_marketing_summary(
 @router.get("/eventos/{evento_id}")
 def get_marketing_event_by_id(
     evento_id: str,
+    ano: int = Query(default=None, description="Ano para evento consolidado"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
     Retorna os dados de um evento específico pelo ID.
+    Suporta IDs de EventoConsolidado (prefixo 'ec_') e DimProjeto (número puro).
     """
+    is_consolidated = evento_id.startswith("ec_")
+    
+    if is_consolidated:
+        ec_id = int(evento_id.replace("ec_", ""))
+        ec = db.query(EventoConsolidado).filter(EventoConsolidado.id == ec_id).first()
+        if not ec:
+            raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+        
+        if ano is None:
+            ano = datetime.now().year
+        
+        mappings = db.query(SkuMapping).filter(
+            SkuMapping.evento_consolidado_id == ec_id,
+            SkuMapping.ano == ano,
+            SkuMapping.ativo == True
+        ).all()
+        
+        skus = [m.sku for m in mappings]
+        sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
+        
+        current_sales = 0
+        total_revenue = 0.0
+        for s_sku in skus:
+            s_norm = normalize_sku(s_sku)
+            info = sales_data.get(s_norm, {})
+            current_sales += info.get('qtd_ativo', 0) + info.get('qtd_magento', 0)
+            total_revenue += info.get('valor_ativo', 0) + info.get('valor_magento', 0)
+        
+        proj_skus = [m.sku for m in mappings]
+        projetos = db.query(DimProjeto).filter(
+            DimProjeto.codigo.in_(proj_skus)
+        ).all() if proj_skus else []
+        
+        total_capacity = 0
+        latest_date = None
+        rep_projeto = projetos[0] if projetos else None
+        for p in projetos:
+            if p.capacidade_maxima:
+                total_capacity += int(p.capacidade_maxima)
+            if p.data_evento:
+                if latest_date is None or p.data_evento > latest_date:
+                    latest_date = p.data_evento
+                    rep_projeto = p
+        
+        projeto_data_evento = latest_date
+        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        is_active = d_minus > 0
+        sales_goal = total_capacity if total_capacity > 0 else 1000
+        avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
+        
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        isc = calculate_isc(isc_components)
+        isc_status = get_isc_status(isc)
+        suggested_action = get_suggested_action(isc, d_minus)
+        
+        projeto_modalidade = str(rep_projeto.modalidade) if rep_projeto and rep_projeto.modalidade else None
+        projeto_cidade = str(rep_projeto.cidade) if rep_projeto and rep_projeto.cidade else None
+        projeto_estado = str(rep_projeto.estado) if rep_projeto and rep_projeto.estado else None
+        
+        evento = MarketingEvent(
+            id=evento_id,
+            name=ec.nome,
+            date=projeto_data_evento.isoformat() if projeto_data_evento else "",
+            location=projeto_cidade or projeto_estado or "Não definido",
+            category=projeto_modalidade or "Corrida",
+            totalCapacity=sales_goal,
+            currentSales=current_sales,
+            salesGoal=sales_goal,
+            averageTicket=round(avg_ticket, 2),
+            dMinus=d_minus,
+            isc=isc,
+            iscComponents=isc_components,
+            iscStatus=isc_status,
+            suggestedAction=suggested_action,
+            isActive=is_active,
+            sku=",".join(skus)
+        )
+        
+        daily_sales = generate_daily_sales_data(
+            current_sales=current_sales,
+            sales_goal=sales_goal,
+            event_date=projeto_data_evento,
+            days_history=60
+        )
+        
+        from ...models.dimensoes import AcaoComercial
+        commercial_actions = []
+        projeto_ids = [p.id for p in projetos]
+        if projeto_ids:
+            acoes = db.query(AcaoComercial).filter(
+                AcaoComercial.projeto_id.in_(projeto_ids)
+            ).order_by(AcaoComercial.data_acao.desc()).all()
+            
+            for a in acoes:
+                tipo_map = {
+                    'AUMENTO_PRECO': 'price_increase',
+                    'REDUCAO_PRECO': 'price_decrease',
+                    'PROMOCAO': 'promotion',
+                    'CAMPANHA': 'campaign',
+                    'COMUNICACAO': 'communication'
+                }
+                impacto = calculate_action_impact(db, a)
+                impacto_percentual = impacto.get("impacto_percentual")
+                vendas_antes = impacto.get("vendas_antes")
+                vendas_depois = impacto.get("vendas_depois")
+                impact_str = f"+{impacto_percentual}%" if impacto_percentual and impacto_percentual > 0 else (f"{impacto_percentual}%" if impacto_percentual is not None else None)
+                commercial_actions.append({
+                    "id": str(a.id),
+                    "type": tipo_map.get(a.tipo, 'communication'),
+                    "description": a.descricao,
+                    "date": a.data_acao.isoformat() if a.data_acao else None,
+                    "impact": impact_str,
+                    "vendas_antes": vendas_antes,
+                    "vendas_depois": vendas_depois,
+                    "impacto_percentual": impacto_percentual,
+                    "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados"
+                })
+        
+        return {
+            "status": "success",
+            "evento": evento,
+            "dailySales": daily_sales,
+            "commercialActions": commercial_actions,
+            "projetos_vinculados": [{"id": p.id, "nome": p.evento, "sku": p.codigo} for p in projetos],
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        }
+    
     projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
     
     if not projeto:
@@ -755,7 +1027,8 @@ def get_marketing_event_by_id(
     d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
     is_active = d_minus > 0
     
-    ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
+    if ano is None:
+        ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
     sales_data = fetch_consolidated_sales_by_skus([sku] if sku else [], ano, apenas_site=True)
     
     sales_info = sales_data.get(sku, {}) if sku else {}
