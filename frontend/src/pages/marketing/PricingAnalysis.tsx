@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, 
@@ -47,7 +47,15 @@ const PricingAnalysis: React.FC = () => {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const fetchData = useCallback(async (isRefresh = false) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       if (isRefresh) {
         setRefreshing(true);
@@ -61,23 +69,35 @@ const PricingAnalysis: React.FC = () => {
         status: statusFilter === 'all' ? undefined : statusFilter,
         categoria: categoryFilter === 'all' ? undefined : categoryFilter,
         busca: debouncedSearch || undefined
-      });
+      }, controller.signal);
       
-      setEventos(response.eventos);
-      setSummary(response.resumo);
-      setCategories(response.categorias);
-      setLastUpdate(new Date(response.ultima_atualizacao));
-    } catch (err) {
+      if (!controller.signal.aborted) {
+        setEventos(response.eventos);
+        setSummary(response.resumo);
+        setCategories(response.categorias);
+        setLastUpdate(new Date(response.ultima_atualizacao));
+      }
+    } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
+        return;
+      }
       console.error('Erro ao carregar dados:', err);
       setError('Erro ao carregar dados. Tente novamente.');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [statusFilter, categoryFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchData();
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [fetchData]);
 
   useEffect(() => {

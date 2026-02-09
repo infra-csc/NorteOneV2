@@ -178,7 +178,8 @@ def init_ssh_tunnel():
         engine_ssh = create_engine(
             db_url,
             pool_pre_ping=True,
-            pool_recycle=3600
+            pool_recycle=3600,
+            connect_args={'connect_timeout': 10, 'read_timeout': 30, 'write_timeout': 30}
         )
         SessionLocalSSH = sessionmaker(autocommit=False, autoflush=False, bind=engine_ssh)
         
@@ -238,7 +239,8 @@ def init_mysql_connections():
             engine_ativo = create_engine(
                 settings.MYSQL_ATIVO_URL,
                 pool_pre_ping=True,
-                pool_recycle=3600
+                pool_recycle=3600,
+                connect_args={'connect_timeout': 10, 'read_timeout': 30, 'write_timeout': 30}
             )
             SessionLocalAtivo = sessionmaker(autocommit=False, autoflush=False, bind=engine_ativo)
             print("MySQL Ativo connection configured")
@@ -254,7 +256,7 @@ def init_mysql_connections():
                 magento_url,
                 pool_pre_ping=True,
                 pool_recycle=3600,
-                connect_args={'connect_timeout': 30}
+                connect_args={'connect_timeout': 10, 'read_timeout': 30, 'write_timeout': 30}
             )
             SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)
             print(f"MySQL Magento connection configured for database '{settings.MYSQL_MAGENTO_DATABASE}'")

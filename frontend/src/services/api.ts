@@ -667,14 +667,14 @@ export const pricingService = {
     status?: string;
     categoria?: string;
     busca?: string;
-  }): Promise<PricingEventsResponse> => {
+  }, signal?: AbortSignal): Promise<PricingEventsResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.ano) queryParams.append('ano', params.ano.toString());
     if (params?.status) queryParams.append('status', params.status);
     if (params?.categoria) queryParams.append('categoria', params.categoria);
     if (params?.busca) queryParams.append('busca', params.busca);
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    const response = await api.get(`/marketing/pricing${queryString}`);
+    const response = await api.get(`/marketing/pricing${queryString}`, { signal });
     return response.data;
   }
 };
@@ -685,29 +685,29 @@ export const marketingService = {
     status?: string;
     categoria?: string;
     busca?: string;
-  }): Promise<MarketingEventsResponse> => {
+  }, signal?: AbortSignal): Promise<MarketingEventsResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.ano) queryParams.append('ano', params.ano.toString());
     if (params?.status) queryParams.append('status', params.status);
     if (params?.categoria) queryParams.append('categoria', params.categoria);
     if (params?.busca) queryParams.append('busca', params.busca);
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    const response = await api.get(`/marketing/eventos${queryString}`);
+    const response = await api.get(`/marketing/eventos${queryString}`, { signal });
     return response.data;
   },
-  getResumo: async (ano?: number): Promise<{ status: string; resumo: MarketingDashboardSummary; ultima_atualizacao: string }> => {
+  getResumo: async (ano?: number, signal?: AbortSignal): Promise<{ status: string; resumo: MarketingDashboardSummary; ultima_atualizacao: string }> => {
     const queryString = ano ? `?ano=${ano}` : '';
-    const response = await api.get(`/marketing/resumo${queryString}`);
+    const response = await api.get(`/marketing/resumo${queryString}`, { signal });
     return response.data;
   },
-  getEventoById: async (id: string): Promise<{ 
+  getEventoById: async (id: string, signal?: AbortSignal): Promise<{ 
     status: string; 
     evento: MarketingEvent; 
     dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number }[];
     commercialActions?: { id: string; type: string; description: string; date: string; impact?: string }[];
     ultima_atualizacao: string 
   }> => {
-    const response = await api.get(`/marketing/eventos/${id}`);
+    const response = await api.get(`/marketing/eventos/${id}`, { signal });
     return response.data;
   },
   getAcoesComerciais: async (projetoId: string): Promise<{ status: string; acoes: any[] }> => {

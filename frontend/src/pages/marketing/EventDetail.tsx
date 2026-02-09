@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -73,7 +73,12 @@ const EventDetail: React.FC = () => {
   });
   const [savingAction, setSavingAction] = useState(false);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const fetchEvent = async () => {
       if (!id) {
         setError('ID do evento não fornecido');
@@ -83,7 +88,8 @@ const EventDetail: React.FC = () => {
       
       try {
         setLoading(true);
-        const response = await marketingService.getEventoById(id);
+        const response = await marketingService.getEventoById(id, controller.signal);
+        if (controller.signal.aborted) return;
         const eventWithData = {
           ...response.evento,
           dailySales: response.dailySales?.map(d => ({
@@ -107,15 +113,19 @@ const EventDetail: React.FC = () => {
         };
         setEvent(eventWithData);
         setError(null);
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
         console.error('Erro ao carregar evento:', err);
         setError('Erro ao carregar dados do evento');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
     
     fetchEvent();
+    return () => { controller.abort(); };
   }, [id]);
 
   if (loading) {
@@ -168,7 +178,7 @@ const EventDetail: React.FC = () => {
         data_acao: actionForm.data_acao
       });
       
-      const response = await marketingService.getEventoById(id);
+      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal);
       const eventWithData = {
         ...response.evento,
         dailySales: response.dailySales?.map(d => ({
@@ -198,7 +208,8 @@ const EventDetail: React.FC = () => {
         descricao: '',
         data_acao: new Date().toISOString().split('T')[0]
       });
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
       console.error('Erro ao salvar ação:', err);
     } finally {
       setSavingAction(false);
@@ -209,7 +220,7 @@ const EventDetail: React.FC = () => {
     if (!id) return;
     try {
       await marketingService.deleteAcaoComercial(parseInt(actionId));
-      const response = await marketingService.getEventoById(id);
+      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal);
       const eventWithData = {
         ...response.evento,
         dailySales: response.dailySales?.map(d => ({
