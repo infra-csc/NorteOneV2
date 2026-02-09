@@ -1,0 +1,196 @@
+SELECT
+    -- DADOS BÁSICOS DO EVENTO
+    wl.location_id AS "id de evento",
+    CASE 
+        WHEN wl.location_id = '587' THEN 'CPLIE26SP1'
+        WHEN wl.location_id = '612' THEN 'BLU26RJ1'
+        WHEN wl.location_id = '539' THEN 'CDE26PL4'
+        WHEN wl.location_id = '536' THEN 'CDE26PL1'
+        WHEN wl.location_id = '560' THEN 'CDE26TS4'
+        WHEN wl.location_id = '559' THEN 'CDE26TS3'
+        WHEN wl.location_id = '558' THEN 'CDE26TS2'
+        WHEN wl.location_id = '537' THEN 'CDE26PL2'
+        WHEN wl.location_id = '557' THEN 'CDE26TS1'
+        WHEN wl.location_id = '510' THEN 'NRU26PA1'
+        WHEN wl.location_id = '438' THEN 'CDE26RJ4'
+        WHEN wl.location_id = '437' THEN 'CDE26RJ3'
+        WHEN wl.location_id = '436' THEN 'CDE26RJ2'
+        WHEN wl.location_id = '462' THEN 'CDE26SV4'
+        WHEN wl.location_id = '464' THEN 'CDE26SV3'
+        WHEN wl.location_id = '463' THEN 'CDE26SV2'
+        WHEN wl.location_id = '469' THEN 'CDE26CP4'
+        WHEN wl.location_id = '470' THEN 'CDE26CP3'
+        WHEN wl.location_id = '471' THEN 'CDE26CP2'
+        WHEN wl.location_id = '441' THEN 'CDE26SP2'
+        WHEN wl.location_id = '443' THEN 'CDE26SP4'
+        WHEN wl.location_id = '455' THEN 'CDE26FT4'
+        WHEN wl.location_id = '454' THEN 'CDE26FT3'
+        WHEN wl.location_id = '453' THEN 'CDE26FT2'
+        WHEN wl.location_id = '466' THEN 'CDE26CT2'
+        WHEN wl.location_id = '518' THEN 'NRU26FT1'
+        WHEN wl.location_id = '513' THEN 'NRU26VT1'
+        WHEN wl.location_id = '446' THEN 'CDE26BS3'
+        WHEN wl.location_id = '444' THEN 'CDE26BS2'
+        WHEN wl.location_id = '449' THEN 'CDE26BH2'
+        WHEN wl.location_id = '473' THEN 'CDE26PA4'
+        WHEN wl.location_id = '474' THEN 'CDE26PA3'
+        WHEN wl.location_id = '475' THEN 'CDE26PA2'
+        WHEN wl.location_id = '468' THEN 'CDE26CT4'
+        WHEN wl.location_id = '467' THEN 'CDE26CT3'
+        WHEN wl.location_id = '447' THEN 'CDE26BS4'
+        WHEN wl.location_id = '544' THEN 'GPW26SP11'
+        WHEN wl.location_id = '442' THEN 'CDE26SP3'
+        WHEN wl.location_id = '451' THEN 'CDE26BH4'
+        WHEN wl.location_id = '519' THEN 'NRU26SV1'
+        WHEN wl.location_id = '516' THEN 'NRU26BS1'
+        WHEN wl.location_id = '515' THEN 'NRU26RF1'
+        WHEN wl.location_id = '521' THEN 'NRU26CP1'
+        WHEN wl.location_id = '491' THEN 'BRV26SP1'
+        WHEN wl.location_id = '512' THEN 'NRU26CW1'
+        WHEN wl.location_id = '481' THEN 'NRU26SP3'
+        WHEN wl.location_id = '492' THEN 'BRV26SP4'
+        ELSE d.sku
+    END AS 'SKU',
+    
+    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        REPLACE(wl.`name`, 'Retirada de kit - CE', 'Circuito das Estações'),
+        'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
+        'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
+        'SSA', 'Salvador') AS "Evento",
+    
+    wl.final_date AS "Data Evento",
+    
+    -- QUANTIDADE SITE (não é grupo E valor > 0)
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS "Qtd Site Atual",
+    
+    -- MÉDIA ÚLTIMOS 14 DIAS (ANO ATUAL)
+    (SELECT COUNT(DISTINCT so2.entity_id)
+     FROM sales_order so2
+     INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+     INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+     WHERE wl2.location_id = wl.location_id
+     AND so2.status IN ('Processing', 'Complete', 'approved')
+     AND soi2.product_type = 'Bundle'
+     AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+     AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%Grup%')
+     AND so2.base_grand_total > 0
+     AND so2.increment_id NOT LIKE "%-1%"
+     AND so2.increment_id NOT LIKE "%-2%"
+     AND so2.increment_id NOT LIKE "%-3%"
+     AND so2.increment_id NOT LIKE "%-4%"
+     AND so2.increment_id NOT LIKE "%-5%"
+     AND so2.increment_id NOT LIKE "%-6%"
+     AND so2.increment_id NOT LIKE "%-7%"
+     AND so2.increment_id NOT LIKE "%-8%"
+     AND so2.increment_id NOT LIKE "%-9%"
+     AND so2.increment_id NOT LIKE "%-10%"
+     AND so2.increment_id NOT LIKE "%-11%"
+     AND so2.increment_id NOT LIKE "%-12%"
+     AND so2.increment_id NOT LIKE "%-13%"
+     AND so2.increment_id NOT LIKE "%-14%"
+     AND so2.increment_id NOT LIKE "%-15%"
+     AND so2.increment_id NOT LIKE "%-16%"
+     AND so2.increment_id NOT LIKE "%-17%"
+    ) / 14 AS "Média Diária Últimos 14 Dias",
+    
+    -- MÉDIA ÚLTIMOS 14 DIAS (ANO PASSADO - MESMA RÉGUA)
+    (SELECT COUNT(DISTINCT so2.entity_id)
+     FROM sales_order so2
+     INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+     INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+     WHERE wl2.location_id = wl.location_id
+     AND so2.status IN ('Processing', 'Complete', 'approved')
+     AND soi2.product_type = 'Bundle'
+     AND DATE(so2.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                                  AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+     AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%Grup%')
+     AND so2.base_grand_total > 0
+     AND so2.increment_id NOT LIKE "%-1%"
+     AND so2.increment_id NOT LIKE "%-2%"
+     AND so2.increment_id NOT LIKE "%-3%"
+     AND so2.increment_id NOT LIKE "%-4%"
+     AND so2.increment_id NOT LIKE "%-5%"
+     AND so2.increment_id NOT LIKE "%-6%"
+     AND so2.increment_id NOT LIKE "%-7%"
+     AND so2.increment_id NOT LIKE "%-8%"
+     AND so2.increment_id NOT LIKE "%-9%"
+     AND so2.increment_id NOT LIKE "%-10%"
+     AND so2.increment_id NOT LIKE "%-11%"
+     AND so2.increment_id NOT LIKE "%-12%"
+     AND so2.increment_id NOT LIKE "%-13%"
+     AND so2.increment_id NOT LIKE "%-14%"
+     AND so2.increment_id NOT LIKE "%-15%"
+     AND so2.increment_id NOT LIKE "%-16%"
+     AND so2.increment_id NOT LIKE "%-17%"
+    ) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
+    
+    -- DIAS ATÉ O EVENTO
+    DATEDIFF(DATE(wl.final_date), CURDATE()) AS "Dias Até Evento",
+    
+    -- PROJEÇÃO FINAL
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+        AND so.base_grand_total > 0 THEN 1 END) + 
+    (
+        (SELECT COUNT(DISTINCT so2.entity_id)
+         FROM sales_order so2
+         INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+         INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+         WHERE wl2.location_id = wl.location_id
+         AND so2.status IN ('Processing', 'Complete', 'approved')
+         AND soi2.product_type = 'Bundle'
+         AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+         AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%Grup%')
+         AND so2.base_grand_total > 0
+         AND so2.increment_id NOT LIKE "%-1%"
+         AND so2.increment_id NOT LIKE "%-2%"
+         AND so2.increment_id NOT LIKE "%-3%"
+         AND so2.increment_id NOT LIKE "%-4%"
+         AND so2.increment_id NOT LIKE "%-5%"
+         AND so2.increment_id NOT LIKE "%-6%"
+         AND so2.increment_id NOT LIKE "%-7%"
+         AND so2.increment_id NOT LIKE "%-8%"
+         AND so2.increment_id NOT LIKE "%-9%"
+         AND so2.increment_id NOT LIKE "%-10%"
+         AND so2.increment_id NOT LIKE "%-11%"
+         AND so2.increment_id NOT LIKE "%-12%"
+         AND so2.increment_id NOT LIKE "%-13%"
+         AND so2.increment_id NOT LIKE "%-14%"
+         AND so2.increment_id NOT LIKE "%-15%"
+         AND so2.increment_id NOT LIKE "%-16%"
+         AND so2.increment_id NOT LIKE "%-17%"
+        ) / 14 * DATEDIFF(DATE(wl.final_date), CURDATE())
+    ) AS "Projeção Final"
+
+FROM sales_order AS so
+LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
+LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
+LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
+LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
+
+WHERE
+    YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    AND so.increment_id NOT LIKE "%-1%"
+    AND so.increment_id NOT LIKE "%-2%"
+    AND so.increment_id NOT LIKE "%-3%"
+    AND so.increment_id NOT LIKE "%-4%"
+    AND so.increment_id NOT LIKE "%-5%"
+    AND so.increment_id NOT LIKE "%-6%"
+    AND so.increment_id NOT LIKE "%-7%"
+    AND so.increment_id NOT LIKE "%-8%"
+    AND so.increment_id NOT LIKE "%-9%"
+    AND so.increment_id NOT LIKE "%-10%"
+    AND so.increment_id NOT LIKE "%-11%"
+    AND so.increment_id NOT LIKE "%-12%"
+    AND so.increment_id NOT LIKE "%-13%"
+    AND so.increment_id NOT LIKE "%-14%"
+    AND so.increment_id NOT LIKE "%-15%"
+    AND so.increment_id NOT LIKE "%-16%"
+    AND so.increment_id NOT LIKE "%-17%"
+    AND so.status IN ('Processing', 'Complete', 'approved')
+    AND soi.product_type = 'Bundle'
+    -- Filtro para excluir SKUs que começam com '701d0000000'
+  -- AND (d.sku NOT LIKE '701d0000000%' OR d.sku IS NULL)
+
+GROUP BY wl.location_id, wl.name, wl.final_date, d.sku
+ORDER BY wl.final_date;
