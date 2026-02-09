@@ -39,7 +39,7 @@ def get_sku_mappings_from_db(db: Session, ano: Optional[int] = None) -> Dict[str
             "nome_evento": m.nome_evento,
             "ano": m.ano
         }
-        key = f"{m.id_externo}_{m.ano}"
+        key = f"{str(m.id_externo).strip()}_{m.ano}"
         if m.fonte == "ATIVO":
             by_ativo[key] = data
         else:
@@ -59,11 +59,13 @@ def enrich_with_mappings(data: List[Dict], mappings: Dict, fonte: str, ano: int)
     for row in data:
         id_evento = row.get("id_evento")
         if id_evento:
-            key = f"{id_evento}_{ano}"
+            key = f"{str(id_evento).strip()}_{ano}"
             if key in mapping_dict:
                 mapping = mapping_dict[key]
                 row["sku"] = mapping["sku"]
                 row["evento_grupo"] = mapping["evento_grupo"]
+                if mapping.get("nome_evento"):
+                    row["evento"] = mapping["nome_evento"]
             else:
                 existing_sku = row.get("sku") or ""
                 normalized = normalize_sku(existing_sku)
@@ -102,6 +104,77 @@ def normalize_sku(sku: str) -> str:
         return match.group(1)
     
     return sku
+
+def normalize_evento_name(name: str) -> str:
+    if not name:
+        return name
+    replacements = [
+        ('Retirada de kit - CE', 'Circuito das Estações'),
+        ('Retirada de Kit - CE', 'Circuito das Estações'),
+        ('Retirada de KIt - CE', 'Circuito das Estações'),
+        ('Retirada de Kit- CE', 'Circuito das Estações'),
+        ('Retirada de Kit - ', ''),
+        ('Retirada de kit - ', ''),
+        ('SSA', 'Salvador'),
+    ]
+    for old, new in replacements:
+        name = name.replace(old, new)
+    return name
+
+
+def classify_event_category(name: str) -> str:
+    if not name:
+        return 'Outra Categoria'
+    name_lower = name.lower()
+    patterns = [
+        ('night run', 'Night Run'),
+        (' ce ', 'Circuito das Estações'),
+        ('verão', 'Circuito das Estações'),
+        ('banco', 'Banco Do Brasil'),
+        ('eco run', 'Eco Run'),
+        ('girl', 'Girl Power'),
+        ('gilr', 'Girl Power'),
+        ('meia', 'Meias e Maratonas'),
+        ('maratona', 'Meias e Maratonas'),
+        ('21k', 'Meias e Maratonas'),
+        ('rios', 'Meias e Maratonas'),
+        ('floripa', 'Meias e Maratonas'),
+        ('tis', 'Meias e Maratonas'),
+        ('s21', 'Meias e Maratonas'),
+        ('sol', 'Circuito Sol'),
+        ('treinão', 'Treinão'),
+        ('running', 'Treinão'),
+        ('teste', 'Treinão'),
+        ('testar', 'Treinão'),
+        ('cruz', 'Vera Cruz'),
+        ('bravus', 'Bravus'),
+        ('bem', 'Corrida do Bem'),
+        ('triathlon', 'Triathlon'),
+        ('parcel', 'Triathlon'),
+        ('ilha', 'Triathlon'),
+        ('estações', 'Circuito das Estações'),
+        ('primavera', 'Circuito das Estações'),
+        ('outono', 'Circuito das Estações'),
+        ('troféu', 'Troféu Brasil'),
+        ('eco', 'Eco Run'),
+        ('bull', 'Bull Run'),
+        ('juntos', 'Juntos'),
+        ('blue', 'Blue Run'),
+        ('energy', 'Energy'),
+        ('pedelar', 'Eventos de Ciclismo'),
+        ('bike', 'Eventos de Ciclismo'),
+        ('riders', 'Eventos de Ciclismo'),
+        ('humans', 'Humans'),
+        ('s run', 'S RUN'),
+        ('agro', 'Agro'),
+        ('pão', 'Pão De Açucar'),
+        ('biomas', 'Biomas'),
+    ]
+    for pattern, category in patterns:
+        if pattern in name_lower:
+            return category
+    return 'Outra Categoria'
+
 
 class InscricaoFonteDetalhe(BaseModel):
     qtd: int
@@ -160,99 +233,7 @@ def build_query_ativo(ano: int) -> str:
     return f"""
 SELECT
     b.id_evento AS id_evento,
-    CASE 
-        WHEN b.id_evento = '40048' THEN 'CDE26PL1'
-        WHEN b.id_evento = '40145' THEN 'CDE26RP1'
-        WHEN b.id_evento = '39969' THEN 'CDE26RJ1'
-        WHEN b.id_evento = '40120' THEN 'CDE26FL1'
-        WHEN b.id_evento = '39996' THEN 'CDE26PA1'
-        WHEN b.id_evento = '39964' THEN 'CDE26SP1'
-        WHEN b.id_evento = '40052' THEN 'CDE26AN1'
-        WHEN b.id_evento = '39974' THEN 'CDE26BH1'
-        WHEN b.id_evento = '39970' THEN 'CDE26BS1'
-        WHEN b.id_evento = '40001' THEN 'CDE26CP1'
-        WHEN b.id_evento = '39986' THEN 'CDE26RC1'
-        WHEN b.id_evento = '40010' THEN 'CDE26BL1'
-        WHEN b.id_evento = '39980' THEN 'CDE26FT1'
-        WHEN b.id_evento = '40149' THEN 'CDE26SJ1'
-        WHEN b.id_evento = '39994' THEN 'CDE26CT1'
-        WHEN b.id_evento = '40157' THEN 'CDE26TS1'
-        WHEN b.id_evento = '40015' THEN 'CDE26VT1'
-        WHEN b.id_evento = '40144' THEN 'CDE26MN4'
-        WHEN b.id_evento = '40142' THEN 'CDE26MN2'
-        WHEN b.id_evento = '40143' THEN 'CDE26MN3'
-        WHEN b.id_evento = '39990' THEN 'CDE26SV1'
-        WHEN b.id_evento = '40075' THEN 'TBT26ST1'
-        WHEN b.id_evento = '40108' THEN 'NRU26RF1'
-        WHEN b.id_evento = '40073' THEN 'BRV26SP4'
-        WHEN b.id_evento = '39999' THEN 'CDE26PA2'
-        WHEN b.id_evento = '39971' THEN 'CDE26RJ2'
-        WHEN b.id_evento = '40122' THEN 'CDE26FL3'
-        WHEN b.id_evento = '40121' THEN 'CDE26FL2'
-        WHEN b.id_evento = '40076' THEN 'TBT26ST2'
-        WHEN b.id_evento = '40049' THEN 'CDE26PL2'
-        WHEN b.id_evento = '40158' THEN 'CDE26TS2'
-        WHEN b.id_evento = '40072' THEN 'BRV26SP2'
-        WHEN b.id_evento = '40150' THEN 'CDE26SJ2'
-        WHEN b.id_evento = '40151' THEN 'CDE26SJ3'
-        WHEN b.id_evento = '40146' THEN 'CDE26RP2'
-        WHEN b.id_evento = '40053' THEN 'CDE26AN2'
-        WHEN b.id_evento = '40003' THEN 'CDE26CP2'
-        WHEN b.id_evento = '39987' THEN 'CDE26RC2'
-        WHEN b.id_evento = '39965' THEN 'CDE26SP2'
-        WHEN b.id_evento = '39975' THEN 'CDE26BS2'
-        WHEN b.id_evento = '39982' THEN 'CDE26FT2'
-        WHEN b.id_evento = '40107' THEN 'NRU26CW1'
-        WHEN b.id_evento = '40074' THEN 'BRV26SJ1'
-        WHEN b.id_evento = '39995' THEN 'CDE26CT2'
-        WHEN b.id_evento = '40016' THEN 'CDE26VT2'
-        WHEN b.id_evento = '39991' THEN 'CDE26SV2'
-        WHEN b.id_evento = '40011' THEN 'CDE26BL2'
-        WHEN b.id_evento = '40148' THEN 'CDE26RP4'
-        WHEN b.id_evento = '40147' THEN 'CDE26RP3'
-        WHEN b.id_evento = '39978' THEN 'CDE26BH2'
-        WHEN b.id_evento = '40070' THEN 'AQA26RJ2'
-        WHEN b.id_evento = '40050' THEN 'CDE26PL3'
-        WHEN b.id_evento = '40054' THEN 'CDE26AN3'
-        WHEN b.id_evento = '40005' THEN 'CDE26CP3'
-        WHEN b.id_evento = '39983' THEN 'CDE26FT3'
-        WHEN b.id_evento = '39976' THEN 'CDE26BS3'
-        WHEN b.id_evento = '40017' THEN 'CDE26VT3'
-        WHEN b.id_evento = '39988' THEN 'CDE26RC3'
-        WHEN b.id_evento = '39966' THEN 'CDE26SP3'
-        WHEN b.id_evento = '39997' THEN 'CDE26CT3'
-        WHEN b.id_evento = '40159' THEN 'CDE26TS3'
-        WHEN b.id_evento = '39992' THEN 'CDE26SV3'
-        WHEN b.id_evento = '40012' THEN 'CDE26BL3'
-        WHEN b.id_evento = '40077' THEN 'TBT26ST3'
-        WHEN b.id_evento = '39972' THEN 'CDE26RJ3'
-        WHEN b.id_evento = '40000' THEN 'CDE26PA3'
-        WHEN b.id_evento = '40113' THEN 'NRU26FT1'
-        WHEN b.id_evento = '40109' THEN 'NRU26SV1'
-        WHEN b.id_evento = '40081' THEN 'NRU26RJ2'
-        WHEN b.id_evento = '40112' THEN 'NRU26BS1'
-        WHEN b.id_evento = '40063' THEN 'NRU26SP3'
-        WHEN b.id_evento = '40123' THEN 'CDE26FL4'
-        WHEN b.id_evento = '40105' THEN 'NRU26PA1'
-        WHEN b.id_evento = '39973' THEN 'CDE26RJ4'
-        WHEN b.id_evento = '40047' THEN 'CDE26PL4'
-        WHEN b.id_evento = '40160' THEN 'CDE26TS4'
-        WHEN b.id_evento = '40055' THEN 'CDE26AN4'
-        WHEN b.id_evento = '39967' THEN 'CDE26SP4'
-        WHEN b.id_evento = '40078' THEN 'TBT26ST4'
-        WHEN b.id_evento = '40152' THEN 'CDE26SJ4'
-        WHEN b.id_evento = '39998' THEN 'CDE26CT4'
-        WHEN b.id_evento = '39985' THEN 'CDE26FT4'
-        WHEN b.id_evento = '39993' THEN 'CDE26SV4'
-        WHEN b.id_evento = '40014' THEN 'CDE26BL4'
-        WHEN b.id_evento = '39984' THEN 'CDE26BH4'
-        WHEN b.id_evento = '39977' THEN 'CDE26BS4'
-        WHEN b.id_evento = '40002' THEN 'CDE26PA4'
-        WHEN b.id_evento = '40004' THEN 'CDE26CP4'
-        WHEN b.id_evento = '40018' THEN 'CDE26VT4'
-        WHEN b.id_evento = '39989' THEN 'CDE26RC4'
-        ELSE b.id_campanha_salesforce
-    END AS sku,
+    b.id_campanha_salesforce AS sku,
     b.ds_evento AS evento,
     DATE(b.dt_evento) AS data_evento,
     COUNT(a.id_pedido_evento) AS qtd_total,
@@ -330,61 +311,8 @@ def build_query_magento(ano: int) -> str:
     return f"""
 SELECT
     wl.location_id AS id_evento,
-    CASE 
-        WHEN wl.location_id = '587' THEN 'CPLIE26SP1'
-        WHEN wl.location_id = '612' THEN 'BLU26RJ1'
-        WHEN wl.location_id = '539' THEN 'CDE26PL4'
-        WHEN wl.location_id = '536' THEN 'CDE26PL1'
-        WHEN wl.location_id = '560' THEN 'CDE26TS4'
-        WHEN wl.location_id = '559' THEN 'CDE26TS3'
-        WHEN wl.location_id = '558' THEN 'CDE26TS2'
-        WHEN wl.location_id = '537' THEN 'CDE26PL2'
-        WHEN wl.location_id = '557' THEN 'CDE26TS1'
-        WHEN wl.location_id = '510' THEN 'NRU26PA1'
-        WHEN wl.location_id = '438' THEN 'CDE26RJ4'
-        WHEN wl.location_id = '437' THEN 'CDE26RJ3'
-        WHEN wl.location_id = '436' THEN 'CDE26RJ2'
-        WHEN wl.location_id = '462' THEN 'CDE26SV4'
-        WHEN wl.location_id = '464' THEN 'CDE26SV3'
-        WHEN wl.location_id = '463' THEN 'CDE26SV2'
-        WHEN wl.location_id = '469' THEN 'CDE26CP4'
-        WHEN wl.location_id = '470' THEN 'CDE26CP3'
-        WHEN wl.location_id = '471' THEN 'CDE26CP2'
-        WHEN wl.location_id = '441' THEN 'CDE26SP2'
-        WHEN wl.location_id = '443' THEN 'CDE26SP4'
-        WHEN wl.location_id = '455' THEN 'CDE26FT4'
-        WHEN wl.location_id = '454' THEN 'CDE26FT3'
-        WHEN wl.location_id = '453' THEN 'CDE26FT2'
-        WHEN wl.location_id = '466' THEN 'CDE26CT2'
-        WHEN wl.location_id = '518' THEN 'NRU26FT1'
-        WHEN wl.location_id = '513' THEN 'NRU26VT1'
-        WHEN wl.location_id = '446' THEN 'CDE26BS3'
-        WHEN wl.location_id = '444' THEN 'CDE26BS2'
-        WHEN wl.location_id = '449' THEN 'CDE26BH2'
-        WHEN wl.location_id = '473' THEN 'CDE26PA4'
-        WHEN wl.location_id = '474' THEN 'CDE26PA3'
-        WHEN wl.location_id = '475' THEN 'CDE26PA2'
-        WHEN wl.location_id = '468' THEN 'CDE26CT4'
-        WHEN wl.location_id = '467' THEN 'CDE26CT3'
-        WHEN wl.location_id = '447' THEN 'CDE26BS4'
-        WHEN wl.location_id = '544' THEN 'GPW26SP11'
-        WHEN wl.location_id = '442' THEN 'CDE26SP3'
-        WHEN wl.location_id = '451' THEN 'CDE26BH4'
-        WHEN wl.location_id = '519' THEN 'NRU26SV1'
-        WHEN wl.location_id = '516' THEN 'NRU26BS1'
-        WHEN wl.location_id = '515' THEN 'NRU26RF1'
-        WHEN wl.location_id = '521' THEN 'NRU26CP1'
-        WHEN wl.location_id = '491' THEN 'BRV26SP1'
-        WHEN wl.location_id = '512' THEN 'NRU26CW1'
-        WHEN wl.location_id = '481' THEN 'NRU26SP3'
-        WHEN wl.location_id = '492' THEN 'BRV26SP4'
-        ELSE d.sku
-    END AS sku,
-    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-        REPLACE(wl.name, 'Retirada de kit - CE', 'Circuito das Estações'),
-        'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
-        'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
-        'SSA', 'Salvador') AS evento,
+    COALESCE(d.sku, '') AS sku,
+    wl.name AS evento,
     wl.final_date AS data_evento,
     COUNT(wl.name) AS qtd_total,
     SUM(CASE WHEN so.base_grand_total = 0 THEN 1 ELSE 0 END) AS cortesia,
@@ -457,51 +385,6 @@ SELECT
             WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
             ELSE 0 END) ELSE 0 END) / NULLIF(SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
         AND so.base_grand_total > 0 THEN 1 ELSE 0 END), 0) AS ticket_medio_site,
-    CASE
-        WHEN wl.name LIKE '%Night Run%' THEN 'Night Run'
-        WHEN wl.name LIKE '% CE %' THEN 'Circuito das Estações'
-        WHEN wl.name LIKE '%verão%' THEN 'Circuito das Estações'
-        WHEN wl.name LIKE '%Banco%' THEN 'Banco Do Brasil'
-        WHEN wl.name LIKE '%Eco Run%' THEN 'Eco Run'
-        WHEN wl.name LIKE '%Girl%' THEN 'Girl Power'
-        WHEN wl.name LIKE '%Meia%' THEN 'Meias e Maratonas'
-        WHEN wl.name LIKE '%Maratona%' THEN 'Meias e Maratonas'
-        WHEN wl.name LIKE '%21k%' THEN 'Meias e Maratonas'
-        WHEN wl.name LIKE '%sol%' THEN 'Circuito Sol'
-        WHEN wl.name LIKE '%Treinão%' THEN 'Treinão'
-        WHEN wl.name LIKE '%cruz%' THEN 'Vera Cruz'
-        WHEN wl.name LIKE '%Rios%' THEN 'Meias e Maratonas'
-        WHEN wl.name LIKE '%Bravus%' THEN 'Bravus'
-        WHEN wl.name LIKE '%Bem%' THEN 'Corrida do Bem'
-        WHEN wl.name LIKE '%Triathlon%' THEN 'Triathlon'
-        WHEN wl.name LIKE '%Estações%' THEN 'Circuito das Estações'
-        WHEN wl.name LIKE '%Primavera%' THEN 'Circuito das Estações'
-        WHEN wl.name LIKE '%Outono%' THEN 'Circuito das Estações'
-        WHEN wl.name LIKE '%Troféu %' THEN 'Troféu Brasil'
-        WHEN wl.name LIKE '%Parcel%' THEN 'Triathlon'
-        WHEN wl.name LIKE '%ilha%' THEN 'Triathlon'
-        WHEN wl.name LIKE '%Eco%' THEN 'Eco Run'
-        WHEN wl.name LIKE '%Bull%' THEN 'Bull Run'
-        WHEN wl.name LIKE '%Juntos%' THEN 'Juntos'
-        WHEN wl.name LIKE '%Blue%' THEN 'Blue Run'
-        WHEN wl.name LIKE '%Energy%' THEN 'Energy'
-        WHEN wl.name LIKE '%Pedelar%' THEN 'Eventos de Ciclismo'
-        WHEN wl.name LIKE '%Bike%' THEN 'Eventos de Ciclismo'
-        WHEN wl.name LIKE '%Riders%' THEN 'Eventos de Ciclismo'    
-        WHEN wl.name LIKE '%humans%' THEN 'Humans'    
-        WHEN wl.name LIKE '%S RUN%' THEN 'S RUN'  
-        WHEN wl.name LIKE '%Agro%' THEN 'Agro'  
-        WHEN wl.name LIKE '%Running%' THEN 'Treinão'  
-        WHEN wl.name LIKE '%Teste%' THEN 'Treinão'  
-        WHEN wl.name LIKE '%S21%' THEN 'Meias e Maratonas'  
-        WHEN wl.name LIKE '%gilr%' THEN 'Girl Power'  
-        WHEN wl.name LIKE '%testar%' THEN 'Treinão'  
-        WHEN wl.name LIKE '%pão%' THEN 'Pão De Açucar'
-        WHEN wl.name LIKE '%Floripa%' THEN 'Meias e Maratonas'
-        WHEN wl.name LIKE '%Tis%' THEN 'Meias e Maratonas'
-        WHEN wl.name LIKE '%Biomas%' THEN 'Biomas'
-        ELSE 'Outra Categoria'
-    END AS categoria_evento,
     city AS cidade
 FROM sales_order AS so
 LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
@@ -589,7 +472,7 @@ def fetch_magento_data(ano: int = 2026):
                 {
                     "id_evento": str(row[0]) if row[0] else None,
                     "sku": row[1] if row[1] else None,
-                    "evento": row[2],
+                    "evento": normalize_evento_name(row[2]) if row[2] else None,
                     "data_evento": str(row[3]) if row[3] else None,
                     "qtd_vendida": int(row[4]) if row[4] else 0,
                     "cortesia": int(row[5]) if row[5] else 0,
@@ -603,8 +486,8 @@ def fetch_magento_data(ano: int = 2026):
                     "qtd_site": int(row[13]) if row[13] else 0,
                     "inscricao_liquida_site": float(row[14]) if row[14] else 0.0,
                     "ticket_medio_site": float(row[15]) if row[15] else 0.0,
-                    "categoria_evento": row[16] if row[16] else None,
-                    "cidade": row[17] if row[17] else None,
+                    "categoria_evento": classify_event_category(row[2]) if row[2] else None,
+                    "cidade": row[16] if row[16] else None,
                 }
                 for row in rows
             ], None
@@ -616,9 +499,13 @@ def fetch_magento_data(ano: int = 2026):
 def get_inscricoes_consolidadas(
     sku: Optional[str] = Query(None, description="Filtrar por SKU específico"),
     incluir_magento: bool = Query(True, description="Incluir dados do Magento"),
-    ano: int = Query(2026, description="Ano do evento para filtrar (default: 2026)")
+    ano: int = Query(2026, description="Ano do evento para filtrar (default: 2026)"),
+    db: Session = Depends(get_db)
 ):
     from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
+    
+    mappings = get_sku_mappings_from_db(db, ano)
+    
     executor = ThreadPoolExecutor(max_workers=2)
     
     ativo_future = executor.submit(fetch_ativo_data, ano)
@@ -657,6 +544,11 @@ def get_inscricoes_consolidadas(
             status_code=503,
             detail=f"Nenhuma fonte de dados disponível. Ativo: {ativo_error}. Magento: {magento_error}"
         )
+    
+    if ativo_result:
+        ativo_result = enrich_with_mappings(ativo_result, mappings, "ativo", ano)
+    if magento_result:
+        magento_result = enrich_with_mappings(magento_result, mappings, "magento", ano)
     
     def create_fonte_detalhe(row):
         return {
@@ -861,12 +753,13 @@ def test_ativo_query(ano: int = 2026):
                 "sample": [
                     {
                         "id_evento": str(row[0]),
-                        "evento": row[1],
-                        "data_evento": str(row[2]) if row[2] else None,
-                        "qtd_total": int(row[3]) if row[3] else 0,
-                        "cortesia": int(row[4]) if row[4] else 0,
-                        "inscricao_liquida": float(row[5]) if row[5] else 0.0,
-                        "ticket_medio": float(row[6]) if row[6] else 0.0,
+                        "sku": row[1],
+                        "evento": row[2],
+                        "data_evento": str(row[3]) if row[3] else None,
+                        "qtd_total": int(row[4]) if row[4] else 0,
+                        "cortesia": int(row[5]) if row[5] else 0,
+                        "inscricao_liquida": float(row[6]) if row[6] else 0.0,
+                        "ticket_medio": float(row[7]) if row[7] else 0.0,
                     }
                     for row in rows[:5]
                 ]
@@ -894,12 +787,13 @@ def test_magento_query(ano: int = 2026):
                 "sample": [
                     {
                         "id_evento": str(row[0]) if row[0] else None,
-                        "evento": row[1],
-                        "data_evento": str(row[2]) if row[2] else None,
-                        "qtd_total": int(row[3]) if row[3] else 0,
-                        "cortesia": int(row[4]) if row[4] else 0,
-                        "inscricao_liquida": float(row[5]) if row[5] else 0.0,
-                        "ticket_medio": float(row[6]) if row[6] else 0.0,
+                        "sku": row[1],
+                        "evento": row[2],
+                        "data_evento": str(row[3]) if row[3] else None,
+                        "qtd_total": int(row[4]) if row[4] else 0,
+                        "cortesia": int(row[5]) if row[5] else 0,
+                        "inscricao_liquida": float(row[6]) if row[6] else 0.0,
+                        "ticket_medio": float(row[7]) if row[7] else 0.0,
                     }
                     for row in rows[:5]
                 ]

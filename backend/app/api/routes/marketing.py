@@ -125,85 +125,38 @@ def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date
         return {}
 
 
-def get_location_id_from_sku(sku: str) -> Optional[str]:
+def get_location_id_from_sku(db: Session, sku: str) -> Optional[str]:
     """
     Obtém o location_id do Magento a partir do SKU.
-    Mapeamento completo baseado na query build_query_magento em inscricoes_consolidado.py.
+    Consulta dinâmica na tabela SkuMapping.
     """
-    sku_to_location_id = {
-        'CPLIE26SP1': '587', 'BLU26RJ1': '612', 'CDE26PL4': '539',
-        'CDE26PL1': '536', 'CDE26TS4': '560', 'CDE26TS3': '559',
-        'CDE26TS2': '558', 'CDE26PL2': '537', 'CDE26TS1': '557',
-        'NRU26PA1': '510', 'CDE26RJ4': '438', 'CDE26RJ3': '437',
-        'CDE26RJ2': '436', 'CDE26SV4': '462', 'CDE26SV3': '464',
-        'CDE26SV2': '463', 'CDE26CP4': '469', 'CDE26CP3': '470',
-        'CDE26CP2': '471', 'CDE26SP2': '441', 'CDE26SP4': '443',
-        'CDE26FT4': '455', 'CDE26FT3': '454', 'CDE26FT2': '453',
-        'CDE26CT2': '466', 'NRU26FT1': '518', 'NRU26VT1': '513',
-        'CDE26BS3': '446', 'CDE26BS2': '444', 'CDE26BH2': '449',
-        'CDE26PA4': '473', 'CDE26PA3': '474', 'CDE26PA2': '475',
-        'CDE26CT4': '468', 'CDE26CT3': '467', 'CDE26BS4': '447',
-        'GPW26SP11': '544', 'CDE26SP3': '442', 'CDE26BH4': '451',
-        'NRU26SV1': '519', 'NRU26BS1': '516', 'NRU26RF1': '515',
-        'NRU26CP1': '521', 'BRV26SP1': '491', 'NRU26CW1': '512',
-        'NRU26SP3': '481', 'BRV26SP4': '492',
-        'CDE26RJ1': '435', 'CDE26SP1': '440', 'CDE26BS1': '443',
-        'CDE26BH1': '448', 'CDE26FT1': '452', 'CDE26SV1': '461',
-        'CDE26CT1': '465', 'CDE26CP1': '472', 'CDE26PA1': '476',
-        'CDE26VT1': '477', 'CDE26VT2': '478', 'CDE26VT3': '479',
-        'CDE26VT4': '480', 'CDE26AN1': '482', 'CDE26AN2': '483',
-        'CDE26AN3': '484', 'CDE26AN4': '485', 'CDE26RC1': '486',
-        'CDE26RC2': '487', 'CDE26RC3': '488', 'CDE26RC4': '489',
-        'CDE26BL1': '493', 'CDE26BL2': '494', 'CDE26BL3': '495',
-        'CDE26BL4': '496', 'CDE26FL1': '497', 'CDE26FL2': '498',
-        'CDE26FL3': '499', 'CDE26FL4': '500', 'CDE26RP1': '501',
-        'CDE26RP2': '502', 'CDE26RP3': '503', 'CDE26RP4': '504',
-        'CDE26SJ1': '505', 'CDE26SJ2': '506', 'CDE26SJ3': '507',
-        'CDE26SJ4': '508', 'NRU26RJ1': '509', 'NRU26RJ2': '511',
-        'TBT26ST1': '520', 'TBT26ST2': '522', 'TBT26ST3': '523',
-        'TBT26ST4': '524', 'BRV26SP2': '525', 'BRV26SJ1': '526',
-    }
-    
-    return sku_to_location_id.get(sku.upper().strip())
+    from ...models.dimensoes import SkuMapping
+    mapping = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.sku == sku.upper().strip(),
+        SkuMapping.ativo == True
+    ).first()
+    return str(mapping.id_externo) if mapping else None
 
 
 def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
     """
     Obtém o id_evento do Ativo a partir do projeto (via codigo/SKU).
+    Consulta dinâmica na tabela SkuMapping.
     """
+    from ...models.dimensoes import SkuMapping
     projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
     if not projeto or not projeto.codigo:
         return None
     
     sku = projeto.codigo.upper().strip()
     
-    sku_to_id_evento = {
-        'CDE26PL1': '40048', 'CDE26RP1': '40145', 'CDE26RJ1': '39969',
-        'CDE26FL1': '40120', 'CDE26PA1': '39996', 'CDE26SP1': '39964',
-        'CDE26AN1': '40052', 'CDE26BH1': '39974', 'CDE26BS1': '39970',
-        'CDE26CP1': '40001', 'CDE26RC1': '39986', 'CDE26BL1': '40010',
-        'CDE26FT1': '39980', 'CDE26SJ1': '40149', 'CDE26CT1': '39994',
-        'CDE26TS1': '40157', 'CDE26VT1': '40015', 'CDE26MN4': '40144',
-        'CDE26MN2': '40142', 'CDE26MN3': '40143', 'CDE26SV1': '39990',
-        'TBT26ST1': '40075', 'NRU26RF1': '40108', 'BRV26SP4': '40073',
-        'CDE26PA2': '39999', 'CDE26RJ2': '39971', 'CDE26FL3': '40122',
-        'CDE26FL2': '40121', 'TBT26ST2': '40076', 'CDE26PL2': '40049',
-        'CDE26TS2': '40158', 'BRV26SP2': '40072', 'CDE26SJ2': '40150',
-        'CDE26SJ3': '40151', 'CDE26RP2': '40146', 'CDE26AN2': '40053',
-        'CDE26CP2': '40003', 'CDE26RC2': '39987', 'CDE26SP2': '39965',
-        'CDE26BS2': '39975', 'CDE26FT2': '39982', 'NRU26CW1': '40107',
-        'BRV26SJ1': '40074', 'CDE26CT2': '39995', 'CDE26VT2': '40016',
-        'CDE26SV2': '39991', 'CDE26BL2': '40011', 'CDE26RP4': '40148',
-        'CDE26RP3': '40147', 'CDE26BH2': '39978', 'AQA26RJ2': '40070',
-        'CDE26PL3': '40050', 'CDE26AN3': '40054', 'CDE26CP3': '40005',
-        'CDE26FT3': '39983', 'CDE26BS3': '39976', 'CDE26VT3': '40017',
-        'CDE26RC3': '39988', 'CDE26SP3': '39966', 'CDE26CT3': '39997',
-        'CDE26TS3': '40159', 'CDE26SV3': '39992', 'CDE26BL3': '40012',
-        'TBT26ST3': '40077', 'CDE26RJ3': '39972', 'CDE26PA3': '40000',
-        'NRU26FT1': '40113', 'NRU26SV1': '40109', 'NRU26RJ2': '40081',
-    }
-    
-    return sku_to_id_evento.get(sku)
+    mapping = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'ATIVO',
+        SkuMapping.sku == sku,
+        SkuMapping.ativo == True
+    ).first()
+    return str(mapping.id_externo) if mapping else None
 
 
 def calculate_action_impact(db: Session, acao) -> dict:
@@ -220,7 +173,7 @@ def calculate_action_impact(db: Session, acao) -> dict:
     
     sku = projeto.codigo.upper().strip()
     id_evento = get_id_evento_from_projeto(db, acao.projeto_id)
-    location_id = get_location_id_from_sku(sku)
+    location_id = get_location_id_from_sku(db, sku)
     
     if not id_evento and not location_id:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
