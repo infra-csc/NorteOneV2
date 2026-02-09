@@ -9,6 +9,18 @@ export default defineConfig({
       '@assets': path.resolve(__dirname, '../attached_assets')
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+          charts: ['recharts'],
+          icons: ['lucide-react'],
+        }
+      }
+    },
+    chunkSizeWarningLimit: 500,
+  },
   server: {
     host: '0.0.0.0',
     port: 5000,

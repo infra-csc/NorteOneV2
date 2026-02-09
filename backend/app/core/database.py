@@ -6,7 +6,13 @@ import socket
 import threading
 from .config import settings
 
-engine = create_engine(settings.DATABASE_URL) if settings.DATABASE_URL else None
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=5,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+) if settings.DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 Base = declarative_base()
 
@@ -178,7 +184,10 @@ def init_ssh_tunnel():
         engine_ssh = create_engine(
             db_url,
             pool_pre_ping=True,
-            pool_recycle=3600
+            pool_recycle=3600,
+            pool_size=5,
+            max_overflow=10,
+            connect_args={'connect_timeout': 10}
         )
         SessionLocalSSH = sessionmaker(autocommit=False, autoflush=False, bind=engine_ssh)
         
@@ -238,7 +247,10 @@ def init_mysql_connections():
             engine_ativo = create_engine(
                 settings.MYSQL_ATIVO_URL,
                 pool_pre_ping=True,
-                pool_recycle=3600
+                pool_recycle=1800,
+                pool_size=3,
+                max_overflow=5,
+                connect_args={'connect_timeout': 10}
             )
             SessionLocalAtivo = sessionmaker(autocommit=False, autoflush=False, bind=engine_ativo)
             print("MySQL Ativo connection configured")
@@ -253,8 +265,10 @@ def init_mysql_connections():
             engine_magento = create_engine(
                 magento_url,
                 pool_pre_ping=True,
-                pool_recycle=3600,
-                connect_args={'connect_timeout': 30}
+                pool_recycle=1800,
+                pool_size=3,
+                max_overflow=5,
+                connect_args={'connect_timeout': 10}
             )
             SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)
             print(f"MySQL Magento connection configured for database '{settings.MYSQL_MAGENTO_DATABASE}'")
