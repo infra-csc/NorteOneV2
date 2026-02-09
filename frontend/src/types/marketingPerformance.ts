@@ -104,6 +104,7 @@ export function isInCriticalWindow(dMinus: number): boolean {
 export interface PricingMetrics {
   rollingIndex: number;
   rollingAvg14d: number;
+  rollingAvg14dLastYear: number;
   paceRequired: number;
   ied: number;
   projection: number;

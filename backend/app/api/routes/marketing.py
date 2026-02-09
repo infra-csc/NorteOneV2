@@ -1063,9 +1063,338 @@ async def delete_acao_comercial(
     }
 
 
+_rolling_avg_cache = {}
+_rolling_avg_cache_timestamp = None
+
+def fetch_rolling_avg_ativo() -> dict:
+    if db_module.engine_ssh is None:
+        return {}
+    
+    try:
+        query = """
+        SELECT
+            b.id_evento,
+            CASE 
+                WHEN b.id_evento = '40048' THEN 'CDE26PL1'
+                WHEN b.id_evento = '40145' THEN 'CDE26RP1'
+                WHEN b.id_evento = '39969' THEN 'CDE26RJ1'
+                WHEN b.id_evento = '40120' THEN 'CDE26FL1'
+                WHEN b.id_evento = '39996' THEN 'CDE26PA1'
+                WHEN b.id_evento = '39964' THEN 'CDE26SP1'
+                WHEN b.id_evento = '40052' THEN 'CDE26AN1'
+                WHEN b.id_evento = '39974' THEN 'CDE26BH1'
+                WHEN b.id_evento = '39970' THEN 'CDE26BS1'
+                WHEN b.id_evento = '40001' THEN 'CDE26CP1'
+                WHEN b.id_evento = '39986' THEN 'CDE26RC1'
+                WHEN b.id_evento = '40010' THEN 'CDE26BL1'
+                WHEN b.id_evento = '39980' THEN 'CDE26FT1'
+                WHEN b.id_evento = '40149' THEN 'CDE26SJ1'
+                WHEN b.id_evento = '39994' THEN 'CDE26CT1'
+                WHEN b.id_evento = '40157' THEN 'CDE26TS1'
+                WHEN b.id_evento = '40015' THEN 'CDE26VT1'
+                WHEN b.id_evento = '40144' THEN 'CDE26MN4'
+                WHEN b.id_evento = '40142' THEN 'CDE26MN2'
+                WHEN b.id_evento = '40143' THEN 'CDE26MN3'
+                WHEN b.id_evento = '39990' THEN 'CDE26SV1'
+                WHEN b.id_evento = '40075' THEN 'TBT26ST1'
+                WHEN b.id_evento = '40108' THEN 'NRU26RF1'
+                WHEN b.id_evento = '40073' THEN 'BRV26SP4'
+                WHEN b.id_evento = '39999' THEN 'CDE26PA2'
+                WHEN b.id_evento = '39971' THEN 'CDE26RJ2'
+                WHEN b.id_evento = '40122' THEN 'CDE26FL3'
+                WHEN b.id_evento = '40121' THEN 'CDE26FL2'
+                WHEN b.id_evento = '40076' THEN 'TBT26ST2'
+                WHEN b.id_evento = '40049' THEN 'CDE26PL2'
+                WHEN b.id_evento = '40158' THEN 'CDE26TS2'
+                WHEN b.id_evento = '40072' THEN 'BRV26SP2'
+                WHEN b.id_evento = '40150' THEN 'CDE26SJ2'
+                WHEN b.id_evento = '40151' THEN 'CDE26SJ3'
+                WHEN b.id_evento = '40146' THEN 'CDE26RP2'
+                WHEN b.id_evento = '40053' THEN 'CDE26AN2'
+                WHEN b.id_evento = '40003' THEN 'CDE26CP2'
+                WHEN b.id_evento = '39987' THEN 'CDE26RC2'
+                WHEN b.id_evento = '39965' THEN 'CDE26SP2'
+                WHEN b.id_evento = '39975' THEN 'CDE26BS2'
+                WHEN b.id_evento = '39982' THEN 'CDE26FT2'
+                WHEN b.id_evento = '40107' THEN 'NRU26CW1'
+                WHEN b.id_evento = '40074' THEN 'BRV26SJ1'
+                WHEN b.id_evento = '39995' THEN 'CDE26CT2'
+                WHEN b.id_evento = '40016' THEN 'CDE26VT2'
+                WHEN b.id_evento = '39991' THEN 'CDE26SV2'
+                WHEN b.id_evento = '40011' THEN 'CDE26BL2'
+                WHEN b.id_evento = '40148' THEN 'CDE26RP4'
+                WHEN b.id_evento = '40147' THEN 'CDE26RP3'
+                WHEN b.id_evento = '39978' THEN 'CDE26BH2'
+                WHEN b.id_evento = '40070' THEN 'AQA26RJ2'
+                WHEN b.id_evento = '40050' THEN 'CDE26PL3'
+                WHEN b.id_evento = '40054' THEN 'CDE26AN3'
+                WHEN b.id_evento = '40005' THEN 'CDE26CP3'
+                WHEN b.id_evento = '39983' THEN 'CDE26FT3'
+                WHEN b.id_evento = '39976' THEN 'CDE26BS3'
+                WHEN b.id_evento = '40017' THEN 'CDE26VT3'
+                WHEN b.id_evento = '39988' THEN 'CDE26RC3'
+                WHEN b.id_evento = '39966' THEN 'CDE26SP3'
+                WHEN b.id_evento = '39997' THEN 'CDE26CT3'
+                WHEN b.id_evento = '40159' THEN 'CDE26TS3'
+                WHEN b.id_evento = '39992' THEN 'CDE26SV3'
+                WHEN b.id_evento = '40012' THEN 'CDE26BL3'
+                WHEN b.id_evento = '40077' THEN 'TBT26ST3'
+                WHEN b.id_evento = '39972' THEN 'CDE26RJ3'
+                WHEN b.id_evento = '40000' THEN 'CDE26PA3'
+                WHEN b.id_evento = '40113' THEN 'NRU26FT1'
+                WHEN b.id_evento = '40109' THEN 'NRU26SV1'
+                WHEN b.id_evento = '40081' THEN 'NRU26RJ2'
+                WHEN b.id_evento = '40112' THEN 'NRU26BS1'
+                WHEN b.id_evento = '40063' THEN 'NRU26SP3'
+                WHEN b.id_evento = '40123' THEN 'CDE26FL4'
+                WHEN b.id_evento = '40105' THEN 'NRU26PA1'
+                WHEN b.id_evento = '39973' THEN 'CDE26RJ4'
+                WHEN b.id_evento = '40047' THEN 'CDE26PL4'
+                WHEN b.id_evento = '40160' THEN 'CDE26TS4'
+                WHEN b.id_evento = '40055' THEN 'CDE26AN4'
+                WHEN b.id_evento = '39967' THEN 'CDE26SP4'
+                WHEN b.id_evento = '40078' THEN 'TBT26ST4'
+                WHEN b.id_evento = '40152' THEN 'CDE26SJ4'
+                WHEN b.id_evento = '39998' THEN 'CDE26CT4'
+                WHEN b.id_evento = '39985' THEN 'CDE26FT4'
+                WHEN b.id_evento = '39993' THEN 'CDE26SV4'
+                WHEN b.id_evento = '40014' THEN 'CDE26BL4'
+                WHEN b.id_evento = '39984' THEN 'CDE26BH4'
+                WHEN b.id_evento = '39977' THEN 'CDE26BS4'
+                WHEN b.id_evento = '40002' THEN 'CDE26PA4'
+                WHEN b.id_evento = '40004' THEN 'CDE26CP4'
+                WHEN b.id_evento = '40018' THEN 'CDE26VT4'
+                WHEN b.id_evento = '39989' THEN 'CDE26RC4'
+                ELSE b.id_campanha_salesforce
+            END AS sku,
+            (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+             FROM sa_pedido_evento pe
+             INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+             LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+             LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+             LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+             WHERE pe.id_evento = b.id_evento
+             AND p.id_pedido_status = 2
+             AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+             AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%Grup%')
+             AND p.nr_total > 0
+            ) / 14 AS media_14d_atual,
+            (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+             FROM sa_pedido_evento pe
+             INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+             LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+             LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+             LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+             WHERE pe.id_evento = b.id_evento
+             AND p.id_pedido_status = 2
+             AND DATE(p.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                                       AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+             AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%Grup%')
+             AND p.nr_total > 0
+            ) / 14 AS media_14d_ano_passado
+        FROM sa_pedido_evento AS a
+        INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+        INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+        LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+        LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+        LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+        WHERE 
+            YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+            AND c.id_pedido_status = 2
+            AND (b.id_campanha_salesforce NOT LIKE '701d0000000%' OR b.id_campanha_salesforce IS NULL)
+        GROUP BY b.id_evento, b.ds_evento, b.dt_evento
+        """
+        
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            columns = result.keys()
+            
+            data = {}
+            for row in rows:
+                row_dict = dict(zip(columns, row))
+                sku = normalize_sku(str(row_dict.get('sku', '') or ''))
+                if sku:
+                    data[sku] = {
+                        'media_14d_atual': float(row_dict.get('media_14d_atual', 0) or 0),
+                        'media_14d_ano_passado': float(row_dict.get('media_14d_ano_passado', 0) or 0),
+                    }
+            return data
+    except Exception as e:
+        logger.error(f"Erro ao buscar rolling avg Ativo: {e}")
+        return {}
+
+
+def fetch_rolling_avg_magento() -> dict:
+    if db_module.engine_magento is None:
+        return {}
+    
+    try:
+        increment_filters = " ".join([
+            f"AND so.increment_id NOT LIKE '%%-{i}%%'" for i in range(1, 18)
+        ])
+        increment_filters_sub = " ".join([
+            f"AND so2.increment_id NOT LIKE '%%-{i}%%'" for i in range(1, 18)
+        ])
+        
+        query = f"""
+        SELECT
+            wl.location_id,
+            CASE 
+                WHEN wl.location_id = '587' THEN 'CPLIE26SP1'
+                WHEN wl.location_id = '612' THEN 'BLU26RJ1'
+                WHEN wl.location_id = '539' THEN 'CDE26PL4'
+                WHEN wl.location_id = '536' THEN 'CDE26PL1'
+                WHEN wl.location_id = '560' THEN 'CDE26TS4'
+                WHEN wl.location_id = '559' THEN 'CDE26TS3'
+                WHEN wl.location_id = '558' THEN 'CDE26TS2'
+                WHEN wl.location_id = '537' THEN 'CDE26PL2'
+                WHEN wl.location_id = '557' THEN 'CDE26TS1'
+                WHEN wl.location_id = '510' THEN 'NRU26PA1'
+                WHEN wl.location_id = '438' THEN 'CDE26RJ4'
+                WHEN wl.location_id = '437' THEN 'CDE26RJ3'
+                WHEN wl.location_id = '436' THEN 'CDE26RJ2'
+                WHEN wl.location_id = '462' THEN 'CDE26SV4'
+                WHEN wl.location_id = '464' THEN 'CDE26SV3'
+                WHEN wl.location_id = '463' THEN 'CDE26SV2'
+                WHEN wl.location_id = '469' THEN 'CDE26CP4'
+                WHEN wl.location_id = '470' THEN 'CDE26CP3'
+                WHEN wl.location_id = '471' THEN 'CDE26CP2'
+                WHEN wl.location_id = '441' THEN 'CDE26SP2'
+                WHEN wl.location_id = '443' THEN 'CDE26SP4'
+                WHEN wl.location_id = '455' THEN 'CDE26FT4'
+                WHEN wl.location_id = '454' THEN 'CDE26FT3'
+                WHEN wl.location_id = '453' THEN 'CDE26FT2'
+                WHEN wl.location_id = '466' THEN 'CDE26CT2'
+                WHEN wl.location_id = '518' THEN 'NRU26FT1'
+                WHEN wl.location_id = '513' THEN 'NRU26VT1'
+                WHEN wl.location_id = '446' THEN 'CDE26BS3'
+                WHEN wl.location_id = '444' THEN 'CDE26BS2'
+                WHEN wl.location_id = '449' THEN 'CDE26BH2'
+                WHEN wl.location_id = '473' THEN 'CDE26PA4'
+                WHEN wl.location_id = '474' THEN 'CDE26PA3'
+                WHEN wl.location_id = '475' THEN 'CDE26PA2'
+                WHEN wl.location_id = '468' THEN 'CDE26CT4'
+                WHEN wl.location_id = '467' THEN 'CDE26CT3'
+                WHEN wl.location_id = '447' THEN 'CDE26BS4'
+                WHEN wl.location_id = '544' THEN 'GPW26SP11'
+                WHEN wl.location_id = '442' THEN 'CDE26SP3'
+                WHEN wl.location_id = '451' THEN 'CDE26BH4'
+                WHEN wl.location_id = '519' THEN 'NRU26SV1'
+                WHEN wl.location_id = '516' THEN 'NRU26BS1'
+                WHEN wl.location_id = '515' THEN 'NRU26RF1'
+                WHEN wl.location_id = '521' THEN 'NRU26CP1'
+                WHEN wl.location_id = '491' THEN 'BRV26SP1'
+                WHEN wl.location_id = '512' THEN 'NRU26CW1'
+                WHEN wl.location_id = '481' THEN 'NRU26SP3'
+                WHEN wl.location_id = '492' THEN 'BRV26SP4'
+                ELSE d.sku
+            END AS sku,
+            (SELECT COUNT(DISTINCT so2.entity_id)
+             FROM sales_order so2
+             INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+             INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+             WHERE wl2.location_id = wl.location_id
+             AND so2.status IN ('Processing', 'Complete', 'approved')
+             AND soi2.product_type = 'Bundle'
+             AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+             AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%Grup%')
+             AND so2.base_grand_total > 0
+             {increment_filters_sub}
+            ) / 14 AS media_14d_atual,
+            (SELECT COUNT(DISTINCT so2.entity_id)
+             FROM sales_order so2
+             INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+             INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+             WHERE wl2.location_id = wl.location_id
+             AND so2.status IN ('Processing', 'Complete', 'approved')
+             AND soi2.product_type = 'Bundle'
+             AND DATE(so2.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                                          AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+             AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%Grup%')
+             AND so2.base_grand_total > 0
+             {increment_filters_sub}
+            ) / 14 AS media_14d_ano_passado
+        FROM sales_order AS so
+        LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
+        LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
+        LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
+        LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
+        WHERE
+            YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+            {increment_filters}
+            AND so.status IN ('Processing', 'Complete', 'approved')
+            AND soi.product_type = 'Bundle'
+        GROUP BY wl.location_id, wl.name, wl.final_date, d.sku
+        """
+        
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            columns = result.keys()
+            
+            data = {}
+            for row in rows:
+                row_dict = dict(zip(columns, row))
+                sku = normalize_sku(str(row_dict.get('sku', '') or ''))
+                if sku:
+                    media_atual = float(row_dict.get('media_14d_atual', 0) or 0)
+                    media_passado = float(row_dict.get('media_14d_ano_passado', 0) or 0)
+                    if sku in data:
+                        data[sku]['media_14d_atual'] += media_atual
+                        data[sku]['media_14d_ano_passado'] += media_passado
+                    else:
+                        data[sku] = {
+                            'media_14d_atual': media_atual,
+                            'media_14d_ano_passado': media_passado,
+                        }
+            return data
+    except Exception as e:
+        logger.error(f"Erro ao buscar rolling avg Magento: {e}")
+        return {}
+
+
+def fetch_consolidated_rolling_averages() -> dict:
+    global _rolling_avg_cache, _rolling_avg_cache_timestamp
+    import time
+    
+    cache_valid = (_rolling_avg_cache_timestamp is not None and 
+                   time.time() - _rolling_avg_cache_timestamp < 300)
+    
+    if cache_valid and _rolling_avg_cache:
+        return _rolling_avg_cache
+    
+    consolidated = {}
+    
+    ativo_data = fetch_rolling_avg_ativo()
+    for sku, values in ativo_data.items():
+        consolidated[sku] = {
+            'media_14d_atual': values.get('media_14d_atual', 0),
+            'media_14d_ano_passado': values.get('media_14d_ano_passado', 0),
+        }
+    
+    magento_data = fetch_rolling_avg_magento()
+    for sku, values in magento_data.items():
+        if sku in consolidated:
+            consolidated[sku]['media_14d_atual'] += values.get('media_14d_atual', 0)
+            consolidated[sku]['media_14d_ano_passado'] += values.get('media_14d_ano_passado', 0)
+        else:
+            consolidated[sku] = {
+                'media_14d_atual': values.get('media_14d_atual', 0),
+                'media_14d_ano_passado': values.get('media_14d_ano_passado', 0),
+            }
+    
+    _rolling_avg_cache = consolidated
+    _rolling_avg_cache_timestamp = time.time()
+    
+    logger.info(f"Rolling averages consolidados: {len(consolidated)} SKUs")
+    return consolidated
+
+
 class PricingMetrics(BaseModel):
     rollingIndex: float
     rollingAvg14d: float
+    rollingAvg14dLastYear: float
     paceRequired: float
     ied: float
     projection: float
@@ -1124,16 +1453,10 @@ def calculate_pricing_metrics(
     d_minus: int, 
     average_ticket: float,
     kit_cost: float,
-    total_capacity: int
+    total_capacity: int,
+    rolling_avg_14d_real: float = None,
+    rolling_avg_14d_last_year: float = 0.0
 ) -> PricingMetrics:
-    """
-    Calcula as métricas avançadas de pricing baseadas na análise do documento.
-    
-    - Rolling Index (Sell-out): Média Vendas 14d / (Inscrições Restantes / Dias Restantes)
-    - IED (Índice de Excedente de Demanda): Projeção / Meta
-    - Pace de Segurança: Rolling Atual × FEM
-    - FEM (Fator de Equivalência de Margem): Margem Antiga / Margem Nova
-    """
     if d_minus <= 0:
         d_minus = 1
     
@@ -1141,11 +1464,13 @@ def calculate_pricing_metrics(
     elapsed_days = max(1, total_days - d_minus)
     inscricoes_restantes = max(1, sales_goal - current_sales)
     
-    if elapsed_days > 14:
-        daily_avg = current_sales / elapsed_days
-        rolling_avg_14d = daily_avg
+    if rolling_avg_14d_real is not None:
+        rolling_avg_14d = rolling_avg_14d_real
     else:
-        rolling_avg_14d = current_sales / max(1, elapsed_days)
+        if elapsed_days > 14:
+            rolling_avg_14d = current_sales / elapsed_days
+        else:
+            rolling_avg_14d = current_sales / max(1, elapsed_days)
     
     pace_required = inscricoes_restantes / max(1, d_minus)
     
@@ -1154,16 +1479,17 @@ def calculate_pricing_metrics(
     else:
         rolling_index = 2.0
     
-    if elapsed_days > 0 and sales_goal > 0:
-        expected_daily = sales_goal / total_days
+    if rolling_avg_14d > 0 and sales_goal > 0:
+        projection = current_sales + (rolling_avg_14d * d_minus)
+    elif elapsed_days > 0 and sales_goal > 0:
         projection = (current_sales / elapsed_days) * total_days
-        
-        if rolling_avg_14d > expected_daily:
-            ia = rolling_avg_14d / expected_daily
-        else:
-            ia = rolling_avg_14d / max(0.01, expected_daily)
     else:
         projection = current_sales
+    
+    expected_daily = sales_goal / max(1, total_days)
+    if expected_daily > 0:
+        ia = rolling_avg_14d / expected_daily
+    else:
         ia = 1.0
     
     if sales_goal > 0:
@@ -1184,6 +1510,7 @@ def calculate_pricing_metrics(
     return PricingMetrics(
         rollingIndex=round(rolling_index, 2),
         rollingAvg14d=round(rolling_avg_14d, 2),
+        rollingAvg14dLastYear=round(rolling_avg_14d_last_year, 2),
         paceRequired=round(pace_required, 2),
         ied=round(ied, 2),
         projection=round(projection, 0),
@@ -1331,6 +1658,8 @@ async def get_pricing_analysis(
     projeto_ids = [p.id for p in projetos if p.id]
     kit_costs = get_kit_basico_costs_batch(db, projeto_ids)
     
+    rolling_averages = fetch_consolidated_rolling_averages()
+    
     eventos = []
     categorias_set: set[str] = set()
     events_increase = 0
@@ -1343,6 +1672,7 @@ async def get_pricing_analysis(
             continue
         
         sku = projeto_codigo
+        sku_normalized = normalize_sku(sku)
         projeto_data_evento = projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
         is_active = d_minus > 0
@@ -1365,13 +1695,23 @@ async def get_pricing_analysis(
         
         kit_cost = kit_costs.get(projeto.id, 50.0)
         
+        rolling_info = rolling_averages.get(sku_normalized, {})
+        rolling_avg_14d_real = rolling_info.get('media_14d_atual', None)
+        rolling_avg_14d_last_year = rolling_info.get('media_14d_ano_passado', 0.0)
+        
+        if rolling_avg_14d_real is not None and rolling_avg_14d_real == 0 and current_sales > 0:
+            elapsed_days = max(1, 90 - d_minus)
+            rolling_avg_14d_real = current_sales / elapsed_days
+        
         pricing_metrics = calculate_pricing_metrics(
             current_sales=current_sales,
             sales_goal=sales_goal,
             d_minus=d_minus,
             average_ticket=average_ticket,
             kit_cost=kit_cost,
-            total_capacity=total_capacity
+            total_capacity=total_capacity,
+            rolling_avg_14d_real=rolling_avg_14d_real if rolling_avg_14d_real is not None else None,
+            rolling_avg_14d_last_year=rolling_avg_14d_last_year
         )
         
         elasticity_scenarios = calculate_elasticity_scenarios(

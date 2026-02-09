@@ -310,6 +310,9 @@ const PricingAnalysis: React.FC = () => {
                         <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
                           <p className={`text-xs ${textMuted}`}>Rolling 14d</p>
                           <p className={`font-bold ${textColor}`}>{evento.pricingMetrics.rollingAvg14d.toFixed(1)} vendas/dia</p>
+                          {evento.pricingMetrics.rollingAvg14dLastYear > 0 && (
+                            <p className={`text-xs ${textMuted}`}>Ano ant: {evento.pricingMetrics.rollingAvg14dLastYear.toFixed(1)}/dia</p>
+                          )}
                         </div>
                         <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
                           <p className={`text-xs ${textMuted}`}>Pace Necessario</p>
