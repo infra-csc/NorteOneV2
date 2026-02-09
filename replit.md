@@ -24,7 +24,13 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 - **Charting:** Recharts for data visualization in dashboards.
 - **SSH Tunnel:** Paramiko for secure connections to external MySQL databases, including support for various SSH key types and automatic tunnel lifecycle management.
 - **Virtual Assistant (Nori):** Integrated AI-powered virtual assistant utilizing OpenAI GPT-4o-mini for natural language processing, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese. It provides event scenario analysis, conversational chat, and task scheduling.
-- **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) using SKU as the primary key. SKU mappings are defined via CASE statements to standardize event codes across platforms.
+- **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) using SKU as the primary key. SKU mappings use Python dict lookups with SQL catalog_product_entity fallback for unmapped locations.
+- **Performance Optimizations (Feb 2026):**
+  - Frontend AbortController pattern cancels pending API requests on page navigation (PricingAnalysis, MarketingDashboard, EventDetail).
+  - Rolling average queries optimized: correlated subqueries replaced with conditional COUNT/GROUP BY.
+  - MySQL queries use MAX_EXECUTION_TIME(25000) hints for database-level timeout enforcement.
+  - Ativo and Magento rolling average queries run in parallel via ThreadPoolExecutor (2 workers, 30s timeout each).
+  - MySQL connection timeouts: 10s connect, 30s read/write on all external database engines.
 
 ### Feature Specifications
 - **Authentication:** Login with email/password, JWT sessions, and role-based access.
