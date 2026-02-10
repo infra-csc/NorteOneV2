@@ -508,47 +508,23 @@ SELECT
     DATE(b.dt_evento) AS "Data Evento",
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
         AND c.nr_total > 0 THEN 1 END) AS "Qtd Site Atual",
-    (SELECT COUNT(DISTINCT pe.id_pedido_evento)
-     FROM sa_pedido_evento pe
-     INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
-     LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
-     LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
-     LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
-     WHERE pe.id_evento = b.id_evento
-     AND p.id_pedido_status = 2
-     AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-     AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
-     AND p.nr_total > 0
-    ) / 14 AS "Média Diária Últimos 14 Dias",
-    (SELECT COUNT(DISTINCT pe.id_pedido_evento)
-     FROM sa_pedido_evento pe
-     INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
-     LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
-     LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
-     LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
-     WHERE pe.id_evento = b.id_evento
-     AND p.id_pedido_status = 2
-     AND DATE(p.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                               AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-     AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
-     AND p.nr_total > 0
-    ) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+        AND c.nr_total > 0
+        AND DATE(c.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+        THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias",
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+        AND c.nr_total > 0
+        AND DATE(c.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                                  AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
     DATEDIFF(DATE(b.dt_evento), CURDATE()) AS "Dias Até Evento",
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
         AND c.nr_total > 0 THEN 1 END) + 
     (
-        (SELECT COUNT(DISTINCT pe.id_pedido_evento)
-         FROM sa_pedido_evento pe
-         INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
-         LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
-         LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
-         LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
-         WHERE pe.id_evento = b.id_evento
-         AND p.id_pedido_status = 2
-         AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-         AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
-         AND p.nr_total > 0
-        ) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
+        COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+            AND c.nr_total > 0
+            AND DATE(c.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+            THEN 1 END) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
     ) AS "Projeção Final"
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -578,95 +554,23 @@ SELECT
     wl.final_date AS "Data Evento",
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0 THEN 1 END) AS "Qtd Site Atual",
-    (SELECT COUNT(DISTINCT so2.entity_id)
-     FROM sales_order so2
-     INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
-     INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
-     WHERE wl2.location_id = wl.location_id
-     AND so2.status IN ('Processing', 'Complete', 'approved')
-     AND soi2.product_type = 'Bundle'
-     AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-     AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%%Grup%%')
-     AND so2.base_grand_total > 0
-     AND so2.increment_id NOT LIKE "%%-1%%"
-     AND so2.increment_id NOT LIKE "%%-2%%"
-     AND so2.increment_id NOT LIKE "%%-3%%"
-     AND so2.increment_id NOT LIKE "%%-4%%"
-     AND so2.increment_id NOT LIKE "%%-5%%"
-     AND so2.increment_id NOT LIKE "%%-6%%"
-     AND so2.increment_id NOT LIKE "%%-7%%"
-     AND so2.increment_id NOT LIKE "%%-8%%"
-     AND so2.increment_id NOT LIKE "%%-9%%"
-     AND so2.increment_id NOT LIKE "%%-10%%"
-     AND so2.increment_id NOT LIKE "%%-11%%"
-     AND so2.increment_id NOT LIKE "%%-12%%"
-     AND so2.increment_id NOT LIKE "%%-13%%"
-     AND so2.increment_id NOT LIKE "%%-14%%"
-     AND so2.increment_id NOT LIKE "%%-15%%"
-     AND so2.increment_id NOT LIKE "%%-16%%"
-     AND so2.increment_id NOT LIKE "%%-17%%"
-    ) / 14 AS "Média Diária Últimos 14 Dias",
-    (SELECT COUNT(DISTINCT so2.entity_id)
-     FROM sales_order so2
-     INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
-     INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
-     WHERE wl2.location_id = wl.location_id
-     AND so2.status IN ('Processing', 'Complete', 'approved')
-     AND soi2.product_type = 'Bundle'
-     AND DATE(so2.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                  AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-     AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%%Grup%%')
-     AND so2.base_grand_total > 0
-     AND so2.increment_id NOT LIKE "%%-1%%"
-     AND so2.increment_id NOT LIKE "%%-2%%"
-     AND so2.increment_id NOT LIKE "%%-3%%"
-     AND so2.increment_id NOT LIKE "%%-4%%"
-     AND so2.increment_id NOT LIKE "%%-5%%"
-     AND so2.increment_id NOT LIKE "%%-6%%"
-     AND so2.increment_id NOT LIKE "%%-7%%"
-     AND so2.increment_id NOT LIKE "%%-8%%"
-     AND so2.increment_id NOT LIKE "%%-9%%"
-     AND so2.increment_id NOT LIKE "%%-10%%"
-     AND so2.increment_id NOT LIKE "%%-11%%"
-     AND so2.increment_id NOT LIKE "%%-12%%"
-     AND so2.increment_id NOT LIKE "%%-13%%"
-     AND so2.increment_id NOT LIKE "%%-14%%"
-     AND so2.increment_id NOT LIKE "%%-15%%"
-     AND so2.increment_id NOT LIKE "%%-16%%"
-     AND so2.increment_id NOT LIKE "%%-17%%"
-    ) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0
+        AND DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+        THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias",
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0
+        AND DATE(so.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                                     AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
     DATEDIFF(DATE(wl.final_date), CURDATE()) AS "Dias Até Evento",
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0 THEN 1 END) + 
     (
-        (SELECT COUNT(DISTINCT so2.entity_id)
-         FROM sales_order so2
-         INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
-         INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
-         WHERE wl2.location_id = wl.location_id
-         AND so2.status IN ('Processing', 'Complete', 'approved')
-         AND soi2.product_type = 'Bundle'
-         AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-         AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%%Grup%%')
-         AND so2.base_grand_total > 0
-         AND so2.increment_id NOT LIKE "%%-1%%"
-         AND so2.increment_id NOT LIKE "%%-2%%"
-         AND so2.increment_id NOT LIKE "%%-3%%"
-         AND so2.increment_id NOT LIKE "%%-4%%"
-         AND so2.increment_id NOT LIKE "%%-5%%"
-         AND so2.increment_id NOT LIKE "%%-6%%"
-         AND so2.increment_id NOT LIKE "%%-7%%"
-         AND so2.increment_id NOT LIKE "%%-8%%"
-         AND so2.increment_id NOT LIKE "%%-9%%"
-         AND so2.increment_id NOT LIKE "%%-10%%"
-         AND so2.increment_id NOT LIKE "%%-11%%"
-         AND so2.increment_id NOT LIKE "%%-12%%"
-         AND so2.increment_id NOT LIKE "%%-13%%"
-         AND so2.increment_id NOT LIKE "%%-14%%"
-         AND so2.increment_id NOT LIKE "%%-15%%"
-         AND so2.increment_id NOT LIKE "%%-16%%"
-         AND so2.increment_id NOT LIKE "%%-17%%"
-        ) / 14 * DATEDIFF(DATE(wl.final_date), CURDATE())
+        COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+            AND so.base_grand_total > 0
+            AND DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+            THEN 1 END) / 14 * DATEDIFF(DATE(wl.final_date), CURDATE())
     ) AS "Projeção Final"
 FROM sales_order AS so
 LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
