@@ -1015,21 +1015,20 @@ const EventDetail: React.FC = () => {
         {!curvaLoading && curvaData.length > 0 && (
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
             {(() => {
-              const currentMonth = new Date().getMonth();
-              const totalAtual = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAtual}`]) || 0), 0);
-              const totalAnterior = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAnterior}`]) || 0), 0);
-              const receitaAtual = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAtual}`]) || 0), 0);
-              const receitaAnterior = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAnterior}`]) || 0), 0);
+              const totalAtual = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAtual}`]) || 0), 0);
+              const totalAnterior = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAnterior}`]) || 0), 0);
+              const receitaAtual = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAtual}`]) || 0), 0);
+              const receitaAnterior = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAnterior}`]) || 0), 0);
               const varVendas = totalAnterior > 0 ? ((totalAtual - totalAnterior) / totalAnterior * 100) : 0;
               const varReceita = receitaAnterior > 0 ? ((receitaAtual - receitaAnterior) / receitaAnterior * 100) : 0;
               return (
                 <>
                   <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAtual} (YTD)</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAtual}</p>
                     <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalAtual)}</p>
                   </div>
                   <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAnterior} (YTD)</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAnterior}</p>
                     <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(totalAnterior)}</p>
                   </div>
                   <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
