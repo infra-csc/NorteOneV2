@@ -1,0 +1,75 @@
+SELECT
+    -- DADOS BÁSICOS DO EVENTO
+    b.id_evento AS "id de evento",
+		b.id_campanha_salesforce AS 'SKU', -- EU ADD ESSE CAMPO 
+    b.ds_evento AS "Evento",
+    DATE(b.dt_evento) AS "Data Evento",
+    
+    -- QUANTIDADE SITE (não é grupo E valor > 0)
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%Grup%') 
+        AND c.nr_total > 0 THEN 1 END) AS "Qtd Site Atual",
+    
+    -- MÉDIA ÚLTIMOS 14 DIAS (ANO ATUAL)
+    (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+     FROM sa_pedido_evento pe
+     INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+     LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+     LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+     LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+     WHERE pe.id_evento = b.id_evento
+     AND p.id_pedido_status = 2
+     AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+     AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%Grup%')
+     AND p.nr_total > 0
+    ) / 14 AS "Média Diária Últimos 14 Dias",
+    
+    -- MÉDIA ÚLTIMOS 14 DIAS (ANO PASSADO - MESMA RÉGUA)
+    (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+     FROM sa_pedido_evento pe
+     INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+     LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+     LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+     LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+     WHERE pe.id_evento = b.id_evento
+     AND p.id_pedido_status = 2
+     AND DATE(p.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                               AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+     AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%Grup%')
+     AND p.nr_total > 0
+    ) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
+    
+    -- DIAS ATÉ O EVENTO
+    DATEDIFF(DATE(b.dt_evento), CURDATE()) AS "Dias Até Evento",
+    
+    -- PROJEÇÃO FINAL (Quantidade Atual + Média Diária × Dias Restantes)
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%Grup%') 
+        AND c.nr_total > 0 THEN 1 END) + 
+    (
+        (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+         FROM sa_pedido_evento pe
+         INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+         LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+         LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+         LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+         WHERE pe.id_evento = b.id_evento
+         AND p.id_pedido_status = 2
+         AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+         AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%Grup%')
+         AND p.nr_total > 0
+        ) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
+    ) AS "Projeção Final"
+
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+
+WHERE 
+    YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    AND c.id_pedido_status = 2
+    AND (b.id_campanha_salesforce NOT LIKE '701d0000000%' OR b.id_campanha_salesforce IS NULL)
+    
+GROUP BY b.id_evento, b.ds_evento, b.dt_evento
+ORDER BY b.dt_evento;
