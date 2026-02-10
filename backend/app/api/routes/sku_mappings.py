@@ -477,13 +477,19 @@ def update_evento_grupo(
         raise HTTPException(status_code=404, detail="Grupo não encontrado")
     
     update_data = grupo.model_dump(exclude_unset=True)
-    if "nome" in update_data:
+    old_nome = db_grupo.nome
+    
+    if "nome" in update_data and update_data["nome"] != old_nome:
         existing = db.query(EventoGrupo).filter(
             EventoGrupo.nome == update_data["nome"],
             EventoGrupo.id != grupo_id
         ).first()
         if existing:
             raise HTTPException(status_code=400, detail=f"Já existe um grupo com o nome '{update_data['nome']}'")
+        
+        db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == old_nome
+        ).update({SkuMapping.evento_grupo: update_data["nome"]})
     
     for key, value in update_data.items():
         setattr(db_grupo, key, value)
