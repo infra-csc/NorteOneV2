@@ -265,6 +265,7 @@ class MarketingEventsResponse(BaseModel):
     resumo: DashboardSummary
     categorias: List[str]
     ultima_atualizacao: str
+    avisos: List[str] = []
 
 def get_isc_status(isc: float) -> str:
     if isc > 1.10:
@@ -501,7 +502,7 @@ _isc_cache_timestamp = None
 
 def build_query_isc_ativo() -> str:
     return """
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(120000) */
     b.id_evento AS "id de evento",
     b.id_campanha_salesforce AS 'SKU',
     b.ds_evento AS "Evento",
@@ -510,12 +511,13 @@ SELECT
         AND c.nr_total > 0 THEN 1 END) AS "Qtd Site Atual",
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
         AND c.nr_total > 0
-        AND DATE(c.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+        AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+        AND c.dt_pedido < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
         THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias",
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
         AND c.nr_total > 0
-        AND DATE(c.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                  AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        AND c.dt_pedido >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY)
+        AND c.dt_pedido < DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 1 DAY)
         THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
     DATEDIFF(DATE(b.dt_evento), CURDATE()) AS "Dias Até Evento",
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
@@ -523,7 +525,8 @@ SELECT
     (
         COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
             AND c.nr_total > 0
-            AND DATE(c.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+            AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+            AND c.dt_pedido < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             THEN 1 END) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
     ) AS "Projeção Final"
 FROM sa_pedido_evento AS a
@@ -533,7 +536,8 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    b.dt_evento >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+    AND b.dt_evento < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
     AND c.id_pedido_status = 2
     AND (b.id_campanha_salesforce NOT LIKE '701d0000000%%' OR b.id_campanha_salesforce IS NULL)
 GROUP BY b.id_evento, b.ds_evento, b.dt_evento
@@ -556,12 +560,13 @@ SELECT
         AND so.base_grand_total > 0 THEN 1 END) AS "Qtd Site Atual",
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0
-        AND DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+        AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+        AND so.created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
         THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias",
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0
-        AND DATE(so.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                     AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+        AND so.created_at >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY)
+        AND so.created_at < DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 1 DAY)
         THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
     DATEDIFF(DATE(wl.final_date), CURDATE()) AS "Dias Até Evento",
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
@@ -569,7 +574,8 @@ SELECT
     (
         COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
             AND so.base_grand_total > 0
-            AND DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+            AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+            AND so.created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             THEN 1 END) / 14 * DATEDIFF(DATE(wl.final_date), CURDATE())
     ) AS "Projeção Final"
 FROM sales_order AS so
@@ -578,7 +584,8 @@ LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
 LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
 LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
 WHERE
-    YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    wl.final_date >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+    AND wl.final_date < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
     AND so.increment_id NOT LIKE "%%-1%%"
     AND so.increment_id NOT LIKE "%%-2%%"
     AND so.increment_id NOT LIKE "%%-3%%"
@@ -603,9 +610,9 @@ ORDER BY wl.final_date
 """
 
 
-def fetch_isc_data_ativo() -> list:
+def fetch_isc_data_ativo():
     if db_module.engine_ssh is None:
-        return []
+        return {"error": "Conexão SSH não configurada"}
     try:
         query = build_query_isc_ativo()
         with db_module.engine_ssh.connect() as conn:
@@ -628,12 +635,12 @@ def fetch_isc_data_ativo() -> list:
             ]
     except Exception as e:
         logger.error(f"Erro ISC Ativo: {e}")
-        return []
+        return {"error": f"Timeout ou erro de conexão ({type(e).__name__})"}
 
 
-def fetch_isc_data_magento() -> list:
+def fetch_isc_data_magento():
     if db_module.engine_magento is None:
-        return []
+        return {"error": "Conexão Magento não configurada"}
     try:
         query = build_query_isc_magento()
         with db_module.engine_magento.connect() as conn:
@@ -656,20 +663,24 @@ def fetch_isc_data_magento() -> list:
             ]
     except Exception as e:
         logger.error(f"Erro ISC Magento: {e}")
-        return []
+        return {"error": f"Timeout ou erro de conexão ({type(e).__name__})"}
 
+
+_isc_warnings = []
 
 def fetch_isc_pricing_data(db: Session = None) -> dict:
-    global _isc_cache, _isc_cache_timestamp
+    global _isc_cache, _isc_cache_timestamp, _isc_warnings
     import time
 
     current_time = time.time()
     cache_valid = _isc_cache_timestamp and (current_time - _isc_cache_timestamp) < 300
 
-    if cache_valid and _isc_cache:
+    if cache_valid and _isc_cache is not None:
         return _isc_cache
 
     from .inscricoes_consolidado import get_sku_mappings_from_db, enrich_with_mappings
+
+    warnings = []
 
     mappings = None
     if db:
@@ -685,16 +696,29 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
     future_magento = _rolling_avg_executor.submit(fetch_isc_data_magento)
 
     try:
-        dados_ativo = future_ativo.result(timeout=60)
+        dados_ativo = future_ativo.result(timeout=120)
     except Exception as e:
-        logger.error(f"Timeout ISC Ativo: {e}")
+        logger.error(f"Erro ISC Ativo (executor): {e}")
         dados_ativo = []
+        warnings.append("Falha ao buscar dados do banco Ativo: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Magento.")
 
     try:
-        dados_magento = future_magento.result(timeout=60)
+        dados_magento = future_magento.result(timeout=120)
     except Exception as e:
-        logger.error(f"Timeout ISC Magento: {e}")
+        logger.error(f"Erro ISC Magento (executor): {e}")
         dados_magento = []
+        warnings.append("Falha ao buscar dados do banco Magento: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Ativo.")
+
+    if isinstance(dados_ativo, dict) and 'error' in dados_ativo:
+        warnings.append(f"Erro no banco Ativo: {dados_ativo['error']}. Os dados exibidos contêm apenas inscrições do Magento.")
+        dados_ativo = []
+
+    if isinstance(dados_magento, dict) and 'error' in dados_magento:
+        warnings.append(f"Erro no banco Magento: {dados_magento['error']}. Os dados exibidos contêm apenas inscrições do Ativo.")
+        dados_magento = []
+
+    if not dados_ativo and not dados_magento:
+        warnings.append("Nenhuma fonte de dados retornou resultados. Verifique a conectividade com os bancos de dados.")
 
     if mappings and dados_ativo:
         import copy
@@ -748,11 +772,23 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
         dias = max(data['dias_ate_evento'], 0)
         data['projecao_final'] = data['qtd_site'] + data['media_14d'] * dias
 
+    fontes = []
+    if dados_ativo:
+        fontes.append("Ativo")
+    if dados_magento:
+        fontes.append("Magento")
+    if fontes and not warnings:
+        logger.info(f"ISC/Pricing data consolidado: {len(all_data)} SKUs (fontes: {', '.join(fontes)})")
+
     _isc_cache = all_data
     _isc_cache_timestamp = current_time
+    _isc_warnings = warnings
 
-    logger.info(f"ISC/Pricing data consolidado: {len(all_data)} SKUs")
     return all_data
+
+
+def get_isc_warnings() -> list:
+    return _isc_warnings
 
 
 _sales_cache = {}
@@ -1140,7 +1176,8 @@ def get_marketing_events(
         eventos=eventos,
         resumo=resumo,
         categorias=sorted(list(categorias_set)),
-        ultima_atualizacao=datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        ultima_atualizacao=datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        avisos=get_isc_warnings()
     )
 
 
@@ -1360,7 +1397,8 @@ def get_marketing_event_by_id(
             "projetos_vinculados": [{"id": p.id, "nome": p.evento, "sku": p.codigo} for p in projetos],
             "comparacao_anual": comparacao_anual,
             "anos_disponiveis": [a[0] for a in anos_disponiveis],
-            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+            "avisos": get_isc_warnings()
         }
     
     projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
@@ -1466,7 +1504,8 @@ def get_marketing_event_by_id(
         "evento": evento,
         "dailySales": daily_sales,
         "commercialActions": commercial_actions,
-        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        "avisos": get_isc_warnings()
     }
 
 
@@ -1930,6 +1969,7 @@ class PricingEventsResponse(BaseModel):
     resumo: PricingSummary
     categorias: List[str]
     ultima_atualizacao: str
+    avisos: List[str] = []
 
 
 def calculate_pricing_metrics(
@@ -2377,5 +2417,6 @@ def get_pricing_analysis(
         eventos=eventos,
         resumo=resumo,
         categorias=sorted(list(categorias_set)),
-        ultima_atualizacao=datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
+        ultima_atualizacao=datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
+        avisos=get_isc_warnings()
     )

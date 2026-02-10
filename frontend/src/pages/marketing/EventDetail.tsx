@@ -78,6 +78,7 @@ const EventDetail: React.FC = () => {
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
+  const [avisos, setAvisos] = useState<string[]>([]);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -130,6 +131,7 @@ const EventDetail: React.FC = () => {
         if ((response as any).anos_disponiveis) {
           setAnosDisponiveis((response as any).anos_disponiveis);
         }
+        setAvisos((response as any).avisos || []);
         setError(null);
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -344,6 +346,20 @@ const EventDetail: React.FC = () => {
           <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
         </div>
       </div>
+
+      {avisos.length > 0 && (
+        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+          <div className="flex items-start gap-2">
+            <span className="text-yellow-500 text-lg">⚠️</span>
+            <div>
+              <p className="font-semibold text-yellow-500">Atenção: Dados Parciais</p>
+              {avisos.map((aviso, index) => (
+                <p key={index} className="text-sm text-yellow-400/80 mt-1">{aviso}</p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

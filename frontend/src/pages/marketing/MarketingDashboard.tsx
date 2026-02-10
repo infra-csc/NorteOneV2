@@ -43,6 +43,7 @@ const MarketingDashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [avisos, setAvisos] = useState<string[]>([]);
   
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -75,6 +76,7 @@ const MarketingDashboard: React.FC = () => {
         setSummary(response.resumo);
         setCategories(response.categorias);
         setLastUpdate(new Date(response.ultima_atualizacao));
+        setAvisos((response as any).avisos || []);
       }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
@@ -205,6 +207,20 @@ const MarketingDashboard: React.FC = () => {
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
           <p className="text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
+
+      {avisos.length > 0 && (
+        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+          <div className="flex items-start gap-2">
+            <span className="text-yellow-500 text-lg">⚠️</span>
+            <div>
+              <p className="font-semibold text-yellow-500">Atenção: Dados Parciais</p>
+              {avisos.map((aviso, index) => (
+                <p key={index} className="text-sm text-yellow-400/80 mt-1">{aviso}</p>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

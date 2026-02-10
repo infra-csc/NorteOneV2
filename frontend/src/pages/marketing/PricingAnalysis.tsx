@@ -46,6 +46,7 @@ const PricingAnalysis: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [avisos, setAvisos] = useState<string[]>([]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -76,6 +77,7 @@ const PricingAnalysis: React.FC = () => {
         setSummary(response.resumo);
         setCategories(response.categorias);
         setLastUpdate(new Date(response.ultima_atualizacao));
+        setAvisos((response as any).avisos || []);
       }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
@@ -247,6 +249,20 @@ const PricingAnalysis: React.FC = () => {
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
             {error}
+          </div>
+        )}
+
+        {avisos.length > 0 && (
+          <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
+            <div className="flex items-start gap-2">
+              <span className="text-yellow-500 text-lg">⚠️</span>
+              <div>
+                <p className="font-semibold text-yellow-500">Atenção: Dados Parciais</p>
+                {avisos.map((aviso, index) => (
+                  <p key={index} className="text-sm text-yellow-400/80 mt-1">{aviso}</p>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
