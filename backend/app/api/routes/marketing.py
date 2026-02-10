@@ -1508,6 +1508,147 @@ ORDER BY mes
         return []
 
 
+def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
+    if db_module.engine_ssh is None or not id_eventos:
+        return []
+    try:
+        safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return []
+        placeholders = ",".join(safe_ids)
+        query = f"""
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
+    DATE(c.dt_pedido) AS dia,
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+        AND c.nr_total > 0 THEN 1 END) AS qtd,
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND c.nr_total > 0 THEN 
+        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
+    ELSE 0 END) AS receita
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE 
+    c.id_pedido_status = 2
+    AND b.id_evento IN ({placeholders})
+GROUP BY DATE(c.dt_pedido)
+ORDER BY dia
+"""
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(query))
+            return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
+    except Exception as e:
+        logger.error(f"Erro daily sales Ativo by IDs: {e}")
+        return []
+
+
+def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
+    if db_module.engine_magento is None or not location_ids:
+        return []
+    try:
+        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        if not safe_ids:
+            return []
+        placeholders = ",".join(safe_ids)
+        query = f"""
+SELECT
+    DATE(so.created_at) AS dia,
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS qtd,
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
+        (soi.price - CASE WHEN soi.price = 0 THEN 0
+            WHEN soi.name LIKE '%%plus%%' THEN 69.00
+            WHEN soi.name LIKE '%%super%%' THEN 269.00
+            WHEN soi.name LIKE '%%vip%%' THEN 199.99
+            ELSE 0 END
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END)
+    ELSE 0 END) AS receita
+FROM sales_order AS so
+LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
+WHERE
+    so.increment_id NOT LIKE "%%-1%%"
+    AND so.increment_id NOT LIKE "%%-2%%"
+    AND so.increment_id NOT LIKE "%%-3%%"
+    AND so.increment_id NOT LIKE "%%-4%%"
+    AND so.increment_id NOT LIKE "%%-5%%"
+    AND so.increment_id NOT LIKE "%%-6%%"
+    AND so.increment_id NOT LIKE "%%-7%%"
+    AND so.increment_id NOT LIKE "%%-8%%"
+    AND so.increment_id NOT LIKE "%%-9%%"
+    AND so.increment_id NOT LIKE "%%-10%%"
+    AND so.increment_id NOT LIKE "%%-11%%"
+    AND so.increment_id NOT LIKE "%%-12%%"
+    AND so.increment_id NOT LIKE "%%-13%%"
+    AND so.increment_id NOT LIKE "%%-14%%"
+    AND so.increment_id NOT LIKE "%%-15%%"
+    AND so.increment_id NOT LIKE "%%-16%%"
+    AND so.status IN ('Processing', 'Complete', 'approved')
+    AND soi.product_type = 'Bundle'
+    AND so.location_pickup_id IN ({placeholders})
+GROUP BY DATE(so.created_at)
+ORDER BY dia
+"""
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(query))
+            return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
+    except Exception as e:
+        logger.error(f"Erro daily sales Magento by IDs: {e}")
+        return []
+
+
+import re as _re
+import unicodedata as _unicodedata
+
+def _normalize_name_for_match(name: str) -> str:
+    s = _unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    s = _re.sub(r'\d{4}', '', s)
+    s = _re.sub(r'\s*-\s*', ' ', s)
+    s = _re.sub(r'\s+\d+$', '', s.strip())
+    s = _re.sub(r'\s+', ' ', s).strip().lower()
+    return s
+
+def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
+    normalized_grupo = _normalize_name_for_match(evento_grupo)
+    projetos = db.query(DimProjeto).filter(
+        DimProjeto.data_evento.isnot(None)
+    ).all()
+    
+    best_match = None
+    best_score = 0
+    
+    for p in projetos:
+        p_year = p.data_evento.year if p.data_evento else None
+        if p_year != ano:
+            continue
+        normalized_proj = _normalize_name_for_match(p.evento or "")
+        
+        grupo_words = set(normalized_grupo.split())
+        proj_words = set(normalized_proj.split())
+        if not grupo_words or not proj_words:
+            continue
+        common = grupo_words & proj_words
+        score = len(common) / max(len(grupo_words), len(proj_words))
+        
+        if score > best_score:
+            best_score = score
+            best_match = p
+    
+    if best_match and best_score >= 0.5:
+        logger.info(f"Matched evento_grupo '{evento_grupo}' ano={ano} -> projeto '{best_match.evento}' data_evento={best_match.data_evento} (score={best_score:.2f})")
+        return best_match.data_evento
+    
+    logger.warning(f"Could not match evento_grupo '{evento_grupo}' ano={ano} to any dim_projeto (best_score={best_score:.2f})")
+    return None
+
+
 _curva_evento_cache = {}
 _curva_evento_cache_timestamp = {}
 
@@ -1586,66 +1727,133 @@ def get_curva_comparativa_evento(
     if not all_ids:
         return {"status": "success", "ano_atual": ano, "ano_anterior": ano_anterior, "data": [], "evento_nome": ""}
 
-    future_ativo_atual = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ids_ativo_atual)
-    future_magento_atual = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ids_magento_atual)
-    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ids_ativo_anterior)
-    future_magento_anterior = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ids_magento_anterior)
+    grupo_nome_for_match = grupo_nome if is_grouped else str(projeto.evento or "")
+    data_evento_atual = _find_data_evento(db, grupo_nome_for_match, ano)
+    data_evento_anterior = _find_data_evento(db, grupo_nome_for_match, ano_anterior)
+
+    if not data_evento_atual and not data_evento_anterior:
+        logger.warning(f"No data_evento found for {grupo_nome_for_match}, falling back to month-based")
+        return _curva_comparativa_mensal_fallback(
+            ids_ativo_atual, ids_magento_atual, ids_ativo_anterior, ids_magento_anterior,
+            ano, ano_anterior, evento_id, is_grouped, projeto if not is_grouped else None
+        )
+
+    if data_evento_atual and not data_evento_anterior:
+        ref_day_month = (data_evento_atual.month, data_evento_atual.day)
+        data_evento_anterior = date(ano_anterior, ref_day_month[0], min(ref_day_month[1], 28))
+        logger.info(f"No data_evento for {ano_anterior}, estimated from {ano}: {data_evento_anterior}")
+    elif data_evento_anterior and not data_evento_atual:
+        ref_day_month = (data_evento_anterior.month, data_evento_anterior.day)
+        data_evento_atual = date(ano, ref_day_month[0], min(ref_day_month[1], 28))
+        logger.info(f"No data_evento for {ano}, estimated from {ano_anterior}: {data_evento_atual}")
+
+    future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
+    future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
+    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
+    future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
 
     try:
         dados_ativo_atual = future_ativo_atual.result(timeout=60)
     except Exception as e:
-        logger.error(f"Curva comparativa Ativo atual timeout: {e}")
+        logger.error(f"Curva comparativa daily Ativo atual timeout: {e}")
         dados_ativo_atual = []
 
     try:
         dados_magento_atual = future_magento_atual.result(timeout=60)
     except Exception as e:
-        logger.error(f"Curva comparativa Magento atual timeout: {e}")
+        logger.error(f"Curva comparativa daily Magento atual timeout: {e}")
         dados_magento_atual = []
 
     try:
         dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
     except Exception as e:
-        logger.error(f"Curva comparativa Ativo anterior timeout: {e}")
+        logger.error(f"Curva comparativa daily Ativo anterior timeout: {e}")
         dados_ativo_anterior = []
 
     try:
         dados_magento_anterior = future_magento_anterior.result(timeout=60)
     except Exception as e:
-        logger.error(f"Curva comparativa Magento anterior timeout: {e}")
+        logger.error(f"Curva comparativa daily Magento anterior timeout: {e}")
         dados_magento_anterior = []
 
-    meses_labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    BUCKET_SIZE = 7
 
-    monthly = {}
-    for m in range(1, 13):
-        monthly[m] = {
-            "mes": meses_labels[m - 1],
+    def _build_daily_map(dados_list: list, data_evento_ref: Optional[date]) -> dict:
+        daily = {}
+        if not data_evento_ref:
+            return daily
+        for row in dados_list:
+            try:
+                dia = date.fromisoformat(row["dia"])
+            except (ValueError, KeyError):
+                continue
+            dias_antes = (data_evento_ref - dia).days
+            if dias_antes not in daily:
+                daily[dias_antes] = {"qtd": 0, "receita": 0.0}
+            daily[dias_antes]["qtd"] += row["qtd"]
+            daily[dias_antes]["receita"] += row["receita"]
+        return daily
+
+    daily_atual = _build_daily_map(dados_ativo_atual + dados_magento_atual, data_evento_atual)
+    daily_anterior = _build_daily_map(dados_ativo_anterior + dados_magento_anterior, data_evento_anterior)
+
+    all_dias = set(daily_atual.keys()) | set(daily_anterior.keys())
+    if not all_dias:
+        max_dias = 180
+        min_dias = 0
+    else:
+        max_dias = max(all_dias)
+        min_dias = min(all_dias)
+
+    def _bucket_key_for(d: int) -> int:
+        if d >= 0:
+            return (d // BUCKET_SIZE) * BUCKET_SIZE
+        return -((abs(d) // BUCKET_SIZE + 1) * BUCKET_SIZE)
+
+    max_bucket = _bucket_key_for(max_dias)
+    if max_bucket < max_dias:
+        max_bucket += BUCKET_SIZE
+    min_bucket = _bucket_key_for(min_dias) if min_dias < 0 else 0
+
+    buckets = {}
+    b = min_bucket
+    while b <= max_bucket:
+        if b < 0:
+            label = f"D+{abs(b)}"
+        elif b == 0:
+            label = "D-0"
+        else:
+            label = f"D-{b}"
+        buckets[b] = {
+            "dias_antes": b,
+            "label": label,
             f"vendas_{ano}": 0,
             f"vendas_{ano_anterior}": 0,
             f"receita_{ano}": 0.0,
             f"receita_{ano_anterior}": 0.0,
         }
+        b += BUCKET_SIZE
 
-    for row in dados_ativo_atual + dados_magento_atual:
-        m = row["mes"]
-        if 1 <= m <= 12:
-            monthly[m][f"vendas_{ano}"] += row["qtd"]
-            monthly[m][f"receita_{ano}"] += row["receita"]
+    for dias, vals in daily_atual.items():
+        bk = _bucket_key_for(dias)
+        if bk in buckets:
+            buckets[bk][f"vendas_{ano}"] += vals["qtd"]
+            buckets[bk][f"receita_{ano}"] += vals["receita"]
 
-    for row in dados_ativo_anterior + dados_magento_anterior:
-        m = row["mes"]
-        if 1 <= m <= 12:
-            monthly[m][f"vendas_{ano_anterior}"] += row["qtd"]
-            monthly[m][f"receita_{ano_anterior}"] += row["receita"]
+    for dias, vals in daily_anterior.items():
+        bk = _bucket_key_for(dias)
+        if bk in buckets:
+            buckets[bk][f"vendas_{ano_anterior}"] += vals["qtd"]
+            buckets[bk][f"receita_{ano_anterior}"] += vals["receita"]
 
+    sorted_keys = sorted(buckets.keys(), reverse=True)
     data = []
     acum_atual = 0
     acum_anterior = 0
     acum_receita_atual = 0.0
     acum_receita_anterior = 0.0
-    for m in range(1, 13):
-        entry = monthly[m]
+    for bk in sorted_keys:
+        entry = buckets[bk]
         acum_atual += entry[f"vendas_{ano}"]
         acum_anterior += entry[f"vendas_{ano_anterior}"]
         acum_receita_atual += entry[f"receita_{ano}"]
@@ -1666,8 +1874,11 @@ def get_curva_comparativa_evento(
 
     result = {
         "status": "success",
+        "modo": "dias_antes_evento",
         "ano_atual": ano,
         "ano_anterior": ano_anterior,
+        "data_evento_atual": str(data_evento_atual) if data_evento_atual else None,
+        "data_evento_anterior": str(data_evento_anterior) if data_evento_anterior else None,
         "data": data,
         "evento_nome": evento_nome,
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
@@ -1676,6 +1887,82 @@ def get_curva_comparativa_evento(
     _curva_evento_cache[cache_key] = result
     _curva_evento_cache_timestamp[cache_key] = current_time
     return result
+
+
+def _curva_comparativa_mensal_fallback(
+    ids_ativo_atual, ids_magento_atual, ids_ativo_anterior, ids_magento_anterior,
+    ano, ano_anterior, evento_id, is_grouped, projeto=None
+):
+    future_ativo_atual = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ids_ativo_atual)
+    future_magento_atual = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ids_magento_atual)
+    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ids_ativo_anterior)
+    future_magento_anterior = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ids_magento_anterior)
+
+    try:
+        dados_ativo_atual = future_ativo_atual.result(timeout=60)
+    except Exception:
+        dados_ativo_atual = []
+    try:
+        dados_magento_atual = future_magento_atual.result(timeout=60)
+    except Exception:
+        dados_magento_atual = []
+    try:
+        dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
+    except Exception:
+        dados_ativo_anterior = []
+    try:
+        dados_magento_anterior = future_magento_anterior.result(timeout=60)
+    except Exception:
+        dados_magento_anterior = []
+
+    meses_labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+    monthly = {}
+    for m in range(1, 13):
+        monthly[m] = {
+            "mes": meses_labels[m - 1],
+            f"vendas_{ano}": 0,
+            f"vendas_{ano_anterior}": 0,
+            f"receita_{ano}": 0.0,
+            f"receita_{ano_anterior}": 0.0,
+        }
+    for row in dados_ativo_atual + dados_magento_atual:
+        m = row["mes"]
+        if 1 <= m <= 12:
+            monthly[m][f"vendas_{ano}"] += row["qtd"]
+            monthly[m][f"receita_{ano}"] += row["receita"]
+    for row in dados_ativo_anterior + dados_magento_anterior:
+        m = row["mes"]
+        if 1 <= m <= 12:
+            monthly[m][f"vendas_{ano_anterior}"] += row["qtd"]
+            monthly[m][f"receita_{ano_anterior}"] += row["receita"]
+    data = []
+    acum_atual = 0
+    acum_anterior = 0
+    acum_receita_atual = 0.0
+    acum_receita_anterior = 0.0
+    for m in range(1, 13):
+        entry = monthly[m]
+        acum_atual += entry[f"vendas_{ano}"]
+        acum_anterior += entry[f"vendas_{ano_anterior}"]
+        acum_receita_atual += entry[f"receita_{ano}"]
+        acum_receita_anterior += entry[f"receita_{ano_anterior}"]
+        entry[f"receita_{ano}"] = round(entry[f"receita_{ano}"], 2)
+        entry[f"receita_{ano_anterior}"] = round(entry[f"receita_{ano_anterior}"], 2)
+        entry[f"acumulado_{ano}"] = acum_atual
+        entry[f"acumulado_{ano_anterior}"] = acum_anterior
+        entry[f"acumulado_receita_{ano}"] = round(acum_receita_atual, 2)
+        entry[f"acumulado_receita_{ano_anterior}"] = round(acum_receita_anterior, 2)
+        data.append(entry)
+    evento_nome = evento_id.replace("grp_", "") if is_grouped else str(projeto.evento or "")
+    return {
+        "status": "success",
+        "modo": "mensal",
+        "ano_atual": ano,
+        "ano_anterior": ano_anterior,
+        "data": data,
+        "evento_nome": evento_nome,
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    }
 
 
 @router.get("/eventos/{evento_id}")

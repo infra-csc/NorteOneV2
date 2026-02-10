@@ -743,11 +743,16 @@ export const marketingService = {
   },
   getCurvaComparativaEvento: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<{
     status: string;
+    modo?: string;
     ano_atual: number;
     ano_anterior: number;
+    data_evento_atual?: string | null;
+    data_evento_anterior?: string | null;
     data: {
-      mes: string;
-      [key: string]: string | number;
+      label?: string;
+      dias_antes?: number;
+      mes?: string;
+      [key: string]: string | number | undefined;
     }[];
     evento_nome: string;
     ultima_atualizacao: string;

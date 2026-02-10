@@ -84,7 +84,10 @@ const EventDetail: React.FC = () => {
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
-  const [curvaView, setCurvaView] = useState<'mensal' | 'acumulado'>('mensal');
+  const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
+  const [curvaModo, setCurvaModo] = useState<string>('mensal');
+  const [dataEventoAtual, setDataEventoAtual] = useState<string | null>(null);
+  const [dataEventoAnterior, setDataEventoAnterior] = useState<string | null>(null);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -171,6 +174,9 @@ const EventDetail: React.FC = () => {
           setCurvaData(response.data);
           setCurvaAnoAtual(response.ano_atual);
           setCurvaAnoAnterior(response.ano_anterior);
+          setCurvaModo(response.modo || 'mensal');
+          setDataEventoAtual(response.data_evento_atual || null);
+          setDataEventoAnterior(response.data_evento_anterior || null);
         }
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -870,11 +876,20 @@ const EventDetail: React.FC = () => {
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-500" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Curva Comparativa: {curvaAnoAnterior} vs {curvaAnoAtual}
-            </h3>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-blue-500" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Curva Comparativa: {curvaAnoAnterior} vs {curvaAnoAtual}
+              </h3>
+            </div>
+            {curvaModo === 'dias_antes_evento' && (dataEventoAtual || dataEventoAnterior) && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 ml-7">
+                Alinhado por dias antes do evento
+                {dataEventoAtual && ` | ${curvaAnoAtual}: ${new Date(dataEventoAtual + 'T12:00:00').toLocaleDateString('pt-BR')}`}
+                {dataEventoAnterior && ` | ${curvaAnoAnterior}: ${new Date(dataEventoAnterior + 'T12:00:00').toLocaleDateString('pt-BR')}`}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
@@ -901,14 +916,14 @@ const EventDetail: React.FC = () => {
             </div>
             <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
               <button
-                onClick={() => setCurvaView('mensal')}
+                onClick={() => setCurvaView('semanal')}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  curvaView === 'mensal' 
+                  curvaView === 'semanal' 
                     ? 'bg-blue-500 text-white' 
                     : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
                 }`}
               >
-                Mensal
+                Semanal
               </button>
               <button
                 onClick={() => setCurvaView('acumulado')}
@@ -933,11 +948,11 @@ const EventDetail: React.FC = () => {
           <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
             Sem dados disponíveis para a curva comparativa deste evento.
           </div>
-        ) : curvaView === 'mensal' && curvaMode === 'vendas' ? (
+        ) : curvaView === 'semanal' && curvaMode === 'vendas' ? (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
               <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
               <Tooltip
                 contentStyle={{ 
@@ -947,17 +962,18 @@ const EventDetail: React.FC = () => {
                   color: isDark ? '#fff' : '#111'
                 }}
                 formatter={(value: any) => [formatNumber(Number(value || 0)), '']}
+                labelFormatter={(label: any) => `${label} (semana)`}
               />
               <Legend />
               <Bar dataKey={`vendas_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
               <Bar dataKey={`vendas_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        ) : curvaView === 'mensal' && curvaMode === 'receita' ? (
+        ) : curvaView === 'semanal' && curvaMode === 'receita' ? (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
               <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
               <Tooltip
                 contentStyle={{ 
@@ -967,6 +983,7 @@ const EventDetail: React.FC = () => {
                   color: isDark ? '#fff' : '#111'
                 }}
                 formatter={(value: any) => [formatCurrency(Number(value || 0)), '']}
+                labelFormatter={(label: any) => `${label} (semana)`}
               />
               <Legend />
               <Bar dataKey={`receita_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
@@ -977,7 +994,7 @@ const EventDetail: React.FC = () => {
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
               <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }}
                 tickFormatter={curvaMode === 'receita' ? (v) => `R$${(v/1000).toFixed(0)}k` : undefined}
               />
@@ -989,6 +1006,7 @@ const EventDetail: React.FC = () => {
                   color: isDark ? '#fff' : '#111'
                 }}
                 formatter={(value: any) => [curvaMode === 'receita' ? formatCurrency(Number(value || 0)) : formatNumber(Number(value || 0)), '']}
+                labelFormatter={(label: any) => `${label}`}
               />
               <Legend />
               <Line 
@@ -997,7 +1015,7 @@ const EventDetail: React.FC = () => {
                 name={`${curvaAnoAnterior}`} 
                 stroke="#94a3b8" 
                 strokeWidth={2} 
-                dot={{ r: 4, fill: '#94a3b8' }} 
+                dot={{ r: 3, fill: '#94a3b8' }} 
                 strokeDasharray="5 5"
               />
               <Line 
@@ -1006,7 +1024,7 @@ const EventDetail: React.FC = () => {
                 name={`${curvaAnoAtual}`} 
                 stroke={curvaMode === 'vendas' ? '#3b82f6' : '#10b981'}
                 strokeWidth={2.5} 
-                dot={{ r: 4, fill: curvaMode === 'vendas' ? '#3b82f6' : '#10b981' }} 
+                dot={{ r: 3, fill: curvaMode === 'vendas' ? '#3b82f6' : '#10b981' }} 
               />
             </LineChart>
           </ResponsiveContainer>
