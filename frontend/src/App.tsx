@@ -22,7 +22,7 @@ const NoriAssistant = lazy(() => import('./pages/nori/NoriAssistant'));
 const DadosConsolidados = lazy(() => import('./pages/admin/DadosConsolidados'));
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'));
 const SkuMappings = lazy(() => import('./pages/admin/SkuMappings'));
-const EventosConsolidados = lazy(() => import('./pages/admin/EventosConsolidados'));
+
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -67,7 +67,7 @@ function App() {
               <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
               <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />
               <Route path="/admin/sku-mappings" element={<PrivateRoute><Layout><SkuMappings /></Layout></PrivateRoute>} />
-              <Route path="/admin/eventos-consolidados" element={<PrivateRoute><Layout><EventosConsolidados /></Layout></PrivateRoute>} />
+
               <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
               <Route path="/admin/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
             </Routes>

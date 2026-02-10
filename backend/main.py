@@ -44,7 +44,7 @@ app.include_router(magento.router, prefix="/api/magento", tags=["Magento"])
 app.include_router(inscricoes_consolidado.router, prefix="/api/inscricoes", tags=["Inscricoes Consolidadas"])
 app.include_router(marketing.router, prefix="/api", tags=["Marketing ISC"])
 app.include_router(sku_mappings.router, tags=["SKU Mappings"])
-app.include_router(sku_mappings.consolidado_router, tags=["Eventos Consolidados"])
+app.include_router(sku_mappings.grupo_router, tags=["Evento Grupos"])
 
 @app.get("/api/health")
 async def health_check():

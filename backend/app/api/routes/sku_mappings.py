@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.database import get_db
-from app.models.dimensoes import SkuMapping, EventoConsolidado
+from app.models.dimensoes import SkuMapping, EventoConsolidado, EventoGrupo
 from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
     EventoConsolidadoCreate, EventoConsolidadoUpdate, EventoConsolidadoResponse,
-    EventoConsolidadoDetailResponse
+    EventoConsolidadoDetailResponse,
+    EventoGrupoCreate, EventoGrupoUpdate, EventoGrupoResponse
 )
 from app.core.security import get_current_user
 from app.models.user import Usuario
@@ -75,24 +76,22 @@ def normalize_sku_for_match(sku: str) -> str:
     return base.upper()
 
 
-def fetch_eventos_ativo(ano: int) -> List[Dict]:
-    """Busca eventos distintos do Ativo para um ano."""
+def fetch_eventos_ativo(ano: int = None) -> List[Dict]:
+    """Busca eventos distintos do Ativo (ano atual e anterior)."""
     if db_module.engine_ssh is None:
         logger.error("SSH tunnel para Ativo não configurado")
         return []
     
-    query = f"""
-    SELECT DISTINCT
+    query = """
+    SELECT
         b.id_evento,
-        b.ds_evento AS nome_evento,
         b.id_campanha_salesforce AS sku,
+        b.ds_evento AS nome_evento,
         DATE(b.dt_evento) AS data_evento
-    FROM sa_evento AS b
-    INNER JOIN sa_pedido_evento AS a ON b.id_evento = a.id_evento
-    INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+    FROM sa_evento AS b 
     WHERE 
-        YEAR(b.dt_evento) = {ano}
-        AND c.id_pedido_status = 2
+        YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+        AND (b.id_campanha_salesforce NOT LIKE '701d0000000%' OR b.id_campanha_salesforce IS NULL)
     ORDER BY b.dt_evento
     """
     
@@ -103,8 +102,8 @@ def fetch_eventos_ativo(ano: int) -> List[Dict]:
             return [
                 {
                     "id_evento": str(row[0]),
-                    "nome_evento": row[1] or "",
-                    "sku_original": row[2] or "",
+                    "sku_original": row[1] or "",
+                    "nome_evento": row[2] or "",
                     "data_evento": str(row[3]) if row[3] else None
                 }
                 for row in rows
@@ -114,39 +113,37 @@ def fetch_eventos_ativo(ano: int) -> List[Dict]:
         return []
 
 
-def fetch_eventos_magento(ano: int) -> List[Dict]:
-    """Busca eventos distintos do Magento para um ano."""
+def fetch_eventos_magento(ano: int = None) -> List[Dict]:
+    """Busca eventos distintos do Magento (ano atual e anterior)."""
     if db_module.engine_magento is None:
         logger.error("Conexão Magento não configurada")
         return []
     
-    query = f"""
-    SELECT DISTINCT
+    query = """
+    SELECT
         wl.location_id AS id_evento,
-        wl.location_name AS nome_evento,
-        COALESCE(cpev.value, cpe.sku) AS sku,
-        DATE(wl.final_date) AS data_evento
-    FROM core_db.walmart_location AS wl
-    LEFT JOIN catalog_product_entity AS cpe ON cpe.entity_id = wl.product_id
-    LEFT JOIN catalog_product_entity_varchar AS cpev 
-        ON cpev.entity_id = cpe.entity_id AND cpev.attribute_id = 97
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+            REPLACE(wl.`name`, 'Retirada de kit - CE', 'Circuito das Estações'),
+            'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
+            'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
+            'SSA', 'Salvador') AS nome_evento,
+        wl.final_date AS data_evento
+    FROM webpos_location AS wl 
     WHERE 
-        wl.enabled = 1
-        AND YEAR(wl.final_date) = {ano}
+        YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
     ORDER BY wl.final_date
     """
     
     try:
-        engine_with_timeout = db_module.engine_magento.execution_options(timeout=60)
-        with engine_with_timeout.connect() as connection:
+        with db_module.engine_magento.connect() as connection:
             result = connection.execute(text(query))
             rows = result.fetchall()
             return [
                 {
                     "id_evento": str(row[0]),
                     "nome_evento": row[1] or "",
-                    "sku_original": row[2] or "",
-                    "data_evento": str(row[3]) if row[3] else None
+                    "data_evento": str(row[2]) if row[2] else None,
+                    "sku_original": ""
                 }
                 for row in rows
             ]
@@ -315,59 +312,48 @@ def bulk_create_sku_mappings(
 
 @router.get("/descobrir-eventos", response_model=DescobertaEventosResponse)
 def descobrir_eventos_externos(
-    ano: int = Query(2025, description="Ano dos eventos a descobrir"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
     """
-    Descobre eventos de um ano específico nos bancos externos (Ativo e Magento)
-    e sugere mapeamentos baseados nos eventos de 2026 já cadastrados.
+    Descobre eventos dos bancos externos (Ativo e Magento) para o ano atual e anterior.
+    Sugere mapeamentos baseados nos eventos já cadastrados.
     """
+    from datetime import datetime
+    ano_atual = datetime.now().year
+    
     executor = ThreadPoolExecutor(max_workers=2)
     
-    ativo_future = executor.submit(fetch_eventos_ativo, ano)
-    magento_future = executor.submit(fetch_eventos_magento, ano)
+    ativo_future = executor.submit(fetch_eventos_ativo)
+    magento_future = executor.submit(fetch_eventos_magento)
     
     try:
-        eventos_ativo_result = ativo_future.result(timeout=120.0)
+        eventos_ativo_result = ativo_future.result(timeout=60.0)
     except Exception as e:
         logger.error(f"Erro ao buscar eventos Ativo: {e}")
         eventos_ativo_result = []
     
     try:
-        eventos_magento_result = magento_future.result(timeout=120.0)
+        eventos_magento_result = magento_future.result(timeout=60.0)
     except Exception as e:
         logger.error(f"Erro ao buscar eventos Magento: {e}")
         eventos_magento_result = []
     
-    results = [eventos_ativo_result, eventos_magento_result]
+    eventos_ativo = eventos_ativo_result if isinstance(eventos_ativo_result, list) else []
+    eventos_magento = eventos_magento_result if isinstance(eventos_magento_result, list) else []
     
-    eventos_ativo = results[0] if isinstance(results[0], list) else []
-    eventos_magento = results[1] if isinstance(results[1], list) else []
-    
-    if isinstance(results[0], Exception):
-        logger.error(f"Erro ao buscar eventos Ativo: {results[0]}")
-    if isinstance(results[1], Exception):
-        logger.error(f"Erro ao buscar eventos Magento: {results[1]}")
-    
-    mapeamentos_2026 = db.query(SkuMapping).filter(
-        SkuMapping.ano == 2026,
-        SkuMapping.ativo == True
-    ).all()
-    
-    mapeamentos_existentes = db.query(SkuMapping).filter(
-        SkuMapping.ano == ano,
+    mapeamentos_existentes_all = db.query(SkuMapping).filter(
         SkuMapping.ativo == True
     ).all()
     
     ids_ja_mapeados = {
-        (m.fonte, str(m.id_externo)) for m in mapeamentos_existentes
+        (m.fonte, str(m.id_externo)) for m in mapeamentos_existentes_all
     }
     
     nome_to_mapping = {}
     sku_base_to_mapping = {}
     
-    for m in mapeamentos_2026:
+    for m in mapeamentos_existentes_all:
         nome_norm = normalize_nome_evento(m.nome_evento)
         if nome_norm:
             nome_to_mapping[nome_norm] = m
@@ -384,6 +370,13 @@ def descobrir_eventos_externos(
             if (fonte, ev["id_evento"]) in ids_ja_mapeados:
                 continue
             
+            ev_ano = ano_atual
+            if ev.get("data_evento"):
+                try:
+                    ev_ano = int(str(ev["data_evento"])[:4])
+                except (ValueError, IndexError):
+                    ev_ano = ano_atual
+            
             match_encontrado = None
             match_origem = None
             
@@ -399,7 +392,7 @@ def descobrir_eventos_externos(
                     match_origem = "sku"
             
             if match_encontrado:
-                sku_sugerido = match_encontrado.sku[:3] + str(ano)[-2:] + match_encontrado.sku[5:]
+                sku_sugerido = match_encontrado.sku[:3] + str(ev_ano)[-2:] + match_encontrado.sku[5:] if len(match_encontrado.sku) >= 5 else match_encontrado.sku
                 
                 eventos_sugeridos.append(EventoSugerido(
                     id_evento=ev["id_evento"],
@@ -407,7 +400,7 @@ def descobrir_eventos_externos(
                     sku_original=ev.get("sku_original"),
                     data_evento=ev.get("data_evento"),
                     fonte=fonte,
-                    ano=ano,
+                    ano=ev_ano,
                     sku_sugerido=sku_sugerido,
                     evento_grupo_sugerido=match_encontrado.evento_grupo,
                     match_origem=match_origem
@@ -419,7 +412,7 @@ def descobrir_eventos_externos(
                     sku_original=ev.get("sku_original"),
                     data_evento=ev.get("data_evento"),
                     fonte=fonte,
-                    ano=ano
+                    ano=ev_ano
                 ))
     
     if eventos_ativo:
@@ -429,153 +422,87 @@ def descobrir_eventos_externos(
     
     return DescobertaEventosResponse(
         status="success",
-        ano=ano,
-        total_ativo=len(eventos_ativo) if isinstance(eventos_ativo, list) else 0,
-        total_magento=len(eventos_magento) if isinstance(eventos_magento, list) else 0,
+        ano=ano_atual,
+        total_ativo=len(eventos_ativo),
+        total_magento=len(eventos_magento),
         eventos_sugeridos=eventos_sugeridos,
         eventos_sem_match=eventos_sem_match
     )
 
 
-consolidado_router = APIRouter(prefix="/api/admin/eventos-consolidados", tags=["Eventos Consolidados"])
+grupo_router = APIRouter(prefix="/api/admin/evento-grupos", tags=["Evento Grupos"])
 
 
-@consolidado_router.get("", response_model=List[EventoConsolidadoResponse])
-def list_eventos_consolidados(
+@grupo_router.get("", response_model=List[EventoGrupoResponse])
+def list_evento_grupos_crud(
     ativo: Optional[bool] = None,
     busca: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    query = db.query(EventoConsolidado)
+    query = db.query(EventoGrupo)
     if ativo is not None:
-        query = query.filter(EventoConsolidado.ativo == ativo)
+        query = query.filter(EventoGrupo.ativo == ativo)
     if busca:
-        query = query.filter(EventoConsolidado.nome.ilike(f"%{busca}%"))
-    return query.order_by(EventoConsolidado.nome).all()
+        query = query.filter(EventoGrupo.nome.ilike(f"%{busca}%"))
+    return query.order_by(EventoGrupo.nome).all()
 
 
-@consolidado_router.get("/{evento_id}", response_model=EventoConsolidadoDetailResponse)
-def get_evento_consolidado(
-    evento_id: int,
+@grupo_router.post("", response_model=EventoGrupoResponse)
+def create_evento_grupo(
+    grupo: EventoGrupoCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
-    return evento
-
-
-@consolidado_router.post("", response_model=EventoConsolidadoResponse)
-def create_evento_consolidado(
-    evento: EventoConsolidadoCreate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    db_evento = EventoConsolidado(**evento.model_dump())
-    db.add(db_evento)
-    db.commit()
-    db.refresh(db_evento)
-    return db_evento
-
-
-@consolidado_router.put("/{evento_id}", response_model=EventoConsolidadoResponse)
-def update_evento_consolidado(
-    evento_id: int,
-    evento: EventoConsolidadoUpdate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    db_evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
-    if not db_evento:
-        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    existing = db.query(EventoGrupo).filter(EventoGrupo.nome == grupo.nome).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Já existe um grupo com o nome '{grupo.nome}'")
     
-    update_data = evento.model_dump(exclude_unset=True)
+    db_grupo = EventoGrupo(**grupo.model_dump())
+    db.add(db_grupo)
+    db.commit()
+    db.refresh(db_grupo)
+    return db_grupo
+
+
+@grupo_router.put("/{grupo_id}", response_model=EventoGrupoResponse)
+def update_evento_grupo(
+    grupo_id: int,
+    grupo: EventoGrupoUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    db_grupo = db.query(EventoGrupo).filter(EventoGrupo.id == grupo_id).first()
+    if not db_grupo:
+        raise HTTPException(status_code=404, detail="Grupo não encontrado")
+    
+    update_data = grupo.model_dump(exclude_unset=True)
+    if "nome" in update_data:
+        existing = db.query(EventoGrupo).filter(
+            EventoGrupo.nome == update_data["nome"],
+            EventoGrupo.id != grupo_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Já existe um grupo com o nome '{update_data['nome']}'")
+    
     for key, value in update_data.items():
-        setattr(db_evento, key, value)
+        setattr(db_grupo, key, value)
     
     db.commit()
-    db.refresh(db_evento)
-    return db_evento
+    db.refresh(db_grupo)
+    return db_grupo
 
 
-@consolidado_router.delete("/{evento_id}")
-def delete_evento_consolidado(
-    evento_id: int,
+@grupo_router.delete("/{grupo_id}")
+def delete_evento_grupo(
+    grupo_id: int,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    db_evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
-    if not db_evento:
-        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    db_grupo = db.query(EventoGrupo).filter(EventoGrupo.id == grupo_id).first()
+    if not db_grupo:
+        raise HTTPException(status_code=404, detail="Grupo não encontrado")
     
-    db.query(SkuMapping).filter(
-        SkuMapping.evento_consolidado_id == evento_id
-    ).update({"evento_consolidado_id": None})
-    
-    db.delete(db_evento)
+    db.delete(db_grupo)
     db.commit()
-    return {"message": "Evento consolidado excluído com sucesso"}
-
-
-@consolidado_router.post("/{evento_id}/vincular")
-def vincular_mapeamentos(
-    evento_id: int,
-    mapping_ids: List[int],
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
-    
-    updated = db.query(SkuMapping).filter(
-        SkuMapping.id.in_(mapping_ids)
-    ).update({"evento_consolidado_id": evento_id}, synchronize_session="fetch")
-    
-    db.commit()
-    return {"message": f"{updated} mapeamento(s) vinculado(s) ao evento '{evento.nome}'"}
-
-
-@consolidado_router.post("/{evento_id}/desvincular")
-def desvincular_mapeamentos(
-    evento_id: int,
-    mapping_ids: List[int],
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    evento = db.query(EventoConsolidado).filter(EventoConsolidado.id == evento_id).first()
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
-    
-    updated = db.query(SkuMapping).filter(
-        SkuMapping.id.in_(mapping_ids),
-        SkuMapping.evento_consolidado_id == evento_id
-    ).update({"evento_consolidado_id": None}, synchronize_session="fetch")
-    
-    db.commit()
-    return {"message": f"{updated} mapeamento(s) desvinculado(s) do evento '{evento.nome}'"}
-
-
-@consolidado_router.get("/{evento_id}/mapeamentos-disponiveis", response_model=List[SkuMappingResponse])
-def list_mapeamentos_disponiveis(
-    evento_id: int,
-    fonte: Optional[str] = None,
-    ano: Optional[int] = None,
-    busca: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
-):
-    query = db.query(SkuMapping).filter(
-        (SkuMapping.evento_consolidado_id == None) | (SkuMapping.evento_consolidado_id == evento_id)
-    )
-    if fonte:
-        query = query.filter(SkuMapping.fonte == fonte)
-    if ano:
-        query = query.filter(SkuMapping.ano == ano)
-    if busca:
-        query = query.filter(
-            (SkuMapping.nome_evento.ilike(f"%{busca}%")) | (SkuMapping.sku.ilike(f"%{busca}%"))
-        )
-    return query.order_by(SkuMapping.fonte, SkuMapping.ano.desc(), SkuMapping.nome_evento).all()
+    return {"message": "Grupo excluído com sucesso"}

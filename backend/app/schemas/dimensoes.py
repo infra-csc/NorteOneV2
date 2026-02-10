@@ -206,6 +206,28 @@ class EventoConsolidadoDetailResponse(EventoConsolidadoResponse):
         from_attributes = True
 
 
+class EventoGrupoBase(BaseModel):
+    nome: str
+    descricao: Optional[str] = None
+    ativo: bool = True
+
+class EventoGrupoCreate(EventoGrupoBase):
+    pass
+
+class EventoGrupoUpdate(BaseModel):
+    nome: Optional[str] = None
+    descricao: Optional[str] = None
+    ativo: Optional[bool] = None
+
+class EventoGrupoResponse(EventoGrupoBase):
+    id: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class SkuMappingBase(BaseModel):
     fonte: str
     id_externo: int

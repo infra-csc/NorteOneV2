@@ -119,6 +119,17 @@ class EventoConsolidado(Base):
     mapeamentos = relationship("SkuMapping", back_populates="evento_consolidado")
 
 
+class EventoGrupo(Base):
+    __tablename__ = "evento_grupos"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), nullable=False, unique=True)
+    descricao = Column(Text, nullable=True)
+    ativo = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+
 class SkuMapping(Base):
     __tablename__ = "sku_mappings"
     
