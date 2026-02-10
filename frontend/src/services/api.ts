@@ -727,6 +727,19 @@ export const marketingService = {
   deleteAcaoComercial: async (id: number): Promise<any> => {
     const response = await api.delete(`/marketing/acoes-comerciais/${id}`);
     return response.data;
+  },
+  getCurvaComparativa: async (signal?: AbortSignal): Promise<{
+    status: string;
+    ano_atual: number;
+    ano_anterior: number;
+    data: {
+      mes: string;
+      [key: string]: string | number;
+    }[];
+    ultima_atualizacao: string;
+  }> => {
+    const response = await api.get('/marketing/curva-comparativa', { signal });
+    return response.data;
   }
 };
 
