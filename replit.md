@@ -29,7 +29,8 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - **Critical fix:** All FastAPI route handlers converted from `async def` to `def` to prevent event loop blocking with synchronous database operations. FastAPI now runs blocking DB calls in thread pools automatically.
   - Frontend AbortController pattern cancels pending API requests on page navigation (PricingAnalysis, MarketingDashboard, EventDetail).
   - Frontend progressive loading: pages render structure immediately with inline loading indicators instead of full-screen blockers.
-  - ISC/Pricing queries return rolling averages and projections directly from SQL (no separate rolling average queries needed).
+  - ISC/Pricing queries return rolling averages, projections, and receita líquida site directly from SQL (no separate rolling average queries needed).
+  - **Ticket Médio Site (Feb 2026):** Calculated from real database data instead of hardcoded values. Ativo formula: `SUM(GREATEST(nr_preco - desconto_individual - vl_kit, 0)) / COUNT(vendas_site)`. Magento formula: `SUM(soi.price - kit_deduction(plus/super/vip) + proportional_discount - personalization) / COUNT(vendas_site)`. Magento uses aggregated subquery for personalização items to avoid row multiplication. When event has data from both sources, ticket médio is weighted average (total_receita / total_qty).
   - MySQL queries use MAX_EXECUTION_TIME hints (60s for consolidado, built-in for ISC/Pricing).
   - ISC Ativo and Magento queries run in parallel via ThreadPoolExecutor (2 workers, 60s timeout each).
   - MySQL connection timeouts: 10s connect, 90s read, 30s write on all external database engines.

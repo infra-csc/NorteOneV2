@@ -528,7 +528,11 @@ SELECT /*+ MAX_EXECUTION_TIME(120000) */
             AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             AND c.dt_pedido < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             THEN 1 END) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
-    ) AS "Projeção Final"
+    ) AS "Projeção Final",
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND c.nr_total > 0 THEN 
+        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
+    ELSE 0 END) AS "Receita Liquida Site"
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
 INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
@@ -577,12 +581,25 @@ SELECT
             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             AND so.created_at < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             THEN 1 END) / 14 * DATEDIFF(DATE(wl.final_date), CURDATE())
-    ) AS "Projeção Final"
+    ) AS "Projeção Final",
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
+        (soi.price - CASE WHEN soi.price = 0 THEN 0
+            WHEN soi.name LIKE '%%plus%%' THEN 69.00
+            WHEN soi.name LIKE '%%super%%' THEN 269.00
+            WHEN soi.name LIKE '%%vip%%' THEN 199.99
+            ELSE 0 END
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END)
+    ELSE 0 END) AS "Receita Liquida Site"
 FROM sales_order AS so
 LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
 LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
 LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
 LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     wl.final_date >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
     AND wl.final_date < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
@@ -630,6 +647,7 @@ def fetch_isc_data_ativo():
                     "media_14d_ano_passado": float(row[6]) if row[6] else 0.0,
                     "dias_ate_evento": int(row[7]) if row[7] is not None else 0,
                     "projecao_final": float(row[8]) if row[8] else 0.0,
+                    "receita_liquida_site": float(row[9]) if row[9] else 0.0,
                 }
                 for row in rows
             ]
@@ -658,6 +676,7 @@ def fetch_isc_data_magento():
                     "media_14d_ano_passado": float(row[6]) if row[6] else 0.0,
                     "dias_ate_evento": int(row[7]) if row[7] is not None else 0,
                     "projecao_final": float(row[8]) if row[8] else 0.0,
+                    "receita_liquida_site": float(row[9]) if row[9] else 0.0,
                 }
                 for row in rows
             ]
@@ -733,6 +752,7 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
             all_data[sku]['qtd_site'] += row.get('qtd_site', 0)
             all_data[sku]['media_14d'] += row.get('media_14d', 0.0)
             all_data[sku]['media_14d_ano_passado'] += row.get('media_14d_ano_passado', 0.0)
+            all_data[sku]['receita_liquida_site'] += row.get('receita_liquida_site', 0.0)
         else:
             all_data[sku] = {
                 'qtd_site': row.get('qtd_site', 0),
@@ -742,6 +762,7 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
                 'projecao_final': 0,
                 'evento_name': row.get('evento', ''),
                 'data_evento': row.get('data_evento', ''),
+                'receita_liquida_site': row.get('receita_liquida_site', 0.0),
             }
 
     if mappings and dados_magento:
@@ -757,6 +778,7 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
             all_data[sku]['qtd_site'] += row.get('qtd_site', 0)
             all_data[sku]['media_14d'] += row.get('media_14d', 0.0)
             all_data[sku]['media_14d_ano_passado'] += row.get('media_14d_ano_passado', 0.0)
+            all_data[sku]['receita_liquida_site'] += row.get('receita_liquida_site', 0.0)
         else:
             all_data[sku] = {
                 'qtd_site': row.get('qtd_site', 0),
@@ -766,6 +788,7 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
                 'projecao_final': 0,
                 'evento_name': row.get('evento', ''),
                 'data_evento': row.get('data_evento', ''),
+                'receita_liquida_site': row.get('receita_liquida_site', 0.0),
             }
 
     for sku, data in all_data.items():
@@ -1044,15 +1067,17 @@ def get_marketing_events(
             continue
         
         current_sales = 0
+        current_receita = 0.0
         seen_grupo_norms = set()
         for p in proj_list:
             p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
             if p_sku and p_sku not in seen_grupo_norms and p_sku in isc_data:
                 seen_grupo_norms.add(p_sku)
                 current_sales += isc_data[p_sku].get('qtd_site', 0)
+                current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
         
         sales_goal = total_capacity if total_capacity > 0 else 1000
-        avg_ticket = 150.0
+        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
         isc = calculate_isc(isc_components)
@@ -1115,9 +1140,10 @@ def get_marketing_events(
         sku_norm = normalize_sku(sku)
         sales_info = isc_data.get(sku_norm, {})
         current_sales = sales_info.get('qtd_site', 0)
+        current_receita = sales_info.get('receita_liquida_site', 0.0)
         
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
-        avg_ticket = 150.0
+        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
         isc = calculate_isc(isc_components)
@@ -1230,6 +1256,7 @@ def get_marketing_event_by_id(
         isc_data = fetch_isc_pricing_data(db=db)
         
         current_sales = 0
+        current_receita = 0.0
         seen_norms = set()
         for s_sku in skus:
             s_norm = normalize_sku(s_sku)
@@ -1238,6 +1265,7 @@ def get_marketing_event_by_id(
             seen_norms.add(s_norm)
             info = isc_data.get(s_norm, {})
             current_sales += info.get('qtd_site', 0)
+            current_receita += info.get('receita_liquida_site', 0.0)
         
         proj_skus = [m.sku for m in mappings]
         projetos = db.query(DimProjeto).filter(
@@ -1259,7 +1287,7 @@ def get_marketing_event_by_id(
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
         is_active = d_minus > 0
         sales_goal = total_capacity if total_capacity > 0 else 1000
-        avg_ticket = 150.0
+        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
         isc = calculate_isc(isc_components)
@@ -1341,6 +1369,7 @@ def get_marketing_event_by_id(
             skus_anterior = [m.sku for m in mappings_anterior]
             
             vendas_anterior = 0
+            receita_anterior = 0.0
             seen_norms_ant = set()
             for s_sku in skus_anterior:
                 s_norm = normalize_sku(s_sku)
@@ -1349,6 +1378,7 @@ def get_marketing_event_by_id(
                 seen_norms_ant.add(s_norm)
                 info = isc_data.get(s_norm, {})
                 vendas_anterior += info.get('qtd_site', 0)
+                receita_anterior += info.get('receita_liquida_site', 0.0)
             
             proj_skus_anterior = [m.sku for m in mappings_anterior]
             projetos_anterior = db.query(DimProjeto).filter(
@@ -1357,7 +1387,7 @@ def get_marketing_event_by_id(
             
             cap_anterior = sum(int(p.capacidade_maxima) for p in projetos_anterior if p.capacidade_maxima)
             meta_anterior = cap_anterior if cap_anterior > 0 else 1000
-            ticket_anterior = 0
+            ticket_anterior = round(receita_anterior / vendas_anterior, 2) if vendas_anterior > 0 else 0.0
             
             variacao_vendas = ((current_sales - vendas_anterior) / vendas_anterior * 100) if vendas_anterior > 0 else None
             
@@ -1366,21 +1396,21 @@ def get_marketing_event_by_id(
                 "ano_anterior": ano_anterior,
                 "atual": {
                     "vendas": current_sales,
-                    "receita": 0,
+                    "receita": round(current_receita, 2),
                     "meta": sales_goal,
                     "ticket_medio": round(avg_ticket, 2),
                     "ocupacao_pct": round(current_sales / sales_goal * 100, 1) if sales_goal > 0 else 0
                 },
                 "anterior": {
                     "vendas": vendas_anterior,
-                    "receita": 0,
+                    "receita": round(receita_anterior, 2),
                     "meta": meta_anterior,
                     "ticket_medio": round(ticket_anterior, 2),
                     "ocupacao_pct": round(vendas_anterior / meta_anterior * 100, 1) if meta_anterior > 0 else 0
                 },
                 "variacao": {
                     "vendas_pct": round(variacao_vendas, 1) if variacao_vendas is not None else None,
-                    "receita_pct": None
+                    "receita_pct": round(((current_receita - receita_anterior) / receita_anterior * 100), 1) if receita_anterior > 0 else None
                 }
             }
         
@@ -1418,9 +1448,10 @@ def get_marketing_event_by_id(
     
     sales_info = isc_data.get(normalize_sku(sku), {}) if sku else {}
     current_sales = sales_info.get('qtd_site', 0)
+    current_receita = sales_info.get('receita_liquida_site', 0.0)
     
     sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
-    avg_ticket = 150.0
+    avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
     
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
     isc = calculate_isc(isc_components)
@@ -2249,6 +2280,7 @@ def get_pricing_analysis(
         categorias_set.add(modalidade)
         
         current_sales = 0
+        current_receita = 0.0
         combined_rolling_14d = 0.0
         combined_rolling_14d_ly = 0.0
         seen_pricing_norms = set()
@@ -2257,10 +2289,11 @@ def get_pricing_analysis(
             if p_sku and p_sku not in seen_pricing_norms and p_sku in isc_data:
                 seen_pricing_norms.add(p_sku)
                 current_sales += isc_data[p_sku].get('qtd_site', 0)
+                current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
                 combined_rolling_14d += isc_data[p_sku].get('media_14d', 0.0)
                 combined_rolling_14d_ly += isc_data[p_sku].get('media_14d_ano_passado', 0.0)
         
-        average_ticket = 120.0
+        average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         sales_goal = total_capacity if total_capacity > 0 else 1000
         kit_cost = total_kit_cost / kit_count if kit_count > 0 else 50.0
         
@@ -2338,8 +2371,9 @@ def get_pricing_analysis(
         
         sales_info = isc_data.get(sku_normalized, {})
         current_sales = sales_info.get('qtd_site', 0)
+        current_receita = sales_info.get('receita_liquida_site', 0.0)
         
-        average_ticket = 120.0
+        average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         total_capacity = projeto.capacidade_maxima or 10000
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
         
