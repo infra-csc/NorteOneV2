@@ -1412,7 +1412,7 @@ def _sanitize_skus(skus: list) -> list:
     return [re.sub(r"[^a-zA-Z0-9_\-]", "", str(s)) for s in skus if s]
 
 
-def _fetch_monthly_sales_ativo_by_ids(ano_atual: int, ano_anterior: int, id_eventos: list) -> list:
+def _fetch_monthly_sales_ativo_by_ids(id_eventos: list) -> list:
     if db_module.engine_ssh is None or not id_eventos:
         return []
     try:
@@ -1422,7 +1422,6 @@ def _fetch_monthly_sales_ativo_by_ids(ano_atual: int, ano_anterior: int, id_even
         placeholders = ",".join(safe_ids)
         query = f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    YEAR(c.dt_pedido) AS ano,
     MONTH(c.dt_pedido) AS mes,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
         AND c.nr_total > 0 THEN 1 END) AS qtd,
@@ -1438,21 +1437,19 @@ LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_i
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.id_pedido_status = 2
-    AND c.dt_pedido >= '{ano_anterior}-01-01'
-    AND c.dt_pedido < '{ano_atual + 1}-01-01'
     AND b.id_evento IN ({placeholders})
-GROUP BY YEAR(c.dt_pedido), MONTH(c.dt_pedido)
-ORDER BY ano, mes
+GROUP BY MONTH(c.dt_pedido)
+ORDER BY mes
 """
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(text(query))
-            return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
+            return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Ativo by IDs: {e}")
         return []
 
 
-def _fetch_monthly_sales_magento_by_ids(ano_atual: int, ano_anterior: int, location_ids: list) -> list:
+def _fetch_monthly_sales_magento_by_ids(location_ids: list) -> list:
     if db_module.engine_magento is None or not location_ids:
         return []
     try:
@@ -1462,7 +1459,6 @@ def _fetch_monthly_sales_magento_by_ids(ano_atual: int, ano_anterior: int, locat
         placeholders = ",".join(safe_ids)
         query = f"""
 SELECT
-    YEAR(so.created_at) AS ano,
     MONTH(so.created_at) AS mes,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0 THEN 1 END) AS qtd,
@@ -1482,9 +1478,7 @@ LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.created_at >= '{ano_anterior}-01-01'
-    AND so.created_at < '{ano_atual + 1}-01-01'
-    AND so.increment_id NOT LIKE "%%-1%%"
+    so.increment_id NOT LIKE "%%-1%%"
     AND so.increment_id NOT LIKE "%%-2%%"
     AND so.increment_id NOT LIKE "%%-3%%"
     AND so.increment_id NOT LIKE "%%-4%%"
@@ -1503,12 +1497,12 @@ WHERE
     AND so.status IN ('Processing', 'Complete', 'approved')
     AND soi.product_type = 'Bundle'
     AND so.location_pickup_id IN ({placeholders})
-GROUP BY YEAR(so.created_at), MONTH(so.created_at)
-ORDER BY ano, mes
+GROUP BY MONTH(so.created_at)
+ORDER BY mes
 """
         with db_module.engine_magento.connect() as conn:
             result = conn.execute(text(query))
-            return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
+            return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Magento by IDs: {e}")
         return []
@@ -1580,26 +1574,46 @@ def get_curva_comparativa_evento(
             if not all_mappings:
                 all_mappings = []
 
-    ids_ativo = list(set([m.id_externo for m in all_mappings if m.fonte == 'ATIVO']))
-    ids_magento = list(set([m.id_externo for m in all_mappings if m.fonte == 'MAGENTO']))
+    mappings_atual = [m for m in all_mappings if m.ano == ano]
+    mappings_anterior = [m for m in all_mappings if m.ano == ano_anterior]
 
-    if not ids_ativo and not ids_magento:
+    ids_ativo_atual = list(set([m.id_externo for m in mappings_atual if m.fonte == 'ATIVO']))
+    ids_magento_atual = list(set([m.id_externo for m in mappings_atual if m.fonte == 'MAGENTO']))
+    ids_ativo_anterior = list(set([m.id_externo for m in mappings_anterior if m.fonte == 'ATIVO']))
+    ids_magento_anterior = list(set([m.id_externo for m in mappings_anterior if m.fonte == 'MAGENTO']))
+
+    all_ids = ids_ativo_atual + ids_magento_atual + ids_ativo_anterior + ids_magento_anterior
+    if not all_ids:
         return {"status": "success", "ano_atual": ano, "ano_anterior": ano_anterior, "data": [], "evento_nome": ""}
 
-    future_ativo = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ano, ano_anterior, ids_ativo)
-    future_magento = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ano, ano_anterior, ids_magento)
+    future_ativo_atual = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ids_ativo_atual)
+    future_magento_atual = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ids_magento_atual)
+    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ids_ativo_anterior)
+    future_magento_anterior = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ids_magento_anterior)
 
     try:
-        dados_ativo = future_ativo.result(timeout=60)
+        dados_ativo_atual = future_ativo_atual.result(timeout=60)
     except Exception as e:
-        logger.error(f"Curva comparativa evento Ativo timeout: {e}")
-        dados_ativo = []
+        logger.error(f"Curva comparativa Ativo atual timeout: {e}")
+        dados_ativo_atual = []
 
     try:
-        dados_magento = future_magento.result(timeout=60)
+        dados_magento_atual = future_magento_atual.result(timeout=60)
     except Exception as e:
-        logger.error(f"Curva comparativa evento Magento timeout: {e}")
-        dados_magento = []
+        logger.error(f"Curva comparativa Magento atual timeout: {e}")
+        dados_magento_atual = []
+
+    try:
+        dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Curva comparativa Ativo anterior timeout: {e}")
+        dados_ativo_anterior = []
+
+    try:
+        dados_magento_anterior = future_magento_anterior.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Curva comparativa Magento anterior timeout: {e}")
+        dados_magento_anterior = []
 
     meses_labels = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
@@ -1613,16 +1627,17 @@ def get_curva_comparativa_evento(
             f"receita_{ano_anterior}": 0.0,
         }
 
-    for row in dados_ativo + dados_magento:
+    for row in dados_ativo_atual + dados_magento_atual:
         m = row["mes"]
-        a = row["ano"]
         if 1 <= m <= 12:
-            if a == ano:
-                monthly[m][f"vendas_{ano}"] += row["qtd"]
-                monthly[m][f"receita_{ano}"] += row["receita"]
-            elif a == ano_anterior:
-                monthly[m][f"vendas_{ano_anterior}"] += row["qtd"]
-                monthly[m][f"receita_{ano_anterior}"] += row["receita"]
+            monthly[m][f"vendas_{ano}"] += row["qtd"]
+            monthly[m][f"receita_{ano}"] += row["receita"]
+
+    for row in dados_ativo_anterior + dados_magento_anterior:
+        m = row["mes"]
+        if 1 <= m <= 12:
+            monthly[m][f"vendas_{ano_anterior}"] += row["qtd"]
+            monthly[m][f"receita_{ano_anterior}"] += row["receita"]
 
     data = []
     acum_atual = 0
@@ -2333,7 +2348,7 @@ def fetch_rolling_avg_magento() -> dict:
         return {}
 
 
-_rolling_avg_executor = ThreadPoolExecutor(max_workers=2)
+_rolling_avg_executor = ThreadPoolExecutor(max_workers=4)
 
 def fetch_consolidated_rolling_averages() -> dict:
     global _rolling_avg_cache, _rolling_avg_cache_timestamp
