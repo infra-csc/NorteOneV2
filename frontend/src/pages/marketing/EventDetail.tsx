@@ -79,7 +79,7 @@ const EventDetail: React.FC = () => {
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
 
-  const isConsolidated = id?.startsWith('ec_') ?? false;
+  const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {

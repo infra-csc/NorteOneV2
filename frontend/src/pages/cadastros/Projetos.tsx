@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { projetosService, atletasExternosService, AtletaExternoPorProjeto, inscricoesConsolidadasService, InscricaoConsolidada } from '../../services/api';
+import api from '../../services/api';
 import { Projeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
 import { 
@@ -173,6 +174,7 @@ const Projetos: React.FC = () => {
   const [erroExternos, setErroExternos] = useState<string | null>(null);
   const [loadingConsolidados, setLoadingConsolidados] = useState(false);
   const [lastConsolidadosUpdate, setLastConsolidadosUpdate] = useState<Date | null>(null);
+  const [skusDisponiveis, setSkusDisponiveis] = useState<{sku: string, nome_evento: string, evento_grupo: string, ano: number, fonte: string}[]>([]);
 
   // Estado dos filtros
   const [filtros, setFiltros] = useState<Filtros>({
@@ -210,6 +212,15 @@ const Projetos: React.FC = () => {
     }
   };
 
+  const loadSkusDisponiveis = async () => {
+    try {
+      const response = await api.get('/projetos/skus-disponiveis');
+      setSkusDisponiveis(response.data);
+    } catch (error) {
+      console.error('Erro ao carregar SKUs:', error);
+    }
+  };
+
   // Carregar dados com filtros
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -239,6 +250,7 @@ const Projetos: React.FC = () => {
 
   useEffect(() => { 
     loadFiltros();
+    loadSkusDisponiveis();
   }, []);
 
   useEffect(() => { 
@@ -1332,14 +1344,24 @@ const Projetos: React.FC = () => {
               {/* Basic Info */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
-                  <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Código</label>
+                  <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Código (SKU)</label>
                   <input 
                     type="text" 
                     value={form.codigo} 
-                    onChange={(e) => setForm({ ...form, codigo: e.target.value })} 
-                    className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all`}
+                    onChange={(e) => setForm({ ...form, codigo: e.target.value.toUpperCase() })}
+                    list="skus-disponiveis-list"
+                    className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all font-mono`}
                     required 
+                    placeholder="Digite ou selecione um SKU"
                   />
+                  <datalist id="skus-disponiveis-list">
+                    {skusDisponiveis.map(s => (
+                      <option key={`${s.sku}-${s.fonte}`} value={s.sku}>{s.nome_evento} ({s.evento_grupo} - {s.ano})</option>
+                    ))}
+                  </datalist>
+                  <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    SKUs disponíveis dos mapeamentos cadastrados
+                  </p>
                 </div>
                 <div>
                   <label className={`block text-sm font-bold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Produto</label>

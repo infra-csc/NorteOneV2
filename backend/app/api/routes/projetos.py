@@ -156,6 +156,31 @@ def list_projetos_com_atletas(
     return projetos_com_atletas
 
 
+@router.get("/skus-disponiveis")
+def get_skus_disponiveis(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Retorna SKUs disponíveis dos mapeamentos para seleção no cadastro de projetos."""
+    from ...models.dimensoes import SkuMapping
+    mappings = db.query(
+        SkuMapping.sku, SkuMapping.nome_evento, SkuMapping.evento_grupo, SkuMapping.ano, SkuMapping.fonte
+    ).filter(
+        SkuMapping.ativo == True
+    ).order_by(SkuMapping.evento_grupo, SkuMapping.ano.desc()).all()
+    
+    return [
+        {
+            "sku": m.sku,
+            "nome_evento": m.nome_evento,
+            "evento_grupo": m.evento_grupo,
+            "ano": m.ano,
+            "fonte": m.fonte
+        }
+        for m in mappings
+    ]
+
+
 @router.get("/filtros")
 def get_filtros_disponiveis(
     db: Session = Depends(get_db),

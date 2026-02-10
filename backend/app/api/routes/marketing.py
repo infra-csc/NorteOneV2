@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from ...core.database import get_db, engine_ativo, engine_ssh
 from ...core import database as db_module
 from ...core.security import get_current_user
-from ...models.dimensoes import DimProjeto, EventoConsolidado, SkuMapping
+from ...models.dimensoes import DimProjeto, EventoConsolidado, SkuMapping, EventoGrupo as EventoGrupoModel
 from ...models.user import Usuario
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from .inscricoes_consolidado import normalize_sku
@@ -595,42 +595,43 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
     return sales_by_sku
 
 
-def _build_sku_to_consolidado_map(db: Session, ano: int) -> dict:
+def _build_sku_to_grupo_map(db: Session, ano: int) -> dict:
     """
-    Constrói mapeamento: SKU normalizado -> evento_consolidado_id
+    Constrói mapeamento: SKU normalizado -> evento_grupo
     para o ano solicitado.
     """
     mappings = db.query(SkuMapping).filter(
         SkuMapping.ano == ano,
         SkuMapping.ativo == True,
-        SkuMapping.evento_consolidado_id.isnot(None)
+        SkuMapping.evento_grupo.isnot(None),
+        SkuMapping.evento_grupo != ''
     ).all()
     
-    sku_to_ec = {}
+    sku_to_grupo = {}
     for m in mappings:
         sku_norm = normalize_sku(m.sku)
         if sku_norm:
-            sku_to_ec[sku_norm] = m.evento_consolidado_id
-    return sku_to_ec
+            sku_to_grupo[sku_norm] = m.evento_grupo
+    return sku_to_grupo
 
 
-def _aggregate_consolidated_sales(sales_data: dict, sku_to_ec: dict) -> dict:
+def _aggregate_grupo_sales(sales_data: dict, sku_to_grupo: dict) -> dict:
     """
-    Agrega vendas de múltiplos SKUs que pertencem ao mesmo EventoConsolidado.
-    Retorna: {evento_consolidado_id: {qtd_ativo, valor_ativo, qtd_magento, valor_magento}}
+    Agrega vendas de múltiplos SKUs que pertencem ao mesmo evento_grupo.
+    Retorna: {evento_grupo: {qtd_ativo, valor_ativo, qtd_magento, valor_magento}}
     """
-    ec_sales = {}
+    grupo_sales = {}
     for sku, sales in sales_data.items():
-        ec_id = sku_to_ec.get(sku)
-        if ec_id is None:
+        grupo = sku_to_grupo.get(sku)
+        if grupo is None:
             continue
-        if ec_id not in ec_sales:
-            ec_sales[ec_id] = {'qtd_ativo': 0, 'valor_ativo': 0.0, 'qtd_magento': 0, 'valor_magento': 0.0}
-        ec_sales[ec_id]['qtd_ativo'] += sales.get('qtd_ativo', 0)
-        ec_sales[ec_id]['valor_ativo'] += sales.get('valor_ativo', 0.0)
-        ec_sales[ec_id]['qtd_magento'] += sales.get('qtd_magento', 0)
-        ec_sales[ec_id]['valor_magento'] += sales.get('valor_magento', 0.0)
-    return ec_sales
+        if grupo not in grupo_sales:
+            grupo_sales[grupo] = {'qtd_ativo': 0, 'valor_ativo': 0.0, 'qtd_magento': 0, 'valor_magento': 0.0}
+        grupo_sales[grupo]['qtd_ativo'] += sales.get('qtd_ativo', 0)
+        grupo_sales[grupo]['valor_ativo'] += sales.get('valor_ativo', 0.0)
+        grupo_sales[grupo]['qtd_magento'] += sales.get('qtd_magento', 0)
+        grupo_sales[grupo]['valor_magento'] += sales.get('valor_magento', 0.0)
+    return grupo_sales
 
 
 @router.get("/eventos", response_model=MarketingEventsResponse)
@@ -645,7 +646,7 @@ def get_marketing_events(
     """
     Retorna eventos para o Dashboard ISC com dados consolidados de vendas
     dos bancos Ativo e Magento.
-    Agrupa projetos por EventoConsolidado quando disponível.
+    Agrupa projetos por EventoGrupo quando disponível.
     """
     if ano is None:
         ano = datetime.now().year
@@ -666,20 +667,20 @@ def get_marketing_events(
     skus = [str(p.codigo) for p in projetos if p.codigo]
     sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
     
-    sku_to_ec = _build_sku_to_consolidado_map(db, ano)
+    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     
-    ec_sales = _aggregate_consolidated_sales(sales_data, sku_to_ec)
+    grupo_sales = _aggregate_grupo_sales(sales_data, sku_to_grupo)
     
-    ec_details = {}
-    if ec_sales:
-        ec_list = db.query(EventoConsolidado).filter(
-            EventoConsolidado.id.in_(list(ec_sales.keys())),
-            EventoConsolidado.ativo == True
+    grupo_details = {}
+    if grupo_sales:
+        grupo_list = db.query(EventoGrupoModel).filter(
+            EventoGrupoModel.nome.in_(list(grupo_sales.keys())),
+            EventoGrupoModel.ativo == True
         ).all()
-        for ec in ec_list:
-            ec_details[ec.id] = ec
+        for g in grupo_list:
+            grupo_details[g.nome] = g
     
-    ec_projetos = {}
+    grupo_projetos = {}
     standalone_projetos = []
     
     for projeto in projetos:
@@ -688,12 +689,12 @@ def get_marketing_events(
             continue
         
         sku_norm = normalize_sku(projeto_codigo)
-        ec_id = sku_to_ec.get(sku_norm)
+        grupo_nome = sku_to_grupo.get(sku_norm)
         
-        if ec_id and ec_id in ec_details:
-            if ec_id not in ec_projetos:
-                ec_projetos[ec_id] = []
-            ec_projetos[ec_id].append(projeto)
+        if grupo_nome and grupo_nome in grupo_details:
+            if grupo_nome not in grupo_projetos:
+                grupo_projetos[grupo_nome] = []
+            grupo_projetos[grupo_nome].append(projeto)
         else:
             standalone_projetos.append(projeto)
     
@@ -704,8 +705,8 @@ def get_marketing_events(
     events_red = 0
     active_count = 0
     
-    for ec_id, proj_list in ec_projetos.items():
-        ec = ec_details[ec_id]
+    for grupo_nome, proj_list in grupo_projetos.items():
+        grupo = grupo_details[grupo_nome]
         
         total_capacity = 0
         latest_date = None
@@ -728,7 +729,7 @@ def get_marketing_events(
         if status == 'closed' and is_active:
             continue
         
-        sales_info = ec_sales.get(ec_id, {})
+        sales_info = grupo_sales.get(grupo_nome, {})
         current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
         total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
         
@@ -759,8 +760,8 @@ def get_marketing_events(
         skus_list = [str(p.codigo) for p in proj_list if p.codigo]
         
         evento = MarketingEvent(
-            id=f"ec_{ec_id}",
-            name=ec.nome,
+            id=f"grp_{grupo_nome}",
+            name=grupo.nome,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
             location=projeto_cidade or projeto_estado or "Não definido",
             category=projeto_modalidade or "Corrida",
@@ -887,21 +888,21 @@ def get_marketing_event_by_id(
 ):
     """
     Retorna os dados de um evento específico pelo ID.
-    Suporta IDs de EventoConsolidado (prefixo 'ec_') e DimProjeto (número puro).
+    Suporta IDs de EventoGrupo (prefixo 'grp_') e DimProjeto (número puro).
     """
-    is_consolidated = evento_id.startswith("ec_")
+    is_grouped = evento_id.startswith("grp_")
     
-    if is_consolidated:
-        ec_id = int(evento_id.replace("ec_", ""))
-        ec = db.query(EventoConsolidado).filter(EventoConsolidado.id == ec_id).first()
-        if not ec:
-            raise HTTPException(status_code=404, detail="Evento consolidado não encontrado")
+    if is_grouped:
+        grupo_nome = evento_id.replace("grp_", "")
+        grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
+        if not grupo:
+            raise HTTPException(status_code=404, detail="Grupo de evento não encontrado")
         
         if ano is None:
             ano = datetime.now().year
         
         mappings = db.query(SkuMapping).filter(
-            SkuMapping.evento_consolidado_id == ec_id,
+            SkuMapping.evento_grupo == grupo_nome,
             SkuMapping.ano == ano,
             SkuMapping.ativo == True
         ).all()
@@ -950,7 +951,7 @@ def get_marketing_event_by_id(
         
         evento = MarketingEvent(
             id=evento_id,
-            name=ec.nome,
+            name=grupo.nome,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
             location=projeto_cidade or projeto_estado or "Não definido",
             category=projeto_modalidade or "Corrida",
@@ -1009,7 +1010,7 @@ def get_marketing_event_by_id(
         
         ano_anterior = ano - 1
         mappings_anterior = db.query(SkuMapping).filter(
-            SkuMapping.evento_consolidado_id == ec_id,
+            SkuMapping.evento_grupo == grupo_nome,
             SkuMapping.ano == ano_anterior,
             SkuMapping.ativo == True
         ).all()
@@ -1063,7 +1064,7 @@ def get_marketing_event_by_id(
             }
         
         anos_disponiveis = db.query(SkuMapping.ano).filter(
-            SkuMapping.evento_consolidado_id == ec_id,
+            SkuMapping.evento_grupo == grupo_nome,
             SkuMapping.ativo == True
         ).distinct().order_by(SkuMapping.ano.desc()).all()
         
@@ -1861,13 +1862,147 @@ def get_pricing_analysis(
     
     rolling_averages = fetch_consolidated_rolling_averages()
     
+    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+    grupo_sales = _aggregate_grupo_sales(sales_data, sku_to_grupo)
+    
+    grupo_details = {}
+    if grupo_sales:
+        grupo_list = db.query(EventoGrupoModel).filter(
+            EventoGrupoModel.nome.in_(list(grupo_sales.keys())),
+            EventoGrupoModel.ativo == True
+        ).all()
+        for g in grupo_list:
+            grupo_details[g.nome] = g
+    
+    grupo_projetos = {}
+    standalone_projetos = []
+    
+    for projeto in projetos:
+        projeto_codigo = str(projeto.codigo) if projeto.codigo else None
+        if not projeto_codigo:
+            continue
+        sku_norm = normalize_sku(projeto_codigo)
+        grupo_nome = sku_to_grupo.get(sku_norm)
+        if grupo_nome and grupo_nome in grupo_details:
+            if grupo_nome not in grupo_projetos:
+                grupo_projetos[grupo_nome] = []
+            grupo_projetos[grupo_nome].append(projeto)
+        else:
+            standalone_projetos.append(projeto)
+    
     eventos = []
     categorias_set: set[str] = set()
     events_increase = 0
     events_maintain = 0
     events_decrease = 0
     
-    for projeto in projetos:
+    for grupo_nome, proj_list in grupo_projetos.items():
+        grupo = grupo_details[grupo_nome]
+        
+        total_capacity = 0
+        latest_date = None
+        rep_projeto = proj_list[0]
+        total_kit_cost = 0.0
+        kit_count = 0
+        
+        for p in proj_list:
+            if p.capacidade_maxima:
+                total_capacity += int(p.capacidade_maxima)
+            if p.data_evento:
+                if latest_date is None or p.data_evento > latest_date:
+                    latest_date = p.data_evento
+                    rep_projeto = p
+            kc = kit_costs.get(p.id, 50.0)
+            total_kit_cost += kc
+            kit_count += 1
+        
+        projeto_data_evento = latest_date or rep_projeto.data_evento
+        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        is_active = d_minus > 0
+        
+        if status == 'active' and not is_active:
+            continue
+        if status == 'closed' and is_active:
+            continue
+        
+        modalidade = rep_projeto.modalidade or 'OUTROS'
+        categorias_set.add(modalidade)
+        
+        sales_info = grupo_sales.get(grupo_nome, {})
+        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
+        total_value = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        
+        average_ticket = total_value / current_sales if current_sales > 0 else 120.0
+        sales_goal = total_capacity if total_capacity > 0 else 1000
+        kit_cost = total_kit_cost / kit_count if kit_count > 0 else 50.0
+        
+        all_skus = [str(p.codigo) for p in proj_list if p.codigo]
+        combined_rolling_14d = None
+        combined_rolling_14d_ly = 0.0
+        for s in all_skus:
+            s_norm = normalize_sku(s)
+            ri = rolling_averages.get(s_norm, {})
+            r14 = ri.get('media_14d_atual', None)
+            if r14 is not None:
+                combined_rolling_14d = (combined_rolling_14d or 0) + r14
+            combined_rolling_14d_ly += ri.get('media_14d_ano_passado', 0.0)
+        
+        if combined_rolling_14d is not None and combined_rolling_14d == 0 and current_sales > 0:
+            elapsed_days = max(1, 90 - d_minus)
+            combined_rolling_14d = current_sales / elapsed_days
+        
+        pricing_metrics = calculate_pricing_metrics(
+            current_sales=current_sales,
+            sales_goal=sales_goal,
+            d_minus=d_minus,
+            average_ticket=average_ticket,
+            kit_cost=kit_cost,
+            total_capacity=total_capacity if total_capacity > 0 else 10000,
+            rolling_avg_14d_real=combined_rolling_14d,
+            rolling_avg_14d_last_year=combined_rolling_14d_ly
+        )
+        
+        elasticity_scenarios = calculate_elasticity_scenarios(
+            average_ticket=average_ticket,
+            kit_cost=kit_cost,
+            rolling_avg_14d=pricing_metrics.rollingAvg14d
+        )
+        
+        decision = get_pricing_decision(pricing_metrics, d_minus)
+        
+        if decision.action in ['increase_now', 'increase_gradual']:
+            events_increase += 1
+        elif decision.action == 'decrease':
+            events_decrease += 1
+        else:
+            events_maintain += 1
+        
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        isc = calculate_isc(isc_components)
+        isc_status = get_isc_status(isc)
+        
+        evento = PricingEvent(
+            id=f"grp_{grupo_nome}",
+            name=grupo.nome,
+            date=projeto_data_evento.isoformat() if projeto_data_evento else "",
+            location=rep_projeto.cidade or "Local não definido",
+            category=modalidade,
+            totalCapacity=total_capacity if total_capacity > 0 else 10000,
+            currentSales=current_sales,
+            salesGoal=sales_goal,
+            averageTicket=round(average_ticket, 2),
+            kitCost=round(kit_cost, 2),
+            dMinus=d_minus,
+            isActive=is_active,
+            sku=",".join(all_skus),
+            pricingMetrics=pricing_metrics,
+            elasticityScenarios=elasticity_scenarios,
+            decision=decision,
+            iscStatus=isc_status
+        )
+        eventos.append(evento)
+    
+    for projeto in standalone_projetos:
         projeto_codigo = str(projeto.codigo) if projeto.codigo else None
         if not projeto_codigo:
             continue
