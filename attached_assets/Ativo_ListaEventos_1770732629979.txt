@@ -1,0 +1,11 @@
+SELECT
+    -- GERAL DO EVENTO
+    b.id_evento AS "id de evento",
+    b.id_campanha_salesforce AS 'SKU',
+    b.ds_evento AS "Evento",
+    DATE(b.dt_evento) AS "Data Evento"
+
+FROM sa_evento AS b 
+WHERE 
+    YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    AND (b.id_campanha_salesforce NOT LIKE '701d0000000%' OR b.id_campanha_salesforce IS NULL)

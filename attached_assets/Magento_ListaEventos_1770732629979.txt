@@ -1,0 +1,17 @@
+SELECT
+    -- GERAL DO EVENTO
+  wl.location_id as "id de evento",
+  
+ REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+    REPLACE(wl.`name`, 'Retirada de kit - CE', 'Circuito das Estações'),
+    'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
+     'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
+     'SSA', 'Salvador') AS "Evento",
+    wl.final_date as "data de Evento"
+  
+   
+FROM webpos_location AS wl 
+ 
+WHERE 
+    YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    
