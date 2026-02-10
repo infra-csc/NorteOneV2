@@ -740,6 +740,22 @@ export const marketingService = {
   }> => {
     const response = await api.get('/marketing/curva-comparativa', { signal });
     return response.data;
+  },
+  getCurvaComparativaEvento: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<{
+    status: string;
+    ano_atual: number;
+    ano_anterior: number;
+    data: {
+      mes: string;
+      [key: string]: string | number;
+    }[];
+    evento_nome: string;
+    ultima_atualizacao: string;
+  }> => {
+    const params: any = {};
+    if (ano) params.ano = ano;
+    const response = await api.get(`/marketing/curva-comparativa/${eventoId}`, { signal, params });
+    return response.data;
   }
 };
 

@@ -79,9 +79,16 @@ const EventDetail: React.FC = () => {
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
   const [avisos, setAvisos] = useState<string[]>([]);
+  const [curvaData, setCurvaData] = useState<any[]>([]);
+  const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
+  const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
+  const [curvaLoading, setCurvaLoading] = useState(false);
+  const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
+  const [curvaView, setCurvaView] = useState<'mensal' | 'acumulado'>('mensal');
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
+  const curvaAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -146,6 +153,37 @@ const EventDetail: React.FC = () => {
     
     fetchEvent();
     return () => { controller.abort(); };
+  }, [id, anoParam]);
+
+  useEffect(() => {
+    if (!id) return;
+    if (curvaAbortRef.current) {
+      curvaAbortRef.current.abort();
+    }
+    const curvaController = new AbortController();
+    curvaAbortRef.current = curvaController;
+
+    const fetchCurva = async () => {
+      try {
+        setCurvaLoading(true);
+        const response = await marketingService.getCurvaComparativaEvento(id, curvaController.signal, anoParam);
+        if (!curvaController.signal.aborted) {
+          setCurvaData(response.data);
+          setCurvaAnoAtual(response.ano_atual);
+          setCurvaAnoAnterior(response.ano_anterior);
+        }
+      } catch (err: any) {
+        if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
+        console.error('Erro ao carregar curva comparativa do evento:', err);
+      } finally {
+        if (!curvaController.signal.aborted) {
+          setCurvaLoading(false);
+        }
+      }
+    };
+
+    fetchCurva();
+    return () => { curvaController.abort(); };
   }, [id, anoParam]);
 
   if (loading || !event) {
@@ -828,6 +866,189 @@ const EventDetail: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <Activity className="w-5 h-5 text-blue-500" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Curva Comparativa: {curvaAnoAnterior} vs {curvaAnoAtual}
+            </h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+              <button
+                onClick={() => setCurvaMode('vendas')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  curvaMode === 'vendas' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                }`}
+              >
+                Inscrições
+              </button>
+              <button
+                onClick={() => setCurvaMode('receita')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  curvaMode === 'receita' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                }`}
+              >
+                Receita
+              </button>
+            </div>
+            <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+              <button
+                onClick={() => setCurvaView('mensal')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  curvaView === 'mensal' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                }`}
+              >
+                Mensal
+              </button>
+              <button
+                onClick={() => setCurvaView('acumulado')}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  curvaView === 'acumulado' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                }`}
+              >
+                Acumulado
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {curvaLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+            <span className="ml-3 text-gray-500 dark:text-gray-400">Carregando curva comparativa...</span>
+          </div>
+        ) : curvaData.length === 0 ? (
+          <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+            Sem dados disponíveis para a curva comparativa deste evento.
+          </div>
+        ) : curvaView === 'mensal' && curvaMode === 'vendas' ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+              <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{ 
+                  backgroundColor: isDark ? '#1f2937' : '#fff',
+                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#fff' : '#111'
+                }}
+                formatter={(value: any) => [formatNumber(Number(value || 0)), '']}
+              />
+              <Legend />
+              <Bar dataKey={`vendas_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey={`vendas_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : curvaView === 'mensal' && curvaMode === 'receita' ? (
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+              <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
+              <Tooltip
+                contentStyle={{ 
+                  backgroundColor: isDark ? '#1f2937' : '#fff',
+                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#fff' : '#111'
+                }}
+                formatter={(value: any) => [formatCurrency(Number(value || 0)), '']}
+              />
+              <Legend />
+              <Bar dataKey={`receita_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+              <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+              <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }}
+                tickFormatter={curvaMode === 'receita' ? (v) => `R$${(v/1000).toFixed(0)}k` : undefined}
+              />
+              <Tooltip
+                contentStyle={{ 
+                  backgroundColor: isDark ? '#1f2937' : '#fff',
+                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                  borderRadius: '8px',
+                  color: isDark ? '#fff' : '#111'
+                }}
+                formatter={(value: any) => [curvaMode === 'receita' ? formatCurrency(Number(value || 0)) : formatNumber(Number(value || 0)), '']}
+              />
+              <Legend />
+              <Line 
+                type="monotone" 
+                dataKey={curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`}
+                name={`${curvaAnoAnterior}`} 
+                stroke="#94a3b8" 
+                strokeWidth={2} 
+                dot={{ r: 4, fill: '#94a3b8' }} 
+                strokeDasharray="5 5"
+              />
+              <Line 
+                type="monotone" 
+                dataKey={curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`}
+                name={`${curvaAnoAtual}`} 
+                stroke={curvaMode === 'vendas' ? '#3b82f6' : '#10b981'}
+                strokeWidth={2.5} 
+                dot={{ r: 4, fill: curvaMode === 'vendas' ? '#3b82f6' : '#10b981' }} 
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+
+        {!curvaLoading && curvaData.length > 0 && (
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            {(() => {
+              const currentMonth = new Date().getMonth();
+              const totalAtual = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAtual}`]) || 0), 0);
+              const totalAnterior = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAnterior}`]) || 0), 0);
+              const receitaAtual = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAtual}`]) || 0), 0);
+              const receitaAnterior = curvaData.slice(0, currentMonth + 1).reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAnterior}`]) || 0), 0);
+              const varVendas = totalAnterior > 0 ? ((totalAtual - totalAnterior) / totalAnterior * 100) : 0;
+              const varReceita = receitaAnterior > 0 ? ((receitaAtual - receitaAnterior) / receitaAnterior * 100) : 0;
+              return (
+                <>
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAtual} (YTD)</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalAtual)}</p>
+                  </div>
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAnterior} (YTD)</p>
+                    <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(totalAnterior)}</p>
+                  </div>
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Variação Inscrições</p>
+                    <p className={`text-lg font-bold ${varVendas >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {varVendas >= 0 ? '+' : ''}{varVendas.toFixed(1)}%
+                    </p>
+                  </div>
+                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Variação Receita</p>
+                    <p className={`text-lg font-bold ${varReceita >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {varReceita >= 0 ? '+' : ''}{varReceita.toFixed(1)}%
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
