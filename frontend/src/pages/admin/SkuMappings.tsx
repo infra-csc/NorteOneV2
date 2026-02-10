@@ -143,7 +143,12 @@ const SkuMappings: React.FC = () => {
     setLoadingEventos(true);
     setEventosError(null);
     try {
-      const res = await api.get('/admin/sku-mappings/descobrir-eventos');
+      const res = await api.get('/admin/sku-mappings/descobrir-eventos', { timeout: 90000 });
+      if (!res.data) {
+        setEventosError('Resposta vazia do servidor');
+        setEventosLoaded(true);
+        return;
+      }
       const sugeridos = (res.data.eventos_sugeridos || []).map((e: EventoSugerido) => ({
         ...e,
         selecionado: true,
@@ -159,7 +164,11 @@ const SkuMappings: React.FC = () => {
       setEventosSemMatch(semMatch);
       setEventosLoaded(true);
     } catch (err: any) {
-      setEventosError(err.response?.data?.detail || 'Erro ao buscar eventos externos. Verifique a conexão com os bancos.');
+      const msg = err.code === 'ECONNABORTED' 
+        ? 'Tempo limite excedido. Os bancos externos podem estar lentos ou indisponíveis.'
+        : err.response?.data?.detail || 'Erro ao buscar eventos externos. Verifique a conexão com os bancos.';
+      setEventosError(msg);
+      setEventosLoaded(true);
     } finally {
       setLoadingEventos(false);
     }
@@ -180,6 +189,7 @@ const SkuMappings: React.FC = () => {
 
   useEffect(() => {
     fetchMappings();
+    fetchEventoGrupos();
   }, []);
 
   useEffect(() => {
@@ -647,11 +657,12 @@ const SkuMappings: React.FC = () => {
                                       {evento.sku_sugerido || evento.sku_original || '-'}
                                     </td>
                                     <td className="p-3">
-                                      <input type="text" value={evento.evento_grupo_editado || ''}
+                                      <select value={evento.evento_grupo_editado || ''}
                                         onChange={(e) => updateEventoGrupoField(index, e.target.value, 'sugerido')}
-                                        list="grupos-eventos-list"
-                                        className={`w-full px-2 py-1 text-sm rounded border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                                        placeholder="Grupo" />
+                                        className={`w-full px-2 py-1 text-sm rounded border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}>
+                                        <option value="">Selecione...</option>
+                                        {allGrupoNames.map(g => <option key={g} value={g}>{g}</option>)}
+                                      </select>
                                     </td>
                                     <td className="p-3">
                                       <span className={`px-2 py-1 text-xs rounded-full ${
@@ -712,11 +723,12 @@ const SkuMappings: React.FC = () => {
                                         placeholder="SKU" />
                                     </td>
                                     <td className="p-3">
-                                      <input type="text" value={evento.evento_grupo_editado || ''}
+                                      <select value={evento.evento_grupo_editado || ''}
                                         onChange={(e) => updateEventoGrupoField(index, e.target.value, 'semMatch')}
-                                        list="grupos-eventos-list"
-                                        className={`w-full px-2 py-1 text-sm rounded border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                                        placeholder="Grupo" />
+                                        className={`w-full px-2 py-1 text-sm rounded border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}>
+                                        <option value="">Selecione...</option>
+                                        {allGrupoNames.map(g => <option key={g} value={g}>{g}</option>)}
+                                      </select>
                                     </td>
                                   </tr>
                                 ))}
@@ -725,10 +737,6 @@ const SkuMappings: React.FC = () => {
                           </div>
                         </div>
                       )}
-
-                      <datalist id="grupos-eventos-list">
-                        {allGrupoNames.map(g => <option key={g} value={g} />)}
-                      </datalist>
 
                       <div className={`flex justify-between items-center pt-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                         <div className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -885,14 +893,13 @@ const SkuMappings: React.FC = () => {
               </div>
               <div>
                 <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Grupo do Evento *</label>
-                <input type="text" required value={formData.evento_grupo} onChange={(e) => setFormData({ ...formData, evento_grupo: e.target.value })}
-                  placeholder="Ex: CORRIDA_ESPORTE_PLANALTO" list="grupos-form-list"
-                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-emerald-500`} />
-                <datalist id="grupos-form-list">
-                  {allGrupoNames.map(g => <option key={g} value={g} />)}
-                </datalist>
+                <select required value={formData.evento_grupo} onChange={(e) => setFormData({ ...formData, evento_grupo: e.target.value })}
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-emerald-500`}>
+                  <option value="">Selecione um grupo...</option>
+                  {allGrupoNames.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
                 <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                  Use o mesmo grupo para eventos equivalentes em anos diferentes
+                  Cadastre novos grupos na aba "Grupos de Evento"
                 </p>
               </div>
               <div className="flex items-center gap-2">
