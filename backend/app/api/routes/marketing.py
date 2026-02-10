@@ -499,20 +499,21 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
 _sales_cache = {}
 _cache_timestamp = None
 
-def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: bool = False) -> dict:
+def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: bool = False, db: Session = None) -> dict:
     """
     Busca vendas consolidadas (Ativo + Magento) para uma lista de SKUs.
     Usa cache para evitar queries repetidas.
-    Retorna dict com SKU como chave.
+    Retorna dict com SKU normalizado como chave.
     
     Args:
         skus: Lista de SKUs para buscar
         ano: Ano do evento
         apenas_site: Se True, retorna apenas vendas do canal Site (excluindo Grupos e Cortesia).
                      Se False (default), retorna vendas totais (Site + Grupos + Cortesia).
+        db: Sessão do banco para buscar mapeamentos de SKU (opcional mas recomendado).
     """
     global _sales_cache, _cache_timestamp
-    from .inscricoes_consolidado import fetch_ativo_data, fetch_magento_data
+    from .inscricoes_consolidado import fetch_ativo_data, fetch_magento_data, get_sku_mappings_from_db, enrich_with_mappings
     import time
     
     sales_by_sku = {}
@@ -520,8 +521,11 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
     if not skus:
         return sales_by_sku
     
+    import copy
+    
     skus_normalized = [normalize_sku(s) for s in skus]
-    cache_key = f"{ano}_{'site' if apenas_site else 'total'}"
+    enriched = db is not None
+    cache_key = f"{ano}_{'site' if apenas_site else 'total'}_{'enriched' if enriched else 'raw'}"
     
     current_time = time.time()
     cache_valid = _cache_timestamp and (current_time - _cache_timestamp) < 300
@@ -533,11 +537,21 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
                 sales_by_sku[sku] = cached_data[sku].copy()
         return sales_by_sku
     
+    mappings = None
+    if db:
+        try:
+            mappings = get_sku_mappings_from_db(db, ano)
+        except Exception as e:
+            logger.warning(f"Erro ao buscar mapeamentos SKU: {e}")
+    
     all_sales = {}
     
     try:
         dados_ativo, error = fetch_ativo_data(ano)
         if dados_ativo:
+            if mappings:
+                dados_ativo = copy.deepcopy(dados_ativo)
+                dados_ativo = enrich_with_mappings(dados_ativo, mappings, "ativo", ano)
             for row in dados_ativo:
                 sku = normalize_sku(row.get('sku', '') or '')
                 if sku:
@@ -547,12 +561,16 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
                     else:
                         qtd = int(row.get('qtd_vendida', 0) or 0)
                         valor = float(row.get('inscricao_liquida', 0) or 0)
-                    all_sales[sku] = {
-                        'qtd_ativo': qtd,
-                        'valor_ativo': valor,
-                        'qtd_magento': 0,
-                        'valor_magento': 0
-                    }
+                    if sku in all_sales:
+                        all_sales[sku]['qtd_ativo'] += qtd
+                        all_sales[sku]['valor_ativo'] += valor
+                    else:
+                        all_sales[sku] = {
+                            'qtd_ativo': qtd,
+                            'valor_ativo': valor,
+                            'qtd_magento': 0,
+                            'valor_magento': 0
+                        }
         else:
             logger.warning(f"Sem dados Ativo: {error}")
     except Exception as e:
@@ -561,6 +579,9 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
     try:
         dados_magento, error = fetch_magento_data(ano)
         if dados_magento:
+            if mappings:
+                dados_magento = copy.deepcopy(dados_magento)
+                dados_magento = enrich_with_mappings(dados_magento, mappings, "magento", ano)
             for row in dados_magento:
                 sku = normalize_sku(row.get('sku', '') or '')
                 if sku:
@@ -571,8 +592,8 @@ def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: boo
                         qtd = int(row.get('qtd_vendida', 0) or 0)
                         valor = float(row.get('inscricao_liquida', 0) or 0)
                     if sku in all_sales:
-                        all_sales[sku]['qtd_magento'] = qtd
-                        all_sales[sku]['valor_magento'] = valor
+                        all_sales[sku]['qtd_magento'] += qtd
+                        all_sales[sku]['valor_magento'] += valor
                     else:
                         all_sales[sku] = {
                             'qtd_ativo': 0,
@@ -665,7 +686,7 @@ def get_marketing_events(
     projetos = query.all()
     
     skus = [str(p.codigo) for p in projetos if p.codigo]
-    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
+    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True, db=db)
     
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     
@@ -794,7 +815,8 @@ def get_marketing_events(
         if status == 'closed' and is_active:
             continue
         
-        sales_info = sales_data.get(sku, {})
+        sku_norm = normalize_sku(sku)
+        sales_info = sales_data.get(sku_norm, {})
         current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
         total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
         
@@ -908,12 +930,16 @@ def get_marketing_event_by_id(
         ).all()
         
         skus = [m.sku for m in mappings]
-        sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
+        sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True, db=db)
         
         current_sales = 0
         total_revenue = 0.0
+        seen_norms = set()
         for s_sku in skus:
             s_norm = normalize_sku(s_sku)
+            if s_norm in seen_norms:
+                continue
+            seen_norms.add(s_norm)
             info = sales_data.get(s_norm, {})
             current_sales += info.get('qtd_ativo', 0) + info.get('qtd_magento', 0)
             total_revenue += info.get('valor_ativo', 0) + info.get('valor_magento', 0)
@@ -1018,12 +1044,16 @@ def get_marketing_event_by_id(
         comparacao_anual = None
         if mappings_anterior:
             skus_anterior = [m.sku for m in mappings_anterior]
-            sales_data_anterior = fetch_consolidated_sales_by_skus(skus_anterior, ano_anterior, apenas_site=True)
+            sales_data_anterior = fetch_consolidated_sales_by_skus(skus_anterior, ano_anterior, apenas_site=True, db=db)
             
             vendas_anterior = 0
             receita_anterior = 0.0
+            seen_norms_ant = set()
             for s_sku in skus_anterior:
                 s_norm = normalize_sku(s_sku)
+                if s_norm in seen_norms_ant:
+                    continue
+                seen_norms_ant.add(s_norm)
                 info = sales_data_anterior.get(s_norm, {})
                 vendas_anterior += info.get('qtd_ativo', 0) + info.get('qtd_magento', 0)
                 receita_anterior += info.get('valor_ativo', 0) + info.get('valor_magento', 0)
@@ -1092,9 +1122,9 @@ def get_marketing_event_by_id(
     
     if ano is None:
         ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
-    sales_data = fetch_consolidated_sales_by_skus([sku] if sku else [], ano, apenas_site=True)
+    sales_data = fetch_consolidated_sales_by_skus([sku] if sku else [], ano, apenas_site=True, db=db)
     
-    sales_info = sales_data.get(sku, {}) if sku else {}
+    sales_info = sales_data.get(normalize_sku(sku), {}) if sku else {}
     current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
     total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
     
@@ -1855,7 +1885,7 @@ def get_pricing_analysis(
     projetos = query.all()
     
     skus = [str(p.codigo) for p in projetos if p.codigo]
-    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True)
+    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True, db=db)
     
     projeto_ids = [p.id for p in projetos if p.id]
     kit_costs = get_kit_basico_costs_batch(db, projeto_ids)
@@ -2021,7 +2051,7 @@ def get_pricing_analysis(
         modalidade = projeto.modalidade or 'OUTROS'
         categorias_set.add(modalidade)
         
-        sales_info = sales_data.get(sku, {})
+        sales_info = sales_data.get(sku_normalized, {})
         current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
         total_value = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
         
