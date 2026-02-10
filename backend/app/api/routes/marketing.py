@@ -1412,14 +1412,14 @@ def _sanitize_skus(skus: list) -> list:
     return [re.sub(r"[^a-zA-Z0-9_\-]", "", str(s)) for s in skus if s]
 
 
-def _fetch_monthly_sales_ativo_by_skus(ano_atual: int, ano_anterior: int, skus: list) -> list:
-    if db_module.engine_ssh is None or not skus:
+def _fetch_monthly_sales_ativo_by_ids(ano_atual: int, ano_anterior: int, id_eventos: list) -> list:
+    if db_module.engine_ssh is None or not id_eventos:
         return []
     try:
-        safe_skus = _sanitize_skus(skus)
-        if not safe_skus:
+        safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
             return []
-        placeholders = ",".join([f"'{s}'" for s in safe_skus])
+        placeholders = ",".join(safe_ids)
         query = f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     YEAR(c.dt_pedido) AS ano,
@@ -1438,9 +1438,9 @@ LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_i
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.id_pedido_status = 2
-    AND YEAR(c.dt_pedido) IN ({ano_atual}, {ano_anterior})
-    AND (b.id_campanha_salesforce NOT LIKE '701d0000000%%' OR b.id_campanha_salesforce IS NULL)
-    AND b.id_campanha_salesforce IN ({placeholders})
+    AND c.dt_pedido >= '{ano_anterior}-01-01'
+    AND c.dt_pedido < '{ano_atual + 1}-01-01'
+    AND b.id_evento IN ({placeholders})
 GROUP BY YEAR(c.dt_pedido), MONTH(c.dt_pedido)
 ORDER BY ano, mes
 """
@@ -1448,18 +1448,18 @@ ORDER BY ano, mes
             result = conn.execute(text(query))
             return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
     except Exception as e:
-        logger.error(f"Erro monthly sales Ativo by SKUs: {e}")
+        logger.error(f"Erro monthly sales Ativo by IDs: {e}")
         return []
 
 
-def _fetch_monthly_sales_magento_by_skus(ano_atual: int, ano_anterior: int, skus: list) -> list:
-    if db_module.engine_magento is None or not skus:
+def _fetch_monthly_sales_magento_by_ids(ano_atual: int, ano_anterior: int, location_ids: list) -> list:
+    if db_module.engine_magento is None or not location_ids:
         return []
     try:
-        safe_skus = _sanitize_skus(skus)
-        if not safe_skus:
+        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        if not safe_ids:
             return []
-        placeholders = ",".join([f"'{s}'" for s in safe_skus])
+        placeholders = ",".join(safe_ids)
         query = f"""
 SELECT
     YEAR(so.created_at) AS ano,
@@ -1479,13 +1479,11 @@ SELECT
     ELSE 0 END) AS receita
 FROM sales_order AS so
 LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
-LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
-LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
-LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    YEAR(so.created_at) IN ({ano_atual}, {ano_anterior})
+    so.created_at >= '{ano_anterior}-01-01'
+    AND so.created_at < '{ano_atual + 1}-01-01'
     AND so.increment_id NOT LIKE "%%-1%%"
     AND so.increment_id NOT LIKE "%%-2%%"
     AND so.increment_id NOT LIKE "%%-3%%"
@@ -1504,7 +1502,7 @@ WHERE
     AND so.increment_id NOT LIKE "%%-16%%"
     AND so.status IN ('Processing', 'Complete', 'approved')
     AND soi.product_type = 'Bundle'
-    AND d.sku IN ({placeholders})
+    AND so.location_pickup_id IN ({placeholders})
 GROUP BY YEAR(so.created_at), MONTH(so.created_at)
 ORDER BY ano, mes
 """
@@ -1512,7 +1510,7 @@ ORDER BY ano, mes
             result = conn.execute(text(query))
             return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
     except Exception as e:
-        logger.error(f"Erro monthly sales Magento by SKUs: {e}")
+        logger.error(f"Erro monthly sales Magento by IDs: {e}")
         return []
 
 
@@ -1545,18 +1543,11 @@ def get_curva_comparativa_evento(
             ano = datetime.now().year
         ano_anterior = ano - 1
 
-        mappings_atual = db.query(SkuMapping).filter(
+        all_mappings = db.query(SkuMapping).filter(
             SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano == ano,
+            SkuMapping.ano.in_([ano, ano_anterior]),
             SkuMapping.ativo == True
         ).all()
-        mappings_anterior = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano == ano_anterior,
-            SkuMapping.ativo == True
-        ).all()
-
-        skus_all = list(set([m.sku for m in mappings_atual] + [m.sku for m in mappings_anterior]))
     else:
         projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
         if not projeto:
@@ -1581,15 +1572,22 @@ def get_curva_comparativa_evento(
                 SkuMapping.ano.in_([ano, ano_anterior]),
                 SkuMapping.ativo == True
             ).all()
-            skus_all = list(set([m.sku for m in all_mappings]))
         else:
-            skus_all = [sku]
+            all_mappings = db.query(SkuMapping).filter(
+                SkuMapping.sku == sku,
+                SkuMapping.ativo == True
+            ).all()
+            if not all_mappings:
+                all_mappings = []
 
-    if not skus_all:
+    ids_ativo = list(set([m.id_externo for m in all_mappings if m.fonte == 'ATIVO']))
+    ids_magento = list(set([m.id_externo for m in all_mappings if m.fonte == 'MAGENTO']))
+
+    if not ids_ativo and not ids_magento:
         return {"status": "success", "ano_atual": ano, "ano_anterior": ano_anterior, "data": [], "evento_nome": ""}
 
-    future_ativo = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_skus, ano, ano_anterior, skus_all)
-    future_magento = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_skus, ano, ano_anterior, skus_all)
+    future_ativo = _rolling_avg_executor.submit(_fetch_monthly_sales_ativo_by_ids, ano, ano_anterior, ids_ativo)
+    future_magento = _rolling_avg_executor.submit(_fetch_monthly_sales_magento_by_ids, ano, ano_anterior, ids_magento)
 
     try:
         dados_ativo = future_ativo.result(timeout=60)
