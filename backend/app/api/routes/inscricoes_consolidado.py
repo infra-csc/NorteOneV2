@@ -231,7 +231,7 @@ def build_query_ativo(ano: int) -> str:
     Inclui mapeamento de id_evento para SKU.
     """
     return f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     b.id_evento AS id_evento,
     b.id_campanha_salesforce AS sku,
     b.ds_evento AS evento,
@@ -309,7 +309,7 @@ def build_query_magento(ano: int) -> str:
     Inclui mapeamento de location_id para SKU.
     """
     return f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     wl.location_id AS id_evento,
     COALESCE(d.sku, '') AS sku,
     wl.name AS evento,
@@ -463,8 +463,7 @@ def fetch_magento_data(ano: int = 2026):
         query = build_query_magento(ano)
         logger.info(f"Buscando dados do banco Magento (ano={ano})...")
         
-        engine_with_timeout = db_module.engine_magento.execution_options(timeout=60)
-        with engine_with_timeout.connect() as conn:
+        with db_module.engine_magento.connect() as conn:
             result = conn.execute(text(query))
             rows = result.fetchall()
             logger.info(f"Banco Magento: {len(rows)} registros para {ano}")

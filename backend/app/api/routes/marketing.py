@@ -496,6 +496,361 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
     
     return costs
 
+_isc_cache = {}
+_isc_cache_timestamp = None
+
+def build_query_isc_ativo() -> str:
+    return """
+SELECT
+    b.id_evento AS "id de evento",
+    b.id_campanha_salesforce AS 'SKU',
+    b.ds_evento AS "Evento",
+    DATE(b.dt_evento) AS "Data Evento",
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+        AND c.nr_total > 0 THEN 1 END) AS "Qtd Site Atual",
+    (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+     FROM sa_pedido_evento pe
+     INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+     LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+     LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+     LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+     WHERE pe.id_evento = b.id_evento
+     AND p.id_pedido_status = 2
+     AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+     AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
+     AND p.nr_total > 0
+    ) / 14 AS "Média Diária Últimos 14 Dias",
+    (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+     FROM sa_pedido_evento pe
+     INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+     LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+     LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+     LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+     WHERE pe.id_evento = b.id_evento
+     AND p.id_pedido_status = 2
+     AND DATE(p.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                               AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+     AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
+     AND p.nr_total > 0
+    ) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
+    DATEDIFF(DATE(b.dt_evento), CURDATE()) AS "Dias Até Evento",
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+        AND c.nr_total > 0 THEN 1 END) + 
+    (
+        (SELECT COUNT(DISTINCT pe.id_pedido_evento)
+         FROM sa_pedido_evento pe
+         INNER JOIN sa_pedido p ON p.id_pedido = pe.id_pedido
+         LEFT JOIN sa_modalidade_categoria mc ON pe.id_categoria = mc.id_categoria
+         LEFT JOIN sa_cupom_desconto_item cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
+         LEFT JOIN sa_cupom_desconto cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
+         WHERE pe.id_evento = b.id_evento
+         AND p.id_pedido_status = 2
+         AND DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+         AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
+         AND p.nr_total > 0
+        ) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
+    ) AS "Projeção Final"
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE 
+    YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    AND c.id_pedido_status = 2
+    AND (b.id_campanha_salesforce NOT LIKE '701d0000000%%' OR b.id_campanha_salesforce IS NULL)
+GROUP BY b.id_evento, b.ds_evento, b.dt_evento
+ORDER BY b.dt_evento
+"""
+
+
+def build_query_isc_magento() -> str:
+    return """
+SELECT
+    wl.location_id AS "id de evento",
+    d.sku AS 'SKU',
+    REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+        REPLACE(wl.`name`, 'Retirada de kit - CE', 'Circuito das Estações'),
+        'Retirada de Kit - CE', 'Circuito das Estações'),'Retirada de KIt - CE', 'Circuito das Estações'),
+        'Retirada de Kit- CE', 'Circuito das Estações'),'Retirada de Kit - ', ''),'Retirada de kit - ', ''),
+        'SSA', 'Salvador') AS "Evento",
+    wl.final_date AS "Data Evento",
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS "Qtd Site Atual",
+    (SELECT COUNT(DISTINCT so2.entity_id)
+     FROM sales_order so2
+     INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+     INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+     WHERE wl2.location_id = wl.location_id
+     AND so2.status IN ('Processing', 'Complete', 'approved')
+     AND soi2.product_type = 'Bundle'
+     AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+     AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%%Grup%%')
+     AND so2.base_grand_total > 0
+     AND so2.increment_id NOT LIKE "%%-1%%"
+     AND so2.increment_id NOT LIKE "%%-2%%"
+     AND so2.increment_id NOT LIKE "%%-3%%"
+     AND so2.increment_id NOT LIKE "%%-4%%"
+     AND so2.increment_id NOT LIKE "%%-5%%"
+     AND so2.increment_id NOT LIKE "%%-6%%"
+     AND so2.increment_id NOT LIKE "%%-7%%"
+     AND so2.increment_id NOT LIKE "%%-8%%"
+     AND so2.increment_id NOT LIKE "%%-9%%"
+     AND so2.increment_id NOT LIKE "%%-10%%"
+     AND so2.increment_id NOT LIKE "%%-11%%"
+     AND so2.increment_id NOT LIKE "%%-12%%"
+     AND so2.increment_id NOT LIKE "%%-13%%"
+     AND so2.increment_id NOT LIKE "%%-14%%"
+     AND so2.increment_id NOT LIKE "%%-15%%"
+     AND so2.increment_id NOT LIKE "%%-16%%"
+     AND so2.increment_id NOT LIKE "%%-17%%"
+    ) / 14 AS "Média Diária Últimos 14 Dias",
+    (SELECT COUNT(DISTINCT so2.entity_id)
+     FROM sales_order so2
+     INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+     INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+     WHERE wl2.location_id = wl.location_id
+     AND so2.status IN ('Processing', 'Complete', 'approved')
+     AND soi2.product_type = 'Bundle'
+     AND DATE(so2.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
+                                  AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+     AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%%Grup%%')
+     AND so2.base_grand_total > 0
+     AND so2.increment_id NOT LIKE "%%-1%%"
+     AND so2.increment_id NOT LIKE "%%-2%%"
+     AND so2.increment_id NOT LIKE "%%-3%%"
+     AND so2.increment_id NOT LIKE "%%-4%%"
+     AND so2.increment_id NOT LIKE "%%-5%%"
+     AND so2.increment_id NOT LIKE "%%-6%%"
+     AND so2.increment_id NOT LIKE "%%-7%%"
+     AND so2.increment_id NOT LIKE "%%-8%%"
+     AND so2.increment_id NOT LIKE "%%-9%%"
+     AND so2.increment_id NOT LIKE "%%-10%%"
+     AND so2.increment_id NOT LIKE "%%-11%%"
+     AND so2.increment_id NOT LIKE "%%-12%%"
+     AND so2.increment_id NOT LIKE "%%-13%%"
+     AND so2.increment_id NOT LIKE "%%-14%%"
+     AND so2.increment_id NOT LIKE "%%-15%%"
+     AND so2.increment_id NOT LIKE "%%-16%%"
+     AND so2.increment_id NOT LIKE "%%-17%%"
+    ) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
+    DATEDIFF(DATE(wl.final_date), CURDATE()) AS "Dias Até Evento",
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) + 
+    (
+        (SELECT COUNT(DISTINCT so2.entity_id)
+         FROM sales_order so2
+         INNER JOIN sales_order_item soi2 ON soi2.order_id = so2.entity_id
+         INNER JOIN webpos_location wl2 ON so2.location_pickup_id = wl2.location_id
+         WHERE wl2.location_id = wl.location_id
+         AND so2.status IN ('Processing', 'Complete', 'approved')
+         AND soi2.product_type = 'Bundle'
+         AND DATE(so2.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
+         AND (so2.discount_description IS NULL OR so2.discount_description NOT LIKE '%%Grup%%')
+         AND so2.base_grand_total > 0
+         AND so2.increment_id NOT LIKE "%%-1%%"
+         AND so2.increment_id NOT LIKE "%%-2%%"
+         AND so2.increment_id NOT LIKE "%%-3%%"
+         AND so2.increment_id NOT LIKE "%%-4%%"
+         AND so2.increment_id NOT LIKE "%%-5%%"
+         AND so2.increment_id NOT LIKE "%%-6%%"
+         AND so2.increment_id NOT LIKE "%%-7%%"
+         AND so2.increment_id NOT LIKE "%%-8%%"
+         AND so2.increment_id NOT LIKE "%%-9%%"
+         AND so2.increment_id NOT LIKE "%%-10%%"
+         AND so2.increment_id NOT LIKE "%%-11%%"
+         AND so2.increment_id NOT LIKE "%%-12%%"
+         AND so2.increment_id NOT LIKE "%%-13%%"
+         AND so2.increment_id NOT LIKE "%%-14%%"
+         AND so2.increment_id NOT LIKE "%%-15%%"
+         AND so2.increment_id NOT LIKE "%%-16%%"
+         AND so2.increment_id NOT LIKE "%%-17%%"
+        ) / 14 * DATEDIFF(DATE(wl.final_date), CURDATE())
+    ) AS "Projeção Final"
+FROM sales_order AS so
+LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
+LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
+LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
+LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
+WHERE
+    YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    AND so.increment_id NOT LIKE "%%-1%%"
+    AND so.increment_id NOT LIKE "%%-2%%"
+    AND so.increment_id NOT LIKE "%%-3%%"
+    AND so.increment_id NOT LIKE "%%-4%%"
+    AND so.increment_id NOT LIKE "%%-5%%"
+    AND so.increment_id NOT LIKE "%%-6%%"
+    AND so.increment_id NOT LIKE "%%-7%%"
+    AND so.increment_id NOT LIKE "%%-8%%"
+    AND so.increment_id NOT LIKE "%%-9%%"
+    AND so.increment_id NOT LIKE "%%-10%%"
+    AND so.increment_id NOT LIKE "%%-11%%"
+    AND so.increment_id NOT LIKE "%%-12%%"
+    AND so.increment_id NOT LIKE "%%-13%%"
+    AND so.increment_id NOT LIKE "%%-14%%"
+    AND so.increment_id NOT LIKE "%%-15%%"
+    AND so.increment_id NOT LIKE "%%-16%%"
+    AND so.increment_id NOT LIKE "%%-17%%"
+    AND so.status IN ('Processing', 'Complete', 'approved')
+    AND soi.product_type = 'Bundle'
+GROUP BY wl.location_id, wl.name, wl.final_date, d.sku
+ORDER BY wl.final_date
+"""
+
+
+def fetch_isc_data_ativo() -> list:
+    if db_module.engine_ssh is None:
+        return []
+    try:
+        query = build_query_isc_ativo()
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            logger.info(f"ISC Ativo: {len(rows)} registros")
+            return [
+                {
+                    "id_evento": str(row[0]) if row[0] else None,
+                    "sku": str(row[1]) if row[1] else None,
+                    "evento": str(row[2]) if row[2] else None,
+                    "data_evento": str(row[3]) if row[3] else None,
+                    "qtd_site": int(row[4]) if row[4] else 0,
+                    "media_14d": float(row[5]) if row[5] else 0.0,
+                    "media_14d_ano_passado": float(row[6]) if row[6] else 0.0,
+                    "dias_ate_evento": int(row[7]) if row[7] is not None else 0,
+                    "projecao_final": float(row[8]) if row[8] else 0.0,
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.error(f"Erro ISC Ativo: {e}")
+        return []
+
+
+def fetch_isc_data_magento() -> list:
+    if db_module.engine_magento is None:
+        return []
+    try:
+        query = build_query_isc_magento()
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(query))
+            rows = result.fetchall()
+            logger.info(f"ISC Magento: {len(rows)} registros")
+            return [
+                {
+                    "id_evento": str(row[0]) if row[0] else None,
+                    "sku": str(row[1]) if row[1] else None,
+                    "evento": str(row[2]) if row[2] else None,
+                    "data_evento": str(row[3]) if row[3] else None,
+                    "qtd_site": int(row[4]) if row[4] else 0,
+                    "media_14d": float(row[5]) if row[5] else 0.0,
+                    "media_14d_ano_passado": float(row[6]) if row[6] else 0.0,
+                    "dias_ate_evento": int(row[7]) if row[7] is not None else 0,
+                    "projecao_final": float(row[8]) if row[8] else 0.0,
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        logger.error(f"Erro ISC Magento: {e}")
+        return []
+
+
+def fetch_isc_pricing_data(db: Session = None) -> dict:
+    global _isc_cache, _isc_cache_timestamp
+    import time
+
+    current_time = time.time()
+    cache_valid = _isc_cache_timestamp and (current_time - _isc_cache_timestamp) < 300
+
+    if cache_valid and _isc_cache:
+        return _isc_cache
+
+    from .inscricoes_consolidado import get_sku_mappings_from_db, enrich_with_mappings
+
+    mappings = None
+    if db:
+        try:
+            current_year = datetime.now().year
+            mappings = get_sku_mappings_from_db(db, current_year)
+        except Exception as e:
+            logger.warning(f"Erro ao buscar mapeamentos SKU para ISC: {e}")
+
+    all_data = {}
+
+    future_ativo = _rolling_avg_executor.submit(fetch_isc_data_ativo)
+    future_magento = _rolling_avg_executor.submit(fetch_isc_data_magento)
+
+    try:
+        dados_ativo = future_ativo.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Timeout ISC Ativo: {e}")
+        dados_ativo = []
+
+    try:
+        dados_magento = future_magento.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Timeout ISC Magento: {e}")
+        dados_magento = []
+
+    if mappings and dados_ativo:
+        import copy
+        dados_ativo = copy.deepcopy(dados_ativo)
+        dados_ativo = enrich_with_mappings(dados_ativo, mappings, "ativo", datetime.now().year)
+
+    for row in dados_ativo:
+        sku = normalize_sku(row.get('sku', '') or '')
+        if not sku:
+            continue
+        if sku in all_data:
+            all_data[sku]['qtd_site'] += row.get('qtd_site', 0)
+            all_data[sku]['media_14d'] += row.get('media_14d', 0.0)
+            all_data[sku]['media_14d_ano_passado'] += row.get('media_14d_ano_passado', 0.0)
+        else:
+            all_data[sku] = {
+                'qtd_site': row.get('qtd_site', 0),
+                'media_14d': row.get('media_14d', 0.0),
+                'media_14d_ano_passado': row.get('media_14d_ano_passado', 0.0),
+                'dias_ate_evento': row.get('dias_ate_evento', 0),
+                'projecao_final': 0,
+                'evento_name': row.get('evento', ''),
+                'data_evento': row.get('data_evento', ''),
+            }
+
+    if mappings and dados_magento:
+        import copy
+        dados_magento = copy.deepcopy(dados_magento)
+        dados_magento = enrich_with_mappings(dados_magento, mappings, "magento", datetime.now().year)
+
+    for row in dados_magento:
+        sku = normalize_sku(row.get('sku', '') or '')
+        if not sku:
+            continue
+        if sku in all_data:
+            all_data[sku]['qtd_site'] += row.get('qtd_site', 0)
+            all_data[sku]['media_14d'] += row.get('media_14d', 0.0)
+            all_data[sku]['media_14d_ano_passado'] += row.get('media_14d_ano_passado', 0.0)
+        else:
+            all_data[sku] = {
+                'qtd_site': row.get('qtd_site', 0),
+                'media_14d': row.get('media_14d', 0.0),
+                'media_14d_ano_passado': row.get('media_14d_ano_passado', 0.0),
+                'dias_ate_evento': row.get('dias_ate_evento', 0),
+                'projecao_final': 0,
+                'evento_name': row.get('evento', ''),
+                'data_evento': row.get('data_evento', ''),
+            }
+
+    for sku, data in all_data.items():
+        dias = max(data['dias_ate_evento'], 0)
+        data['projecao_final'] = data['qtd_site'] + data['media_14d'] * dias
+
+    _isc_cache = all_data
+    _isc_cache_timestamp = current_time
+
+    logger.info(f"ISC/Pricing data consolidado: {len(all_data)} SKUs")
+    return all_data
+
+
 _sales_cache = {}
 _cache_timestamp = None
 
@@ -685,17 +1040,15 @@ def get_marketing_events(
     
     projetos = query.all()
     
-    skus = [str(p.codigo) for p in projetos if p.codigo]
-    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True, db=db)
+    isc_data = fetch_isc_pricing_data(db=db)
     
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     
-    grupo_sales = _aggregate_grupo_sales(sales_data, sku_to_grupo)
-    
+    grupo_names_set = set(sku_to_grupo.values())
     grupo_details = {}
-    if grupo_sales:
+    if grupo_names_set:
         grupo_list = db.query(EventoGrupoModel).filter(
-            EventoGrupoModel.nome.in_(list(grupo_sales.keys())),
+            EventoGrupoModel.nome.in_(list(grupo_names_set)),
             EventoGrupoModel.ativo == True
         ).all()
         for g in grupo_list:
@@ -750,12 +1103,16 @@ def get_marketing_events(
         if status == 'closed' and is_active:
             continue
         
-        sales_info = grupo_sales.get(grupo_nome, {})
-        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
-        total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        current_sales = 0
+        seen_grupo_norms = set()
+        for p in proj_list:
+            p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
+            if p_sku and p_sku not in seen_grupo_norms and p_sku in isc_data:
+                seen_grupo_norms.add(p_sku)
+                current_sales += isc_data[p_sku].get('qtd_site', 0)
         
         sales_goal = total_capacity if total_capacity > 0 else 1000
-        avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
+        avg_ticket = 150.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
         isc = calculate_isc(isc_components)
@@ -816,12 +1173,11 @@ def get_marketing_events(
             continue
         
         sku_norm = normalize_sku(sku)
-        sales_info = sales_data.get(sku_norm, {})
-        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
-        total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        sales_info = isc_data.get(sku_norm, {})
+        current_sales = sales_info.get('qtd_site', 0)
         
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
-        avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
+        avg_ticket = 150.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
         isc = calculate_isc(isc_components)
@@ -930,19 +1286,17 @@ def get_marketing_event_by_id(
         ).all()
         
         skus = [m.sku for m in mappings]
-        sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True, db=db)
+        isc_data = fetch_isc_pricing_data(db=db)
         
         current_sales = 0
-        total_revenue = 0.0
         seen_norms = set()
         for s_sku in skus:
             s_norm = normalize_sku(s_sku)
             if s_norm in seen_norms:
                 continue
             seen_norms.add(s_norm)
-            info = sales_data.get(s_norm, {})
-            current_sales += info.get('qtd_ativo', 0) + info.get('qtd_magento', 0)
-            total_revenue += info.get('valor_ativo', 0) + info.get('valor_magento', 0)
+            info = isc_data.get(s_norm, {})
+            current_sales += info.get('qtd_site', 0)
         
         proj_skus = [m.sku for m in mappings]
         projetos = db.query(DimProjeto).filter(
@@ -964,7 +1318,7 @@ def get_marketing_event_by_id(
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
         is_active = d_minus > 0
         sales_goal = total_capacity if total_capacity > 0 else 1000
-        avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
+        avg_ticket = 150.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
         isc = calculate_isc(isc_components)
@@ -1044,19 +1398,16 @@ def get_marketing_event_by_id(
         comparacao_anual = None
         if mappings_anterior:
             skus_anterior = [m.sku for m in mappings_anterior]
-            sales_data_anterior = fetch_consolidated_sales_by_skus(skus_anterior, ano_anterior, apenas_site=True, db=db)
             
             vendas_anterior = 0
-            receita_anterior = 0.0
             seen_norms_ant = set()
             for s_sku in skus_anterior:
                 s_norm = normalize_sku(s_sku)
                 if s_norm in seen_norms_ant:
                     continue
                 seen_norms_ant.add(s_norm)
-                info = sales_data_anterior.get(s_norm, {})
-                vendas_anterior += info.get('qtd_ativo', 0) + info.get('qtd_magento', 0)
-                receita_anterior += info.get('valor_ativo', 0) + info.get('valor_magento', 0)
+                info = isc_data.get(s_norm, {})
+                vendas_anterior += info.get('qtd_site', 0)
             
             proj_skus_anterior = [m.sku for m in mappings_anterior]
             projetos_anterior = db.query(DimProjeto).filter(
@@ -1065,31 +1416,30 @@ def get_marketing_event_by_id(
             
             cap_anterior = sum(int(p.capacidade_maxima) for p in projetos_anterior if p.capacidade_maxima)
             meta_anterior = cap_anterior if cap_anterior > 0 else 1000
-            ticket_anterior = receita_anterior / vendas_anterior if vendas_anterior > 0 else 0
+            ticket_anterior = 0
             
             variacao_vendas = ((current_sales - vendas_anterior) / vendas_anterior * 100) if vendas_anterior > 0 else None
-            variacao_receita = ((total_revenue - receita_anterior) / receita_anterior * 100) if receita_anterior > 0 else None
             
             comparacao_anual = {
                 "ano_atual": ano,
                 "ano_anterior": ano_anterior,
                 "atual": {
                     "vendas": current_sales,
-                    "receita": round(total_revenue, 2),
+                    "receita": 0,
                     "meta": sales_goal,
                     "ticket_medio": round(avg_ticket, 2),
                     "ocupacao_pct": round(current_sales / sales_goal * 100, 1) if sales_goal > 0 else 0
                 },
                 "anterior": {
                     "vendas": vendas_anterior,
-                    "receita": round(receita_anterior, 2),
+                    "receita": 0,
                     "meta": meta_anterior,
                     "ticket_medio": round(ticket_anterior, 2),
                     "ocupacao_pct": round(vendas_anterior / meta_anterior * 100, 1) if meta_anterior > 0 else 0
                 },
                 "variacao": {
                     "vendas_pct": round(variacao_vendas, 1) if variacao_vendas is not None else None,
-                    "receita_pct": round(variacao_receita, 1) if variacao_receita is not None else None
+                    "receita_pct": None
                 }
             }
         
@@ -1122,14 +1472,13 @@ def get_marketing_event_by_id(
     
     if ano is None:
         ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
-    sales_data = fetch_consolidated_sales_by_skus([sku] if sku else [], ano, apenas_site=True, db=db)
+    isc_data = fetch_isc_pricing_data(db=db)
     
-    sales_info = sales_data.get(normalize_sku(sku), {}) if sku else {}
-    current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
-    total_revenue = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+    sales_info = isc_data.get(normalize_sku(sku), {}) if sku else {}
+    current_sales = sales_info.get('qtd_site', 0)
     
     sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
-    avg_ticket = total_revenue / current_sales if current_sales > 0 else 150.0
+    avg_ticket = 150.0
     
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
     isc = calculate_isc(isc_components)
@@ -1884,21 +2233,18 @@ def get_pricing_analysis(
     
     projetos = query.all()
     
-    skus = [str(p.codigo) for p in projetos if p.codigo]
-    sales_data = fetch_consolidated_sales_by_skus(skus, ano, apenas_site=True, db=db)
+    isc_data = fetch_isc_pricing_data(db=db)
     
     projeto_ids = [p.id for p in projetos if p.id]
     kit_costs = get_kit_basico_costs_batch(db, projeto_ids)
     
-    rolling_averages = fetch_consolidated_rolling_averages()
-    
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
-    grupo_sales = _aggregate_grupo_sales(sales_data, sku_to_grupo)
     
+    grupo_names_set = set(sku_to_grupo.values())
     grupo_details = {}
-    if grupo_sales:
+    if grupo_names_set:
         grupo_list = db.query(EventoGrupoModel).filter(
-            EventoGrupoModel.nome.in_(list(grupo_sales.keys())),
+            EventoGrupoModel.nome.in_(list(grupo_names_set)),
             EventoGrupoModel.ativo == True
         ).all()
         for g in grupo_list:
@@ -1958,28 +2304,23 @@ def get_pricing_analysis(
         modalidade = rep_projeto.modalidade or 'OUTROS'
         categorias_set.add(modalidade)
         
-        sales_info = grupo_sales.get(grupo_nome, {})
-        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
-        total_value = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        current_sales = 0
+        combined_rolling_14d = 0.0
+        combined_rolling_14d_ly = 0.0
+        seen_pricing_norms = set()
+        for p in proj_list:
+            p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
+            if p_sku and p_sku not in seen_pricing_norms and p_sku in isc_data:
+                seen_pricing_norms.add(p_sku)
+                current_sales += isc_data[p_sku].get('qtd_site', 0)
+                combined_rolling_14d += isc_data[p_sku].get('media_14d', 0.0)
+                combined_rolling_14d_ly += isc_data[p_sku].get('media_14d_ano_passado', 0.0)
         
-        average_ticket = total_value / current_sales if current_sales > 0 else 120.0
+        average_ticket = 120.0
         sales_goal = total_capacity if total_capacity > 0 else 1000
         kit_cost = total_kit_cost / kit_count if kit_count > 0 else 50.0
         
         all_skus = [str(p.codigo) for p in proj_list if p.codigo]
-        combined_rolling_14d = None
-        combined_rolling_14d_ly = 0.0
-        for s in all_skus:
-            s_norm = normalize_sku(s)
-            ri = rolling_averages.get(s_norm, {})
-            r14 = ri.get('media_14d_atual', None)
-            if r14 is not None:
-                combined_rolling_14d = (combined_rolling_14d or 0) + r14
-            combined_rolling_14d_ly += ri.get('media_14d_ano_passado', 0.0)
-        
-        if combined_rolling_14d is not None and combined_rolling_14d == 0 and current_sales > 0:
-            elapsed_days = max(1, 90 - d_minus)
-            combined_rolling_14d = current_sales / elapsed_days
         
         pricing_metrics = calculate_pricing_metrics(
             current_sales=current_sales,
@@ -2051,23 +2392,17 @@ def get_pricing_analysis(
         modalidade = projeto.modalidade or 'OUTROS'
         categorias_set.add(modalidade)
         
-        sales_info = sales_data.get(sku_normalized, {})
-        current_sales = sales_info.get('qtd_ativo', 0) + sales_info.get('qtd_magento', 0)
-        total_value = sales_info.get('valor_ativo', 0) + sales_info.get('valor_magento', 0)
+        sales_info = isc_data.get(sku_normalized, {})
+        current_sales = sales_info.get('qtd_site', 0)
         
-        average_ticket = total_value / current_sales if current_sales > 0 else 120.0
+        average_ticket = 120.0
         total_capacity = projeto.capacidade_maxima or 10000
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
         
         kit_cost = kit_costs.get(projeto.id, 50.0)
         
-        rolling_info = rolling_averages.get(sku_normalized, {})
-        rolling_avg_14d_real = rolling_info.get('media_14d_atual', None)
-        rolling_avg_14d_last_year = rolling_info.get('media_14d_ano_passado', 0.0)
-        
-        if rolling_avg_14d_real is not None and rolling_avg_14d_real == 0 and current_sales > 0:
-            elapsed_days = max(1, 90 - d_minus)
-            rolling_avg_14d_real = current_sales / elapsed_days
+        rolling_avg_14d_real = sales_info.get('media_14d', None)
+        rolling_avg_14d_last_year = sales_info.get('media_14d_ano_passado', 0.0)
         
         pricing_metrics = calculate_pricing_metrics(
             current_sales=current_sales,

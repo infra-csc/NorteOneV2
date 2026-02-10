@@ -24,15 +24,15 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
 - **Charting:** Recharts for data visualization in dashboards.
 - **SSH Tunnel:** Paramiko for secure connections to external MySQL databases, including support for various SSH key types and automatic tunnel lifecycle management.
 - **Virtual Assistant (Nori):** Integrated AI-powered virtual assistant utilizing OpenAI GPT-4o-mini for natural language processing, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese. It provides event scenario analysis, conversational chat, and task scheduling.
-- **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) using SKU as the primary key. SKU mappings use Python dict lookups with SQL catalog_product_entity fallback for unmapped locations. The `fetch_consolidated_sales_by_skus` function in marketing.py uses `enrich_with_mappings` to correctly map Ativo/Magento event IDs to SKU codes before normalization, ensuring both data sources merge properly under the same normalized SKU key. Cache keys include enrichment state to prevent stale data.
+- **Data Consolidation:** Implemented an endpoint for consolidating inscription data from multiple sources (Ativo and Magento databases) using SKU as the primary key. SKU mappings use Python dict lookups with SQL catalog_product_entity fallback for unmapped locations. The `fetch_consolidated_sales_by_skus` function in inscricoes_consolidado.py is used for the `/consolidado` endpoint only. The ISC Dashboard and Pricing Analysis use a separate `fetch_isc_pricing_data()` function in marketing.py with dedicated queries that return qtd_site, media_14d (rolling 14-day average), media_14d_ano_passado, dias_ate_evento, and projecao_final — all calculated in SQL. These queries consolidate Ativo + Magento data by normalized SKU with 5-minute cache.
 - **Performance Optimizations (Feb 2026):**
   - **Critical fix:** All FastAPI route handlers converted from `async def` to `def` to prevent event loop blocking with synchronous database operations. FastAPI now runs blocking DB calls in thread pools automatically.
   - Frontend AbortController pattern cancels pending API requests on page navigation (PricingAnalysis, MarketingDashboard, EventDetail).
   - Frontend progressive loading: pages render structure immediately with inline loading indicators instead of full-screen blockers.
-  - Rolling average queries optimized: correlated subqueries replaced with conditional COUNT/GROUP BY.
-  - MySQL queries use MAX_EXECUTION_TIME(25000) hints for database-level timeout enforcement.
-  - Ativo and Magento rolling average queries run in parallel via ThreadPoolExecutor (2 workers, 30s timeout each).
-  - MySQL connection timeouts: 10s connect, 30s read/write on all external database engines.
+  - ISC/Pricing queries return rolling averages and projections directly from SQL (no separate rolling average queries needed).
+  - MySQL queries use MAX_EXECUTION_TIME hints (60s for consolidado, built-in for ISC/Pricing).
+  - ISC Ativo and Magento queries run in parallel via ThreadPoolExecutor (2 workers, 60s timeout each).
+  - MySQL connection timeouts: 10s connect, 90s read, 30s write on all external database engines.
 
 ### Feature Specifications
 - **Authentication:** Login with email/password, JWT sessions, and role-based access.

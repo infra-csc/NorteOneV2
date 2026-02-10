@@ -179,7 +179,7 @@ def init_ssh_tunnel():
             db_url,
             pool_pre_ping=True,
             pool_recycle=3600,
-            connect_args={'connect_timeout': 10, 'read_timeout': 30, 'write_timeout': 30}
+            connect_args={'connect_timeout': 10, 'read_timeout': 90, 'write_timeout': 30}
         )
         SessionLocalSSH = sessionmaker(autocommit=False, autoflush=False, bind=engine_ssh)
         
@@ -256,7 +256,7 @@ def init_mysql_connections():
                 magento_url,
                 pool_pre_ping=True,
                 pool_recycle=3600,
-                connect_args={'connect_timeout': 10, 'read_timeout': 30, 'write_timeout': 30}
+                connect_args={'connect_timeout': 10, 'read_timeout': 90, 'write_timeout': 30}
             )
             SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)
             print(f"MySQL Magento connection configured for database '{settings.MYSQL_MAGENTO_DATABASE}'")
