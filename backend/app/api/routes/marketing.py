@@ -473,6 +473,66 @@ def generate_daily_sales_data(current_sales: int, sales_goal: int, event_date, d
     
     return daily_sales
 
+
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = 60, sales_goal: int = 1000) -> list:
+    from datetime import timedelta
+    from ...models.dimensoes import SkuMapping
+    
+    today = date.today()
+    start_date = today - timedelta(days=days_history)
+    
+    all_daily = {}
+    
+    all_skus = []
+    for projeto in projetos:
+        if hasattr(projeto, 'codigo') and projeto.codigo:
+            all_skus.append(str(projeto.codigo).upper().strip())
+    
+    if all_skus:
+        ativo_mappings = db.query(SkuMapping).filter(
+            SkuMapping.fonte == 'ATIVO',
+            SkuMapping.sku.in_(all_skus),
+            SkuMapping.ativo == True
+        ).all()
+        for m in ativo_mappings:
+            if m.id_externo:
+                sales = fetch_daily_sales_ativo(str(m.id_externo), start_date, today)
+                for d, qty in sales.items():
+                    all_daily[d] = all_daily.get(d, 0) + qty
+        
+        magento_mappings = db.query(SkuMapping).filter(
+            SkuMapping.fonte == 'MAGENTO',
+            SkuMapping.sku.in_(all_skus),
+            SkuMapping.ativo == True
+        ).all()
+        for m in magento_mappings:
+            if m.id_externo:
+                sales = fetch_daily_sales_magento(str(m.id_externo), start_date, today)
+                for d, qty in sales.items():
+                    all_daily[d] = all_daily.get(d, 0) + qty
+    
+    all_dates = [start_date + timedelta(days=i) for i in range((today - start_date).days + 1)]
+    total_days = len(all_dates)
+    
+    cumulative_sales = 0
+    cumulative_expected = 0
+    result = []
+    for d in all_dates:
+        sales = all_daily.get(d, 0)
+        expected = sales_goal / total_days if total_days > 0 else 0
+        cumulative_sales += sales
+        cumulative_expected += expected
+        result.append({
+            "date": d.isoformat(),
+            "sales": sales,
+            "expected": round(expected, 1),
+            "cumulativeSales": cumulative_sales,
+            "cumulativeExpected": round(cumulative_expected, 1)
+        })
+    
+    return result
+
+
 def get_kit_basico_cost(db: Session, projeto_id: int) -> float:
     """
     Busca o custo total do Kit Básico para um projeto.
@@ -1329,35 +1389,26 @@ def get_sales_averages(
     
     is_consolidated = evento_id.startswith('grp_')
     
-    projeto_ids = []
-    skus = []
+    all_skus = []
     
     if is_consolidated:
         grupo_nome = evento_id.replace('grp_', '')
-        
-        ano = datetime.now().year
-        sku_to_grupo = _build_sku_to_grupo_map(db, ano)
-        
-        for sku_norm, gn in sku_to_grupo.items():
-            if gn == grupo_nome:
-                projeto = db.query(DimProjeto).filter(
-                    DimProjeto.codigo.ilike(f'%{sku_norm}%')
-                ).first()
-                if projeto:
-                    projeto_ids.append(projeto.id)
-                    skus.append(sku_norm)
+        mappings = db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == grupo_nome,
+            SkuMapping.ano == datetime.now().year,
+            SkuMapping.ativo == True
+        ).all()
+        all_skus = list(set(m.sku.upper().strip() for m in mappings if m.sku))
     else:
         try:
             projeto_id = int(evento_id)
             projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
-            if projeto:
-                projeto_ids.append(projeto.id)
-                if projeto.codigo:
-                    skus.append(normalize_sku(str(projeto.codigo)))
+            if projeto and projeto.codigo:
+                all_skus = [str(projeto.codigo).upper().strip()]
         except ValueError:
             raise HTTPException(status_code=400, detail="ID do evento inválido")
     
-    if not projeto_ids:
+    if not all_skus:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
     
     today = date.today()
@@ -1365,19 +1416,25 @@ def get_sales_averages(
     
     all_daily_sales = {}
     
-    for idx, pid in enumerate(projeto_ids):
-        sku = skus[idx] if idx < len(skus) else None
-        
-        id_evento = get_id_evento_from_projeto(db, pid)
-        location_id = get_location_id_from_sku(db, sku) if sku else None
-        
-        if id_evento:
-            sales_ativo = fetch_daily_sales_ativo(id_evento, start_date, today)
-            for d, qty in sales_ativo.items():
+    ativo_mappings = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'ATIVO',
+        SkuMapping.sku.in_(all_skus),
+        SkuMapping.ativo == True
+    ).all()
+    for m in ativo_mappings:
+        if m.id_externo:
+            sales = fetch_daily_sales_ativo(str(m.id_externo), start_date, today)
+            for d, qty in sales.items():
                 all_daily_sales[d] = all_daily_sales.get(d, 0) + qty
-        
-        if location_id:
-            sales_magento = fetch_daily_sales_magento(location_id, start_date, today)
+    
+    magento_mappings = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.sku.in_(all_skus),
+        SkuMapping.ativo == True
+    ).all()
+    for m in magento_mappings:
+        if m.id_externo:
+            sales_magento = fetch_daily_sales_magento(str(m.id_externo), start_date, today)
             for d, qty in sales_magento.items():
                 all_daily_sales[d] = all_daily_sales.get(d, 0) + qty
     
@@ -2273,12 +2330,7 @@ def get_marketing_event_by_id(
             sku=",".join(skus)
         )
         
-        daily_sales = generate_daily_sales_data(
-            current_sales=current_sales,
-            sales_goal=sales_goal,
-            event_date=projeto_data_evento,
-            days_history=60
-        )
+        daily_sales = fetch_real_daily_sales_for_projetos(db, projetos, days_history=60, sales_goal=sales_goal)
         
         from ...models.dimensoes import AcaoComercial
         commercial_actions = []
@@ -2439,12 +2491,7 @@ def get_marketing_event_by_id(
         sku=sku
     )
     
-    daily_sales = generate_daily_sales_data(
-        current_sales=current_sales,
-        sales_goal=sales_goal,
-        event_date=projeto_data_evento,
-        days_history=60
-    )
+    daily_sales = fetch_real_daily_sales_for_projetos(db, [projeto], days_history=60, sales_goal=sales_goal)
     
     from ...models.dimensoes import AcaoComercial
     acoes = db.query(AcaoComercial).filter(
