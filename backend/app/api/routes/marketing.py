@@ -556,14 +556,20 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
             start_date = today - timedelta(days=days_history)
         else:
             start_date = today - timedelta(days=60)
+        end_date = today
     else:
         earliest = min(all_daily.keys())
+        latest_sale = max(all_daily.keys())
+        if (today - latest_sale).days > 30:
+            end_date = latest_sale
+        else:
+            end_date = today
         if days_history:
-            start_date = max(earliest, today - timedelta(days=days_history))
+            start_date = max(earliest, end_date - timedelta(days=days_history))
         else:
             start_date = earliest
     
-    all_dates = [start_date + timedelta(days=i) for i in range((today - start_date).days + 1)]
+    all_dates = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
     total_days = len(all_dates)
     
     cumulative_sales = 0
