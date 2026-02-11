@@ -370,12 +370,8 @@ def calculate_d_minus(event_date: date) -> int:
     delta = (event_date - today).days
     return max(0, delta)
 
-def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int) -> ISCComponents:
-    """
-    Calcula os componentes do ISC baseado nas vendas atuais vs meta.
-    Como não temos dados diários de vendas, estimamos os componentes
-    baseados na progressão atual vs esperada.
-    """
+def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int, 
+                              media_14d: float = None, daily_sales_dict: dict = None) -> ISCComponents:
     if sales_goal == 0:
         return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0)
     
@@ -389,17 +385,42 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int) 
         expected_progress = 0.01
     
     curva_d_percent = progress_percent / expected_progress
-    
-    if curva_d_percent > 1.2:
-        ia730 = 1.15 + (curva_d_percent - 1.2) * 0.3
-    elif curva_d_percent > 1.0:
-        ia730 = 1.0 + (curva_d_percent - 1.0) * 0.5
-    elif curva_d_percent > 0.8:
-        ia730 = 0.9 + (curva_d_percent - 0.8) * 0.5
+
+    if daily_sales_dict and len(daily_sales_dict) > 0:
+        from datetime import timedelta
+        today = date.today()
+        
+        sales_7d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(7))
+        sales_30d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(30))
+        
+        if sales_30d > 0:
+            ia730 = (sales_7d / sales_30d) * (30 / 7)
+        elif sales_7d > 0:
+            ia730 = 1.2
+        else:
+            ia730 = curva_d_percent
     else:
-        ia730 = 0.7 + curva_d_percent * 0.25
-    
-    rolling14d = (curva_d_percent + ia730) / 2
+        if curva_d_percent > 1.2:
+            ia730 = 1.15 + (curva_d_percent - 1.2) * 0.3
+        elif curva_d_percent > 1.0:
+            ia730 = 1.0 + (curva_d_percent - 1.0) * 0.5
+        elif curva_d_percent > 0.8:
+            ia730 = 0.9 + (curva_d_percent - 0.8) * 0.5
+        else:
+            ia730 = 0.7 + curva_d_percent * 0.25
+
+    if media_14d is not None and media_14d > 0:
+        expected_daily = sales_goal / total_days if total_days > 0 else 1
+        rolling14d = media_14d / expected_daily if expected_daily > 0 else 1.0
+    elif daily_sales_dict and len(daily_sales_dict) > 0:
+        from datetime import timedelta
+        today = date.today()
+        sales_14d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(14))
+        avg_14d = sales_14d / 14
+        expected_daily = sales_goal / total_days if total_days > 0 else 1
+        rolling14d = avg_14d / expected_daily if expected_daily > 0 else 1.0
+    else:
+        rolling14d = (curva_d_percent + ia730) / 2
     
     ia730 = max(0.5, min(1.5, ia730))
     curva_d_percent = max(0.5, min(1.5, curva_d_percent))
@@ -1219,7 +1240,13 @@ def get_marketing_events(
         sales_goal = total_capacity if total_capacity > 0 else 1000
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        grupo_media_14d_list = 0.0
+        for p in proj_list:
+            p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
+            if p_sku and p_sku in isc_data:
+                grupo_media_14d_list += isc_data[p_sku].get('media_14d', 0.0)
+        
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=grupo_media_14d_list)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -1292,7 +1319,8 @@ def get_marketing_events(
         sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        standalone_m14d = sales_info.get('media_14d', 0.0)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_m14d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -2302,7 +2330,17 @@ def get_marketing_event_by_id(
         sales_goal = total_capacity if total_capacity > 0 else 1000
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, days_history=60, sales_goal=sales_goal)
+        daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
+        
+        grupo_media_14d = 0.0
+        for s_sku in skus:
+            s_norm = normalize_sku(s_sku)
+            info = isc_data.get(s_norm, {})
+            grupo_media_14d += info.get('media_14d', 0.0)
+        
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, 
+                                                   media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -2330,7 +2368,7 @@ def get_marketing_event_by_id(
             sku=",".join(skus)
         )
         
-        daily_sales = fetch_real_daily_sales_for_projetos(db, projetos, days_history=60, sales_goal=sales_goal)
+        daily_sales = daily_sales_list
         
         from ...models.dimensoes import AcaoComercial
         commercial_actions = []
@@ -2461,7 +2499,13 @@ def get_marketing_event_by_id(
     sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
     
-    isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], days_history=60, sales_goal=sales_goal)
+    daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
+    
+    standalone_media_14d = sales_info.get('media_14d', 0.0)
+    
+    isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+                                               media_14d=standalone_media_14d, daily_sales_dict=daily_sales_dict)
     isc = calculate_isc(isc_components)
     isc_status = get_isc_status(isc)
     suggested_action = get_suggested_action(isc, d_minus)
@@ -2491,7 +2535,7 @@ def get_marketing_event_by_id(
         sku=sku
     )
     
-    daily_sales = fetch_real_daily_sales_for_projetos(db, [projeto], days_history=60, sales_goal=sales_goal)
+    daily_sales = daily_sales_list
     
     from ...models.dimensoes import AcaoComercial
     acoes = db.query(AcaoComercial).filter(
@@ -3348,7 +3392,7 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=combined_rolling_14d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         
@@ -3431,7 +3475,8 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus)
+        standalone_pricing_m14d = sales_info.get('media_14d', 0.0)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_pricing_m14d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         
