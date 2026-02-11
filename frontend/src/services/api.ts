@@ -584,6 +584,7 @@ export interface MarketingEvent {
   suggestedAction: string;
   isActive: boolean;
   sku?: string;
+  activeAction?: { id: number; tipo: string; descricao: string; data_acao: string; dias_restantes: number } | null;
 }
 
 export interface MarketingDashboardSummary {
@@ -760,6 +761,27 @@ export const marketingService = {
     const params: any = {};
     if (ano) params.ano = ano;
     const response = await api.get(`/marketing/curva-comparativa/${eventoId}`, { signal, params });
+    return response.data;
+  },
+  getSalesAverages: async (eventoId: string, periodo: number = 30, signal?: AbortSignal): Promise<{
+    status: string;
+    periodo_dias: number;
+    media_geral: number;
+    total_vendas: number;
+    dias_com_dados: number;
+    medias: Record<string, number>;
+    vendas_diarias: { date: string; sales: number }[];
+    tendencia: { date: string; media_movel_7d: number; vendas: number }[];
+  }> => {
+    const response = await api.get(`/marketing/eventos/${eventoId}/medias-vendas?periodo=${periodo}`, { signal });
+    return response.data;
+  },
+  checkDuplicateAction: async (projetoId: number, tipo: string): Promise<{
+    status: string;
+    has_duplicate: boolean;
+    existing_action: { id: number; tipo: string; descricao: string; data_acao: string; dias_restantes: number } | null;
+  }> => {
+    const response = await api.get(`/marketing/check-duplicate-action/${projetoId}?tipo=${tipo}`);
     return response.data;
   }
 };

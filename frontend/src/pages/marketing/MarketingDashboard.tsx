@@ -387,20 +387,23 @@ const MarketingDashboard: React.FC = () => {
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Ação Sugerida
                 </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Status Ação
+                </th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
+                  <td colSpan={9} className="px-4 py-12 text-center">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" />
                     <p className="mt-3 text-gray-500 dark:text-gray-400">Carregando eventos...</p>
                   </td>
                 </tr>
               ) : eventos.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                     Nenhum evento encontrado.
                   </td>
                 </tr>
@@ -487,6 +490,27 @@ const MarketingDashboard: React.FC = () => {
                     <span className={`px-3 py-1 text-xs font-medium rounded-full ${getActionChipStyle(event.isc, event.dMinus)}`}>
                       {getActionText(event.isc, event.dMinus)}
                     </span>
+                  </td>
+                  <td className="px-4 py-4 text-center">
+                    {event.activeAction ? (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-300 dark:border-blue-600/50 animate-pulse">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+                        </span>
+                        <span className="text-xs font-medium text-blue-700 dark:text-blue-300 max-w-[120px] truncate" title={`${event.activeAction.tipo} - ${event.activeAction.descricao}`}>
+                          {event.activeAction.tipo === 'PROMOCAO' ? 'Promoção' :
+                           event.activeAction.tipo === 'AUMENTO_PRECO' ? 'Aumento' :
+                           event.activeAction.tipo === 'REDUCAO_PRECO' ? 'Redução' :
+                           event.activeAction.tipo === 'CAMPANHA' ? 'Campanha' :
+                           event.activeAction.tipo === 'COMUNICACAO' ? 'Comunicação' :
+                           event.activeAction.tipo}
+                        </span>
+                        <span className="text-[10px] text-blue-500 dark:text-blue-400 font-mono">{event.activeAction.dias_restantes}d</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
+                    )}
                   </td>
                   <td className="px-4 py-4">
                     <ChevronRight className="w-5 h-5 text-gray-400" />

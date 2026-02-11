@@ -24,6 +24,7 @@ import {
   Line, 
   BarChart, 
   Bar, 
+  ComposedChart,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -88,6 +89,9 @@ const EventDetail: React.FC = () => {
   const [curvaModo, setCurvaModo] = useState<string>('mensal');
   const [dataEventoAtual, setDataEventoAtual] = useState<string | null>(null);
   const [dataEventoAnterior, setDataEventoAnterior] = useState<string | null>(null);
+  const [salesAverages, setSalesAverages] = useState<any>(null);
+  const [salesAvgLoading, setSalesAvgLoading] = useState(false);
+  const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -192,6 +196,32 @@ const EventDetail: React.FC = () => {
     return () => { curvaController.abort(); };
   }, [id, anoParam]);
 
+  useEffect(() => {
+    if (!id) return;
+    const controller = new AbortController();
+    
+    const fetchAverages = async () => {
+      setSalesAvgLoading(true);
+      try {
+        const data = await marketingService.getSalesAverages(id, salesAvgPeriod, controller.signal);
+        if (!controller.signal.aborted) {
+          setSalesAverages(data);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError' && err?.code !== 'ERR_CANCELED') {
+          console.error('Error fetching sales averages:', err);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSalesAvgLoading(false);
+        }
+      }
+    };
+    
+    fetchAverages();
+    return () => controller.abort();
+  }, [id, salesAvgPeriod]);
+
   if (loading || !event) {
     return (
       <div className="p-6">
@@ -250,6 +280,28 @@ const EventDetail: React.FC = () => {
     if (!projetoIdParaAcao) return;
     
     setSavingAction(true);
+    try {
+      const duplicateCheck = await marketingService.checkDuplicateAction(projetoIdParaAcao, actionForm.tipo);
+      if (duplicateCheck.has_duplicate && duplicateCheck.existing_action) {
+        const tipoLabels: Record<string, string> = {
+          'PROMOCAO': 'Promoção',
+          'AUMENTO_PRECO': 'Aumento de Preço',
+          'REDUCAO_PRECO': 'Redução de Preço',
+          'CAMPANHA': 'Campanha',
+          'COMUNICACAO': 'Comunicação'
+        };
+        const tipoLabel = tipoLabels[actionForm.tipo] || actionForm.tipo;
+        alert(`Já existe uma ação de "${tipoLabel}" ativa neste evento.\n\n` +
+          `Ação: ${duplicateCheck.existing_action.descricao}\n` +
+          `Data: ${new Date(duplicateCheck.existing_action.data_acao + 'T00:00:00').toLocaleDateString('pt-BR')}\n` +
+          `Ativa por mais: ${duplicateCheck.existing_action.dias_restantes} dia(s)\n\n` +
+          `Aguarde o término do período de 7 dias para criar uma nova ação do mesmo tipo.`);
+        setSavingAction(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking duplicate:', err);
+    }
     try {
       await marketingService.createAcaoComercial({
         projeto_id: projetoIdParaAcao,
@@ -874,6 +926,125 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-indigo-500" />
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Análise de Médias de Vendas
+            </h3>
+          </div>
+          <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+            {[7, 14, 30, 60, 90].map((p) => (
+              <button
+                key={p}
+                onClick={() => setSalesAvgPeriod(p)}
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                  salesAvgPeriod === p
+                    ? 'bg-indigo-500 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                }`}
+              >
+                {p}d
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {salesAvgLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            <span className="ml-3 text-gray-500 dark:text-gray-400">Carregando médias...</span>
+          </div>
+        ) : salesAverages ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-indigo-50'}`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Média Geral</p>
+                <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                  {salesAverages.media_geral?.toFixed(1) || '0'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-1">vendas/dia</p>
+              </div>
+              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-blue-50'}`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Média 7 dias</p>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  {salesAverages.medias?.media_7d?.toFixed(1) || '0'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.medias?.total_7d || 0} total</p>
+              </div>
+              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-cyan-50'}`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Média 14 dias</p>
+                <p className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
+                  {salesAverages.medias?.media_14d?.toFixed(1) || '0'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.medias?.total_14d || 0} total</p>
+              </div>
+              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-emerald-50'}`}>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Média 30 dias</p>
+                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                  {salesAverages.medias?.media_30d?.toFixed(1) || '0'}
+                </p>
+                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.medias?.total_30d || 0} total</p>
+              </div>
+            </div>
+
+            {salesAverages.tendencia && salesAverages.tendencia.length > 0 ? (
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={salesAverages.tendencia}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      stroke={isDark ? '#9ca3af' : '#6b7280'}
+                      fontSize={11}
+                      interval={Math.max(0, Math.floor((salesAverages.tendencia?.length || 0) / 10))}
+                    />
+                    <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} fontSize={12} />
+                    <Tooltip 
+                      labelFormatter={(value) => new Date(value).toLocaleDateString('pt-BR')}
+                      formatter={(value: any, name: string) => [
+                        formatNumber(Number(value ?? 0)),
+                        name === 'vendas' ? 'Vendas Diárias' : 'Média Móvel 7d'
+                      ]}
+                      contentStyle={{ 
+                        backgroundColor: isDark ? '#1f2937' : '#fff',
+                        border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                        borderRadius: '8px',
+                        color: isDark ? '#fff' : '#111'
+                      }}
+                    />
+                    <Legend formatter={(value: string) => value === 'vendas' ? 'Vendas Diárias' : 'Média Móvel 7d'} />
+                    <Bar 
+                      dataKey="vendas" 
+                      fill={isDark ? '#6366f1' : '#818cf8'}
+                      radius={[4, 4, 0, 0]}
+                      opacity={0.7}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="media_movel_7d" 
+                      stroke="#f59e0b"
+                      strokeWidth={2.5}
+                      dot={false}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-40 text-gray-500 dark:text-gray-400">
+                Sem dados suficientes para mostrar tendência.
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex items-center justify-center h-40 text-gray-500 dark:text-gray-400">
+            Sem dados disponíveis para este evento.
+          </div>
+        )}
+      </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div className="flex flex-col gap-1">
@@ -1112,6 +1283,24 @@ const EventDetail: React.FC = () => {
                       <span className="text-sm text-gray-500 dark:text-gray-400">
                         {new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}
                       </span>
+                      {(() => {
+                        const actionDate = new Date(action.date + 'T00:00:00');
+                        const now = new Date();
+                        const diffDays = Math.floor((now.getTime() - actionDate.getTime()) / (1000 * 60 * 60 * 24));
+                        if (diffDays <= 7 && diffDays >= 0) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-400/50 dark:border-green-600/50">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                              </span>
+                              <span className="text-[10px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">Ativa</span>
+                              <span className="text-[10px] text-green-600 dark:text-green-400 font-mono">{7 - diffDays}d</span>
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                       <button
                         onClick={() => handleDeleteAction(action.id)}
                         className="p-1 text-gray-400 hover:text-red-500 transition-colors"

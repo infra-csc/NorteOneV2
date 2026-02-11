@@ -31,7 +31,7 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
     try:
         query = f"""
         SELECT 
-            DATE(c.dt_cadastro) AS data_venda,
+            DATE(c.dt_pedido) AS data_venda,
             COUNT(a.id_pedido_evento) AS quantidade
         FROM sa_pedido_evento AS a
         INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -39,9 +39,9 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         WHERE 
             b.id_evento = '{id_evento}'
             AND c.id_pedido_status = 2
-            AND DATE(c.dt_cadastro) >= '{start_date.isoformat()}'
-            AND DATE(c.dt_cadastro) <= '{end_date.isoformat()}'
-        GROUP BY DATE(c.dt_cadastro)
+            AND DATE(c.dt_pedido) >= '{start_date.isoformat()}'
+            AND DATE(c.dt_pedido) <= '{end_date.isoformat()}'
+        GROUP BY DATE(c.dt_pedido)
         ORDER BY data_venda
         """
         
@@ -234,6 +234,13 @@ class CommercialAction(BaseModel):
     description: str
     impact: Optional[str] = None
 
+class ActiveActionInfo(BaseModel):
+    id: int
+    tipo: str
+    descricao: str
+    data_acao: str
+    dias_restantes: int
+
 class MarketingEvent(BaseModel):
     id: str
     name: str
@@ -250,6 +257,7 @@ class MarketingEvent(BaseModel):
     iscStatus: str
     suggestedAction: str
     lastAction: Optional[CommercialAction] = None
+    activeAction: Optional[ActiveActionInfo] = None
     isActive: bool
     sku: Optional[str] = None
 
@@ -289,6 +297,71 @@ def get_suggested_action(isc: float, d_minus: int) -> str:
         return "Evento fraco. Janela aberta para ação promocional."
     
     return "⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação."
+
+def get_active_actions_for_projects(db: Session, projeto_ids: list) -> dict:
+    """
+    Retorna ações comerciais ativas (criadas nos últimos 7 dias) para uma lista de projeto_ids.
+    Retorna um dict {projeto_id: ActiveActionInfo}
+    """
+    from ...models.dimensoes import AcaoComercial
+    if not projeto_ids:
+        return {}
+    
+    today = date.today()
+    cutoff = today - timedelta(days=7)
+    
+    acoes = db.query(AcaoComercial).filter(
+        AcaoComercial.projeto_id.in_(projeto_ids),
+        AcaoComercial.data_acao >= cutoff
+    ).order_by(AcaoComercial.data_acao.desc()).all()
+    
+    result = {}
+    for a in acoes:
+        if a.projeto_id not in result:
+            data_acao = a.data_acao
+            if isinstance(data_acao, datetime):
+                data_acao = data_acao.date()
+            dias_restantes = max(0, 7 - (today - data_acao).days)
+            result[a.projeto_id] = ActiveActionInfo(
+                id=a.id,
+                tipo=a.tipo,
+                descricao=a.descricao,
+                data_acao=data_acao.isoformat(),
+                dias_restantes=dias_restantes
+            )
+    return result
+
+
+def check_duplicate_action(db: Session, projeto_id: int, tipo: str) -> dict:
+    """
+    Verifica se já existe uma ação do mesmo tipo para o projeto nos últimos 7 dias.
+    Retorna None se não há duplicata, ou um dict com info da ação existente.
+    """
+    from ...models.dimensoes import AcaoComercial
+    
+    today = date.today()
+    cutoff = today - timedelta(days=7)
+    
+    existing = db.query(AcaoComercial).filter(
+        AcaoComercial.projeto_id == projeto_id,
+        AcaoComercial.tipo == tipo,
+        AcaoComercial.data_acao >= cutoff
+    ).order_by(AcaoComercial.data_acao.desc()).first()
+    
+    if existing:
+        data_acao = existing.data_acao
+        if isinstance(data_acao, datetime):
+            data_acao = data_acao.date()
+        dias_restantes = max(0, 7 - (today - data_acao).days)
+        return {
+            "id": existing.id,
+            "tipo": existing.tipo,
+            "descricao": existing.descricao,
+            "data_acao": data_acao.isoformat(),
+            "dias_restantes": dias_restantes
+        }
+    return None
+
 
 def calculate_d_minus(event_date: date) -> int:
     if not event_date:
@@ -1042,6 +1115,13 @@ def get_marketing_events(
     events_red = 0
     active_count = 0
     
+    all_projeto_ids = []
+    for proj_list in grupo_projetos.values():
+        all_projeto_ids.extend([p.id for p in proj_list])
+    all_projeto_ids.extend([p.id for p in standalone_projetos])
+    
+    active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
+    
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -1102,6 +1182,12 @@ def get_marketing_events(
         
         skus_list = [str(p.codigo) for p in proj_list if p.codigo]
         
+        grupo_active_action = None
+        for p in proj_list:
+            if p.id in active_actions_map:
+                grupo_active_action = active_actions_map[p.id]
+                break
+        
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
             name=grupo.nome,
@@ -1117,6 +1203,7 @@ def get_marketing_events(
             iscComponents=isc_components,
             iscStatus=isc_status,
             suggestedAction=suggested_action,
+            activeAction=grupo_active_action,
             isActive=is_active,
             sku=",".join(skus_list)
         )
@@ -1168,6 +1255,8 @@ def get_marketing_events(
         projeto_nome = str(projeto.evento) if projeto.evento else "Evento sem nome"
         projeto_limite = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else sales_goal
         
+        standalone_active_action = active_actions_map.get(projeto.id)
+        
         evento = MarketingEvent(
             id=str(projeto.id),
             name=projeto_nome,
@@ -1183,6 +1272,7 @@ def get_marketing_events(
             iscComponents=isc_components,
             iscStatus=isc_status,
             suggestedAction=suggested_action,
+            activeAction=standalone_active_action,
             isActive=is_active,
             sku=sku
         )
@@ -1221,6 +1311,131 @@ def get_marketing_summary(
         "status": "success",
         "resumo": response.resumo,
         "ultima_atualizacao": response.ultima_atualizacao
+    }
+
+
+@router.get("/eventos/{evento_id}/medias-vendas")
+def get_sales_averages(
+    evento_id: str,
+    periodo: int = Query(default=30, description="Período em dias para calcular médias (7, 14, 30, 60, 90)"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Retorna médias de vendas diárias por período para um evento.
+    Usa dados reais das vendas diárias (Ativo + Magento).
+    """
+    from datetime import timedelta
+    
+    is_consolidated = evento_id.startswith('grp_')
+    
+    projeto_ids = []
+    skus = []
+    
+    if is_consolidated:
+        grupo_nome = evento_id.replace('grp_', '')
+        
+        ano = datetime.now().year
+        sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+        
+        for sku_norm, gn in sku_to_grupo.items():
+            if gn == grupo_nome:
+                projeto = db.query(DimProjeto).filter(
+                    DimProjeto.codigo.ilike(f'%{sku_norm}%')
+                ).first()
+                if projeto:
+                    projeto_ids.append(projeto.id)
+                    skus.append(sku_norm)
+    else:
+        try:
+            projeto_id = int(evento_id)
+            projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+            if projeto:
+                projeto_ids.append(projeto.id)
+                if projeto.codigo:
+                    skus.append(normalize_sku(str(projeto.codigo)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ID do evento inválido")
+    
+    if not projeto_ids:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    
+    today = date.today()
+    start_date = today - timedelta(days=periodo)
+    
+    all_daily_sales = {}
+    
+    for idx, pid in enumerate(projeto_ids):
+        sku = skus[idx] if idx < len(skus) else None
+        
+        id_evento = get_id_evento_from_projeto(db, pid)
+        location_id = get_location_id_from_sku(db, sku) if sku else None
+        
+        if id_evento:
+            sales_ativo = fetch_daily_sales_ativo(id_evento, start_date, today)
+            for d, qty in sales_ativo.items():
+                all_daily_sales[d] = all_daily_sales.get(d, 0) + qty
+        
+        if location_id:
+            sales_magento = fetch_daily_sales_magento(location_id, start_date, today)
+            for d, qty in sales_magento.items():
+                all_daily_sales[d] = all_daily_sales.get(d, 0) + qty
+    
+    sorted_dates = sorted(all_daily_sales.keys())
+    daily_data = [{"date": d.isoformat(), "sales": all_daily_sales[d]} for d in sorted_dates]
+    
+    total_sales = sum(all_daily_sales.values())
+    days_with_data = len(sorted_dates)
+    media_geral = round(total_sales / days_with_data, 1) if days_with_data > 0 else 0
+    
+    periods = [7, 14, 30]
+    medias_por_periodo = {}
+    for p in periods:
+        cutoff = today - timedelta(days=p)
+        sales_in_period = sum(v for d, v in all_daily_sales.items() if d >= cutoff)
+        days_in_period = sum(1 for d in sorted_dates if d >= cutoff)
+        medias_por_periodo[f"media_{p}d"] = round(sales_in_period / days_in_period, 1) if days_in_period > 0 else 0
+        medias_por_periodo[f"total_{p}d"] = sales_in_period
+        medias_por_periodo[f"dias_{p}d"] = days_in_period
+    
+    tendencia_data = []
+    if len(sorted_dates) >= 7:
+        window = 7
+        for i in range(window - 1, len(sorted_dates)):
+            window_dates = sorted_dates[max(0, i - window + 1):i + 1]
+            window_sales = sum(all_daily_sales[d] for d in window_dates)
+            media_movel = round(window_sales / len(window_dates), 1)
+            tendencia_data.append({
+                "date": sorted_dates[i].isoformat(),
+                "media_movel_7d": media_movel,
+                "vendas": all_daily_sales[sorted_dates[i]]
+            })
+    
+    return {
+        "status": "success",
+        "periodo_dias": periodo,
+        "media_geral": media_geral,
+        "total_vendas": total_sales,
+        "dias_com_dados": days_with_data,
+        "medias": medias_por_periodo,
+        "vendas_diarias": daily_data,
+        "tendencia": tendencia_data
+    }
+
+
+@router.get("/check-duplicate-action/{projeto_id}")
+def check_duplicate_action_endpoint(
+    projeto_id: int,
+    tipo: str = Query(..., description="Tipo da ação"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Verifica se já existe uma ação duplicada do mesmo tipo nos últimos 7 dias"""
+    duplicate = check_duplicate_action(db, projeto_id, tipo)
+    return {
+        "status": "success",
+        "has_duplicate": duplicate is not None,
+        "existing_action": duplicate
     }
 
 
@@ -2356,12 +2571,32 @@ def create_acao_comercial(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Cria uma nova ação comercial"""
+    """Cria uma nova ação comercial com validação de duplicidade (7 dias)"""
     from ...models.dimensoes import AcaoComercial
     
     projeto = db.query(DimProjeto).filter(DimProjeto.id == acao.projeto_id).first()
     if not projeto:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
+    
+    duplicate = check_duplicate_action(db, acao.projeto_id, acao.tipo)
+    if duplicate:
+        tipo_labels = {
+            'PROMOCAO': 'Promoção',
+            'AUMENTO_PRECO': 'Aumento de Preço',
+            'REDUCAO_PRECO': 'Redução de Preço',
+            'CAMPANHA': 'Campanha',
+            'COMUNICACAO': 'Comunicação'
+        }
+        tipo_label = tipo_labels.get(acao.tipo, acao.tipo)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"Já existe uma ação de '{tipo_label}' ativa para este evento. "
+                           f"A ação '{duplicate['descricao']}' foi criada em {duplicate['data_acao']} "
+                           f"e ainda está ativa por mais {duplicate['dias_restantes']} dia(s).",
+                "existing_action": duplicate
+            }
+        )
     
     nova_acao = AcaoComercial(
         projeto_id=acao.projeto_id,
