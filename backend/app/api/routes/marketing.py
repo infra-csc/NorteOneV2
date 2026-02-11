@@ -514,28 +514,28 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     ativo_ids = []
     magento_ids = []
     
-    ativo_mappings = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'ATIVO',
+    all_active_mappings = db.query(SkuMapping).filter(
         SkuMapping.sku.in_(all_skus),
-        SkuMapping.ano == ano,
         SkuMapping.ativo == True
     ).all()
-    for m in ativo_mappings:
-        if m.id_externo:
-            ativo_ids.append(str(m.id_externo))
     
-    magento_mappings = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'MAGENTO',
-        SkuMapping.sku.in_(all_skus),
-        SkuMapping.ano == ano,
-        SkuMapping.ativo == True
-    ).all()
-    for m in magento_mappings:
+    year_mappings = [m for m in all_active_mappings if m.ano == ano]
+    if not year_mappings and all_active_mappings:
+        available_years = sorted(set(m.ano for m in all_active_mappings if m.ano), reverse=True)
+        if available_years:
+            best_year = available_years[0]
+            logger.info(f"No SkuMappings for SKUs {all_skus} in year {ano}, using year {best_year}")
+            year_mappings = [m for m in all_active_mappings if m.ano == best_year]
+    
+    for m in year_mappings:
         if m.id_externo:
-            magento_ids.append(str(m.id_externo))
+            if m.fonte == 'ATIVO':
+                ativo_ids.append(str(m.id_externo))
+            elif m.fonte == 'MAGENTO':
+                magento_ids.append(str(m.id_externo))
     
     if not ativo_ids and not magento_ids:
-        logger.warning(f"No SkuMappings found for SKUs {all_skus} in year {ano}")
+        logger.warning(f"No SkuMappings found for SKUs {all_skus} in any year")
     
     all_daily = {}
     
