@@ -495,42 +495,73 @@ def generate_daily_sales_data(current_sales: int, sales_goal: int, event_date, d
     return daily_sales
 
 
-def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = 60, sales_goal: int = 1000) -> list:
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None) -> list:
     from datetime import timedelta
     from ...models.dimensoes import SkuMapping
     
     today = date.today()
-    start_date = today - timedelta(days=days_history)
-    
-    all_daily = {}
+    if ano is None:
+        ano = today.year
     
     all_skus = []
     for projeto in projetos:
         if hasattr(projeto, 'codigo') and projeto.codigo:
             all_skus.append(str(projeto.codigo).upper().strip())
     
-    if all_skus:
-        ativo_mappings = db.query(SkuMapping).filter(
-            SkuMapping.fonte == 'ATIVO',
-            SkuMapping.sku.in_(all_skus),
-            SkuMapping.ativo == True
-        ).all()
-        for m in ativo_mappings:
-            if m.id_externo:
-                sales = fetch_daily_sales_ativo(str(m.id_externo), start_date, today)
-                for d, qty in sales.items():
-                    all_daily[d] = all_daily.get(d, 0) + qty
-        
-        magento_mappings = db.query(SkuMapping).filter(
-            SkuMapping.fonte == 'MAGENTO',
-            SkuMapping.sku.in_(all_skus),
-            SkuMapping.ativo == True
-        ).all()
-        for m in magento_mappings:
-            if m.id_externo:
-                sales = fetch_daily_sales_magento(str(m.id_externo), start_date, today)
-                for d, qty in sales.items():
-                    all_daily[d] = all_daily.get(d, 0) + qty
+    if not all_skus:
+        return []
+    
+    ativo_ids = []
+    magento_ids = []
+    
+    ativo_mappings = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'ATIVO',
+        SkuMapping.sku.in_(all_skus),
+        SkuMapping.ano == ano,
+        SkuMapping.ativo == True
+    ).all()
+    for m in ativo_mappings:
+        if m.id_externo:
+            ativo_ids.append(str(m.id_externo))
+    
+    magento_mappings = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.sku.in_(all_skus),
+        SkuMapping.ano == ano,
+        SkuMapping.ativo == True
+    ).all()
+    for m in magento_mappings:
+        if m.id_externo:
+            magento_ids.append(str(m.id_externo))
+    
+    if not ativo_ids and not magento_ids:
+        logger.warning(f"No SkuMappings found for SKUs {all_skus} in year {ano}")
+    
+    all_daily = {}
+    
+    if ativo_ids:
+        ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+        for row in ativo_rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            all_daily[d] = all_daily.get(d, 0) + row['qtd']
+    
+    if magento_ids:
+        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+        for row in magento_rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            all_daily[d] = all_daily.get(d, 0) + row['qtd']
+    
+    if not all_daily:
+        if days_history:
+            start_date = today - timedelta(days=days_history)
+        else:
+            start_date = today - timedelta(days=60)
+    else:
+        earliest = min(all_daily.keys())
+        if days_history:
+            start_date = max(earliest, today - timedelta(days=days_history))
+        else:
+            start_date = earliest
     
     all_dates = [start_date + timedelta(days=i) for i in range((today - start_date).days + 1)]
     total_days = len(all_dates)
@@ -1444,6 +1475,9 @@ def get_sales_averages(
     
     all_daily_sales = {}
     
+    ativo_ids = []
+    magento_ids = []
+    
     ativo_mappings = db.query(SkuMapping).filter(
         SkuMapping.fonte == 'ATIVO',
         SkuMapping.sku.in_(all_skus),
@@ -1451,9 +1485,7 @@ def get_sales_averages(
     ).all()
     for m in ativo_mappings:
         if m.id_externo:
-            sales = fetch_daily_sales_ativo(str(m.id_externo), start_date, today)
-            for d, qty in sales.items():
-                all_daily_sales[d] = all_daily_sales.get(d, 0) + qty
+            ativo_ids.append(str(m.id_externo))
     
     magento_mappings = db.query(SkuMapping).filter(
         SkuMapping.fonte == 'MAGENTO',
@@ -1462,9 +1494,21 @@ def get_sales_averages(
     ).all()
     for m in magento_mappings:
         if m.id_externo:
-            sales_magento = fetch_daily_sales_magento(str(m.id_externo), start_date, today)
-            for d, qty in sales_magento.items():
-                all_daily_sales[d] = all_daily_sales.get(d, 0) + qty
+            magento_ids.append(str(m.id_externo))
+    
+    if ativo_ids:
+        ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+        for row in ativo_rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            if d >= start_date and d <= today:
+                all_daily_sales[d] = all_daily_sales.get(d, 0) + row['qtd']
+    
+    if magento_ids:
+        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+        for row in magento_rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            if d >= start_date and d <= today:
+                all_daily_sales[d] = all_daily_sales.get(d, 0) + row['qtd']
     
     sorted_dates = sorted(all_daily_sales.keys())
     daily_data = [{"date": d.isoformat(), "sales": all_daily_sales[d]} for d in sorted_dates]
@@ -2330,7 +2374,7 @@ def get_marketing_event_by_id(
         sales_goal = total_capacity if total_capacity > 0 else 1000
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, days_history=60, sales_goal=sales_goal)
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         grupo_media_14d = 0.0
@@ -2499,7 +2543,7 @@ def get_marketing_event_by_id(
     sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
     
-    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], days_history=60, sales_goal=sales_goal)
+    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_media_14d = sales_info.get('media_14d', 0.0)
