@@ -1443,14 +1443,15 @@ def get_marketing_summary(
 def get_sales_averages(
     evento_id: str,
     periodo: int = Query(default=30, description="Período em dias para calcular médias (7, 14, 30, 60, 90)"),
+    ano: int = Query(default=None, description="Ano do evento"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """
-    Retorna médias de vendas diárias por período para um evento.
-    Usa dados reais das vendas diárias (Ativo + Magento).
-    """
     from datetime import timedelta
+    
+    today = date.today()
+    if ano is None:
+        ano = today.year
     
     is_consolidated = evento_id.startswith('grp_')
     
@@ -1460,9 +1461,17 @@ def get_sales_averages(
         grupo_nome = evento_id.replace('grp_', '')
         mappings = db.query(SkuMapping).filter(
             SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano == datetime.now().year,
+            SkuMapping.ano == ano,
             SkuMapping.ativo == True
         ).all()
+        if not mappings:
+            mappings = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo == grupo_nome,
+                SkuMapping.ativo == True
+            ).all()
+            if mappings:
+                best_year = max(m.ano for m in mappings if m.ano)
+                mappings = [m for m in mappings if m.ano == best_year]
         all_skus = list(set(m.sku.upper().strip() for m in mappings if m.sku))
     else:
         try:
@@ -1476,45 +1485,52 @@ def get_sales_averages(
     if not all_skus:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
     
-    today = date.today()
-    start_date = today - timedelta(days=periodo)
-    
-    all_daily_sales = {}
-    
     ativo_ids = []
     magento_ids = []
     
-    ativo_mappings = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'ATIVO',
+    all_active_mappings = db.query(SkuMapping).filter(
         SkuMapping.sku.in_(all_skus),
         SkuMapping.ativo == True
     ).all()
-    for m in ativo_mappings:
-        if m.id_externo:
-            ativo_ids.append(str(m.id_externo))
     
-    magento_mappings = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'MAGENTO',
-        SkuMapping.sku.in_(all_skus),
-        SkuMapping.ativo == True
-    ).all()
-    for m in magento_mappings:
+    year_mappings = [m for m in all_active_mappings if m.ano == ano]
+    if not year_mappings and all_active_mappings:
+        available_years = sorted(set(m.ano for m in all_active_mappings if m.ano), reverse=True)
+        if available_years:
+            year_mappings = [m for m in all_active_mappings if m.ano == available_years[0]]
+    
+    for m in year_mappings:
         if m.id_externo:
-            magento_ids.append(str(m.id_externo))
+            if m.fonte == 'ATIVO':
+                ativo_ids.append(str(m.id_externo))
+            elif m.fonte == 'MAGENTO':
+                magento_ids.append(str(m.id_externo))
+    
+    all_raw_sales = {}
     
     if ativo_ids:
         ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
         for row in ativo_rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            if d >= start_date and d <= today:
-                all_daily_sales[d] = all_daily_sales.get(d, 0) + row['qtd']
+            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
     
     if magento_ids:
         magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
         for row in magento_rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            if d >= start_date and d <= today:
-                all_daily_sales[d] = all_daily_sales.get(d, 0) + row['qtd']
+            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+    
+    if all_raw_sales:
+        latest_sale = max(all_raw_sales.keys())
+        if (today - latest_sale).days > 30:
+            ref_date = latest_sale
+        else:
+            ref_date = today
+    else:
+        ref_date = today
+    
+    start_date = ref_date - timedelta(days=periodo)
+    all_daily_sales = {d: v for d, v in all_raw_sales.items() if d >= start_date and d <= ref_date}
     
     sorted_dates = sorted(all_daily_sales.keys())
     daily_data = [{"date": d.isoformat(), "sales": all_daily_sales[d]} for d in sorted_dates]
@@ -1526,7 +1542,7 @@ def get_sales_averages(
     periods = [7, 14, 30]
     medias_por_periodo = {}
     for p in periods:
-        cutoff = today - timedelta(days=p)
+        cutoff = ref_date - timedelta(days=p)
         sales_in_period = sum(v for d, v in all_daily_sales.items() if d >= cutoff)
         days_in_period = sum(1 for d in sorted_dates if d >= cutoff)
         medias_por_periodo[f"media_{p}d"] = round(sales_in_period / days_in_period, 1) if days_in_period > 0 else 0

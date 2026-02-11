@@ -763,7 +763,7 @@ export const marketingService = {
     const response = await api.get(`/marketing/curva-comparativa/${eventoId}`, { signal, params });
     return response.data;
   },
-  getSalesAverages: async (eventoId: string, periodo: number = 30, signal?: AbortSignal): Promise<{
+  getSalesAverages: async (eventoId: string, periodo: number = 30, signal?: AbortSignal, ano?: number): Promise<{
     status: string;
     periodo_dias: number;
     media_geral: number;
@@ -773,7 +773,9 @@ export const marketingService = {
     vendas_diarias: { date: string; sales: number }[];
     tendencia: { date: string; media_movel_7d: number; vendas: number }[];
   }> => {
-    const response = await api.get(`/marketing/eventos/${eventoId}/medias-vendas?periodo=${periodo}`, { signal });
+    let url = `/marketing/eventos/${eventoId}/medias-vendas?periodo=${periodo}`;
+    if (ano) url += `&ano=${ano}`;
+    const response = await api.get(url, { signal });
     return response.data;
   },
   checkDuplicateAction: async (projetoId: number, tipo: string): Promise<{

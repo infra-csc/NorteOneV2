@@ -203,7 +203,7 @@ const EventDetail: React.FC = () => {
     const fetchAverages = async () => {
       setSalesAvgLoading(true);
       try {
-        const data = await marketingService.getSalesAverages(id, salesAvgPeriod, controller.signal);
+        const data = await marketingService.getSalesAverages(id, salesAvgPeriod, controller.signal, anoParam);
         if (!controller.signal.aborted) {
           setSalesAverages(data);
         }
@@ -220,7 +220,7 @@ const EventDetail: React.FC = () => {
     
     fetchAverages();
     return () => controller.abort();
-  }, [id, salesAvgPeriod]);
+  }, [id, salesAvgPeriod, anoParam]);
 
   if (loading || !event) {
     return (
