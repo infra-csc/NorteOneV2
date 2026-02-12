@@ -698,29 +698,35 @@ SELECT /*+ MAX_EXECUTION_TIME(120000) */
     b.id_campanha_salesforce AS 'SKU',
     b.ds_evento AS "Evento",
     DATE(b.dt_evento) AS "Data Evento",
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 1 END) AS "Qtd Site Atual",
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0
         AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
         AND c.dt_pedido < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
         THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias",
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0
         AND c.dt_pedido >= DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY)
         AND c.dt_pedido < DATE_ADD(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 1 DAY)
         THEN 1 END) / 14 AS "Média Diária Últimos 14 Dias (Ano Passado)",
     DATEDIFF(DATE(b.dt_evento), CURDATE()) AS "Dias Até Evento",
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 1 END) + 
     (
-        COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+        COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+            AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
             AND c.nr_total > 0
             AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             AND c.dt_pedido < DATE_ADD(CURDATE(), INTERVAL 1 DAY)
             THEN 1 END) / 14 * DATEDIFF(DATE(b.dt_evento), CURDATE())
     ) AS "Projeção Final",
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS "Receita Liquida Site"
@@ -1598,9 +1604,11 @@ def _fetch_monthly_sales_ativo(ano_atual: int, ano_anterior: int) -> list:
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     YEAR(c.dt_pedido) AS ano,
     MONTH(c.dt_pedido) AS mes,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -1789,9 +1797,11 @@ def _fetch_monthly_sales_ativo_by_ids(id_eventos: list) -> list:
         query = f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     MONTH(c.dt_pedido) AS mes,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -1885,9 +1895,11 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
         query = f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
