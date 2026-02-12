@@ -2372,19 +2372,6 @@ def get_marketing_event_by_id(
         ).all()
         
         skus = [m.sku for m in mappings]
-        isc_data = fetch_isc_pricing_data(db=db)
-        
-        current_sales = 0
-        current_receita = 0.0
-        seen_norms = set()
-        for s_sku in skus:
-            s_norm = normalize_sku(s_sku)
-            if s_norm in seen_norms:
-                continue
-            seen_norms.add(s_norm)
-            info = isc_data.get(s_norm, {})
-            current_sales += info.get('qtd_site', 0)
-            current_receita += info.get('receita_liquida_site', 0.0)
         
         proj_skus = [m.sku for m in mappings]
         projetos = db.query(DimProjeto).filter(
@@ -2406,16 +2393,52 @@ def get_marketing_event_by_id(
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
         is_active = d_minus > 0
         sales_goal = total_capacity if total_capacity > 0 else 1000
-        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
-        grupo_media_14d = 0.0
-        for s_sku in skus:
-            s_norm = normalize_sku(s_sku)
-            info = isc_data.get(s_norm, {})
-            grupo_media_14d += info.get('media_14d', 0.0)
+        current_year = datetime.now().year
+        if ano == current_year:
+            isc_data = fetch_isc_pricing_data(db=db)
+            current_sales = 0
+            current_receita = 0.0
+            seen_norms = set()
+            for s_sku in skus:
+                s_norm = normalize_sku(s_sku)
+                if s_norm in seen_norms:
+                    continue
+                seen_norms.add(s_norm)
+                info = isc_data.get(s_norm, {})
+                current_sales += info.get('qtd_site', 0)
+                current_receita += info.get('receita_liquida_site', 0.0)
+            
+            grupo_media_14d = 0.0
+            for s_sku in skus:
+                s_norm = normalize_sku(s_sku)
+                info = isc_data.get(s_norm, {})
+                grupo_media_14d += info.get('media_14d', 0.0)
+        else:
+            ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
+            magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
+            
+            current_sales = 0
+            current_receita = 0.0
+            
+            if ativo_ids:
+                ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+                for row in ativo_rows:
+                    current_sales += row.get('qtd', 0)
+                    current_receita += row.get('receita', 0.0)
+            
+            if magento_ids:
+                magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+                for row in magento_rows:
+                    current_sales += row.get('qtd', 0)
+                    current_receita += row.get('receita', 0.0)
+            
+            grupo_media_14d = 0.0
+        
+        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, 
                                                    media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict)
@@ -2494,15 +2517,29 @@ def get_marketing_event_by_id(
             
             vendas_anterior = 0
             receita_anterior = 0.0
-            seen_norms_ant = set()
-            for s_sku in skus_anterior:
-                s_norm = normalize_sku(s_sku)
-                if s_norm in seen_norms_ant:
-                    continue
-                seen_norms_ant.add(s_norm)
-                info = isc_data.get(s_norm, {})
-                vendas_anterior += info.get('qtd_site', 0)
-                receita_anterior += info.get('receita_liquida_site', 0.0)
+            
+            if ano_anterior == current_year:
+                isc_data_comp = fetch_isc_pricing_data(db=db) if ano != current_year else isc_data
+                seen_norms_ant = set()
+                for s_sku in skus_anterior:
+                    s_norm = normalize_sku(s_sku)
+                    if s_norm in seen_norms_ant:
+                        continue
+                    seen_norms_ant.add(s_norm)
+                    info = isc_data_comp.get(s_norm, {})
+                    vendas_anterior += info.get('qtd_site', 0)
+                    receita_anterior += info.get('receita_liquida_site', 0.0)
+            else:
+                ant_ativo_ids = [str(m.id_externo) for m in mappings_anterior if m.fonte == 'ATIVO' and m.id_externo]
+                ant_magento_ids = [str(m.id_externo) for m in mappings_anterior if m.fonte == 'MAGENTO' and m.id_externo]
+                if ant_ativo_ids:
+                    for row in _fetch_daily_sales_ativo_by_ids(list(set(ant_ativo_ids))):
+                        vendas_anterior += row.get('qtd', 0)
+                        receita_anterior += row.get('receita', 0.0)
+                if ant_magento_ids:
+                    for row in _fetch_daily_sales_magento_by_ids(list(set(ant_magento_ids))):
+                        vendas_anterior += row.get('qtd', 0)
+                        receita_anterior += row.get('receita', 0.0)
             
             proj_skus_anterior = [m.sku for m in mappings_anterior]
             projetos_anterior = db.query(DimProjeto).filter(
