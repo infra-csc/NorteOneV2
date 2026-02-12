@@ -2319,6 +2319,73 @@ def get_curva_comparativa_evento(
                 data[i][f"projecao_acumulado_receita_{ano}"] = round(acum_proj_receita, 2)
                 data[i]["is_projecao"] = True
 
+    total_vendas_anterior = sum(entry[f"vendas_{ano_anterior}"] for entry in data)
+    total_receita_anterior = sum(entry[f"receita_{ano_anterior}"] for entry in data)
+    total_vendas_atual = sum(entry[f"vendas_{ano}"] for entry in data)
+    total_receita_atual_sum = sum(entry[f"receita_{ano}"] for entry in data)
+
+    for entry in data:
+        acum_v = entry.get(f"acumulado_{ano}", 0)
+        acum_v_ant = entry.get(f"acumulado_{ano_anterior}", 0)
+        acum_r = entry.get(f"acumulado_receita_{ano}", 0)
+        acum_r_ant = entry.get(f"acumulado_receita_{ano_anterior}", 0)
+        entry[f"pct_meta_vendas_{ano}"] = round((acum_v / total_vendas_anterior * 100), 1) if total_vendas_anterior > 0 else 0
+        entry[f"pct_meta_vendas_{ano_anterior}"] = round((acum_v_ant / total_vendas_anterior * 100), 1) if total_vendas_anterior > 0 else 0
+        entry[f"pct_meta_receita_{ano}"] = round((acum_r / total_receita_anterior * 100), 1) if total_receita_anterior > 0 else 0
+        entry[f"pct_meta_receita_{ano_anterior}"] = round((acum_r_ant / total_receita_anterior * 100), 1) if total_receita_anterior > 0 else 0
+
+        proj_v = entry.get(f"projecao_acumulado_{ano}")
+        proj_r = entry.get(f"projecao_acumulado_receita_{ano}")
+        if proj_v is not None and total_vendas_anterior > 0:
+            entry[f"pct_meta_projecao_vendas_{ano}"] = round((proj_v / total_vendas_anterior * 100), 1)
+        if proj_r is not None and total_receita_anterior > 0:
+            entry[f"pct_meta_projecao_receita_{ano}"] = round((proj_r / total_receita_anterior * 100), 1)
+
+    ultimo_acum_vendas_atual = 0
+    ultimo_acum_receita_atual = 0.0
+    for entry in data:
+        if not entry.get("is_projecao", False) and entry.get(f"acumulado_{ano}", 0) > 0:
+            ultimo_acum_vendas_atual = entry[f"acumulado_{ano}"]
+            ultimo_acum_receita_atual = entry[f"acumulado_receita_{ano}"]
+
+    pct_atingido_vendas = round((ultimo_acum_vendas_atual / total_vendas_anterior * 100), 1) if total_vendas_anterior > 0 else 0
+    pct_atingido_receita = round((ultimo_acum_receita_atual / total_receita_anterior * 100), 1) if total_receita_anterior > 0 else 0
+
+    ultimo_acum_vendas_anterior_mesmo_d = 0
+    ultimo_acum_receita_anterior_mesmo_d = 0.0
+    if dias_ate_evento_atual > 0 and data_evento_anterior:
+        best_match = None
+        best_diff = float('inf')
+        for entry in data:
+            bk_val = entry.get("bucket", 0)
+            if isinstance(bk_val, str):
+                try:
+                    bk_val = int(bk_val.replace("D-", ""))
+                except Exception:
+                    bk_val = 0
+            diff = abs(bk_val - dias_ate_evento_atual)
+            if diff < best_diff and bk_val >= dias_ate_evento_atual:
+                best_diff = diff
+                best_match = entry
+        if best_match is None:
+            for entry in data:
+                bk_val = entry.get("bucket", 0)
+                if isinstance(bk_val, str):
+                    try:
+                        bk_val = int(bk_val.replace("D-", ""))
+                    except Exception:
+                        bk_val = 0
+                diff = abs(bk_val - dias_ate_evento_atual)
+                if diff < best_diff:
+                    best_diff = diff
+                    best_match = entry
+        if best_match:
+            ultimo_acum_vendas_anterior_mesmo_d = best_match.get(f"acumulado_{ano_anterior}", 0)
+            ultimo_acum_receita_anterior_mesmo_d = best_match.get(f"acumulado_receita_{ano_anterior}", 0.0)
+
+    pct_anterior_vendas_mesmo_d = round((ultimo_acum_vendas_anterior_mesmo_d / total_vendas_anterior * 100), 1) if total_vendas_anterior > 0 else 0
+    pct_anterior_receita_mesmo_d = round((ultimo_acum_receita_anterior_mesmo_d / total_receita_anterior * 100), 1) if total_receita_anterior > 0 else 0
+
     evento_nome = ""
     if is_grouped:
         evento_nome = evento_id.replace("grp_", "")
@@ -2336,7 +2403,21 @@ def get_curva_comparativa_evento(
         "evento_nome": evento_nome,
         "media_diaria_vendas": round(media_diaria_vendas, 2),
         "media_diaria_receita": round(media_diaria_receita, 2),
-        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        "meta": {
+            "total_vendas_anterior": total_vendas_anterior,
+            "total_receita_anterior": round(total_receita_anterior, 2),
+            "total_vendas_atual": total_vendas_atual,
+            "total_receita_atual": round(total_receita_atual_sum, 2),
+            "pct_atingido_vendas": pct_atingido_vendas,
+            "pct_atingido_receita": pct_atingido_receita,
+            "diff_pp_vendas": round(pct_atingido_vendas - pct_anterior_vendas_mesmo_d, 1),
+            "diff_pp_receita": round(pct_atingido_receita - pct_anterior_receita_mesmo_d, 1),
+            "pct_anterior_vendas_mesmo_d": pct_anterior_vendas_mesmo_d,
+            "pct_anterior_receita_mesmo_d": pct_anterior_receita_mesmo_d,
+            "ultimo_acum_vendas_anterior_mesmo_d": ultimo_acum_vendas_anterior_mesmo_d,
+            "ultimo_acum_receita_anterior_mesmo_d": round(ultimo_acum_receita_anterior_mesmo_d, 2),
+        }
     }
 
     _curva_evento_cache[cache_key] = result

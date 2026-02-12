@@ -82,6 +82,7 @@ const EventDetail: React.FC = () => {
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [curvaData, setCurvaData] = useState<any[]>([]);
+  const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
   const [curvaLoading, setCurvaLoading] = useState(false);
@@ -183,6 +184,7 @@ const EventDetail: React.FC = () => {
           setCurvaModo(response.modo || 'mensal');
           setDataEventoAtual(response.data_evento_atual || null);
           setDataEventoAnterior(response.data_evento_anterior || null);
+          setCurvaMeta(response.meta || null);
         }
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -1268,6 +1270,21 @@ const EventDetail: React.FC = () => {
                   labelFormatter={(label: any) => `${label}`}
                 />
                 <Legend />
+                {curvaMeta && (
+                  <ReferenceLine 
+                    y={curvaMode === 'vendas' ? curvaMeta.total_vendas_anterior : curvaMeta.total_receita_anterior} 
+                    stroke={isDark ? '#f59e0b' : '#d97706'}
+                    strokeDasharray="6 4"
+                    strokeWidth={1.5}
+                    label={{ 
+                      value: `Meta (${curvaAnoAnterior}: ${curvaMode === 'vendas' ? formatNumber(curvaMeta.total_vendas_anterior) : formatCurrency(curvaMeta.total_receita_anterior)})`, 
+                      position: 'insideTopRight',
+                      fill: isDark ? '#fbbf24' : '#b45309',
+                      fontSize: 11,
+                      fontWeight: 600
+                    }}
+                  />
+                )}
                 <Line 
                   type="monotone" 
                   dataKey={acumAntKey}
@@ -1314,40 +1331,85 @@ const EventDetail: React.FC = () => {
           );
         })()}
 
-        {!curvaLoading && curvaData.length > 0 && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(() => {
-              const totalAtual = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAtual}`]) || 0), 0);
-              const totalAnterior = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`vendas_${curvaAnoAnterior}`]) || 0), 0);
-              const receitaAtual = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAtual}`]) || 0), 0);
-              const receitaAnterior = curvaData.reduce((sum: number, d: any) => sum + (Number(d[`receita_${curvaAnoAnterior}`]) || 0), 0);
-              const varVendas = totalAnterior > 0 ? ((totalAtual - totalAnterior) / totalAnterior * 100) : 0;
-              const varReceita = receitaAnterior > 0 ? ((receitaAtual - receitaAnterior) / receitaAnterior * 100) : 0;
-              return (
-                <>
-                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAtual}</p>
-                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalAtual)}</p>
-                  </div>
-                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Inscrições {curvaAnoAnterior}</p>
-                    <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(totalAnterior)}</p>
-                  </div>
-                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Variação Inscrições</p>
-                    <p className={`text-lg font-bold ${varVendas >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {varVendas >= 0 ? '+' : ''}{varVendas.toFixed(1)}%
-                    </p>
-                  </div>
-                  <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Variação Receita</p>
-                    <p className={`text-lg font-bold ${varReceita >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {varReceita >= 0 ? '+' : ''}{varReceita.toFixed(1)}%
-                    </p>
-                  </div>
-                </>
-              );
-            })()}
+        {!curvaLoading && curvaData.length > 0 && curvaMeta && (
+          <div className="mt-4 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {(() => {
+                const m = curvaMeta;
+                const isVendas = curvaMode === 'vendas';
+                const pctAtingido = isVendas ? m.pct_atingido_vendas : m.pct_atingido_receita;
+                const diffPp = isVendas ? m.diff_pp_vendas : m.diff_pp_receita;
+                const totalAtual = isVendas ? m.total_vendas_atual : m.total_receita_atual;
+                const totalAnterior = isVendas ? m.total_vendas_anterior : m.total_receita_anterior;
+                const acumAnteriorMesmoD = isVendas ? m.ultimo_acum_vendas_anterior_mesmo_d : m.ultimo_acum_receita_anterior_mesmo_d;
+                const pctAnteriorMesmoD = isVendas ? m.pct_anterior_vendas_mesmo_d : m.pct_anterior_receita_mesmo_d;
+                const varTotal = totalAnterior > 0 ? ((totalAtual - totalAnterior) / totalAnterior * 100) : 0;
+                const isAcima = diffPp >= 0;
+                const fmt = (v: number) => isVendas ? formatNumber(v) : formatCurrency(v);
+                const label = isVendas ? 'Inscrições' : 'Receita';
+                return (
+                  <>
+                    <div className={`p-3 rounded-xl border-2 ${
+                      isAcima 
+                        ? 'border-green-400/50 bg-green-50 dark:bg-green-900/20 dark:border-green-500/30' 
+                        : 'border-red-400/50 bg-red-50 dark:bg-red-900/20 dark:border-red-500/30'
+                    }`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Status vs Meta</p>
+                      <div className="flex items-center gap-1.5">
+                        {isAcima ? (
+                          <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-400" />
+                        )}
+                        <span className={`text-lg font-bold ${isAcima ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {isAcima ? 'Acima' : 'Abaixo'}
+                        </span>
+                      </div>
+                      <p className={`text-xs mt-0.5 font-medium ${isAcima ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {isAcima ? '+' : ''}{diffPp}pp vs {curvaAnoAnterior}
+                      </p>
+                    </div>
+
+                    <div className={`p-3 rounded-xl ${isDark ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">% da Meta ({curvaAnoAnterior})</p>
+                      <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{pctAtingido}%</p>
+                      <div className="mt-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                        <div 
+                          className={`h-1.5 rounded-full transition-all ${pctAtingido >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                          style={{ width: `${Math.min(pctAtingido, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label} {curvaAnoAtual}</p>
+                      <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{fmt(totalAtual)}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        Meta: {fmt(totalAnterior)}
+                      </p>
+                    </div>
+
+                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Mesmo D- em {curvaAnoAnterior}</p>
+                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{fmt(acumAnteriorMesmoD)}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        {pctAnteriorMesmoD}% da meta
+                      </p>
+                    </div>
+
+                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Variação Total</p>
+                      <p className={`text-lg font-bold ${varTotal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {varTotal >= 0 ? '+' : ''}{varTotal.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        {curvaAnoAtual} vs {curvaAnoAnterior}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
           </div>
         )}
       </div>
