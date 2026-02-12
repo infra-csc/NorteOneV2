@@ -1219,45 +1219,100 @@ const EventDetail: React.FC = () => {
               <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
-              <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }}
-                tickFormatter={curvaMode === 'receita' ? (v) => `R$${(v/1000).toFixed(0)}k` : undefined}
-              />
-              <Tooltip
-                contentStyle={{ 
-                  backgroundColor: isDark ? '#1f2937' : '#fff',
-                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                  borderRadius: '8px',
-                  color: isDark ? '#fff' : '#111'
-                }}
-                formatter={(value: any) => [curvaMode === 'receita' ? formatCurrency(Number(value || 0)) : formatNumber(Number(value || 0)), '']}
-                labelFormatter={(label: any) => `${label}`}
-              />
-              <Legend />
-              <Line 
-                type="monotone" 
-                dataKey={curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`}
-                name={`${curvaAnoAnterior}`} 
-                stroke="#94a3b8" 
-                strokeWidth={2} 
-                dot={{ r: 3, fill: '#94a3b8' }} 
-                strokeDasharray="5 5"
-              />
-              <Line 
-                type="monotone" 
-                dataKey={curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`}
-                name={`${curvaAnoAtual}`} 
-                stroke={curvaMode === 'vendas' ? '#3b82f6' : '#10b981'}
-                strokeWidth={2.5} 
-                dot={{ r: 3, fill: curvaMode === 'vendas' ? '#3b82f6' : '#10b981' }} 
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+        ) : (() => {
+          const hasProjecao = curvaData.some((d: any) => d[`projecao_acumulado_${curvaAnoAtual}`] !== undefined);
+          const acumKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`;
+          const projKey = curvaMode === 'vendas' ? `projecao_acumulado_${curvaAnoAtual}` : `projecao_acumulado_receita_${curvaAnoAtual}`;
+          const acumAntKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`;
+
+          let chartData = curvaData;
+          if (hasProjecao) {
+            chartData = curvaData.map((d: any) => {
+              const entry = { ...d };
+              const isProj = d.is_projecao === true;
+              if (isProj) {
+                entry[`realizado_${curvaAnoAtual}`] = undefined;
+              } else {
+                entry[`realizado_${curvaAnoAtual}`] = d[acumKey];
+              }
+              if (d[projKey] !== undefined) {
+                entry[`projecao_${curvaAnoAtual}`] = d[projKey];
+              }
+              return entry;
+            });
+          }
+
+          const strokeColor = curvaMode === 'vendas' ? '#3b82f6' : '#10b981';
+
+          return (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }}
+                  tickFormatter={curvaMode === 'receita' ? (v: number) => `R$${(v/1000).toFixed(0)}k` : undefined}
+                />
+                <Tooltip
+                  contentStyle={{ 
+                    backgroundColor: isDark ? '#1f2937' : '#fff',
+                    border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                    borderRadius: '8px',
+                    color: isDark ? '#fff' : '#111'
+                  }}
+                  formatter={(value: any, name?: string) => {
+                    if (value === undefined || value === null) return [null, null];
+                    const formatted = curvaMode === 'receita' ? formatCurrency(Number(value || 0)) : formatNumber(Number(value || 0));
+                    const label = (name || '').includes('Projeção') ? `${formatted} (projeção)` : formatted;
+                    return [label, ''];
+                  }}
+                  labelFormatter={(label: any) => `${label}`}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey={acumAntKey}
+                  name={`${curvaAnoAnterior}`} 
+                  stroke="#94a3b8" 
+                  strokeWidth={2} 
+                  dot={{ r: 3, fill: '#94a3b8' }} 
+                  strokeDasharray="5 5"
+                />
+                {hasProjecao ? (
+                  <>
+                    <Line 
+                      type="monotone" 
+                      dataKey={`realizado_${curvaAnoAtual}`}
+                      name={`${curvaAnoAtual} Realizado`}
+                      stroke={strokeColor}
+                      strokeWidth={2.5} 
+                      dot={{ r: 3, fill: strokeColor }}
+                      connectNulls={false}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey={`projecao_${curvaAnoAtual}`}
+                      name={`${curvaAnoAtual} Projeção`}
+                      stroke={strokeColor}
+                      strokeWidth={2} 
+                      strokeDasharray="8 4"
+                      strokeOpacity={0.6}
+                      dot={{ r: 2, fill: strokeColor, fillOpacity: 0.5 }}
+                    />
+                  </>
+                ) : (
+                  <Line 
+                    type="monotone" 
+                    dataKey={acumKey}
+                    name={`${curvaAnoAtual}`} 
+                    stroke={strokeColor}
+                    strokeWidth={2.5} 
+                    dot={{ r: 3, fill: strokeColor }} 
+                  />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
+          );
+        })()}
 
         {!curvaLoading && curvaData.length > 0 && (
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">

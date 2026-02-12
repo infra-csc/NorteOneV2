@@ -363,10 +363,15 @@ def check_duplicate_action(db: Session, projeto_id: int, tipo: str) -> dict:
     return None
 
 
-def calculate_d_minus(event_date: date) -> int:
+def calculate_d_minus(event_date: date, reference_year: int = None) -> int:
     if not event_date:
         return 0
     today = date.today()
+    if reference_year is not None and reference_year != today.year:
+        try:
+            today = today.replace(year=reference_year)
+        except ValueError:
+            today = today.replace(year=reference_year, day=28)
     delta = (event_date - today).days
     return max(0, delta)
 
@@ -2244,6 +2249,33 @@ def get_curva_comparativa_evento(
             buckets[bk][f"vendas_{ano_anterior}"] += vals["qtd"]
             buckets[bk][f"receita_{ano_anterior}"] += vals["receita"]
 
+    hoje = date.today()
+    dias_ate_evento_atual = (data_evento_atual - hoje).days if data_evento_atual else 0
+    d_minus_bucket_atual = _bucket_key_for(dias_ate_evento_atual) if dias_ate_evento_atual > 0 else 0
+
+    total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
+    total_receita_atual = sum(v["receita"] for v in daily_atual.values())
+
+    dias_com_vendas = sorted([d for d in daily_atual.keys() if daily_atual[d]["qtd"] > 0])
+    if dias_com_vendas and dias_ate_evento_atual > 0:
+        dias_recentes = [d for d in dias_com_vendas if d >= dias_ate_evento_atual and d <= dias_ate_evento_atual + 30]
+        if not dias_recentes:
+            dias_recentes = sorted(dias_com_vendas)[:30]
+        
+        window = min(14, len(dias_recentes))
+        if window > 0:
+            vendas_window = sum(daily_atual[d]["qtd"] for d in dias_recentes[:window])
+            receita_window = sum(daily_atual[d]["receita"] for d in dias_recentes[:window])
+            media_diaria_vendas = vendas_window / window
+            media_diaria_receita = receita_window / window
+        else:
+            dias_total = len(dias_com_vendas)
+            media_diaria_vendas = total_vendas_atual / max(1, dias_total)
+            media_diaria_receita = total_receita_atual / max(1, dias_total)
+    else:
+        media_diaria_vendas = 0
+        media_diaria_receita = 0.0
+
     sorted_keys = sorted(buckets.keys(), reverse=True)
     data = []
     acum_atual = 0
@@ -2262,7 +2294,30 @@ def get_curva_comparativa_evento(
         entry[f"acumulado_{ano_anterior}"] = acum_anterior
         entry[f"acumulado_receita_{ano}"] = round(acum_receita_atual, 2)
         entry[f"acumulado_receita_{ano_anterior}"] = round(acum_receita_anterior, 2)
+        entry["is_projecao"] = False
         data.append(entry)
+
+    if dias_ate_evento_atual > 0 and media_diaria_vendas > 0 and ano == datetime.now().year:
+        last_real_idx = None
+        for i, entry in enumerate(data):
+            if entry[f"vendas_{ano}"] > 0:
+                last_real_idx = i
+
+        if last_real_idx is not None:
+            acum_proj_vendas = data[last_real_idx][f"acumulado_{ano}"]
+            acum_proj_receita = data[last_real_idx][f"acumulado_receita_{ano}"]
+
+            data[last_real_idx][f"projecao_acumulado_{ano}"] = acum_proj_vendas
+            data[last_real_idx][f"projecao_acumulado_receita_{ano}"] = acum_proj_receita
+
+            for i in range(last_real_idx + 1, len(data)):
+                proj_vendas_bucket = media_diaria_vendas * BUCKET_SIZE
+                proj_receita_bucket = media_diaria_receita * BUCKET_SIZE
+                acum_proj_vendas += proj_vendas_bucket
+                acum_proj_receita += proj_receita_bucket
+                data[i][f"projecao_acumulado_{ano}"] = round(acum_proj_vendas)
+                data[i][f"projecao_acumulado_receita_{ano}"] = round(acum_proj_receita, 2)
+                data[i]["is_projecao"] = True
 
     evento_nome = ""
     if is_grouped:
@@ -2279,6 +2334,8 @@ def get_curva_comparativa_evento(
         "data_evento_anterior": str(data_evento_anterior) if data_evento_anterior else None,
         "data": data,
         "evento_nome": evento_nome,
+        "media_diaria_vendas": round(media_diaria_vendas, 2),
+        "media_diaria_receita": round(media_diaria_receita, 2),
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
     }
 
@@ -2418,8 +2475,8 @@ def get_marketing_event_by_id(
                     rep_projeto = p
         
         projeto_data_evento = latest_date
-        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
-        is_active = d_minus > 0
+        d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
+        is_active = d_minus > 0 if ano == datetime.now().year else True
         sales_goal = total_capacity if total_capacity > 0 else 1000
         
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano)
@@ -2630,11 +2687,12 @@ def get_marketing_event_by_id(
     projeto_codigo = str(projeto.codigo) if projeto.codigo else None
     sku = projeto_codigo
     projeto_data_evento = projeto.data_evento
-    d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
-    is_active = d_minus > 0
     
     if ano is None:
         ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
+    
+    d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
+    is_active = d_minus > 0 if ano == datetime.now().year else True
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
     if not force_refresh:
