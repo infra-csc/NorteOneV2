@@ -1292,11 +1292,11 @@ const EventDetail: React.FC = () => {
                       type="monotone" 
                       dataKey={`projecao_${curvaAnoAtual}`}
                       name={`${curvaAnoAtual} Projeção`}
-                      stroke={strokeColor}
+                      stroke="#8B5CF6"
                       strokeWidth={2} 
                       strokeDasharray="8 4"
-                      strokeOpacity={0.6}
-                      dot={{ r: 2, fill: strokeColor, fillOpacity: 0.5 }}
+                      strokeOpacity={0.85}
+                      dot={{ r: 2, fill: '#8B5CF6', fillOpacity: 0.7 }}
                     />
                   </>
                 ) : (
