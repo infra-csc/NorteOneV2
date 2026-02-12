@@ -47,9 +47,9 @@ const MarketingDashboard: React.FC = () => {
   
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+  const AUTO_REFRESH_INTERVAL = 60 * 60 * 1000;
 
-  const fetchData = useCallback(async (isRefresh = false) => {
+  const fetchData = useCallback(async (isRefresh = false, forceRefresh = false) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -68,7 +68,8 @@ const MarketingDashboard: React.FC = () => {
         ano: new Date().getFullYear(),
         status: statusFilter === 'all' ? undefined : statusFilter,
         categoria: categoryFilter === 'all' ? undefined : categoryFilter,
-        busca: debouncedSearch || undefined
+        busca: debouncedSearch || undefined,
+        force_refresh: forceRefresh || undefined
       }, controller.signal);
       
       if (!controller.signal.aborted) {
@@ -121,7 +122,7 @@ const MarketingDashboard: React.FC = () => {
   }, [fetchData]);
 
   const handleManualRefresh = () => {
-    fetchData(true);
+    fetchData(true, true);
   };
 
   const formatCurrency = (value: number) => {

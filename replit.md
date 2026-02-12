@@ -34,6 +34,7 @@ The frontend is built with React, TypeScript, and Tailwind CSS, featuring a mode
   - MySQL queries use MAX_EXECUTION_TIME hints (60s for consolidado, built-in for ISC/Pricing).
   - ISC Ativo and Magento queries run in parallel via ThreadPoolExecutor (2 workers, 60s timeout each).
   - MySQL connection timeouts: 10s connect, 90s read, 30s write on all external database engines.
+  - **Smart Multi-Tier Cache (Feb 2026):** Centralized cache module (`backend/app/core/cache.py`) with `SmartCache` class implementing year-aware TTL: historical data (years < current) cached permanently in memory; current year data cached with 1-hour TTL and auto-refreshed via background `CacheRefreshScheduler` thread. Applied to ISC pricing data, event detail, daily sales, curva comparativa, and medias-vendas. Cache refresh endpoint `POST /marketing/cache/refresh` invalidates current-year caches and re-fetches ISC data. Cache status endpoint `GET /marketing/cache/status` shows cache entries and configuration. All key endpoints (`/eventos`, `/eventos/{id}`, `/medias-vendas`) accept `force_refresh=true` query parameter. Frontend "Atualizar Dados" button on MarketingDashboard and EventDetail sends `force_refresh=true` to bypass cache. Frontend auto-refresh interval updated from 5 minutes to 1 hour to match backend cache TTL.
 
 ### Feature Specifications
 - **Authentication:** Login with email/password, JWT sessions, and role-based access.

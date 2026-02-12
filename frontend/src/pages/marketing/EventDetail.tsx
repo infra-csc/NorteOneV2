@@ -17,7 +17,8 @@ import {
   Loader2,
   Plus,
   X,
-  Trash2
+  Trash2,
+  RefreshCw
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -92,6 +93,7 @@ const EventDetail: React.FC = () => {
   const [salesAverages, setSalesAverages] = useState<any>(null);
   const [salesAvgLoading, setSalesAvgLoading] = useState(false);
   const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
+  const [refreshing, setRefreshing] = useState(false);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -221,6 +223,51 @@ const EventDetail: React.FC = () => {
     fetchAverages();
     return () => controller.abort();
   }, [id, salesAvgPeriod, anoParam]);
+
+  const handleForceRefresh = async () => {
+    if (!id || refreshing) return;
+    setRefreshing(true);
+    try {
+      const controller = new AbortController();
+      const response = await marketingService.getEventoById(id, controller.signal, anoParam, true);
+      const eventWithData = {
+        ...response.evento,
+        dailySales: response.dailySales?.map(d => ({
+          date: d.date,
+          sales: d.sales,
+          expected: d.expected,
+          cumulativeSales: d.cumulativeSales,
+          cumulativeExpected: d.cumulativeExpected
+        })),
+        commercialActions: (response as any).commercialActions?.map((a: any) => ({
+          id: a.id,
+          type: a.type,
+          description: a.description,
+          date: a.date,
+          impact: a.impact,
+          vendas_antes: a.vendas_antes,
+          vendas_depois: a.vendas_depois,
+          impacto_percentual: a.impacto_percentual,
+          status_impacto: a.status_impacto
+        }))
+      };
+      setEvent(eventWithData);
+      if ((response as any).projetos_vinculados) {
+        setProjetosVinculados((response as any).projetos_vinculados);
+      }
+      if ((response as any).comparacao_anual) {
+        setComparacaoAnual((response as any).comparacao_anual);
+      }
+      if ((response as any).anos_disponiveis) {
+        setAnosDisponiveis((response as any).anos_disponiveis);
+      }
+      setAvisos((response as any).avisos || []);
+    } catch (err: any) {
+      console.error('Erro ao atualizar:', err);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (loading || !event) {
     return (
@@ -429,18 +476,29 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="relative z-10 p-6 space-y-6">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={() => navigate('/marketing')}
-          className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
-        >
-          <ArrowLeft className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
-        </button>
-        <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-          <Link to="/marketing" className="hover:text-blue-600">Dashboard</Link>
-          <span>/</span>
-          <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/marketing')}
+            className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+          >
+            <ArrowLeft className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
+          </button>
+          <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+            <Link to="/marketing" className="hover:text-blue-600">Dashboard</Link>
+            <span>/</span>
+            <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
+          </div>
         </div>
+        <button
+          onClick={handleForceRefresh}
+          disabled={refreshing}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title="Buscar dados atualizados do banco de dados"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <span className="text-sm font-medium">{refreshing ? 'Atualizando...' : 'Atualizar Dados'}</span>
+        </button>
       </div>
 
       {avisos.length > 0 && (

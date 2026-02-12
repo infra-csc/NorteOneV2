@@ -4,6 +4,20 @@ from sqlalchemy import text
 from contextlib import asynccontextmanager
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
 from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings
+from app.core.cache import cache_scheduler
+import logging
+
+logger = logging.getLogger(__name__)
+
+def _scheduled_isc_refresh():
+    from app.core.database import SessionLocal
+    try:
+        db = SessionLocal()
+        marketing.fetch_isc_pricing_data(db=db, force_refresh=True)
+        logger.info("Scheduled ISC cache refresh completed successfully")
+        db.close()
+    except Exception as e:
+        logger.error(f"Scheduled ISC cache refresh failed: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -11,7 +25,13 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
     init_mysql_connections()
     init_ssh_tunnel()
+    
+    cache_scheduler.register(_scheduled_isc_refresh)
+    cache_scheduler.start(interval=3600)
+    logger.info("Cache auto-refresh scheduler started (1 hour interval)")
+    
     yield
+    cache_scheduler.stop()
     close_ssh_tunnel()
 
 app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0", lifespan=lifespan)

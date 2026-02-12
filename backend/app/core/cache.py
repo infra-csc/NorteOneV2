@@ -109,11 +109,17 @@ class CacheRefreshScheduler:
         logger.info(f"Cache refresh scheduler started (interval: {interval}s)")
     
     def _schedule(self, interval: int):
+        with self._lock:
+            if not self._running:
+                return
         self._timer = threading.Timer(interval, self._run_refresh, args=[interval])
         self._timer.daemon = True
         self._timer.start()
     
     def _run_refresh(self, interval: int):
+        with self._lock:
+            if not self._running:
+                return
         logger.info("Running scheduled cache refresh for current year data...")
         for callback in self._refresh_callbacks:
             try:

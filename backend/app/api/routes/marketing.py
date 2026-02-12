@@ -1459,6 +1459,7 @@ def get_sales_averages(
     evento_id: str,
     periodo: int = Query(default=30, description="Período em dias para calcular médias (7, 14, 30, 60, 90)"),
     ano: int = Query(default=None, description="Ano do evento"),
+    force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -1467,6 +1468,12 @@ def get_sales_averages(
     today = date.today()
     if ano is None:
         ano = today.year
+    
+    medias_cache_key = f"{ano}_{evento_id}_{periodo}_medias"
+    if not force_refresh:
+        cached_medias = medias_cache.get(medias_cache_key)
+        if cached_medias is not None:
+            return cached_medias
     
     is_consolidated = evento_id.startswith('grp_')
     
@@ -1577,7 +1584,7 @@ def get_sales_averages(
                 "vendas": all_daily_sales[sorted_dates[i]]
             })
     
-    return {
+    medias_result = {
         "status": "success",
         "periodo_dias": periodo,
         "media_geral": media_geral,
@@ -1587,6 +1594,8 @@ def get_sales_averages(
         "vendas_diarias": daily_data,
         "tendencia": tendencia_data
     }
+    medias_cache.set(medias_cache_key, medias_result)
+    return medias_result
 
 
 @router.get("/check-duplicate-action/{projeto_id}")
@@ -2044,6 +2053,7 @@ _curva_evento_cache_timestamp = {}
 def get_curva_comparativa_evento(
     evento_id: str,
     ano: int = Query(default=None, description="Ano base para comparacao"),
+    force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -2051,11 +2061,12 @@ def get_curva_comparativa_evento(
 
     cache_key = f"{evento_id}_{ano}"
     current_time = time.time()
-    cache_ts = _curva_evento_cache_timestamp.get(cache_key)
-    cache_valid = cache_ts and (current_time - cache_ts) < 300
-
-    if cache_valid and cache_key in _curva_evento_cache:
-        return _curva_evento_cache[cache_key]
+    
+    smart_curva_key = f"{ano}_{evento_id}_curva"
+    if not force_refresh:
+        cached_curva = curva_cache.get(smart_curva_key)
+        if cached_curva is not None:
+            return cached_curva
 
     is_grouped = evento_id.startswith("grp_")
 
@@ -2273,6 +2284,7 @@ def get_curva_comparativa_evento(
 
     _curva_evento_cache[cache_key] = result
     _curva_evento_cache_timestamp[cache_key] = current_time
+    curva_cache.set(smart_curva_key, result)
     return result
 
 
@@ -2374,6 +2386,12 @@ def get_marketing_event_by_id(
         
         if ano is None:
             ano = datetime.now().year
+        
+        detail_cache_key = f"{ano}_{evento_id}_detail"
+        if not force_refresh:
+            cached_detail = event_detail_cache.get(detail_cache_key)
+            if cached_detail is not None:
+                return cached_detail
         
         mappings = db.query(SkuMapping).filter(
             SkuMapping.evento_grupo == grupo_nome,
@@ -2590,7 +2608,7 @@ def get_marketing_event_by_id(
             SkuMapping.ativo == True
         ).distinct().order_by(SkuMapping.ano.desc()).all()
         
-        return {
+        grouped_result = {
             "status": "success",
             "evento": evento,
             "dailySales": daily_sales,
@@ -2601,6 +2619,8 @@ def get_marketing_event_by_id(
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
             "avisos": get_isc_warnings()
         }
+        event_detail_cache.set(detail_cache_key, grouped_result)
+        return grouped_result
     
     projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
     
@@ -2615,6 +2635,13 @@ def get_marketing_event_by_id(
     
     if ano is None:
         ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
+    
+    standalone_cache_key = f"{ano}_{evento_id}_detail"
+    if not force_refresh:
+        cached_standalone = event_detail_cache.get(standalone_cache_key)
+        if cached_standalone is not None:
+            return cached_standalone
+    
     isc_data = fetch_isc_pricing_data(db=db)
     
     sales_info = isc_data.get(normalize_sku(sku), {}) if sku else {}
@@ -2702,13 +2729,73 @@ def get_marketing_event_by_id(
             "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados"
         })
     
-    return {
+    standalone_result = {
         "status": "success",
         "evento": evento,
         "dailySales": daily_sales,
         "commercialActions": commercial_actions,
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
         "avisos": get_isc_warnings()
+    }
+    event_detail_cache.set(standalone_cache_key, standalone_result)
+    return standalone_result
+
+
+@router.post("/cache/refresh")
+def refresh_cache(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    _smart_isc_cache.invalidate()
+    event_detail_cache.invalidate()
+    daily_sales_cache.invalidate()
+    curva_cache.invalidate()
+    medias_cache.invalidate()
+    
+    global _isc_cache, _isc_cache_timestamp, _sales_cache, _cache_timestamp
+    _isc_cache = {}
+    _isc_cache_timestamp = None
+    _sales_cache = {}
+    _cache_timestamp = None
+    
+    fetch_isc_pricing_data(db=db, force_refresh=True)
+    
+    cache_info = _smart_isc_cache.get_info(f"{datetime.now().year}_isc")
+    
+    return {
+        "status": "success",
+        "message": "Cache do ano atual atualizado com sucesso. Dados históricos preservados.",
+        "cache_info": cache_info,
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    }
+
+
+@router.get("/cache/status")
+def get_cache_status(
+    current_user: Usuario = Depends(get_current_user)
+):
+    current_year = datetime.now().year
+    return {
+        "status": "success",
+        "caches": {
+            "isc_pricing": _smart_isc_cache.get_info(f"{current_year}_isc"),
+            "event_detail": {
+                "entries": len(event_detail_cache._data),
+                "historical": sum(1 for k in event_detail_cache._data if event_detail_cache._is_historical(k)),
+                "current_year": sum(1 for k in event_detail_cache._data if not event_detail_cache._is_historical(k))
+            },
+            "curva_comparativa": {
+                "entries": len(curva_cache._data),
+            },
+            "medias_vendas": {
+                "entries": len(medias_cache._data),
+            }
+        },
+        "config": {
+            "historical_ttl": "permanent",
+            "current_year_ttl_seconds": 3600,
+            "auto_refresh_interval_seconds": 3600
+        }
     }
 
 

@@ -686,12 +686,14 @@ export const marketingService = {
     status?: string;
     categoria?: string;
     busca?: string;
+    force_refresh?: boolean;
   }, signal?: AbortSignal): Promise<MarketingEventsResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.ano) queryParams.append('ano', params.ano.toString());
     if (params?.status) queryParams.append('status', params.status);
     if (params?.categoria) queryParams.append('categoria', params.categoria);
     if (params?.busca) queryParams.append('busca', params.busca);
+    if (params?.force_refresh) queryParams.append('force_refresh', 'true');
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const response = await api.get(`/marketing/eventos${queryString}`, { signal });
     return response.data;
@@ -701,7 +703,7 @@ export const marketingService = {
     const response = await api.get(`/marketing/resumo${queryString}`, { signal });
     return response.data;
   },
-  getEventoById: async (id: string, signal?: AbortSignal, ano?: number): Promise<{ 
+  getEventoById: async (id: string, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<{ 
     status: string; 
     evento: MarketingEvent; 
     dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number }[];
@@ -709,7 +711,10 @@ export const marketingService = {
     projetos_vinculados?: { id: number; nome: string; sku: string }[];
     ultima_atualizacao: string 
   }> => {
-    const queryString = ano ? `?ano=${ano}` : '';
+    const queryParams = new URLSearchParams();
+    if (ano) queryParams.append('ano', ano.toString());
+    if (force_refresh) queryParams.append('force_refresh', 'true');
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const response = await api.get(`/marketing/eventos/${id}${queryString}`, { signal });
     return response.data;
   },
@@ -763,7 +768,7 @@ export const marketingService = {
     const response = await api.get(`/marketing/curva-comparativa/${eventoId}`, { signal, params });
     return response.data;
   },
-  getSalesAverages: async (eventoId: string, periodo: number = 30, signal?: AbortSignal, ano?: number): Promise<{
+  getSalesAverages: async (eventoId: string, periodo: number = 30, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<{
     status: string;
     periodo_dias: number;
     media_geral: number;
@@ -773,8 +778,11 @@ export const marketingService = {
     vendas_diarias: { date: string; sales: number }[];
     tendencia: { date: string; media_movel_7d: number; vendas: number }[];
   }> => {
-    let url = `/marketing/eventos/${eventoId}/medias-vendas?periodo=${periodo}`;
-    if (ano) url += `&ano=${ano}`;
+    const queryParams = new URLSearchParams();
+    queryParams.append('periodo', periodo.toString());
+    if (ano) queryParams.append('ano', ano.toString());
+    if (force_refresh) queryParams.append('force_refresh', 'true');
+    const url = `/marketing/eventos/${eventoId}/medias-vendas?${queryParams.toString()}`;
     const response = await api.get(url, { signal });
     return response.data;
   },
@@ -784,6 +792,23 @@ export const marketingService = {
     existing_action: { id: number; tipo: string; descricao: string; data_acao: string; dias_restantes: number } | null;
   }> => {
     const response = await api.get(`/marketing/check-duplicate-action/${projetoId}?tipo=${tipo}`);
+    return response.data;
+  },
+  refreshCache: async (): Promise<{
+    status: string;
+    message: string;
+    cache_info: Record<string, any>;
+    ultima_atualizacao: string;
+  }> => {
+    const response = await api.post('/marketing/cache/refresh');
+    return response.data;
+  },
+  getCacheStatus: async (): Promise<{
+    status: string;
+    caches: Record<string, any>;
+    config: Record<string, any>;
+  }> => {
+    const response = await api.get('/marketing/cache/status');
     return response.data;
   }
 };
