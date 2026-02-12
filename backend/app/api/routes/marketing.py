@@ -691,6 +691,8 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
 _isc_cache = {}
 _isc_cache_timestamp = None
 
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, cache_scheduler
+
 def build_query_isc_ativo() -> str:
     return """
 SELECT /*+ MAX_EXECUTION_TIME(120000) */
@@ -884,15 +886,19 @@ def fetch_isc_data_magento():
 
 _isc_warnings = []
 
-def fetch_isc_pricing_data(db: Session = None) -> dict:
+def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> dict:
     global _isc_cache, _isc_cache_timestamp, _isc_warnings
     import time
 
-    current_time = time.time()
-    cache_valid = _isc_cache_timestamp and (current_time - _isc_cache_timestamp) < 300
+    current_year = datetime.now().year
+    smart_cache_key = f"{current_year}_isc"
+    
+    if not force_refresh:
+        cached = _smart_isc_cache.get(smart_cache_key)
+        if cached is not None:
+            return cached
 
-    if cache_valid and _isc_cache is not None:
-        return _isc_cache
+    current_time = time.time()
 
     from .inscricoes_consolidado import get_sku_mappings_from_db, enrich_with_mappings
 
@@ -1003,6 +1009,8 @@ def fetch_isc_pricing_data(db: Session = None) -> dict:
     _isc_cache = all_data
     _isc_cache_timestamp = current_time
     _isc_warnings = warnings
+    
+    _smart_isc_cache.set(smart_cache_key, all_data)
 
     return all_data
 
@@ -1176,6 +1184,7 @@ def get_marketing_events(
     status: Optional[str] = Query(None, description="Filtrar por status: active, closed, all"),
     categoria: Optional[str] = Query(None, description="Filtrar por categoria/modalidade"),
     busca: Optional[str] = Query(None, description="Buscar por nome do evento"),
+    force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -1200,7 +1209,7 @@ def get_marketing_events(
     
     projetos = query.all()
     
-    isc_data = fetch_isc_pricing_data(db=db)
+    isc_data = fetch_isc_pricing_data(db=db, force_refresh=force_refresh)
     
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     
@@ -2347,6 +2356,7 @@ def _curva_comparativa_mensal_fallback(
 def get_marketing_event_by_id(
     evento_id: str,
     ano: int = Query(default=None, description="Ano para evento consolidado"),
+    force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
