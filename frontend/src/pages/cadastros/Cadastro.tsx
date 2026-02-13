@@ -2617,15 +2617,7 @@ const Cadastro: React.FC = () => {
                   </div>
                   <div>
                     <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Status</p>
-                    {(() => {
-                      const style = getStatusStyle(selectedCadastro.status);
-                      return (
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${style.bg} ${style.text} border ${style.border}`}>
-                          {style.icon}
-                          {selectedCadastro.status || '-'}
-                        </span>
-                      );
-                    })()}
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.status || '-'}</p>
                   </div>
                   <div>
                     <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Data</p>
@@ -2771,7 +2763,7 @@ const Cadastro: React.FC = () => {
                 </div>
               </div>
 
-              {selectedCadastro.kit_produto && selectedCadastro.kit_produto.length > 0 && selectedCadastro.kit_produto.some((k: any) => k.kit) && (
+              {selectedCadastro.kit_produto && selectedCadastro.kit_produto.length > 0 && (
                 <>
                   <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
                   <div>
