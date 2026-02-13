@@ -506,11 +506,34 @@ const Cadastro: React.FC = () => {
     e.preventDefault();
     try {
       setLoading(true);
+
+      const nomeFinal = form.circuito_produto && form.localizacao_evento 
+        ? `${form.circuito_produto} - ${form.localizacao_evento} ${form.ano_evento}` 
+        : form.nome;
+
+      const nomeDuplicado = cadastros.find(c => 
+        c.nome.toLowerCase() === nomeFinal.toLowerCase() && c.id !== editItem?.id
+      );
+      if (nomeDuplicado) {
+        alert(`Já existe um evento com o nome "${nomeFinal}". Escolha uma combinação diferente.`);
+        setLoading(false);
+        return;
+      }
+
+      if (form.sku && form.sku.trim()) {
+        const skuDuplicado = cadastros.find(c => 
+          c.sku && c.sku.toLowerCase() === form.sku.toLowerCase() && c.id !== editItem?.id
+        );
+        if (skuDuplicado) {
+          alert(`O SKU "${form.sku}" já está sendo usado pelo evento "${skuDuplicado.nome}". Informe um SKU diferente.`);
+          setLoading(false);
+          return;
+        }
+      }
+
       const payload = {
         projeto_id: form.projeto_id,
-        nome: form.circuito_produto && form.localizacao_evento 
-          ? `${form.circuito_produto} - ${form.localizacao_evento} ${form.ano_evento}` 
-          : form.nome,
+        nome: nomeFinal,
         circuito_produto: form.circuito_produto,
         localizacao_evento: form.localizacao_evento,
         ano_evento: form.ano_evento,
@@ -2610,27 +2633,30 @@ const Cadastro: React.FC = () => {
             className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-[90%] max-w-7xl my-4 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden max-h-[90vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 pb-3 flex items-center justify-between">
-              <div>
+            <div className="p-6 pb-3">
+              <div className="flex items-center justify-between mb-2">
                 <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                   {editItem ? 'Editar Evento' : 'Novo Evento'}
                 </h2>
-                {form.circuito_produto && form.localizacao_evento && (
-                  <p className={`text-sm mt-1 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setShowModal(false);
+                    setEditItem(null);
+                  }}
+                  className={`p-2 rounded-full ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              {form.circuito_produto && form.localizacao_evento && (
+                <div className={`p-3 rounded-xl border ${isDark ? 'bg-purple-900/30 border-purple-500/40' : 'bg-purple-50 border-purple-300'}`}>
+                  <p className={`text-xs font-medium mb-0.5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Nome do Evento</p>
+                  <p className={`text-lg font-bold tracking-wide ${isDark ? 'text-white' : 'text-gray-900'}`}>
                     {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
                   </p>
-                )}
-              </div>
-              <button 
-                type="button"
-                onClick={() => {
-                  setShowModal(false);
-                  setEditItem(null);
-                }}
-                className={`p-2 rounded-full ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
-              >
-                <X className="w-6 h-6" />
-              </button>
+                </div>
+              )}
             </div>
 
             <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-700/50">
