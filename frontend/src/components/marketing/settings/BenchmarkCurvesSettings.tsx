@@ -1,13 +1,24 @@
-import React, { useState } from 'react';
-import { TrendingUp, Check, Plus, Trash2, Edit2, Save, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { TrendingUp, Check, Plus, Trash2, Edit2, Save, X, Loader2 } from 'lucide-react';
 import { BenchmarkCurve, BenchmarkDataPoint } from '../../../types/marketingSettings';
-import { getBenchmarkCurves } from '../../../data/mockMarketingSettings';
+import { marketingService } from '../../../services/api';
 
 const BenchmarkCurvesSettings: React.FC = () => {
-  const [curves, setCurves] = useState<BenchmarkCurve[]>(getBenchmarkCurves());
-  const [selectedCurve, setSelectedCurve] = useState<BenchmarkCurve | null>(curves.find(c => c.isDefault) || null);
+  const [curves, setCurves] = useState<BenchmarkCurve[]>([]);
+  const [selectedCurve, setSelectedCurve] = useState<BenchmarkCurve | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDataPoints, setEditingDataPoints] = useState<BenchmarkDataPoint[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    marketingService.getSettings('benchmark_curves').then((res) => {
+      if (res.value) {
+        setCurves(res.value);
+        const defaultCurve = res.value.find((c: BenchmarkCurve) => c.isDefault) || null;
+        setSelectedCurve(defaultCurve);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   const getCurveTypeColor = (type: string) => {
     switch (type) {
@@ -28,10 +39,12 @@ const BenchmarkCurvesSettings: React.FC = () => {
   };
 
   const handleSetDefault = (id: string) => {
-    setCurves(curves.map(c => ({
+    const updatedCurves = curves.map(c => ({
       ...c,
       isDefault: c.id === id
-    })));
+    }));
+    setCurves(updatedCurves);
+    marketingService.updateSettings('benchmark_curves', updatedCurves).catch(() => {});
   };
 
   const handleEditCurve = (curve: BenchmarkCurve) => {
@@ -41,16 +54,18 @@ const BenchmarkCurvesSettings: React.FC = () => {
 
   const handleSaveEdit = () => {
     if (editingId) {
-      setCurves(curves.map(c => 
+      const updatedCurves = curves.map(c => 
         c.id === editingId 
           ? { ...c, dataPoints: editingDataPoints }
           : c
-      ));
+      );
+      setCurves(updatedCurves);
       if (selectedCurve?.id === editingId) {
         setSelectedCurve({ ...selectedCurve, dataPoints: editingDataPoints });
       }
       setEditingId(null);
       setEditingDataPoints([]);
+      marketingService.updateSettings('benchmark_curves', updatedCurves).catch(() => {});
     }
   };
 
@@ -64,6 +79,14 @@ const BenchmarkCurvesSettings: React.FC = () => {
     newPoints[index] = { ...newPoints[index], [field]: value };
     setEditingDataPoints(newPoints);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

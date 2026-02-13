@@ -1,12 +1,21 @@
-import React, { useState } from 'react';
-import { Target, Edit2, Save, X, TrendingUp, DollarSign } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Target, Edit2, Save, X, TrendingUp, DollarSign, Loader2 } from 'lucide-react';
 import { EventGoal } from '../../../types/marketingSettings';
-import { getEventGoals } from '../../../data/mockMarketingSettings';
+import { marketingService } from '../../../services/api';
 
 const EventGoalsSettings: React.FC = () => {
-  const [goals, setGoals] = useState<EventGoal[]>(getEventGoals());
+  const [goals, setGoals] = useState<EventGoal[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<EventGoal>>({});
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    marketingService.getSettings('event_goals').then((res) => {
+      if (res.value) {
+        setGoals(res.value);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -26,13 +35,15 @@ const EventGoalsSettings: React.FC = () => {
 
   const handleSave = () => {
     if (editingId && editForm) {
-      setGoals(goals.map(g => 
+      const updatedGoals = goals.map(g => 
         g.id === editingId 
           ? { ...g, ...editForm, updatedAt: new Date().toISOString().split('T')[0] }
           : g
-      ));
+      );
+      setGoals(updatedGoals);
       setEditingId(null);
       setEditForm({});
+      marketingService.updateSettings('event_goals', updatedGoals).catch(() => {});
     }
   };
 
@@ -40,6 +51,14 @@ const EventGoalsSettings: React.FC = () => {
     setEditingId(null);
     setEditForm({});
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

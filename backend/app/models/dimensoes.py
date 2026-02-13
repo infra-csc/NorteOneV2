@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Text, CheckConstraint
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Text, CheckConstraint, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..core.database import Base
@@ -150,3 +150,12 @@ class SkuMapping(Base):
     __table_args__ = (
         CheckConstraint("fonte IN ('ATIVO', 'MAGENTO')", name="check_fonte_sku"),
     )
+
+
+class MarketingSettings(Base):
+    __tablename__ = "marketing_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

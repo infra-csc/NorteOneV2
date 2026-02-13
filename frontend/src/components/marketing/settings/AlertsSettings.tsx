@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
-import { Bell, Plus, Edit2, Trash2, Save, X, Mail, MessageSquare, Smartphone, Hash, AlertTriangle, TrendingDown, TrendingUp, Calendar, Target } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Bell, Plus, Edit2, Trash2, Save, X, Mail, MessageSquare, Smartphone, Hash, AlertTriangle, TrendingDown, TrendingUp, Calendar, Target, Loader2 } from 'lucide-react';
 import { AlertConfig, AlertCondition, AlertChannel } from '../../../types/marketingSettings';
-import { getAlertConfigs } from '../../../data/mockMarketingSettings';
+import { marketingService } from '../../../services/api';
 
 const AlertsSettings: React.FC = () => {
-  const [alerts, setAlerts] = useState<AlertConfig[]>(getAlertConfigs());
+  const [alerts, setAlerts] = useState<AlertConfig[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [newAlert, setNewAlert] = useState<Partial<AlertConfig>>({
     name: '',
     description: '',
@@ -14,6 +15,14 @@ const AlertsSettings: React.FC = () => {
     channels: [{ type: 'email', target: '', isEnabled: true }],
     isActive: true
   });
+
+  useEffect(() => {
+    marketingService.getSettings('alert_configs').then((res) => {
+      if (res.value) {
+        setAlerts(res.value);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   const getConditionIcon = (type: string) => {
     switch (type) {
@@ -50,35 +59,42 @@ const AlertsSettings: React.FC = () => {
   };
 
   const handleToggleActive = (id: string) => {
-    setAlerts(alerts.map(a => 
+    const updatedAlerts = alerts.map(a => 
       a.id === id ? { ...a, isActive: !a.isActive } : a
-    ));
+    );
+    setAlerts(updatedAlerts);
+    marketingService.updateSettings('alert_configs', updatedAlerts).catch(() => {});
   };
 
   const handleDelete = (id: string) => {
-    setAlerts(alerts.filter(a => a.id !== id));
+    const updatedAlerts = alerts.filter(a => a.id !== id);
+    setAlerts(updatedAlerts);
+    marketingService.updateSettings('alert_configs', updatedAlerts).catch(() => {});
   };
 
   const handleToggleChannel = (alertId: string, channelIndex: number) => {
-    setAlerts(alerts.map(a => {
+    const updatedAlerts = alerts.map(a => {
       if (a.id === alertId) {
         const newChannels = [...a.channels];
         newChannels[channelIndex] = { ...newChannels[channelIndex], isEnabled: !newChannels[channelIndex].isEnabled };
         return { ...a, channels: newChannels };
       }
       return a;
-    }));
+    });
+    setAlerts(updatedAlerts);
+    marketingService.updateSettings('alert_configs', updatedAlerts).catch(() => {});
   };
 
   const handleAddAlert = () => {
     if (newAlert.name && newAlert.description) {
       const existingIds = alerts.map(a => Number(a.id));
       const newId = String(existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1);
-      setAlerts([...alerts, {
+      const updatedAlerts = [...alerts, {
         ...newAlert,
         id: newId,
         createdAt: new Date().toISOString().split('T')[0]
-      } as AlertConfig]);
+      } as AlertConfig];
+      setAlerts(updatedAlerts);
       setNewAlert({
         name: '',
         description: '',
@@ -87,6 +103,7 @@ const AlertsSettings: React.FC = () => {
         isActive: true
       });
       setShowNewForm(false);
+      marketingService.updateSettings('alert_configs', updatedAlerts).catch(() => {});
     }
   };
 
@@ -124,6 +141,14 @@ const AlertsSettings: React.FC = () => {
     { value: 'push', label: 'Push Notification' },
     { value: 'slack', label: 'Slack' }
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

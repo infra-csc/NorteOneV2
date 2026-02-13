@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
-import { Plus, Edit2, Trash2, Save, X, Tag, Users, DollarSign } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, Edit2, Trash2, Save, X, Tag, Users, DollarSign, Loader2 } from 'lucide-react';
 import { EventCategory } from '../../../types/marketingSettings';
-import { getEventCategories } from '../../../data/mockMarketingSettings';
+import { marketingService } from '../../../services/api';
 
 const EventCategoriesSettings: React.FC = () => {
-  const [categories, setCategories] = useState<EventCategory[]>(getEventCategories());
+  const [categories, setCategories] = useState<EventCategory[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<EventCategory>>({});
   const [showNewForm, setShowNewForm] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [newCategory, setNewCategory] = useState<Partial<EventCategory>>({
     name: '',
     description: '',
@@ -18,6 +19,14 @@ const EventCategoriesSettings: React.FC = () => {
     isActive: true,
     eventCount: 0
   });
+
+  useEffect(() => {
+    marketingService.getSettings('event_categories').then((res) => {
+      if (res.value) {
+        setCategories(res.value);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -37,11 +46,13 @@ const EventCategoriesSettings: React.FC = () => {
 
   const handleSave = () => {
     if (editingId && editForm) {
-      setCategories(categories.map(c => 
+      const updatedCategories = categories.map(c => 
         c.id === editingId ? { ...c, ...editForm } as EventCategory : c
-      ));
+      );
+      setCategories(updatedCategories);
       setEditingId(null);
       setEditForm({});
+      marketingService.updateSettings('event_categories', updatedCategories).catch(() => {});
     }
   };
 
@@ -51,20 +62,25 @@ const EventCategoriesSettings: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    setCategories(categories.filter(c => c.id !== id));
+    const updatedCategories = categories.filter(c => c.id !== id);
+    setCategories(updatedCategories);
+    marketingService.updateSettings('event_categories', updatedCategories).catch(() => {});
   };
 
   const handleToggleActive = (id: string) => {
-    setCategories(categories.map(c => 
+    const updatedCategories = categories.map(c => 
       c.id === id ? { ...c, isActive: !c.isActive } : c
-    ));
+    );
+    setCategories(updatedCategories);
+    marketingService.updateSettings('event_categories', updatedCategories).catch(() => {});
   };
 
   const handleAddCategory = () => {
     if (newCategory.name && newCategory.description) {
       const existingIds = categories.map(c => Number(c.id));
       const newId = String(existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1);
-      setCategories([...categories, { ...newCategory, id: newId, eventCount: 0 } as EventCategory]);
+      const updatedCategories = [...categories, { ...newCategory, id: newId, eventCount: 0 } as EventCategory];
+      setCategories(updatedCategories);
       setNewCategory({
         name: '',
         description: '',
@@ -76,6 +92,7 @@ const EventCategoriesSettings: React.FC = () => {
         eventCount: 0
       });
       setShowNewForm(false);
+      marketingService.updateSettings('event_categories', updatedCategories).catch(() => {});
     }
   };
 
@@ -84,6 +101,14 @@ const EventCategoriesSettings: React.FC = () => {
     '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6',
     '#a855f7', '#d946ef', '#ec4899', '#f43f5e'
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -151,7 +176,7 @@ const EventCategoriesSettings: React.FC = () => {
             <div>
               <p className="text-sm text-amber-600 dark:text-amber-400">Ticket Médio</p>
               <p className="text-2xl font-bold text-amber-800 dark:text-amber-200">
-                {formatCurrency(categories.reduce((sum, c) => sum + c.defaultTicketPrice, 0) / categories.length)}
+                {categories.length > 0 ? formatCurrency(categories.reduce((sum, c) => sum + c.defaultTicketPrice, 0) / categories.length) : formatCurrency(0)}
               </p>
             </div>
           </div>

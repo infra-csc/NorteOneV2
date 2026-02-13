@@ -15,9 +15,7 @@ import {
   TrendingDown,
   Minus
 } from 'lucide-react';
-import { noriService, ChatMessage, tarefasService, TarefaCreate } from '../../services/api';
-import { mockEvents } from '../../data/mockMarketingData';
-import { Event as MarketingEvent } from '../../types/marketingPerformance';
+import { noriService, ChatMessage, tarefasService, TarefaCreate, marketingService, MarketingEvent } from '../../services/api';
 import noriAvatar from '@assets/Nori.png';
 
 const MiniISCGauge: React.FC<{ value: number; status: string }> = ({ value, status }) => {
@@ -116,6 +114,7 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
   const [showUserMention, setShowUserMention] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
+  const [realEvents, setRealEvents] = useState<MarketingEvent[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -148,7 +147,7 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
 
   const detectMentionedEvents = (content: string): MarketingEvent[] => {
     const mentioned: MarketingEvent[] = [];
-    mockEvents.forEach(event => {
+    realEvents.forEach(event => {
       if (content.toLowerCase().includes(event.name.toLowerCase())) {
         mentioned.push(event);
       }
@@ -172,6 +171,23 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
       fetchGreeting();
       fetchUsers();
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    marketingService.getEventos(undefined, controller.signal)
+      .then(data => {
+        if (!controller.signal.aborted) {
+          setRealEvents(data.eventos);
+        }
+      })
+      .catch(err => {
+        if (!controller.signal.aborted) {
+          console.error('Erro ao carregar eventos:', err);
+        }
+      });
+    return () => controller.abort();
   }, [isOpen]);
 
   const fetchUsers = async () => {
@@ -357,7 +373,7 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
         return;
       }
 
-      const eventsData = mockEvents.map(e => ({
+      const eventsData = realEvents.map(e => ({
         name: e.name,
         location: e.location,
         category: e.category,
@@ -398,7 +414,7 @@ const NoriChat: React.FC<NoriChatProps> = ({ isOpen, onClose, onTaskCreated }) =
     setMessages(prev => [...prev, analysisMessage]);
 
     try {
-      const eventsData = mockEvents.map(e => ({
+      const eventsData = realEvents.map(e => ({
         name: e.name,
         location: e.location,
         category: e.category,

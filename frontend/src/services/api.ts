@@ -817,7 +817,15 @@ export const marketingService = {
     if (force_refresh) params.force_refresh = true;
     const response = await api.get(`/marketing/eventos/${eventoId}/insights`, { signal, params });
     return response.data;
-  }
+  },
+  getSettings: async (key: string): Promise<{ status: string; key: string; value: any }> => {
+    const response = await api.get(`/marketing/settings/${key}`);
+    return response.data;
+  },
+  updateSettings: async (key: string, value: any): Promise<{ status: string; key: string; value: any }> => {
+    const response = await api.put(`/marketing/settings/${key}`, { value });
+    return response.data;
+  },
 };
 
 export default api;

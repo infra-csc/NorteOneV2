@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from ...core.database import get_db, engine_ativo, engine_ssh
 from ...core import database as db_module
 from ...core.security import get_current_user
-from ...models.dimensoes import DimProjeto, EventoConsolidado, SkuMapping, EventoGrupo as EventoGrupoModel
+from ...models.dimensoes import DimProjeto, EventoConsolidado, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
 from ...models.user import Usuario
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from .inscricoes_consolidado import normalize_sku
@@ -4246,3 +4246,23 @@ def get_pricing_analysis(
         ultima_atualizacao=datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(),
         avisos=get_isc_warnings()
     )
+
+
+@router.get("/settings/{key}")
+def get_marketing_setting(key: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    setting = db.query(MarketingSettings).filter(MarketingSettings.key == key).first()
+    if setting:
+        return {"status": "success", "key": key, "value": setting.value}
+    return {"status": "success", "key": key, "value": None}
+
+
+@router.put("/settings/{key}")
+def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+    setting = db.query(MarketingSettings).filter(MarketingSettings.key == key).first()
+    if setting:
+        setting.value = body.get("value", {})
+    else:
+        setting = MarketingSettings(key=key, value=body.get("value", {}))
+        db.add(setting)
+    db.commit()
+    return {"status": "success", "key": key, "value": setting.value}

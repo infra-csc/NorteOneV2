@@ -1,11 +1,31 @@
-import React, { useState } from 'react';
-import { Activity, Save, RotateCcw, Info, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Activity, Save, RotateCcw, Info, AlertTriangle, Loader2 } from 'lucide-react';
 import { ISCParameters } from '../../../types/marketingSettings';
-import { getISCParameters, defaultISCParameters } from '../../../data/mockMarketingSettings';
+import { marketingService } from '../../../services/api';
+
+const defaultISCParameters: ISCParameters = {
+  ia730Weight: 33.33,
+  curvaDWeight: 33.33,
+  rolling14dWeight: 33.34,
+  greenThreshold: 1.10,
+  yellowThreshold: 0.90,
+  criticalWindowStart: 45,
+  criticalWindowEnd: 40,
+  promotionDeadline: 40
+};
 
 const ISCParametersSettings: React.FC = () => {
-  const [parameters, setParameters] = useState<ISCParameters>(getISCParameters());
+  const [parameters, setParameters] = useState<ISCParameters>({ ...defaultISCParameters });
   const [hasChanges, setHasChanges] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    marketingService.getSettings('isc_parameters').then((res) => {
+      if (res.value) {
+        setParameters(res.value);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   const handleChange = (field: keyof ISCParameters, value: number) => {
     setParameters({ ...parameters, [field]: value });
@@ -13,6 +33,7 @@ const ISCParametersSettings: React.FC = () => {
   };
 
   const handleSave = () => {
+    marketingService.updateSettings('isc_parameters', parameters).catch(() => {});
     setHasChanges(false);
   };
 
@@ -23,6 +44,14 @@ const ISCParametersSettings: React.FC = () => {
 
   const totalWeight = parameters.ia730Weight + parameters.curvaDWeight + parameters.rolling14dWeight;
   const isWeightValid = Math.abs(totalWeight - 100) < 0.1;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

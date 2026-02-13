@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -7,19 +7,11 @@ import {
   TrendingUp, 
   TrendingDown,
   Activity,
-  Info
+  Info,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer 
-} from 'recharts';
-import { mockEvents } from '../../data/mockMarketingData';
+import { marketingService, MarketingEvent } from '../../services/api';
 import { getISCColor, getISCEmoji } from '../../types/marketingPerformance';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -28,9 +20,37 @@ const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 const EventComparison: React.FC = () => {
   const { isDark } = useTheme();
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [events, setEvents] = useState<MarketingEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const fetchEvents = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await marketingService.getEventos(undefined, controller.signal);
+        setEvents(data.eventos);
+      } catch (err: any) {
+        if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
+          setError('Erro ao carregar eventos. Tente novamente.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvents();
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
   
-  const availableEvents = mockEvents.filter(e => !selectedEvents.includes(e.id));
-  const compareEvents = mockEvents.filter(e => selectedEvents.includes(e.id));
+  const availableEvents = events.filter(e => !selectedEvents.includes(e.id));
+  const compareEvents = events.filter(e => selectedEvents.includes(e.id));
 
   const addEvent = (eventId: string) => {
     if (selectedEvents.length < 4) {
@@ -53,28 +73,33 @@ const EventComparison: React.FC = () => {
     }).format(value);
   };
 
-  const getComparisonChartData = () => {
-    if (compareEvents.length === 0) return [];
-    
-    const maxDays = Math.max(...compareEvents.map(e => e.dailySales.length));
-    const data: Record<string, unknown>[] = [];
-    
-    for (let i = 0; i < maxDays; i++) {
-      const dayData: Record<string, unknown> = { day: `D-${maxDays - i}` };
-      
-      compareEvents.forEach((event, idx) => {
-        const sales = event.dailySales.slice(0, i + 1);
-        const cumulative = sales.reduce((sum, d) => sum + d.sales, 0);
-        dayData[event.name] = cumulative;
-      });
-      
-      data.push(dayData);
-    }
-    
-    return data.slice(-30);
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className={`w-8 h-8 animate-spin ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+          <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando eventos...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const chartData = getComparisonChartData();
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <AlertCircle className="w-8 h-8 text-red-500" />
+          <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -164,233 +189,192 @@ const EventComparison: React.FC = () => {
       </div>
 
       {selectedEvents.length >= 2 && (
-        <>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-              Curvas de Vendas Sobrepostas
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Tabela Comparativa
             </h3>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                  <XAxis 
-                    dataKey="day" 
-                    stroke="#6B7280"
-                    fontSize={12}
-                  />
-                  <YAxis stroke="#6B7280" fontSize={12} />
-                  <Tooltip 
-                    formatter={(value) => formatNumber(Number(value ?? 0))}
-                    contentStyle={{ 
-                      backgroundColor: '#1F2937', 
-                      border: 'none', 
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
-                  />
-                  <Legend />
-                  {compareEvents.map((event, idx) => (
-                    <Line 
-                      key={event.id}
-                      type="monotone" 
-                      dataKey={event.name}
-                      stroke={COLORS[idx]} 
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
           </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="font-semibold text-gray-900 dark:text-white">
-                Tabela Comparativa
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 dark:bg-gray-700/50">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                      Métrica
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-700/50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                    Métrica
+                  </th>
+                  {compareEvents.map((event, idx) => (
+                    <th 
+                      key={event.id} 
+                      className="px-4 py-3 text-center text-xs font-medium uppercase"
+                      style={{ color: COLORS[idx] }}
+                    >
+                      {event.name}
                     </th>
-                    {compareEvents.map((event, idx) => (
-                      <th 
-                        key={event.id} 
-                        className="px-4 py-3 text-center text-xs font-medium uppercase"
-                        style={{ color: COLORS[idx] }}
-                      >
-                        {event.name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      D- (Dias para evento)
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    D- (Dias para evento)
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      D-{event.dMinus}
                     </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        D-{event.dMinus}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      <div className="flex items-center gap-1">
-                        ISC
-                        <div className="group relative">
-                          <Info className="w-3 h-3 cursor-help" />
-                          <div className="hidden group-hover:block absolute z-10 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg left-0 top-5">
-                            Índice de Saúde Comercial
-                          </div>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-1">
+                      ISC
+                      <div className="group relative">
+                        <Info className="w-3 h-3 cursor-help" />
+                        <div className="hidden group-hover:block absolute z-10 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg left-0 top-5">
+                          Índice de Saúde Comercial
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center">
+                      <span 
+                        className="font-bold"
+                        style={{ color: getISCColor(event.iscStatus) }}
+                      >
+                        {getISCEmoji(event.iscStatus)} {event.isc.toFixed(2)}
+                      </span>
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    IA 7/30
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      <div className="flex items-center justify-center gap-1">
+                        {event.iscComponents.ia730.toFixed(2)}
+                        {event.iscComponents.ia730 > 1 ? (
+                          <TrendingUp className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-500" />
+                        )}
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Curva D-%
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      <div className="flex items-center justify-center gap-1">
+                        {event.iscComponents.curvaDPercent.toFixed(2)}
+                        {event.iscComponents.curvaDPercent > 1 ? (
+                          <TrendingUp className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-500" />
+                        )}
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Rolling 14d
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      {event.iscComponents.rolling14d.toFixed(2)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Vendas Atuais
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      {formatNumber(event.currentSales)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Meta
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      {formatNumber(event.salesGoal)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    % da Meta
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center">
+                      <div className="flex flex-col items-center">
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {Math.round((event.currentSales / event.salesGoal) * 100)}%
+                        </span>
+                        <div className="w-16 bg-gray-200 dark:bg-gray-600 rounded-full h-1.5 mt-1">
+                          <div 
+                            className="bg-blue-600 h-1.5 rounded-full"
+                            style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
+                          />
                         </div>
                       </div>
                     </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center">
-                        <span 
-                          className="font-bold"
-                          style={{ color: getISCColor(event.iscStatus) }}
-                        >
-                          {getISCEmoji(event.iscStatus)} {event.isc.toFixed(2)}
-                        </span>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      IA 7/30
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Ticket Médio
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
+                      {formatCurrency(event.averageTicket)}
                     </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        <div className="flex items-center justify-center gap-1">
-                          {event.iscComponents.ia730.toFixed(2)}
-                          {event.iscComponents.ia730 > 1 ? (
-                            <TrendingUp className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <TrendingDown className="w-4 h-4 text-red-500" />
-                          )}
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Curva D-%
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Categoria
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-900 dark:text-white">
+                      {event.category}
                     </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        <div className="flex items-center justify-center gap-1">
-                          {event.iscComponents.curvaDPercent.toFixed(2)}
-                          {event.iscComponents.curvaDPercent > 1 ? (
-                            <TrendingUp className="w-4 h-4 text-green-500" />
-                          ) : (
-                            <TrendingDown className="w-4 h-4 text-red-500" />
-                          )}
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Rolling 14d
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Local
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-900 dark:text-white">
+                      {event.location}
                     </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        {event.iscComponents.rolling14d.toFixed(2)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Vendas Atuais
+                  ))}
+                </tr>
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Ação Sugerida
+                  </td>
+                  {compareEvents.map(event => (
+                    <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-700 dark:text-gray-300">
+                      {event.suggestedAction}
                     </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        {formatNumber(event.currentSales)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Meta
-                    </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        {formatNumber(event.salesGoal)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      % da Meta
-                    </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center">
-                        <div className="flex flex-col items-center">
-                          <span className="font-medium text-gray-900 dark:text-white">
-                            {Math.round((event.currentSales / event.salesGoal) * 100)}%
-                          </span>
-                          <div className="w-16 bg-gray-200 dark:bg-gray-600 rounded-full h-1.5 mt-1">
-                            <div 
-                              className="bg-blue-600 h-1.5 rounded-full"
-                              style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
-                            />
-                          </div>
-                        </div>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Ticket Médio
-                    </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center font-medium text-gray-900 dark:text-white">
-                        {formatCurrency(event.averageTicket)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Categoria
-                    </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-900 dark:text-white">
-                        {event.category}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Local
-                    </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-900 dark:text-white">
-                        {event.location}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                      Ação Sugerida
-                    </td>
-                    {compareEvents.map(event => (
-                      <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-700 dark:text-gray-300">
-                        {event.suggestedAction}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </>
+        </div>
       )}
 
       {selectedEvents.length === 1 && (
