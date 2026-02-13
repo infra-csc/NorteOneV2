@@ -2955,6 +2955,7 @@ const Cadastro: React.FC = () => {
             </div>
           </div>
         </div>
+        </div>
       )}
 
       {showModal && (
