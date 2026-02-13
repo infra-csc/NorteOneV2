@@ -70,7 +70,6 @@ interface CadastroEvento {
     data_horario: string;
   };
   kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
-  trofeus: number;
   faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
@@ -108,7 +107,6 @@ interface FormData {
     data_horario: string;
   };
   kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
-  trofeus: number;
   faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
@@ -161,7 +159,6 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   taxas: [],
   retirada_kit: { local: '', data_horario: '' },
   kit_produto: [{ kit: '', produtos: [] }],
-  trofeus: 0,
   faixas_preco_site: {
     kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
     kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
@@ -296,7 +293,6 @@ const Cadastro: React.FC = () => {
       data_horario: ''
     },
     kit_produto: [{ kit: '', produtos: [] }],
-    trofeus: 0,
     faixas_preco_site: {
       kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
       kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
@@ -487,7 +483,6 @@ const Cadastro: React.FC = () => {
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
       retirada_kit: { ...item.retirada_kit },
       kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: [...k.produtos] })) : [{ kit: '', produtos: [] }],
-      trofeus: item.trofeus || 0,
       faixas_preco_site: {
         kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
           ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
@@ -558,7 +553,6 @@ const Cadastro: React.FC = () => {
         taxas: form.taxas,
         retirada_kit: form.retirada_kit,
         kit_produto: form.kit_produto,
-        trofeus: form.trofeus,
         faixas_preco_site: form.faixas_preco_site,
         faixas_preco_grupos: form.faixas_preco_grupos
       };
@@ -2581,39 +2575,371 @@ const Cadastro: React.FC = () => {
               </div>
             </div>
 
-            <div className="p-6 space-y-6">
-              <div className="grid grid-cols-4 gap-4">
-                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Atletas</p>
-                  <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(getTotalAtletasCadastro(selectedCadastro)) || '0'}</p>
+            <div className="p-6 space-y-6 overflow-y-auto flex-1">
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Calendar className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Info Geral</h3>
                 </div>
-                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site</p>
-                  <p className="text-2xl font-bold text-blue-400">{formatNumber(selectedCadastro.atletas.site.pago || 0) || '0'}</p>
-                </div>
-                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos</p>
-                  <p className="text-2xl font-bold text-orange-400">{formatNumber(selectedCadastro.atletas.grupos.pago || 0) || '0'}</p>
-                </div>
-                <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                  <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Troféus</p>
-                  <p className="text-2xl font-bold text-amber-400">{selectedCadastro.trofeus || 0}</p>
+                <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Circuito/Produto</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.circuito_produto || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Localização</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.localizacao_evento || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Ano</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.ano_evento || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Modalidade</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.modalidade || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>SKU</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.sku || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Produto</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.produto || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tipo de Evento</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.tipo_evento || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Lei</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.lei || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Status</p>
+                    {(() => {
+                      const style = getStatusStyle(selectedCadastro.status);
+                      return (
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${style.bg} ${style.text} border ${style.border}`}>
+                          {style.icon}
+                          {selectedCadastro.status || '-'}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Data</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatDateDisplay(selectedCadastro.info_geral.data)}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Horário Largada</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.info_geral.horario_largada || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Local</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.info_geral.local || '-'}</p>
+                  </div>
+                  {selectedCadastro.info_geral.distancias && selectedCadastro.info_geral.distancias.length > 0 && (
+                    <div className="col-span-full">
+                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Distâncias</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedCadastro.info_geral.distancias.map((d: string) => (
+                          <span key={d} className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold">{d}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <span className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Distâncias:</span>
-                {selectedCadastro.info_geral.distancias.map(d => (
-                  <span 
-                    key={d}
-                    className="px-4 py-1.5 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-bold"
-                  >
-                    {d}
-                  </span>
-                ))}
+              <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Users className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Atletas</h3>
+                </div>
+                <div className={`grid grid-cols-2 md:grid-cols-3 ${selectedCadastro.localizacao_evento === 'Rio de Janeiro' ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
+                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Atletas</p>
+                    <p className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(getTotalAtletasCadastro(selectedCadastro)) || '0'}</p>
+                  </div>
+                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site - Pago</p>
+                    <p className="text-2xl font-bold text-blue-400">{formatNumber(selectedCadastro.atletas.site.pago || 0) || '0'}</p>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tkt Médio: R$ {formatNumber(selectedCadastro.atletas.site.tkt_medio || 0) || '0'}</p>
+                  </div>
+                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos - Pago</p>
+                    <p className="text-2xl font-bold text-orange-400">{formatNumber(selectedCadastro.atletas.grupos.pago || 0) || '0'}</p>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tkt Médio: R$ {formatNumber(selectedCadastro.atletas.grupos.tkt_medio || 0) || '0'}</p>
+                  </div>
+                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Cortesias</p>
+                    <p className="text-2xl font-bold text-emerald-400">{formatNumber(selectedCadastro.atletas.cortesia || 0) || '0'}</p>
+                  </div>
+                  {selectedCadastro.localizacao_evento === 'Rio de Janeiro' && (
+                    <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Appai/Assist - Pago</p>
+                      <p className="text-2xl font-bold text-cyan-400">{formatNumber(selectedCadastro.atletas.appai?.pago || 0) || '0'}</p>
+                      <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Tkt Médio: R$ {formatNumber(selectedCadastro.atletas.appai?.tkt_medio || 0) || '0'}</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="flex justify-end gap-3">
+              {selectedCadastro.cortesias && selectedCadastro.cortesias.length > 0 && (
+                <>
+                  <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Gift className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Cortesias</h3>
+                    </div>
+                    <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                      <table className="w-full">
+                        <thead>
+                          <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                            <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Quem</th>
+                            <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Quantidade</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedCadastro.cortesias.map((c: any, i: number) => (
+                            <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                              <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{c.cliente || '-'}</td>
+                              <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{c.quantidade || 0}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {selectedCadastro.taxas && selectedCadastro.taxas.length > 0 && (
+                <>
+                  <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <DollarSign className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Taxas</h3>
+                    </div>
+                    <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                      <table className="w-full">
+                        <thead>
+                          <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                            <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Unitário</th>
+                            <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>% Inscrição</th>
+                            <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Validado</th>
+                            <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data Validação</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedCadastro.taxas.map((t: any, i: number) => (
+                            <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                              <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(t.valor_unitario || 0) || '0'}</td>
+                              <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(t.percentual_inscricao || 0) || '0'}%</td>
+                              <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.validado ? 'Sim' : 'Não'}</td>
+                              <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.data_validacao ? formatDateDisplay(t.data_validacao) : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Package className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Retirada de Kit</h3>
+                </div>
+                <div className={`grid grid-cols-2 gap-4 p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Local</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.retirada_kit?.local || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Data/Horário</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.retirada_kit?.data_horario ? formatDateDisplay(selectedCadastro.retirada_kit.data_horario) : '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {selectedCadastro.kit_produto && selectedCadastro.kit_produto.length > 0 && selectedCadastro.kit_produto.some((k: any) => k.kit) && (
+                <>
+                  <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Box className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Kit & Produtos</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {selectedCadastro.kit_produto.filter((k: any) => k.kit).map((kit: any, i: number) => (
+                        <div key={i} className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
+                          <p className={`text-sm font-bold mb-2 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>{kit.kit}</p>
+                          {kit.produtos && kit.produtos.length > 0 ? (
+                            <div className="space-y-1">
+                              {kit.produtos.map((p: any, j: number) => (
+                                <div key={j} className="flex justify-between items-center">
+                                  <span className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{p.nome}</span>
+                                  <span className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(p.valor_unitario || 0) || '0'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Sem produtos</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {selectedCadastro.faixas_preco_site && (selectedCadastro.faixas_preco_site.kit_basico?.length > 0 || selectedCadastro.faixas_preco_site.kit_participacao?.length > 0) && (
+                <>
+                  <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Globe className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Faixas de Preço - Site</h3>
+                    </div>
+                    <div className="space-y-4">
+                      {selectedCadastro.faixas_preco_site.kit_basico?.length > 0 && (
+                        <div>
+                          <p className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Kit Básico</p>
+                          <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                            <table className="w-full">
+                              <thead>
+                                <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                                  <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faixa</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedCadastro.faixas_preco_site.kit_basico.map((f: any, i: number) => (
+                                  <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                                    <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                      {selectedCadastro.faixas_preco_site.kit_participacao?.length > 0 && (
+                        <div>
+                          <p className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Kit Participação</p>
+                          <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                            <table className="w-full">
+                              <thead>
+                                <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                                  <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faixa</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedCadastro.faixas_preco_site.kit_participacao.map((f: any, i: number) => (
+                                  <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                                    <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {selectedCadastro.faixas_preco_grupos && (selectedCadastro.faixas_preco_grupos.kit_basico?.length > 0 || selectedCadastro.faixas_preco_grupos.kit_participacao?.length > 0) && (
+                <>
+                  <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`} />
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <UsersRound className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Faixas de Preço - Grupos</h3>
+                    </div>
+                    <div className="space-y-4">
+                      {selectedCadastro.faixas_preco_grupos.kit_basico?.length > 0 && (
+                        <div>
+                          <p className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Kit Básico</p>
+                          <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                            <table className="w-full">
+                              <thead>
+                                <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                                  <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faixa</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedCadastro.faixas_preco_grupos.kit_basico.map((f: any, i: number) => (
+                                  <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                                    <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                      {selectedCadastro.faixas_preco_grupos.kit_participacao?.length > 0 && (
+                        <div>
+                          <p className={`text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Kit Participação</p>
+                          <div className={`rounded-2xl overflow-hidden border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                            <table className="w-full">
+                              <thead>
+                                <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
+                                  <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faixa</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio</th>
+                                  <th className={`text-right px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {selectedCadastro.faixas_preco_grupos.kit_participacao.map((f: any, i: number) => (
+                                  <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
+                                    <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'} pt-4`}>
+                <div className="flex justify-end gap-3">
                 <button
                   onClick={() => {
                     setShowDetailsModal(false);

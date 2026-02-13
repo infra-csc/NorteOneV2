@@ -54,8 +54,6 @@ class CadastroEvento(Base):
     retirada_kit_local = Column(String(300))
     retirada_kit_data_horario = Column(DateTime)
     
-    trofeus = Column(Integer, default=0)
-    
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
     

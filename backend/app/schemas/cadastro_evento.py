@@ -150,7 +150,6 @@ class CadastroEventoBase(BaseModel):
     taxas: List[TaxaItemCreate] = []
     retirada_kit: RetiradaKit = RetiradaKit()
     kit_produto: List[KitProdutoCreate] = []
-    trofeus: int = 0
     faixas_preco_site: FaixasPrecoByKit = FaixasPrecoByKit()
     faixas_preco_grupos: FaixasPrecoByKit = FaixasPrecoByKit()
 
@@ -179,7 +178,6 @@ class CadastroEventoUpdate(BaseModel):
     taxas: Optional[List[TaxaItemCreate]] = None
     retirada_kit: Optional[RetiradaKit] = None
     kit_produto: Optional[List[KitProdutoCreate]] = None
-    trofeus: Optional[int] = None
     faixas_preco_site: Optional[FaixasPrecoByKit] = None
     faixas_preco_grupos: Optional[FaixasPrecoByKit] = None
 
@@ -205,7 +203,6 @@ class CadastroEventoResponse(BaseModel):
     taxas: List[TaxaItemResponse] = []
     retirada_kit: RetiradaKit = RetiradaKit()
     kit_produto: List[KitProdutoResponse] = []
-    trofeus: int = 0
     faixas_preco_site: FaixasPrecoByKit = FaixasPrecoByKit()
     faixas_preco_grupos: FaixasPrecoByKit = FaixasPrecoByKit()
     created_at: Optional[datetime] = None

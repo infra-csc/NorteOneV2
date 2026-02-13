@@ -170,7 +170,6 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "taxas": taxas,
         "retirada_kit": retirada_kit,
         "kit_produto": kit_produto,
-        "trofeus": cadastro.trofeus or 0,
         "faixas_preco_site": FaixasPrecoByKit(kit_basico=faixas_site_basico, kit_participacao=faixas_site_participacao),
         "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=faixas_grupos_basico, kit_participacao=faixas_grupos_participacao),
         "created_at": cadastro.created_at,
@@ -249,8 +248,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         atletas_grupos_tkt_medio=Decimal(str(data.atletas.grupos.get("tkt_medio", 0))),
         atletas_cortesia=data.atletas.cortesia,
         retirada_kit_local=data.retirada_kit.local,
-        retirada_kit_data_horario=retirada_dt,
-        trofeus=data.trofeus
+        retirada_kit_data_horario=retirada_dt
     )
     
     db.add(cadastro)
@@ -376,8 +374,6 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.lei = data.lei
     if data.capacidade_maxima is not None:
         cadastro.capacidade_maxima = data.capacidade_maxima
-    if data.trofeus is not None:
-        cadastro.trofeus = data.trofeus
     
     if data.info_geral is not None:
         if data.info_geral.data:
