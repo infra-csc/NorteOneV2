@@ -2649,8 +2649,21 @@ const Cadastro: React.FC = () => {
                   <X className="w-6 h-6" />
                 </button>
               </div>
+              <div className="flex items-center gap-2 mt-1">
+                <ImageIcon className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type="text"
+                  value={form.imagem_kv}
+                  onChange={(e) => setForm(prev => ({ ...prev, imagem_kv: e.target.value }))}
+                  placeholder="URL da imagem do evento"
+                  className={`flex-1 px-2 py-1 text-xs rounded-lg border ${isDark ? 'bg-gray-800/50 border-gray-700/50 text-gray-400 placeholder-gray-600' : 'bg-gray-50 border-gray-200 text-gray-500 placeholder-gray-400'} focus:ring-1 focus:ring-purple-500/50 outline-none`}
+                />
+                {form.imagem_kv && (
+                  <img src={form.imagem_kv} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                )}
+              </div>
               {form.circuito_produto && form.localizacao_evento && (
-                <div className={`p-3 rounded-xl border ${isDark ? 'bg-purple-900/30 border-purple-500/40' : 'bg-purple-50 border-purple-300'}`}>
+                <div className={`mt-2 p-3 rounded-xl border ${isDark ? 'bg-purple-900/30 border-purple-500/40' : 'bg-purple-50 border-purple-300'}`}>
                   <p className={`text-xs font-medium mb-0.5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Nome do Evento</p>
                   <p className={`text-lg font-bold tracking-wide ${isDark ? 'text-white' : 'text-gray-900'}`}>
                     {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
