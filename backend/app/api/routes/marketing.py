@@ -2707,34 +2707,46 @@ def get_evento_insights(
                 total += daily_map[d]["qtd"]
         return total / window
 
+    hoje = date.today()
+    dias_ate_evento_atual = (data_evento_atual - hoje).days if data_evento_atual else 0
+    d_minus_atual = max(0, dias_ate_evento_atual)
+
     indice_aceleracao = []
     for bk in sorted_bucket_keys:
         label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
         center_d = bk + BUCKET_SIZE // 2
-        ma7_atual = _calc_rolling_avg(daily_atual, center_d, 7)
-        ma30_atual = _calc_rolling_avg(daily_atual, center_d, 30)
-        ia_atual = round(ma7_atual / ma30_atual, 2) if ma30_atual > 0 else 1.0
+
+        atual_alcancado = bk >= d_minus_atual
+        if atual_alcancado:
+            ma7_atual = _calc_rolling_avg(daily_atual, center_d, 7)
+            ma30_atual = _calc_rolling_avg(daily_atual, center_d, 30)
+            ia_atual = round(ma7_atual / ma30_atual, 2) if ma30_atual > 0 else None
+        else:
+            ia_atual = None
+
         ma7_ant = _calc_rolling_avg(daily_anterior, center_d, 7)
         ma30_ant = _calc_rolling_avg(daily_anterior, center_d, 30)
-        ia_ant = round(ma7_ant / ma30_ant, 2) if ma30_ant > 0 else 1.0
+        ia_ant = round(ma7_ant / ma30_ant, 2) if ma30_ant > 0 else None
         indice_aceleracao.append({"d_minus": bk, "label": label, "ia_atual": ia_atual, "ia_anterior": ia_ant})
 
     pace_diario = []
     for bk in sorted_bucket_keys:
         label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
-        pace_at = round(bucket_data_atual[bk]["qtd"] / BUCKET_SIZE, 2) if BUCKET_SIZE > 0 else 0
-        pace_ant = round(bucket_data_anterior[bk]["qtd"] / BUCKET_SIZE, 2) if BUCKET_SIZE > 0 else 0
+        atual_alcancado = bk >= d_minus_atual
+        pace_at = round(bucket_data_atual[bk]["qtd"] / BUCKET_SIZE, 2) if (BUCKET_SIZE > 0 and atual_alcancado) else None
+        pace_ant = round(bucket_data_anterior[bk]["qtd"] / BUCKET_SIZE, 2) if BUCKET_SIZE > 0 else None
         pace_diario.append({"d_minus": bk, "label": label, "pace_atual": pace_at, "pace_anterior": pace_ant})
 
     ticket_medio = []
     for bk in sorted_bucket_keys:
         label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
+        atual_alcancado = bk >= d_minus_atual
         q_at = bucket_data_atual[bk]["qtd"]
         r_at = bucket_data_atual[bk]["receita"]
         q_ant = bucket_data_anterior[bk]["qtd"]
         r_ant = bucket_data_anterior[bk]["receita"]
-        ticket_at = round(r_at / q_at, 2) if q_at > 0 else 0.0
-        ticket_ant = round(r_ant / q_ant, 2) if q_ant > 0 else 0.0
+        ticket_at = round(r_at / q_at, 2) if (q_at > 0 and atual_alcancado) else None
+        ticket_ant = round(r_ant / q_ant, 2) if q_ant > 0 else None
         ticket_medio.append({"d_minus": bk, "label": label, "ticket_atual": ticket_at, "ticket_anterior": ticket_ant})
 
     total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
@@ -2742,8 +2754,7 @@ def get_evento_insights(
     total_vendas_anterior = sum(v["qtd"] for v in daily_anterior.values())
     total_receita_anterior = sum(v["receita"] for v in daily_anterior.values())
 
-    hoje = date.today()
-    dias_ate_evento = (data_evento_atual - hoje).days if data_evento_atual else 0
+    dias_ate_evento = dias_ate_evento_atual
 
     dias_recentes = sorted([d for d in daily_atual.keys() if daily_atual[d]["qtd"] > 0])
     if dias_recentes and dias_ate_evento > 0:
