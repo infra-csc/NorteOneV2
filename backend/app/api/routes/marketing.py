@@ -33,6 +33,11 @@ def get_meta_orcada(db: Session, projeto_id: int) -> int:
     _cadastro_cache[projeto_id] = fallback
     return fallback
 
+def get_meta_from_cadastro(cadastro: CadastroEvento) -> int:
+    if cadastro.atletas_site_pago and cadastro.atletas_site_pago > 0:
+        return int(cadastro.atletas_site_pago)
+    return int(cadastro.capacidade_maxima) if cadastro.capacidade_maxima else 1000
+
 def get_meta_orcada_projetos(db: Session, projetos: list) -> int:
     total = 0
     for p in projetos:
@@ -1163,18 +1168,20 @@ def get_marketing_events(
     if ano is None:
         ano = datetime.now().year
     
-    query = db.query(DimProjeto).filter(
-        DimProjeto.codigo.isnot(None),
-        DimProjeto.codigo != ''
-    )
-    
+    cadastro_query = db.query(CadastroEvento)
     if categoria and categoria != 'all':
-        query = query.filter(DimProjeto.modalidade == categoria)
-    
+        cadastro_query = cadastro_query.filter(CadastroEvento.modalidade == categoria)
     if busca:
-        query = query.filter(DimProjeto.evento.ilike(f'%{busca}%'))
+        cadastro_query = cadastro_query.filter(CadastroEvento.nome.ilike(f'%{busca}%'))
+    cadastros = cadastro_query.all()
     
-    projetos = query.all()
+    cadastro_by_projeto_id = {}
+    for cad in cadastros:
+        if cad.projeto_id:
+            cadastro_by_projeto_id[cad.projeto_id] = cad
+    
+    projeto_ids = [cad.projeto_id for cad in cadastros if cad.projeto_id]
+    projetos = db.query(DimProjeto).filter(DimProjeto.id.in_(projeto_ids)).all() if projeto_ids else []
     
     isc_data = fetch_isc_pricing_data(db=db, force_refresh=force_refresh)
     
@@ -1225,15 +1232,26 @@ def get_marketing_events(
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
-        total_capacity = get_meta_orcada_projetos(db, proj_list)
+        total_capacity = 0
+        for p in proj_list:
+            cad = cadastro_by_projeto_id.get(p.id)
+            if cad:
+                total_capacity += get_meta_from_cadastro(cad)
+            else:
+                total_capacity += get_meta_orcada(db, p.id)
+        if total_capacity <= 0:
+            total_capacity = 1000
+        
         latest_date = None
         rep_projeto = proj_list[0]
+        rep_cadastro = cadastro_by_projeto_id.get(rep_projeto.id)
         
         for p in proj_list:
             if p.data_evento:
                 if latest_date is None or p.data_evento > latest_date:
                     latest_date = p.data_evento
                     rep_projeto = p
+                    rep_cadastro = cadastro_by_projeto_id.get(p.id)
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
@@ -1277,12 +1295,11 @@ def get_marketing_events(
             else:
                 events_red += 1
         
-        projeto_modalidade = str(rep_projeto.modalidade) if rep_projeto.modalidade else None
-        if projeto_modalidade:
-            categorias_set.add(projeto_modalidade)
+        grupo_modalidade = str(rep_cadastro.modalidade) if rep_cadastro and rep_cadastro.modalidade else (str(rep_projeto.modalidade) if rep_projeto.modalidade else None)
+        if grupo_modalidade:
+            categorias_set.add(grupo_modalidade)
         
-        projeto_cidade = str(rep_projeto.cidade) if rep_projeto.cidade else None
-        projeto_estado = str(rep_projeto.estado) if rep_projeto.estado else None
+        grupo_location = str(rep_cadastro.localizacao_evento) if rep_cadastro and rep_cadastro.localizacao_evento else (str(rep_projeto.cidade) if rep_projeto.cidade else None)
         
         skus_list = [str(p.codigo) for p in proj_list if p.codigo]
         
@@ -1296,8 +1313,8 @@ def get_marketing_events(
             id=f"grp_{grupo_nome}",
             name=grupo.nome,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
-            location=projeto_cidade or projeto_estado or "Não definido",
-            category=projeto_modalidade or "Corrida",
+            location=grupo_location or "Não definido",
+            category=grupo_modalidade or "Corrida",
             totalCapacity=sales_goal,
             currentSales=current_sales,
             salesGoal=sales_goal,
@@ -1318,6 +1335,7 @@ def get_marketing_events(
         if not projeto_codigo:
             continue
         
+        cad = cadastro_by_projeto_id.get(projeto.id)
         sku = projeto_codigo
         projeto_data_evento = projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
@@ -1333,7 +1351,7 @@ def get_marketing_events(
         current_sales = sales_info.get('qtd_site', 0)
         current_receita = sales_info.get('receita_liquida_site', 0.0)
         
-        sales_goal = get_meta_orcada(db, projeto.id)
+        sales_goal = get_meta_from_cadastro(cad) if cad else get_meta_orcada(db, projeto.id)
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         standalone_m14d = sales_info.get('media_14d', 0.0)
@@ -1351,24 +1369,22 @@ def get_marketing_events(
             else:
                 events_red += 1
         
-        projeto_modalidade = str(projeto.modalidade) if projeto.modalidade else None
-        if projeto_modalidade:
-            categorias_set.add(projeto_modalidade)
+        evento_modalidade = str(cad.modalidade) if cad and cad.modalidade else (str(projeto.modalidade) if projeto.modalidade else None)
+        if evento_modalidade:
+            categorias_set.add(evento_modalidade)
         
-        projeto_cidade = str(projeto.cidade) if projeto.cidade else None
-        projeto_estado = str(projeto.estado) if projeto.estado else None
-        projeto_nome = str(projeto.evento) if projeto.evento else "Evento sem nome"
-        projeto_limite = sales_goal
+        evento_location = str(cad.localizacao_evento) if cad and cad.localizacao_evento else (str(projeto.cidade) if projeto.cidade else None)
+        evento_nome = str(cad.nome) if cad and cad.nome else (str(projeto.evento) if projeto.evento else "Evento sem nome")
         
         standalone_active_action = active_actions_map.get(projeto.id)
         
         evento = MarketingEvent(
             id=str(projeto.id),
-            name=projeto_nome,
+            name=evento_nome,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
-            location=projeto_cidade or projeto_estado or "Não definido",
-            category=projeto_modalidade or "Corrida",
-            totalCapacity=projeto_limite,
+            location=evento_location or "Não definido",
+            category=evento_modalidade or "Corrida",
+            totalCapacity=sales_goal,
             currentSales=current_sales,
             salesGoal=sales_goal,
             averageTicket=round(avg_ticket, 2),
@@ -4002,22 +4018,23 @@ def get_pricing_analysis(
     if ano is None:
         ano = datetime.now().year
     
-    query = db.query(DimProjeto).filter(
-        DimProjeto.codigo.isnot(None),
-        DimProjeto.codigo != ''
-    )
-    
+    cadastro_query = db.query(CadastroEvento)
     if categoria and categoria != 'all':
-        query = query.filter(DimProjeto.modalidade == categoria)
-    
+        cadastro_query = cadastro_query.filter(CadastroEvento.modalidade == categoria)
     if busca:
-        query = query.filter(DimProjeto.evento.ilike(f'%{busca}%'))
+        cadastro_query = cadastro_query.filter(CadastroEvento.nome.ilike(f'%{busca}%'))
+    cadastros = cadastro_query.all()
     
-    projetos = query.all()
+    cadastro_by_projeto_id = {}
+    for cad in cadastros:
+        if cad.projeto_id:
+            cadastro_by_projeto_id[cad.projeto_id] = cad
+    
+    projeto_ids = [cad.projeto_id for cad in cadastros if cad.projeto_id]
+    projetos = db.query(DimProjeto).filter(DimProjeto.id.in_(projeto_ids)).all() if projeto_ids else []
     
     isc_data = fetch_isc_pricing_data(db=db)
     
-    projeto_ids = [p.id for p in projetos if p.id]
     kit_costs = get_kit_basico_costs_batch(db, projeto_ids)
     
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
@@ -4059,6 +4076,7 @@ def get_pricing_analysis(
         
         latest_date = None
         rep_projeto = proj_list[0]
+        rep_cadastro = cadastro_by_projeto_id.get(rep_projeto.id)
         total_kit_cost = 0.0
         kit_count = 0
         
@@ -4067,11 +4085,20 @@ def get_pricing_analysis(
                 if latest_date is None or p.data_evento > latest_date:
                     latest_date = p.data_evento
                     rep_projeto = p
+                    rep_cadastro = cadastro_by_projeto_id.get(p.id)
             kc = kit_costs.get(p.id, 50.0)
             total_kit_cost += kc
             kit_count += 1
         
-        total_capacity = get_meta_orcada_projetos(db, proj_list)
+        total_capacity = 0
+        for p in proj_list:
+            cad = cadastro_by_projeto_id.get(p.id)
+            if cad:
+                total_capacity += get_meta_from_cadastro(cad)
+            else:
+                total_capacity += get_meta_orcada(db, p.id)
+        if total_capacity <= 0:
+            total_capacity = 1000
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
@@ -4082,8 +4109,8 @@ def get_pricing_analysis(
         if status == 'closed' and is_active:
             continue
         
-        modalidade = rep_projeto.modalidade or 'OUTROS'
-        categorias_set.add(modalidade)
+        grupo_modalidade = str(rep_cadastro.modalidade) if rep_cadastro and rep_cadastro.modalidade else (rep_projeto.modalidade or 'OUTROS')
+        categorias_set.add(grupo_modalidade)
         
         current_sales = 0
         current_receita = 0.0
@@ -4104,6 +4131,8 @@ def get_pricing_analysis(
         kit_cost = total_kit_cost / kit_count if kit_count > 0 else 50.0
         
         all_skus = [str(p.codigo) for p in proj_list if p.codigo]
+        
+        grupo_location = str(rep_cadastro.localizacao_evento) if rep_cadastro and rep_cadastro.localizacao_evento else (rep_projeto.cidade or "Local não definido")
         
         pricing_metrics = calculate_pricing_metrics(
             current_sales=current_sales,
@@ -4139,8 +4168,8 @@ def get_pricing_analysis(
             id=f"grp_{grupo_nome}",
             name=grupo.nome,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
-            location=rep_projeto.cidade or "Local não definido",
-            category=modalidade,
+            location=grupo_location,
+            category=grupo_modalidade,
             totalCapacity=total_capacity if total_capacity > 0 else 10000,
             currentSales=current_sales,
             salesGoal=sales_goal,
@@ -4161,6 +4190,7 @@ def get_pricing_analysis(
         if not projeto_codigo:
             continue
         
+        cad = cadastro_by_projeto_id.get(projeto.id)
         sku = projeto_codigo
         sku_normalized = normalize_sku(sku)
         projeto_data_evento = projeto.data_evento
@@ -4172,7 +4202,7 @@ def get_pricing_analysis(
         if status == 'closed' and is_active:
             continue
         
-        modalidade = projeto.modalidade or 'OUTROS'
+        modalidade = str(cad.modalidade) if cad and cad.modalidade else (projeto.modalidade or 'OUTROS')
         categorias_set.add(modalidade)
         
         sales_info = isc_data.get(sku_normalized, {})
@@ -4180,13 +4210,16 @@ def get_pricing_analysis(
         current_receita = sales_info.get('receita_liquida_site', 0.0)
         
         average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-        sales_goal = get_meta_orcada(db, projeto.id)
+        sales_goal = get_meta_from_cadastro(cad) if cad else get_meta_orcada(db, projeto.id)
         total_capacity = sales_goal
         
         kit_cost = kit_costs.get(projeto.id, 50.0)
         
         rolling_avg_14d_real = sales_info.get('media_14d', None)
         rolling_avg_14d_last_year = sales_info.get('media_14d_ano_passado', 0.0)
+        
+        evento_location = str(cad.localizacao_evento) if cad and cad.localizacao_evento else (projeto.cidade or "Local não definido")
+        evento_nome = str(cad.nome) if cad and cad.nome else (projeto.evento or f"Evento {sku}")
         
         pricing_metrics = calculate_pricing_metrics(
             current_sales=current_sales,
@@ -4221,9 +4254,9 @@ def get_pricing_analysis(
         
         evento = PricingEvent(
             id=sku,
-            name=projeto.evento or f"Evento {sku}",
+            name=evento_nome,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
-            location=projeto.cidade or "Local não definido",
+            location=evento_location,
             category=modalidade,
             totalCapacity=total_capacity,
             currentSales=current_sales,
