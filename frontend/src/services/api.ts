@@ -810,6 +810,13 @@ export const marketingService = {
   }> => {
     const response = await api.get('/marketing/cache/status');
     return response.data;
+  },
+  getEventInsights: async (eventoId: string, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<any> => {
+    const params: any = {};
+    if (ano) params.ano = ano;
+    if (force_refresh) params.force_refresh = true;
+    const response = await api.get(`/marketing/eventos/${eventoId}/insights`, { signal, params });
+    return response.data;
   }
 };
 

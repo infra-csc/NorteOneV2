@@ -2005,6 +2005,87 @@ ORDER BY dia
         return []
 
 
+def _fetch_category_sales_ativo_by_ids(id_eventos: list) -> list:
+    if db_module.engine_ssh is None or not id_eventos:
+        return []
+    try:
+        safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return []
+        placeholders = ",".join(safe_ids)
+        query = f"""
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
+    h.ds_categoria AS categoria,
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND c.nr_total > 0 THEN 1 END) AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE 
+    c.id_pedido_status = 2
+    AND b.id_evento IN ({placeholders})
+GROUP BY h.ds_categoria
+ORDER BY qtd DESC
+"""
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(query))
+            return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in result.fetchall()]
+    except Exception as e:
+        logger.error(f"Erro category sales Ativo by IDs: {e}")
+        return []
+
+
+def _fetch_category_sales_magento_by_ids(location_ids: list) -> list:
+    if db_module.engine_magento is None or not location_ids:
+        return []
+    try:
+        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        if not safe_ids:
+            return []
+        placeholders = ",".join(safe_ids)
+        query = f"""
+SELECT
+    soi.name AS categoria,
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+FROM sales_order AS so
+LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+WHERE
+    so.increment_id NOT LIKE "%%-1%%"
+    AND so.increment_id NOT LIKE "%%-2%%"
+    AND so.increment_id NOT LIKE "%%-3%%"
+    AND so.increment_id NOT LIKE "%%-4%%"
+    AND so.increment_id NOT LIKE "%%-5%%"
+    AND so.increment_id NOT LIKE "%%-6%%"
+    AND so.increment_id NOT LIKE "%%-7%%"
+    AND so.increment_id NOT LIKE "%%-8%%"
+    AND so.increment_id NOT LIKE "%%-9%%"
+    AND so.increment_id NOT LIKE "%%-10%%"
+    AND so.increment_id NOT LIKE "%%-11%%"
+    AND so.increment_id NOT LIKE "%%-12%%"
+    AND so.increment_id NOT LIKE "%%-13%%"
+    AND so.increment_id NOT LIKE "%%-14%%"
+    AND so.increment_id NOT LIKE "%%-15%%"
+    AND so.increment_id NOT LIKE "%%-16%%"
+    AND so.status IN ('Processing', 'Complete', 'approved')
+    AND soi.product_type = 'Bundle'
+    AND so.location_pickup_id IN ({placeholders})
+GROUP BY soi.name
+ORDER BY qtd DESC
+"""
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(query))
+            return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in result.fetchall()]
+    except Exception as e:
+        logger.error(f"Erro category sales Magento by IDs: {e}")
+        return []
+
+
 import re as _re
 import unicodedata as _unicodedata
 
@@ -2423,6 +2504,345 @@ def get_curva_comparativa_evento(
     _curva_evento_cache[cache_key] = result
     _curva_evento_cache_timestamp[cache_key] = current_time
     curva_cache.set(smart_curva_key, result)
+    return result
+
+
+@router.get("/eventos/{evento_id}/insights")
+def get_evento_insights(
+    evento_id: str,
+    ano: int = Query(default=None, description="Ano base para comparacao"),
+    force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    smart_insights_key = f"{ano}_{evento_id}_insights"
+    if not force_refresh:
+        cached = curva_cache.get(smart_insights_key)
+        if cached is not None:
+            return cached
+
+    is_grouped = evento_id.startswith("grp_")
+
+    if is_grouped:
+        grupo_nome = evento_id.replace("grp_", "")
+        if ano is None:
+            ano = datetime.now().year
+        ano_anterior = ano - 1
+
+        all_mappings = db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == grupo_nome,
+            SkuMapping.ano.in_([ano, ano_anterior]),
+            SkuMapping.ativo == True
+        ).all()
+    else:
+        projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
+        if not projeto:
+            raise HTTPException(status_code=404, detail="Evento nao encontrado")
+
+        sku = str(projeto.codigo) if projeto.codigo else None
+        if not sku:
+            return {"status": "success", "ano_atual": datetime.now().year, "ano_anterior": datetime.now().year - 1, "evento_nome": str(projeto.evento or ""), "indice_aceleracao": [], "pace_diario": [], "projecao_fechamento": {}, "janela_acao": {}, "ticket_medio": [], "mix_categorias": {"atual": [], "anterior": []}, "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()}
+
+        if ano is None:
+            ano = projeto.data_evento.year if projeto.data_evento else datetime.now().year
+        ano_anterior = ano - 1
+
+        mapping = db.query(SkuMapping).filter(
+            SkuMapping.sku == sku,
+            SkuMapping.ativo == True
+        ).first()
+
+        if mapping and mapping.evento_grupo:
+            all_mappings = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo == mapping.evento_grupo,
+                SkuMapping.ano.in_([ano, ano_anterior]),
+                SkuMapping.ativo == True
+            ).all()
+        else:
+            all_mappings = db.query(SkuMapping).filter(
+                SkuMapping.sku == sku,
+                SkuMapping.ativo == True
+            ).all()
+            if not all_mappings:
+                all_mappings = []
+
+    mappings_atual = [m for m in all_mappings if m.ano == ano]
+    mappings_anterior = [m for m in all_mappings if m.ano == ano_anterior]
+
+    ids_ativo_atual = list(set([m.id_externo for m in mappings_atual if m.fonte == 'ATIVO']))
+    ids_magento_atual = list(set([m.id_externo for m in mappings_atual if m.fonte == 'MAGENTO']))
+    ids_ativo_anterior = list(set([m.id_externo for m in mappings_anterior if m.fonte == 'ATIVO']))
+    ids_magento_anterior = list(set([m.id_externo for m in mappings_anterior if m.fonte == 'MAGENTO']))
+
+    all_ids = ids_ativo_atual + ids_magento_atual + ids_ativo_anterior + ids_magento_anterior
+    if not all_ids:
+        return {"status": "success", "ano_atual": ano, "ano_anterior": ano_anterior, "evento_nome": "", "indice_aceleracao": [], "pace_diario": [], "projecao_fechamento": {}, "janela_acao": {}, "ticket_medio": [], "mix_categorias": {"atual": [], "anterior": []}, "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()}
+
+    grupo_nome_for_match = grupo_nome if is_grouped else str(projeto.evento or "")
+    data_evento_atual = _find_data_evento(db, grupo_nome_for_match, ano)
+    data_evento_anterior = _find_data_evento(db, grupo_nome_for_match, ano_anterior)
+
+    if data_evento_atual and not data_evento_anterior:
+        ref_day_month = (data_evento_atual.month, data_evento_atual.day)
+        data_evento_anterior = date(ano_anterior, ref_day_month[0], min(ref_day_month[1], 28))
+    elif data_evento_anterior and not data_evento_atual:
+        ref_day_month = (data_evento_anterior.month, data_evento_anterior.day)
+        data_evento_atual = date(ano, ref_day_month[0], min(ref_day_month[1], 28))
+
+    future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
+    future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
+    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
+    future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
+    future_cat_ativo_atual = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_atual)
+    future_cat_magento_atual = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_atual)
+    future_cat_ativo_anterior = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_anterior)
+    future_cat_magento_anterior = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_anterior)
+
+    try:
+        dados_ativo_atual = future_ativo_atual.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Insights daily Ativo atual timeout: {e}")
+        dados_ativo_atual = []
+    try:
+        dados_magento_atual = future_magento_atual.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Insights daily Magento atual timeout: {e}")
+        dados_magento_atual = []
+    try:
+        dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Insights daily Ativo anterior timeout: {e}")
+        dados_ativo_anterior = []
+    try:
+        dados_magento_anterior = future_magento_anterior.result(timeout=60)
+    except Exception as e:
+        logger.error(f"Insights daily Magento anterior timeout: {e}")
+        dados_magento_anterior = []
+    try:
+        cat_ativo_atual = future_cat_ativo_atual.result(timeout=60)
+    except Exception:
+        cat_ativo_atual = []
+    try:
+        cat_magento_atual = future_cat_magento_atual.result(timeout=60)
+    except Exception:
+        cat_magento_atual = []
+    try:
+        cat_ativo_anterior = future_cat_ativo_anterior.result(timeout=60)
+    except Exception:
+        cat_ativo_anterior = []
+    try:
+        cat_magento_anterior = future_cat_magento_anterior.result(timeout=60)
+    except Exception:
+        cat_magento_anterior = []
+
+    BUCKET_SIZE = 7
+
+    def _build_daily_map_insights(dados_list: list, data_evento_ref: Optional[date]) -> dict:
+        daily = {}
+        if not data_evento_ref:
+            return daily
+        for row in dados_list:
+            try:
+                dia = date.fromisoformat(row["dia"])
+            except (ValueError, KeyError):
+                continue
+            dias_antes = (data_evento_ref - dia).days
+            if dias_antes not in daily:
+                daily[dias_antes] = {"qtd": 0, "receita": 0.0}
+            daily[dias_antes]["qtd"] += row["qtd"]
+            daily[dias_antes]["receita"] += row["receita"]
+        return daily
+
+    daily_atual = _build_daily_map_insights(dados_ativo_atual + dados_magento_atual, data_evento_atual)
+    daily_anterior = _build_daily_map_insights(dados_ativo_anterior + dados_magento_anterior, data_evento_anterior)
+
+    all_dias = set(daily_atual.keys()) | set(daily_anterior.keys())
+    if not all_dias:
+        max_dias = 180
+        min_dias = 0
+    else:
+        max_dias = max(all_dias)
+        min_dias = min(d for d in all_dias if d >= 0) if any(d >= 0 for d in all_dias) else 0
+
+    def _bucket_key(d: int) -> int:
+        if d >= 0:
+            return (d // BUCKET_SIZE) * BUCKET_SIZE
+        return -((abs(d) // BUCKET_SIZE + 1) * BUCKET_SIZE)
+
+    max_bucket = _bucket_key(max_dias)
+    if max_bucket < max_dias:
+        max_bucket += BUCKET_SIZE
+
+    bucket_keys_set = set()
+    b = 0
+    while b <= max_bucket:
+        bucket_keys_set.add(b)
+        b += BUCKET_SIZE
+
+    sorted_bucket_keys = sorted(bucket_keys_set, reverse=True)
+
+    bucket_data_atual = {}
+    bucket_data_anterior = {}
+    for bk in sorted_bucket_keys:
+        bucket_data_atual[bk] = {"qtd": 0, "receita": 0.0}
+        bucket_data_anterior[bk] = {"qtd": 0, "receita": 0.0}
+
+    for dias, vals in daily_atual.items():
+        bk = _bucket_key(dias)
+        if bk in bucket_data_atual:
+            bucket_data_atual[bk]["qtd"] += vals["qtd"]
+            bucket_data_atual[bk]["receita"] += vals["receita"]
+
+    for dias, vals in daily_anterior.items():
+        bk = _bucket_key(dias)
+        if bk in bucket_data_anterior:
+            bucket_data_anterior[bk]["qtd"] += vals["qtd"]
+            bucket_data_anterior[bk]["receita"] += vals["receita"]
+
+    def _calc_rolling_avg(daily_map: dict, center_d: int, window: int) -> float:
+        total = 0
+        half = window // 2
+        for d in range(center_d - half, center_d + half + 1):
+            if d in daily_map:
+                total += daily_map[d]["qtd"]
+        return total / window
+
+    indice_aceleracao = []
+    for bk in sorted_bucket_keys:
+        label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
+        center_d = bk + BUCKET_SIZE // 2
+        ma7_atual = _calc_rolling_avg(daily_atual, center_d, 7)
+        ma30_atual = _calc_rolling_avg(daily_atual, center_d, 30)
+        ia_atual = round(ma7_atual / ma30_atual, 2) if ma30_atual > 0 else 1.0
+        ma7_ant = _calc_rolling_avg(daily_anterior, center_d, 7)
+        ma30_ant = _calc_rolling_avg(daily_anterior, center_d, 30)
+        ia_ant = round(ma7_ant / ma30_ant, 2) if ma30_ant > 0 else 1.0
+        indice_aceleracao.append({"d_minus": bk, "label": label, "ia_atual": ia_atual, "ia_anterior": ia_ant})
+
+    pace_diario = []
+    for bk in sorted_bucket_keys:
+        label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
+        pace_at = round(bucket_data_atual[bk]["qtd"] / BUCKET_SIZE, 2) if BUCKET_SIZE > 0 else 0
+        pace_ant = round(bucket_data_anterior[bk]["qtd"] / BUCKET_SIZE, 2) if BUCKET_SIZE > 0 else 0
+        pace_diario.append({"d_minus": bk, "label": label, "pace_atual": pace_at, "pace_anterior": pace_ant})
+
+    ticket_medio = []
+    for bk in sorted_bucket_keys:
+        label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
+        q_at = bucket_data_atual[bk]["qtd"]
+        r_at = bucket_data_atual[bk]["receita"]
+        q_ant = bucket_data_anterior[bk]["qtd"]
+        r_ant = bucket_data_anterior[bk]["receita"]
+        ticket_at = round(r_at / q_at, 2) if q_at > 0 else 0.0
+        ticket_ant = round(r_ant / q_ant, 2) if q_ant > 0 else 0.0
+        ticket_medio.append({"d_minus": bk, "label": label, "ticket_atual": ticket_at, "ticket_anterior": ticket_ant})
+
+    total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
+    total_receita_atual = sum(v["receita"] for v in daily_atual.values())
+    total_vendas_anterior = sum(v["qtd"] for v in daily_anterior.values())
+    total_receita_anterior = sum(v["receita"] for v in daily_anterior.values())
+
+    hoje = date.today()
+    dias_ate_evento = (data_evento_atual - hoje).days if data_evento_atual else 0
+
+    dias_recentes = sorted([d for d in daily_atual.keys() if daily_atual[d]["qtd"] > 0])
+    if dias_recentes and dias_ate_evento > 0:
+        window_dias = [d for d in dias_recentes if d >= dias_ate_evento and d <= dias_ate_evento + 14]
+        if not window_dias:
+            window_dias = sorted(dias_recentes)[:14]
+        window_len = min(14, len(window_dias))
+        if window_len > 0:
+            media_diaria_14d = sum(daily_atual[d]["qtd"] for d in window_dias[:window_len]) / window_len
+            media_receita_14d = sum(daily_atual[d]["receita"] for d in window_dias[:window_len]) / window_len
+        else:
+            total_dias = len(dias_recentes)
+            media_diaria_14d = total_vendas_atual / max(1, total_dias)
+            media_receita_14d = total_receita_atual / max(1, total_dias)
+    else:
+        media_diaria_14d = 0
+        media_receita_14d = 0.0
+
+    projecao_inscricoes = round(total_vendas_atual + media_diaria_14d * max(0, dias_ate_evento))
+    projecao_receita = round(total_receita_atual + media_receita_14d * max(0, dias_ate_evento), 2)
+    pct_vs_anterior = round(projecao_inscricoes / total_vendas_anterior * 100, 1) if total_vendas_anterior > 0 else 0.0
+
+    projecao_fechamento = {
+        "projecao_inscricoes": projecao_inscricoes,
+        "projecao_receita": projecao_receita,
+        "total_anterior": total_vendas_anterior,
+        "receita_anterior": round(total_receita_anterior, 2),
+        "pct_vs_anterior": pct_vs_anterior,
+        "media_diaria_atual": round(media_diaria_14d, 2),
+        "dias_restantes": max(0, dias_ate_evento)
+    }
+
+    dentro_d40 = 0 < dias_ate_evento <= 40
+    meta_total = total_vendas_anterior if total_vendas_anterior > 0 else 1
+    pct_atingido = round(total_vendas_atual / meta_total * 100, 1)
+    deficit_superavit = total_vendas_atual - meta_total
+    pace_necessario = round((meta_total - total_vendas_atual) / max(1, dias_ate_evento), 2) if dias_ate_evento > 0 else 0
+    pace_atual_val = round(media_diaria_14d, 2)
+
+    if total_vendas_atual >= meta_total:
+        status_janela = "Acima do esperado"
+    elif pace_atual_val >= pace_necessario and pace_necessario > 0:
+        status_janela = "Em ritmo"
+    else:
+        status_janela = "Ação necessária"
+
+    janela_acao = {
+        "dias_ate_evento": max(0, dias_ate_evento),
+        "dentro_d40": dentro_d40,
+        "vendas_acumuladas": total_vendas_atual,
+        "meta_total": meta_total,
+        "pct_atingido": pct_atingido,
+        "pace_necessario": pace_necessario,
+        "pace_atual": pace_atual_val,
+        "status": status_janela,
+        "deficit_superavit": deficit_superavit
+    }
+
+    def _merge_categories(cat_list_a: list, cat_list_b: list) -> list:
+        merged = {}
+        for item in cat_list_a + cat_list_b:
+            cat = item["categoria"]
+            merged[cat] = merged.get(cat, 0) + item["qtd"]
+        total = sum(merged.values())
+        result = []
+        for cat, qtd in sorted(merged.items(), key=lambda x: x[1], reverse=True):
+            pct = round(qtd / total * 100, 1) if total > 0 else 0.0
+            result.append({"categoria": cat, "qtd": qtd, "pct": pct})
+        return result
+
+    mix_atual = _merge_categories(cat_ativo_atual, cat_magento_atual)
+    mix_anterior = _merge_categories(cat_ativo_anterior, cat_magento_anterior)
+
+    evento_nome = ""
+    if is_grouped:
+        evento_nome = evento_id.replace("grp_", "")
+    else:
+        evento_nome = str(projeto.evento or "")
+
+    result = {
+        "status": "success",
+        "ano_atual": ano,
+        "ano_anterior": ano_anterior,
+        "evento_nome": evento_nome,
+        "data_evento_atual": str(data_evento_atual) if data_evento_atual else None,
+        "data_evento_anterior": str(data_evento_anterior) if data_evento_anterior else None,
+        "indice_aceleracao": indice_aceleracao,
+        "pace_diario": pace_diario,
+        "projecao_fechamento": projecao_fechamento,
+        "janela_acao": janela_acao,
+        "ticket_medio": ticket_medio,
+        "mix_categorias": {
+            "atual": mix_atual,
+            "anterior": mix_anterior
+        },
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    }
+
+    curva_cache.set(smart_insights_key, result)
     return result
 
 

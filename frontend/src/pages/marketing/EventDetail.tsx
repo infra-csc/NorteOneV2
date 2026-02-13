@@ -42,6 +42,7 @@ import {
   getISCStatus
 } from '../../types/marketingPerformance';
 import { useTheme } from '../../context/ThemeContext';
+import EventInsights from './EventInsights';
 
 interface CommercialAction {
   id: string;
@@ -1413,6 +1414,8 @@ const EventDetail: React.FC = () => {
           </div>
         )}
       </div>
+
+      <EventInsights eventoId={id!} ano={anoParam} />
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-4">
