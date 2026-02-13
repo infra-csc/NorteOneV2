@@ -1285,19 +1285,6 @@ const EventDetail: React.FC = () => {
                   labelFormatter={(label: any) => `${label}`}
                 />
                 <Legend />
-                <ReferenceLine 
-                  y={100} 
-                  stroke={isDark ? '#f59e0b' : '#d97706'}
-                  strokeDasharray="6 4"
-                  strokeWidth={1.5}
-                  label={{ 
-                    value: `100% Meta (${curvaAnoAnterior})`, 
-                    position: 'insideTopRight',
-                    fill: isDark ? '#fbbf24' : '#b45309',
-                    fontSize: 11,
-                    fontWeight: 600
-                  }}
-                />
                 <Line 
                   type="monotone" 
                   dataKey={pctAntKey}
