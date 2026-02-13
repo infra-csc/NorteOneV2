@@ -19,6 +19,26 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+_cadastro_cache: dict = {}
+
+def get_meta_orcada(db: Session, projeto_id: int) -> int:
+    if projeto_id in _cadastro_cache:
+        return _cadastro_cache[projeto_id]
+    cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto_id).first()
+    if cadastro and cadastro.atletas_site_pago and cadastro.atletas_site_pago > 0:
+        _cadastro_cache[projeto_id] = int(cadastro.atletas_site_pago)
+        return int(cadastro.atletas_site_pago)
+    projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+    fallback = int(projeto.capacidade_maxima) if projeto and projeto.capacidade_maxima else 1000
+    _cadastro_cache[projeto_id] = fallback
+    return fallback
+
+def get_meta_orcada_projetos(db: Session, projetos: list) -> int:
+    total = 0
+    for p in projetos:
+        total += get_meta_orcada(db, p.id)
+    return total if total > 0 else 1000
+
 
 def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) -> dict:
     """
@@ -1205,13 +1225,11 @@ def get_marketing_events(
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
-        total_capacity = 0
+        total_capacity = get_meta_orcada_projetos(db, proj_list)
         latest_date = None
         rep_projeto = proj_list[0]
         
         for p in proj_list:
-            if p.capacidade_maxima:
-                total_capacity += int(p.capacidade_maxima)
             if p.data_evento:
                 if latest_date is None or p.data_evento > latest_date:
                     latest_date = p.data_evento
@@ -1315,7 +1333,7 @@ def get_marketing_events(
         current_sales = sales_info.get('qtd_site', 0)
         current_receita = sales_info.get('receita_liquida_site', 0.0)
         
-        sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
+        sales_goal = get_meta_orcada(db, projeto.id)
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         standalone_m14d = sales_info.get('media_14d', 0.0)
@@ -1340,7 +1358,7 @@ def get_marketing_events(
         projeto_cidade = str(projeto.cidade) if projeto.cidade else None
         projeto_estado = str(projeto.estado) if projeto.estado else None
         projeto_nome = str(projeto.evento) if projeto.evento else "Evento sem nome"
-        projeto_limite = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else sales_goal
+        projeto_limite = sales_goal
         
         standalone_active_action = active_actions_map.get(projeto.id)
         
@@ -2917,21 +2935,19 @@ def get_marketing_event_by_id(
             DimProjeto.codigo.in_(proj_skus)
         ).all() if proj_skus else []
         
-        total_capacity = 0
         latest_date = None
         rep_projeto = projetos[0] if projetos else None
         for p in projetos:
-            if p.capacidade_maxima:
-                total_capacity += int(p.capacidade_maxima)
             if p.data_evento:
                 if latest_date is None or p.data_evento > latest_date:
                     latest_date = p.data_evento
                     rep_projeto = p
         
+        total_capacity = get_meta_orcada_projetos(db, projetos)
         projeto_data_evento = latest_date
         d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
         is_active = d_minus > 0 if ano == datetime.now().year else True
-        sales_goal = total_capacity if total_capacity > 0 else 1000
+        sales_goal = total_capacity
         
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
@@ -3085,8 +3101,8 @@ def get_marketing_event_by_id(
                 DimProjeto.codigo.in_(proj_skus_anterior)
             ).all() if proj_skus_anterior else []
             
-            cap_anterior = sum(int(p.capacidade_maxima) for p in projetos_anterior if p.capacidade_maxima)
-            meta_anterior = cap_anterior if cap_anterior > 0 else 1000
+            cap_anterior = get_meta_orcada_projetos(db, projetos_anterior)
+            meta_anterior = cap_anterior
             ticket_anterior = round(receita_anterior / vendas_anterior, 2) if vendas_anterior > 0 else 0.0
             
             variacao_vendas = ((current_sales - vendas_anterior) / vendas_anterior * 100) if vendas_anterior > 0 else None
@@ -3160,7 +3176,7 @@ def get_marketing_event_by_id(
     current_sales = sales_info.get('qtd_site', 0)
     current_receita = sales_info.get('receita_liquida_site', 0.0)
     
-    sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
+    sales_goal = get_meta_orcada(db, projeto.id)
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
     
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano)
@@ -3178,7 +3194,7 @@ def get_marketing_event_by_id(
     projeto_cidade = str(projeto.cidade) if projeto.cidade else None
     projeto_estado = str(projeto.estado) if projeto.estado else None
     projeto_nome = str(projeto.evento) if projeto.evento else "Evento sem nome"
-    projeto_limite = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else sales_goal
+    projeto_limite = sales_goal
     
     evento = MarketingEvent(
         id=str(projeto.id),
@@ -4041,15 +4057,12 @@ def get_pricing_analysis(
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
-        total_capacity = 0
         latest_date = None
         rep_projeto = proj_list[0]
         total_kit_cost = 0.0
         kit_count = 0
         
         for p in proj_list:
-            if p.capacidade_maxima:
-                total_capacity += int(p.capacidade_maxima)
             if p.data_evento:
                 if latest_date is None or p.data_evento > latest_date:
                     latest_date = p.data_evento
@@ -4057,6 +4070,8 @@ def get_pricing_analysis(
             kc = kit_costs.get(p.id, 50.0)
             total_kit_cost += kc
             kit_count += 1
+        
+        total_capacity = get_meta_orcada_projetos(db, proj_list)
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
@@ -4165,8 +4180,8 @@ def get_pricing_analysis(
         current_receita = sales_info.get('receita_liquida_site', 0.0)
         
         average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-        total_capacity = projeto.capacidade_maxima or 10000
-        sales_goal = int(projeto.capacidade_maxima) if projeto.capacidade_maxima else 1000
+        sales_goal = get_meta_orcada(db, projeto.id)
+        total_capacity = sales_goal
         
         kit_cost = kit_costs.get(projeto.id, 50.0)
         
