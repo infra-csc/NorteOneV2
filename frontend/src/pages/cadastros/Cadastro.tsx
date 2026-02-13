@@ -50,6 +50,11 @@ interface CadastroEvento {
   imagem_kv: string;
   status: string;
   modalidade: string;
+  sku: string;
+  produto: string;
+  tipo_evento: string;
+  lei: string;
+  capacidade_maxima: number | null;
   info_geral: {
     data: string;
     horario_largada: string;
@@ -77,6 +82,13 @@ interface FormData {
   projeto_id: number | null;
   nome: string;
   imagem_kv: string;
+  status: string;
+  modalidade: string;
+  sku: string;
+  produto: string;
+  tipo_evento: string;
+  lei: string;
+  capacidade_maxima: number | null;
   info_geral: {
     data: string;
     horario_largada: string;
@@ -105,6 +117,10 @@ const pelotoesOptions = ['Quênia', 'Azul', 'Verde', 'Branco'];
 const kitOptions = ['Kit Participação', 'Kit Básico', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const faixaOptions = ['1', '2', '3', '4', '5'];
 const coresPeitoOptions = ['Branco', 'Amarelo', 'Laranja', 'Verde', 'Azul', 'Vermelho', 'Rosa', 'Roxo', 'Preto'];
+const modalidadesOptions = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
+const tiposEventoOptions = ['Próprio', 'Incentivado', 'Organização', 'Licenciado'];
+const leisOptions = ['', 'LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'];
+const statusOptions = ['Em andamento', 'Concluído', 'Cancelado'];
 
 const produtosDisponiveis = [
   'Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola',
@@ -125,6 +141,11 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   imagem_kv: '',
   status: 'Em andamento',
   modalidade: 'Corrida',
+  sku: '',
+  produto: '',
+  tipo_evento: 'Próprio',
+  lei: '',
+  capacidade_maxima: null,
   info_geral: { data: '', horario_largada: '', local: '', distancias: [] },
   atletas: {
     site: { pago: 0, tkt_medio: 0 },
@@ -242,6 +263,13 @@ const Cadastro: React.FC = () => {
     projeto_id: null,
     nome: '',
     imagem_kv: '',
+    status: 'Em andamento',
+    modalidade: 'Corrida',
+    sku: '',
+    produto: '',
+    tipo_evento: 'Próprio',
+    lei: '',
+    capacidade_maxima: null,
     info_geral: {
       data: '',
       horario_largada: '',
@@ -429,6 +457,13 @@ const Cadastro: React.FC = () => {
       projeto_id: item.projeto_id,
       nome: item.nome,
       imagem_kv: item.imagem_kv,
+      status: item.status || 'Em andamento',
+      modalidade: item.modalidade || 'Corrida',
+      sku: item.sku || '',
+      produto: item.produto || '',
+      tipo_evento: item.tipo_evento || 'Próprio',
+      lei: item.lei || '',
+      capacidade_maxima: item.capacidade_maxima || null,
       info_geral: { ...item.info_geral },
       atletas: { 
         site: { ...item.atletas.site },
@@ -470,8 +505,13 @@ const Cadastro: React.FC = () => {
         projeto_id: form.projeto_id,
         nome: form.nome,
         imagem_kv: form.imagem_kv,
-        status: 'Em andamento',
-        modalidade: 'Corrida',
+        status: form.status || 'Em andamento',
+        modalidade: form.modalidade || 'Corrida',
+        sku: form.sku,
+        produto: form.produto,
+        tipo_evento: form.tipo_evento,
+        lei: form.lei,
+        capacidade_maxima: form.capacidade_maxima,
         info_geral: form.info_geral,
         atletas: form.atletas,
         cortesias: form.cortesias,
@@ -1360,6 +1400,85 @@ const Cadastro: React.FC = () => {
       case 'info_geral':
         return (
           <div className="space-y-4">
+            {/* Campos do Projeto */}
+            <div className={`p-4 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'} mb-4`}>
+              <h3 className={`text-sm font-bold mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                <Flag className="w-4 h-4 inline mr-2 text-purple-500" />
+                Dados do Evento
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>SKU</label>
+                  <input
+                    type="text"
+                    value={form.sku}
+                    onChange={(e) => setForm(prev => ({ ...prev, sku: e.target.value }))}
+                    placeholder="Código SKU"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Produto</label>
+                  <input
+                    type="text"
+                    value={form.produto}
+                    onChange={(e) => setForm(prev => ({ ...prev, produto: e.target.value }))}
+                    placeholder="Nome do produto"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Modalidade</label>
+                  <select
+                    value={form.modalidade || 'Corrida'}
+                    onChange={(e) => setForm(prev => ({ ...prev, modalidade: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    {modalidadesOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Tipo Evento</label>
+                  <select
+                    value={form.tipo_evento || 'Próprio'}
+                    onChange={(e) => setForm(prev => ({ ...prev, tipo_evento: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    {tiposEventoOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Lei</label>
+                  <select
+                    value={form.lei || ''}
+                    onChange={(e) => setForm(prev => ({ ...prev, lei: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    {leisOptions.map(l => <option key={l} value={l}>{l || 'Nenhuma'}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Status</label>
+                  <select
+                    value={form.status || 'Em andamento'}
+                    onChange={(e) => setForm(prev => ({ ...prev, status: e.target.value }))}
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Capacidade Máxima</label>
+                  <input
+                    type="number"
+                    value={form.capacidade_maxima || ''}
+                    onChange={(e) => setForm(prev => ({ ...prev, capacidade_maxima: e.target.value ? Number(e.target.value) : null }))}
+                    placeholder="Ex: 5000"
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>

@@ -35,9 +35,8 @@ interface LayoutProps {
 const menuItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/nori', icon: Sparkles, label: 'Nori - Assistente' },
-  { path: '/cadastros/projetos', icon: Target, label: 'Projetos' },
   { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas' },
-  { path: '/cadastros/cadastro', icon: CheckCircle, label: 'Cadastro' },
+  { path: '/cadastros/eventos', icon: Target, label: 'Eventos' },
   { path: '/orcamento', icon: TrendingUp, label: 'Orcamento' },
   { path: '/atletas', icon: Users, label: 'Atletas' },
 ];

@@ -120,6 +120,11 @@ class CadastroEventoBase(BaseModel):
     imagem_kv: str = ""
     status: str = "Em andamento"
     modalidade: str = "Corrida"
+    sku: Optional[str] = None
+    produto: Optional[str] = None
+    tipo_evento: Optional[str] = None
+    lei: Optional[str] = None
+    capacidade_maxima: Optional[int] = None
     info_geral: InfoGeral = InfoGeral()
     atletas: AtletasData = AtletasData()
     cortesias: List[CortesiaItemCreate] = []
@@ -141,6 +146,11 @@ class CadastroEventoUpdate(BaseModel):
     imagem_kv: Optional[str] = None
     status: Optional[str] = None
     modalidade: Optional[str] = None
+    sku: Optional[str] = None
+    produto: Optional[str] = None
+    tipo_evento: Optional[str] = None
+    lei: Optional[str] = None
+    capacidade_maxima: Optional[int] = None
     info_geral: Optional[InfoGeral] = None
     atletas: Optional[AtletasData] = None
     cortesias: Optional[List[CortesiaItemCreate]] = None
@@ -159,6 +169,11 @@ class CadastroEventoResponse(BaseModel):
     imagem_kv: str = ""
     status: str = "Em andamento"
     modalidade: str = "Corrida"
+    sku: Optional[str] = None
+    produto: Optional[str] = None
+    tipo_evento: Optional[str] = None
+    lei: Optional[str] = None
+    capacidade_maxima: Optional[int] = None
     info_geral: InfoGeral = InfoGeral()
     atletas: AtletasData = AtletasData()
     cortesias: List[CortesiaItemResponse] = []

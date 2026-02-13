@@ -10,6 +10,7 @@ from app.models.cadastro_evento import (
     CadastroKitProduto, CadastroKitProdutoItem,
     CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos
 )
+from app.models.dimensoes import DimProjeto
 from app.schemas.cadastro_evento import (
     CadastroEventoCreate, CadastroEventoUpdate, CadastroEventoResponse,
     InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
@@ -18,6 +19,67 @@ from app.schemas.cadastro_evento import (
 )
 
 router = APIRouter(prefix="/cadastros", tags=["Cadastros"])
+
+
+def _sync_dim_projeto(db: Session, cadastro: CadastroEvento):
+    """Sincroniza os dados do cadastro com a tabela dim_projeto para manter compatibilidade."""
+    if not cadastro.sku or not cadastro.nome:
+        return
+    
+    if cadastro.projeto_id:
+        projeto = db.query(DimProjeto).filter(DimProjeto.id == cadastro.projeto_id).first()
+        if projeto:
+            projeto.codigo = cadastro.sku or projeto.codigo
+            projeto.produto = cadastro.produto or projeto.produto
+            projeto.modalidade = cadastro.modalidade or projeto.modalidade
+            projeto.tipo_evento = cadastro.tipo_evento or projeto.tipo_evento
+            projeto.evento = cadastro.nome
+            projeto.lei = cadastro.lei or projeto.lei
+            projeto.status = cadastro.status or projeto.status
+            projeto.capacidade_maxima = cadastro.capacidade_maxima
+            projeto.imagem_kv = cadastro.imagem_kv
+            if cadastro.data_evento:
+                projeto.data_evento = cadastro.data_evento
+            if cadastro.local:
+                projeto.local_evento = cadastro.local
+            db.flush()
+            return
+    
+    existing = db.query(DimProjeto).filter(DimProjeto.codigo == cadastro.sku).first()
+    if existing:
+        existing.produto = cadastro.produto or existing.produto
+        existing.modalidade = cadastro.modalidade or existing.modalidade
+        existing.tipo_evento = cadastro.tipo_evento or existing.tipo_evento
+        existing.evento = cadastro.nome
+        existing.lei = cadastro.lei or existing.lei
+        existing.status = cadastro.status or existing.status
+        existing.capacidade_maxima = cadastro.capacidade_maxima
+        existing.imagem_kv = cadastro.imagem_kv
+        if cadastro.data_evento:
+            existing.data_evento = cadastro.data_evento
+        if cadastro.local:
+            existing.local_evento = cadastro.local
+        cadastro.projeto_id = existing.id
+        db.flush()
+    else:
+        if cadastro.data_evento and cadastro.local:
+            novo_projeto = DimProjeto(
+                codigo=cadastro.sku,
+                produto=cadastro.produto or '',
+                modalidade=cadastro.modalidade or 'Corrida',
+                tipo_evento=cadastro.tipo_evento or 'Próprio',
+                evento=cadastro.nome,
+                lei=cadastro.lei or '',
+                status=cadastro.status or 'Em andamento',
+                data_evento=cadastro.data_evento,
+                local_evento=cadastro.local or '',
+                capacidade_maxima=cadastro.capacidade_maxima,
+                imagem_kv=cadastro.imagem_kv
+            )
+            db.add(novo_projeto)
+            db.flush()
+            cadastro.projeto_id = novo_projeto.id
+            db.flush()
 
 
 def db_to_response(cadastro: CadastroEvento) -> dict:
@@ -93,6 +155,11 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "imagem_kv": cadastro.imagem_kv or "",
         "status": cadastro.status or "Em andamento",
         "modalidade": cadastro.modalidade or "Corrida",
+        "sku": cadastro.sku or None,
+        "produto": cadastro.produto or None,
+        "tipo_evento": cadastro.tipo_evento or None,
+        "lei": cadastro.lei or None,
+        "capacidade_maxima": cadastro.capacidade_maxima or None,
         "info_geral": info_geral,
         "atletas": atletas,
         "cortesias": cortesias,
@@ -160,6 +227,11 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         imagem_kv=data.imagem_kv,
         status=data.status,
         modalidade=data.modalidade,
+        sku=data.sku,
+        produto=data.produto,
+        tipo_evento=data.tipo_evento,
+        lei=data.lei,
+        capacidade_maxima=data.capacidade_maxima,
         data_evento=data_evento,
         horario_largada=data.info_geral.horario_largada,
         local=data.info_geral.local,
@@ -176,6 +248,8 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     
     db.add(cadastro)
     db.flush()
+    
+    _sync_dim_projeto(db, cadastro)
     
     for cortesia in data.cortesias:
         db.add(CadastroCortesia(
@@ -279,6 +353,16 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.status = data.status
     if data.modalidade is not None:
         cadastro.modalidade = data.modalidade
+    if data.sku is not None:
+        cadastro.sku = data.sku
+    if data.produto is not None:
+        cadastro.produto = data.produto
+    if data.tipo_evento is not None:
+        cadastro.tipo_evento = data.tipo_evento
+    if data.lei is not None:
+        cadastro.lei = data.lei
+    if data.capacidade_maxima is not None:
+        cadastro.capacidade_maxima = data.capacidade_maxima
     if data.trofeus is not None:
         cadastro.trofeus = data.trofeus
     
@@ -396,6 +480,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                 tkt_medio=faixa.tkt_medio,
                 total=faixa.total
             ))
+    
+    _sync_dim_projeto(db, cadastro)
     
     db.commit()
     db.refresh(cadastro)

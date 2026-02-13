@@ -8,9 +8,8 @@ import Login from './pages/auth/Login';
 const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
 const CentrosCusto = lazy(() => import('./pages/cadastros/CentrosCusto'));
 const Contas = lazy(() => import('./pages/cadastros/Contas'));
-const Projetos = lazy(() => import('./pages/cadastros/Projetos'));
 const CategoriasAtletas = lazy(() => import('./pages/cadastros/CategoriasAtletas'));
-const Cadastro = lazy(() => import('./pages/cadastros/Cadastro'));
+const Eventos = lazy(() => import('./pages/cadastros/Cadastro'));
 const Orcamento = lazy(() => import('./pages/Orcamento'));
 const Atletas = lazy(() => import('./pages/Atletas'));
 const MarketingDashboard = lazy(() => import('./pages/marketing/MarketingDashboard'));
@@ -53,9 +52,8 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
-              <Route path="/cadastros/projetos" element={<PrivateRoute><Layout><Projetos /></Layout></PrivateRoute>} />
               <Route path="/cadastros/categorias-atletas" element={<PrivateRoute><Layout><CategoriasAtletas /></Layout></PrivateRoute>} />
-              <Route path="/cadastros/cadastro" element={<PrivateRoute><Layout><Cadastro /></Layout></PrivateRoute>} />
+              <Route path="/cadastros/eventos" element={<PrivateRoute><Layout><Eventos /></Layout></PrivateRoute>} />
               <Route path="/orcamento" element={<PrivateRoute><Layout><Orcamento /></Layout></PrivateRoute>} />
               <Route path="/atletas" element={<PrivateRoute><Layout><Atletas /></Layout></PrivateRoute>} />
               <Route path="/marketing" element={<PrivateRoute><Layout><MarketingDashboard /></Layout></PrivateRoute>} />

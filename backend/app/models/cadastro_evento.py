@@ -15,6 +15,12 @@ class CadastroEvento(Base):
     status = Column(String(50), default='Em andamento')
     modalidade = Column(String(50), default='Corrida')
     
+    sku = Column(String(50))
+    produto = Column(String(100))
+    tipo_evento = Column(String(50))
+    lei = Column(String(50))
+    capacidade_maxima = Column(Integer)
+    
     data_evento = Column(Date)
     horario_largada = Column(String(10))
     local = Column(String(300))
