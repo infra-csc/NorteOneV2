@@ -1223,36 +1223,40 @@ const EventDetail: React.FC = () => {
           </ResponsiveContainer>
         ) : (() => {
           const hasProjecao = curvaData.some((d: any) => d[`projecao_acumulado_${curvaAnoAtual}`] !== undefined);
+          const pctKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAtual}` : `pct_meta_receita_${curvaAnoAtual}`;
+          const pctAntKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAnterior}` : `pct_meta_receita_${curvaAnoAnterior}`;
+          const pctProjKey = curvaMode === 'vendas' ? `pct_meta_projecao_vendas_${curvaAnoAtual}` : `pct_meta_projecao_receita_${curvaAnoAtual}`;
           const acumKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`;
-          const projKey = curvaMode === 'vendas' ? `projecao_acumulado_${curvaAnoAtual}` : `projecao_acumulado_receita_${curvaAnoAtual}`;
           const acumAntKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`;
 
-          let chartData = curvaData;
-          if (hasProjecao) {
-            chartData = curvaData.map((d: any) => {
-              const entry = { ...d };
-              const isProj = d.is_projecao === true;
+          let chartData = curvaData.map((d: any) => {
+            const entry = { ...d };
+            const isProj = d.is_projecao === true;
+            if (hasProjecao) {
               if (isProj) {
-                entry[`realizado_${curvaAnoAtual}`] = undefined;
+                entry[`realizado_pct_${curvaAnoAtual}`] = undefined;
               } else {
-                entry[`realizado_${curvaAnoAtual}`] = d[acumKey];
+                entry[`realizado_pct_${curvaAnoAtual}`] = d[pctKey];
               }
-              if (d[projKey] !== undefined) {
-                entry[`projecao_${curvaAnoAtual}`] = d[projKey];
+              if (d[pctProjKey] !== undefined) {
+                entry[`projecao_pct_${curvaAnoAtual}`] = d[pctProjKey];
               }
-              return entry;
-            });
-          }
+            }
+            return entry;
+          });
 
           const strokeColor = curvaMode === 'vendas' ? '#3b82f6' : '#10b981';
 
           return (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
                 <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
-                <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }}
-                  tickFormatter={curvaMode === 'receita' ? (v: number) => `R$${(v/1000).toFixed(0)}k` : undefined}
+                <YAxis 
+                  stroke={isDark ? '#9ca3af' : '#6b7280'} 
+                  tick={{ fontSize: 12 }}
+                  tickFormatter={(v: number) => `${v}%`}
+                  domain={[0, (dataMax: number) => Math.max(110, Math.ceil(dataMax / 10) * 10 + 10)]}
                 />
                 <Tooltip
                   contentStyle={{ 
@@ -1261,34 +1265,43 @@ const EventDetail: React.FC = () => {
                     borderRadius: '8px',
                     color: isDark ? '#fff' : '#111'
                   }}
-                  formatter={(value: any, name?: string) => {
+                  formatter={(value: any, name?: string, props?: any) => {
                     if (value === undefined || value === null) return [null, null];
-                    const formatted = curvaMode === 'receita' ? formatCurrency(Number(value || 0)) : formatNumber(Number(value || 0));
-                    const label = (name || '').includes('Projeção') ? `${formatted} (projeção)` : formatted;
-                    return [label, ''];
+                    const pctFormatted = `${Number(value).toFixed(1)}%`;
+                    const d = props?.payload;
+                    let absVal = '';
+                    if (d) {
+                      if ((name || '').includes(String(curvaAnoAnterior))) {
+                        const abs = d[acumAntKey];
+                        absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
+                      } else {
+                        const abs = d[acumKey] || d[`projecao_acumulado_${curvaAnoAtual}`] || d[`projecao_acumulado_receita_${curvaAnoAtual}`];
+                        absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
+                      }
+                    }
+                    const suffix = (name || '').includes('Projeção') ? ' (projeção)' : '';
+                    return [`${pctFormatted}${absVal}${suffix}`, ''];
                   }}
                   labelFormatter={(label: any) => `${label}`}
                 />
                 <Legend />
-                {curvaMeta && (
-                  <ReferenceLine 
-                    y={curvaMode === 'vendas' ? curvaMeta.total_vendas_anterior : curvaMeta.total_receita_anterior} 
-                    stroke={isDark ? '#f59e0b' : '#d97706'}
-                    strokeDasharray="6 4"
-                    strokeWidth={1.5}
-                    label={{ 
-                      value: `Meta (${curvaAnoAnterior}: ${curvaMode === 'vendas' ? formatNumber(curvaMeta.total_vendas_anterior) : formatCurrency(curvaMeta.total_receita_anterior)})`, 
-                      position: 'insideTopRight',
-                      fill: isDark ? '#fbbf24' : '#b45309',
-                      fontSize: 11,
-                      fontWeight: 600
-                    }}
-                  />
-                )}
+                <ReferenceLine 
+                  y={100} 
+                  stroke={isDark ? '#f59e0b' : '#d97706'}
+                  strokeDasharray="6 4"
+                  strokeWidth={1.5}
+                  label={{ 
+                    value: `100% Meta (${curvaAnoAnterior})`, 
+                    position: 'insideTopRight',
+                    fill: isDark ? '#fbbf24' : '#b45309',
+                    fontSize: 11,
+                    fontWeight: 600
+                  }}
+                />
                 <Line 
                   type="monotone" 
-                  dataKey={acumAntKey}
-                  name={`${curvaAnoAnterior}`} 
+                  dataKey={pctAntKey}
+                  name={`${curvaAnoAnterior} (% meta)`} 
                   stroke="#94a3b8" 
                   strokeWidth={2} 
                   dot={{ r: 3, fill: '#94a3b8' }} 
@@ -1298,7 +1311,7 @@ const EventDetail: React.FC = () => {
                   <>
                     <Line 
                       type="monotone" 
-                      dataKey={`realizado_${curvaAnoAtual}`}
+                      dataKey={`realizado_pct_${curvaAnoAtual}`}
                       name={`${curvaAnoAtual} Realizado`}
                       stroke={strokeColor}
                       strokeWidth={2.5} 
@@ -1307,7 +1320,7 @@ const EventDetail: React.FC = () => {
                     />
                     <Line 
                       type="monotone" 
-                      dataKey={`projecao_${curvaAnoAtual}`}
+                      dataKey={`projecao_pct_${curvaAnoAtual}`}
                       name={`${curvaAnoAtual} Projeção`}
                       stroke="#8B5CF6"
                       strokeWidth={2} 
@@ -1319,8 +1332,8 @@ const EventDetail: React.FC = () => {
                 ) : (
                   <Line 
                     type="monotone" 
-                    dataKey={acumKey}
-                    name={`${curvaAnoAtual}`} 
+                    dataKey={pctKey}
+                    name={`${curvaAnoAtual} (% meta)`} 
                     stroke={strokeColor}
                     strokeWidth={2.5} 
                     dot={{ r: 3, fill: strokeColor }} 
