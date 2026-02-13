@@ -61,6 +61,7 @@ interface CadastroEvento {
     site: { pago: number; tkt_medio: number };
     grupos: { pago: number; tkt_medio: number };
     cortesia: number;
+    appai: { pago: number; tkt_medio: number };
   };
   cortesias: CortesiaItem[];
   taxas: TaxaItem[];
@@ -98,6 +99,7 @@ interface FormData {
     site: { pago: number; tkt_medio: number };
     grupos: { pago: number; tkt_medio: number };
     cortesia: number;
+    appai: { pago: number; tkt_medio: number };
   };
   cortesias: CortesiaItem[];
   taxas: TaxaItem[];
@@ -152,7 +154,8 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   atletas: {
     site: { pago: 0, tkt_medio: 0 },
     grupos: { pago: 0, tkt_medio: 0 },
-    cortesia: 0
+    cortesia: 0,
+    appai: { pago: 0, tkt_medio: 0 }
   },
   cortesias: [],
   taxas: [],
@@ -283,7 +286,8 @@ const Cadastro: React.FC = () => {
     atletas: {
       site: { pago: 0, tkt_medio: 0 },
       grupos: { pago: 0, tkt_medio: 0 },
-      cortesia: 0
+      cortesia: 0,
+      appai: { pago: 0, tkt_medio: 0 }
     },
     cortesias: [],
     taxas: [],
@@ -413,13 +417,15 @@ const Cadastro: React.FC = () => {
     const sitePago = form.atletas.site.pago || 0;
     const gruposPago = form.atletas.grupos.pago || 0;
     const cortesias = form.atletas.cortesia || 0;
-    return sitePago + gruposPago + cortesias;
+    const appaiPago = form.atletas.appai?.pago || 0;
+    return sitePago + gruposPago + cortesias + appaiPago;
   };
 
   const getTotalAtletasCadastro = (cadastro: CadastroEvento) => {
     return (cadastro.atletas.site.pago || 0) + 
            (cadastro.atletas.grupos.pago || 0) + 
-           (cadastro.atletas.cortesia || 0);
+           (cadastro.atletas.cortesia || 0) +
+           (cadastro.atletas.appai?.pago || 0);
   };
 
   const getTotalCortesiasAlocadas = () => {
@@ -474,7 +480,8 @@ const Cadastro: React.FC = () => {
       atletas: { 
         site: { ...item.atletas.site },
         grupos: { ...item.atletas.grupos },
-        cortesia: item.atletas.cortesia || 0
+        cortesia: item.atletas.cortesia || 0,
+        appai: item.atletas.appai ? { ...item.atletas.appai } : { pago: 0, tkt_medio: 0 }
       },
       cortesias: item.cortesias?.length > 0 ? item.cortesias.map(c => ({ ...c })) : [],
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
@@ -1801,13 +1808,14 @@ const Cadastro: React.FC = () => {
         );
 
       case 'atletas': {
-        const totalPagos = (form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0);
+        const totalPagos = (form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0) + (form.atletas.appai?.pago || 0);
         const totalCortesias = form.atletas.cortesia || 0;
         const totalGeral = totalPagos + totalCortesias;
+        const isRJ = form.localizacao_evento === 'Rio de Janeiro';
 
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-3 gap-4">
+            <div className={`grid ${isRJ ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
               <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
                 <div className="flex items-center gap-2 mb-4">
                   <Globe className="w-5 h-5 text-blue-400" />
@@ -1874,29 +1882,41 @@ const Cadastro: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {isRJ && (
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-teal-900/20 border-teal-500/30' : 'bg-teal-50 border-teal-200'} border`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Building2 className="w-5 h-5 text-teal-400" />
+                    <h3 className={`font-bold ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>Appai / Assist.</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <FormattedInput
+                      value={form.atletas.appai?.pago || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, appai: { ...prev.atletas.appai, pago: val } } }))}
+                      label="Quantidade"
+                      placeholder="Qtd Appai"
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-teal-500`}
+                    />
+                    <FormattedInput
+                      value={form.atletas.appai?.tkt_medio || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, appai: { ...prev.atletas.appai, tkt_medio: val } } }))}
+                      label="Ticket Médio"
+                      placeholder="R$ Ticket Médio"
+                      allowDecimal={true}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-teal-500`}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className={`p-5 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500/30' : 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200'} border`}>
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Users className="w-6 h-6 text-purple-400" />
-                  <span className={`text-lg font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Total Atletas</span>
+                  <span className={`text-lg font-bold ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>Total Geral de Atletas</span>
                 </div>
                 <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalGeral) || '0'}</p>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900/30' : 'bg-blue-50'} border ${isDark ? 'border-blue-500/30' : 'border-blue-200'}`}>
-                  <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Site</span>
-                  <span className="text-2xl font-bold text-blue-400">{formatNumber(form.atletas.site.pago || 0) || '0'}</span>
-                </div>
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-orange-900/30' : 'bg-orange-50'} border ${isDark ? 'border-orange-500/30' : 'border-orange-200'}`}>
-                  <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Grupos</span>
-                  <span className="text-2xl font-bold text-orange-400">{formatNumber(form.atletas.grupos.pago || 0) || '0'}</span>
-                </div>
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-pink-900/30' : 'bg-pink-50'} border ${isDark ? 'border-pink-500/30' : 'border-pink-200'}`}>
-                  <span className={`block text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cortesias</span>
-                  <span className="text-2xl font-bold text-pink-400">{formatNumber(totalCortesias) || '0'}</span>
-                </div>
               </div>
             </div>
           </div>
