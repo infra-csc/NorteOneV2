@@ -1416,14 +1416,14 @@ const Cadastro: React.FC = () => {
                 <Flag className="w-4 h-4 inline mr-2 text-purple-500" />
                 Nome do Evento
               </h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
+              <div className="grid grid-cols-12 gap-2">
+                <div className="col-span-5">
                   <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Circuito / Produto</label>
                   <div className="flex gap-1">
                     <select
                       value={form.circuito_produto}
                       onChange={(e) => setForm(prev => ({ ...prev, circuito_produto: e.target.value }))}
-                      className={`flex-1 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      className={`flex-1 px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                     >
                       <option value="">Selecione...</option>
                       {circuitos.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
@@ -1431,29 +1431,20 @@ const Cadastro: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowAddCircuito(true)}
-                      className="p-2 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                      className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
                       title="Gerenciar opções"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ano</label>
-                  <input
-                    type="number"
-                    value={form.ano_evento}
-                    onChange={(e) => setForm(prev => ({ ...prev, ano_evento: Number(e.target.value) }))}
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                </div>
-                <div className="col-span-2">
+                <div className="col-span-5">
                   <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Localização</label>
                   <div className="flex gap-1">
                     <select
                       value={form.localizacao_evento}
                       onChange={(e) => setForm(prev => ({ ...prev, localizacao_evento: e.target.value }))}
-                      className={`flex-1 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      className={`flex-1 px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                     >
                       <option value="">Selecione...</option>
                       {localizacoes.map(l => <option key={l.id} value={l.nome}>{l.nome}</option>)}
@@ -1461,22 +1452,21 @@ const Cadastro: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowAddLocalizacao(true)}
-                      className="p-2 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                      className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
                       title="Gerenciar opções"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-                <div className="col-span-3">
-                  {form.circuito_produto && form.localizacao_evento && (
-                    <div className={`p-2 rounded-lg ${isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200'} border`}>
-                      <p className={`text-xs ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Preview:</p>
-                      <p className={`font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
-                      </p>
-                    </div>
-                  )}
+                <div className="col-span-2">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ano</label>
+                  <input
+                    type="number"
+                    value={form.ano_evento}
+                    onChange={(e) => setForm(prev => ({ ...prev, ano_evento: Number(e.target.value) }))}
+                    className={`w-full px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
                 </div>
               </div>
             </div>
@@ -1663,16 +1653,6 @@ const Cadastro: React.FC = () => {
                     value={form.sku}
                     onChange={(e) => setForm(prev => ({ ...prev, sku: e.target.value }))}
                     placeholder="Código SKU"
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Produto</label>
-                  <input
-                    type="text"
-                    value={form.produto}
-                    onChange={(e) => setForm(prev => ({ ...prev, produto: e.target.value }))}
-                    placeholder="Nome do produto"
                     className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   />
                 </div>
@@ -2636,12 +2616,9 @@ const Cadastro: React.FC = () => {
                   {editItem ? 'Editar Evento' : 'Novo Evento'}
                 </h2>
                 {form.circuito_produto && form.localizacao_evento && (
-                  <div className={`mt-3 p-3 rounded-xl border ${isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200'}`}>
-                    <p className={`text-xs font-medium mb-1 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Nome do Evento</p>
-                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
-                    </p>
-                  </div>
+                  <p className={`text-sm mt-1 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                    {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
+                  </p>
                 )}
               </div>
               <button 
