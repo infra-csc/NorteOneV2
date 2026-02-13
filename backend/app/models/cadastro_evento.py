@@ -4,6 +4,22 @@ from sqlalchemy.sql import func
 from ..core.database import Base
 
 
+class CircuitoProduto(Base):
+    __tablename__ = "circuito_produto"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(200), nullable=False, unique=True)
+    created_at = Column(DateTime, default=func.now())
+
+
+class Localizacao(Base):
+    __tablename__ = "localizacao"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(200), nullable=False, unique=True)
+    created_at = Column(DateTime, default=func.now())
+
+
 class CadastroEvento(Base):
     """Cadastro principal de eventos esportivos"""
     __tablename__ = "cadastro_evento"
@@ -11,6 +27,9 @@ class CadastroEvento(Base):
     id = Column(Integer, primary_key=True, index=True)
     projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=True)
     nome = Column(String(200), nullable=False)
+    circuito_produto = Column(String(200))
+    localizacao_evento = Column(String(200))
+    ano_evento = Column(Integer)
     imagem_kv = Column(String(500))
     status = Column(String(50), default='Em andamento')
     modalidade = Column(String(50), default='Corrida')

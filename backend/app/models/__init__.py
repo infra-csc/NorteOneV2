@@ -5,5 +5,6 @@ from app.models.tarefas import Tarefa
 from app.models.cadastro_evento import (
     CadastroEvento, CadastroCortesia, CadastroTaxa, 
     CadastroKitProduto, CadastroKitProdutoItem,
-    CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos
+    CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos,
+    CircuitoProduto, Localizacao
 )

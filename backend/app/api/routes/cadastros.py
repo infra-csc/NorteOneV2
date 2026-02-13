@@ -8,14 +8,15 @@ from app.core.database import get_db
 from app.models.cadastro_evento import (
     CadastroEvento, CadastroCortesia, CadastroTaxa,
     CadastroKitProduto, CadastroKitProdutoItem,
-    CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos
+    CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos,
+    CircuitoProduto, Localizacao
 )
 from app.models.dimensoes import DimProjeto
 from app.schemas.cadastro_evento import (
     CadastroEventoCreate, CadastroEventoUpdate, CadastroEventoResponse,
     InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
     CortesiaItemResponse, TaxaItemResponse, KitProdutoResponse, ProdutoItemResponse,
-    FaixaPrecoItemBase
+    FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema
 )
 
 router = APIRouter(prefix="/cadastros", tags=["Cadastros"])
@@ -152,6 +153,9 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "id": cadastro.id,
         "projeto_id": cadastro.projeto_id,
         "nome": cadastro.nome,
+        "circuito_produto": cadastro.circuito_produto or None,
+        "localizacao_evento": cadastro.localizacao_evento or None,
+        "ano_evento": cadastro.ano_evento or None,
         "imagem_kv": cadastro.imagem_kv or "",
         "status": cadastro.status or "Em andamento",
         "modalidade": cadastro.modalidade or "Corrida",
@@ -224,6 +228,9 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     cadastro = CadastroEvento(
         projeto_id=data.projeto_id,
         nome=data.nome,
+        circuito_produto=data.circuito_produto,
+        localizacao_evento=data.localizacao_evento,
+        ano_evento=data.ano_evento,
         imagem_kv=data.imagem_kv,
         status=data.status,
         modalidade=data.modalidade,
@@ -347,6 +354,12 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.projeto_id = data.projeto_id
     if data.nome is not None:
         cadastro.nome = data.nome
+    if data.circuito_produto is not None:
+        cadastro.circuito_produto = data.circuito_produto
+    if data.localizacao_evento is not None:
+        cadastro.localizacao_evento = data.localizacao_evento
+    if data.ano_evento is not None:
+        cadastro.ano_evento = data.ano_evento
     if data.imagem_kv is not None:
         cadastro.imagem_kv = data.imagem_kv
     if data.status is not None:
@@ -501,3 +514,79 @@ def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": "Cadastro deletado com sucesso"}
+
+
+@router.get("/opcoes/circuitos", response_model=List[CircuitoProdutoSchema])
+def listar_circuitos(db: Session = Depends(get_db)):
+    return db.query(CircuitoProduto).order_by(CircuitoProduto.nome).all()
+
+
+@router.post("/opcoes/circuitos", response_model=CircuitoProdutoSchema)
+def criar_circuito(data: CircuitoProdutoSchema, db: Session = Depends(get_db)):
+    existing = db.query(CircuitoProduto).filter(CircuitoProduto.nome == data.nome).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Circuito já existe")
+    item = CircuitoProduto(nome=data.nome)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/opcoes/circuitos/{item_id}", response_model=CircuitoProdutoSchema)
+def atualizar_circuito(item_id: int, data: CircuitoProdutoSchema, db: Session = Depends(get_db)):
+    item = db.query(CircuitoProduto).filter(CircuitoProduto.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Circuito não encontrado")
+    item.nome = data.nome
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/opcoes/circuitos/{item_id}")
+def deletar_circuito(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(CircuitoProduto).filter(CircuitoProduto.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Circuito não encontrado")
+    db.delete(item)
+    db.commit()
+    return {"message": "Circuito deletado"}
+
+
+@router.get("/opcoes/localizacoes", response_model=List[LocalizacaoSchema])
+def listar_localizacoes(db: Session = Depends(get_db)):
+    return db.query(Localizacao).order_by(Localizacao.nome).all()
+
+
+@router.post("/opcoes/localizacoes", response_model=LocalizacaoSchema)
+def criar_localizacao(data: LocalizacaoSchema, db: Session = Depends(get_db)):
+    existing = db.query(Localizacao).filter(Localizacao.nome == data.nome).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Localização já existe")
+    item = Localizacao(nome=data.nome)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/opcoes/localizacoes/{item_id}", response_model=LocalizacaoSchema)
+def atualizar_localizacao(item_id: int, data: LocalizacaoSchema, db: Session = Depends(get_db)):
+    item = db.query(Localizacao).filter(Localizacao.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Localização não encontrada")
+    item.nome = data.nome
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/opcoes/localizacoes/{item_id}")
+def deletar_localizacao(item_id: int, db: Session = Depends(get_db)):
+    item = db.query(Localizacao).filter(Localizacao.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Localização não encontrada")
+    db.delete(item)
+    db.commit()
+    return {"message": "Localização deletada"}

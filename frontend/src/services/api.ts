@@ -376,6 +376,38 @@ export const cadastrosService = {
   delete: async (id: number) => {
     const response = await api.delete(`/cadastros/${id}`);
     return response.data;
+  },
+  getCircuitos: async () => {
+    const response = await api.get('/cadastros/opcoes/circuitos');
+    return response.data;
+  },
+  createCircuito: async (nome: string) => {
+    const response = await api.post('/cadastros/opcoes/circuitos', { nome });
+    return response.data;
+  },
+  updateCircuito: async (id: number, nome: string) => {
+    const response = await api.put(`/cadastros/opcoes/circuitos/${id}`, { nome });
+    return response.data;
+  },
+  deleteCircuito: async (id: number) => {
+    const response = await api.delete(`/cadastros/opcoes/circuitos/${id}`);
+    return response.data;
+  },
+  getLocalizacoes: async () => {
+    const response = await api.get('/cadastros/opcoes/localizacoes');
+    return response.data;
+  },
+  createLocalizacao: async (nome: string) => {
+    const response = await api.post('/cadastros/opcoes/localizacoes', { nome });
+    return response.data;
+  },
+  updateLocalizacao: async (id: number, nome: string) => {
+    const response = await api.put(`/cadastros/opcoes/localizacoes/${id}`, { nome });
+    return response.data;
+  },
+  deleteLocalizacao: async (id: number) => {
+    const response = await api.delete(`/cadastros/opcoes/localizacoes/${id}`);
+    return response.data;
   }
 };
 

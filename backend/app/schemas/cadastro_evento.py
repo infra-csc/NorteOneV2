@@ -114,9 +114,28 @@ class RetiradaKit(BaseModel):
     data_horario: str = ""
 
 
+class CircuitoProdutoSchema(BaseModel):
+    id: Optional[int] = None
+    nome: str
+
+    class Config:
+        from_attributes = True
+
+
+class LocalizacaoSchema(BaseModel):
+    id: Optional[int] = None
+    nome: str
+
+    class Config:
+        from_attributes = True
+
+
 class CadastroEventoBase(BaseModel):
     projeto_id: Optional[int] = None
     nome: str
+    circuito_produto: Optional[str] = None
+    localizacao_evento: Optional[str] = None
+    ano_evento: Optional[int] = None
     imagem_kv: str = ""
     status: str = "Em andamento"
     modalidade: str = "Corrida"
@@ -143,6 +162,9 @@ class CadastroEventoCreate(CadastroEventoBase):
 class CadastroEventoUpdate(BaseModel):
     projeto_id: Optional[int] = None
     nome: Optional[str] = None
+    circuito_produto: Optional[str] = None
+    localizacao_evento: Optional[str] = None
+    ano_evento: Optional[int] = None
     imagem_kv: Optional[str] = None
     status: Optional[str] = None
     modalidade: Optional[str] = None
@@ -166,6 +188,9 @@ class CadastroEventoResponse(BaseModel):
     id: int
     projeto_id: Optional[int] = None
     nome: str
+    circuito_produto: Optional[str] = None
+    localizacao_evento: Optional[str] = None
+    ano_evento: Optional[int] = None
     imagem_kv: str = ""
     status: str = "Em andamento"
     modalidade: str = "Corrida"

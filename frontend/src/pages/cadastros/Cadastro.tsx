@@ -1,23 +1,16 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { projetosService, cadastrosService } from '../../services/api';
+import { cadastrosService } from '../../services/api';
 import { 
   Plus, Pencil, X, Check, Calendar, MapPin, Users, 
   Trophy, Zap, Target, Sparkles, Clock, Package,
   Image as ImageIcon, Search, Filter, Eye,
-  ChevronDown, RotateCcw, DollarSign, Timer,
+  RotateCcw, DollarSign, Timer,
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
   TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
   Box, Flag, Activity
 } from 'lucide-react';
-
-interface Projeto {
-  id: number;
-  evento: string;
-  codigo: string;
-  imagem_kv?: string;
-}
 
 interface CortesiaItem {
   cliente: string;
@@ -47,6 +40,9 @@ interface CadastroEvento {
   id: number;
   projeto_id: number | null;
   nome: string;
+  circuito_produto: string;
+  localizacao_evento: string;
+  ano_evento: number | null;
   imagem_kv: string;
   status: string;
   modalidade: string;
@@ -81,6 +77,9 @@ interface CadastroEvento {
 interface FormData {
   projeto_id: number | null;
   nome: string;
+  circuito_produto: string;
+  localizacao_evento: string;
+  ano_evento: number;
   imagem_kv: string;
   status: string;
   modalidade: string;
@@ -138,6 +137,9 @@ const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario:
 const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   projeto_id: null,
   nome: '',
+  circuito_produto: '',
+  localizacao_evento: '',
+  ano_evento: new Date().getFullYear(),
   imagem_kv: '',
   status: 'Em andamento',
   modalidade: 'Corrida',
@@ -219,15 +221,18 @@ const Cadastro: React.FC = () => {
   const [activeTab, setActiveTab] = useState('info_geral');
   const [busca, setBusca] = useState('');
   
-  const [projetos, setProjetos] = useState<Projeto[]>([]);
-  const [projetoBusca, setProjetoBusca] = useState('');
-  const [showProjetoDropdown, setShowProjetoDropdown] = useState(false);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [circuitos, setCircuitos] = useState<{id: number; nome: string}[]>([]);
+  const [localizacoes, setLocalizacoes] = useState<{id: number; nome: string}[]>([]);
+  const [editingCircuito, setEditingCircuito] = useState<{id: number; nome: string} | null>(null);
+  const [editingLocalizacao, setEditingLocalizacao] = useState<{id: number; nome: string} | null>(null);
+  const [newCircuito, setNewCircuito] = useState('');
+  const [newLocalizacao, setNewLocalizacao] = useState('');
+  const [showAddCircuito, setShowAddCircuito] = useState(false);
+  const [showAddLocalizacao, setShowAddLocalizacao] = useState(false);
 
   useEffect(() => {
-    loadProjetos();
     loadCadastros();
+    loadOpcoes();
   }, []);
 
   const loadCadastros = async () => {
@@ -242,26 +247,25 @@ const Cadastro: React.FC = () => {
     }
   };
 
-  const loadProjetos = async () => {
+  const loadOpcoes = async () => {
     try {
-      const data = await projetosService.list();
-      setProjetos(data);
+      const [circData, locData] = await Promise.all([
+        cadastrosService.getCircuitos(),
+        cadastrosService.getLocalizacoes()
+      ]);
+      setCircuitos(circData);
+      setLocalizacoes(locData);
     } catch (error) {
-      console.error('Erro ao carregar projetos:', error);
+      console.error('Erro ao carregar opções:', error);
     }
   };
-
-  const filteredProjetos = useMemo(() => {
-    if (!projetoBusca) return projetos;
-    return projetos.filter(p => 
-      p.evento.toLowerCase().includes(projetoBusca.toLowerCase()) ||
-      p.codigo.toLowerCase().includes(projetoBusca.toLowerCase())
-    );
-  }, [projetos, projetoBusca]);
 
   const initialFormData: FormData = {
     projeto_id: null,
     nome: '',
+    circuito_produto: '',
+    localizacao_evento: '',
+    ano_evento: new Date().getFullYear(),
     imagem_kv: '',
     status: 'Em andamento',
     modalidade: 'Corrida',
@@ -441,7 +445,6 @@ const Cadastro: React.FC = () => {
   const openNewModal = () => {
     setEditItem(null);
     setForm(initialFormData);
-    setProjetoBusca('');
     setActiveTab('info_geral');
     setShowModal(true);
   };
@@ -456,6 +459,9 @@ const Cadastro: React.FC = () => {
     setForm({
       projeto_id: item.projeto_id,
       nome: item.nome,
+      circuito_produto: item.circuito_produto || '',
+      localizacao_evento: item.localizacao_evento || '',
+      ano_evento: item.ano_evento || new Date().getFullYear(),
       imagem_kv: item.imagem_kv,
       status: item.status || 'Em andamento',
       modalidade: item.modalidade || 'Corrida',
@@ -492,7 +498,6 @@ const Cadastro: React.FC = () => {
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
       }
     });
-    setProjetoBusca(item.nome);
     setActiveTab('info_geral');
     setShowModal(true);
   };
@@ -503,7 +508,12 @@ const Cadastro: React.FC = () => {
       setLoading(true);
       const payload = {
         projeto_id: form.projeto_id,
-        nome: form.nome,
+        nome: form.circuito_produto && form.localizacao_evento 
+          ? `${form.circuito_produto} - ${form.localizacao_evento} ${form.ano_evento}` 
+          : form.nome,
+        circuito_produto: form.circuito_produto,
+        localizacao_evento: form.localizacao_evento,
+        ano_evento: form.ano_evento,
         imagem_kv: form.imagem_kv,
         status: form.status || 'Em andamento',
         modalidade: form.modalidade || 'Corrida',
@@ -1400,6 +1410,245 @@ const Cadastro: React.FC = () => {
       case 'info_geral':
         return (
           <div className="space-y-4">
+            {/* Nome do Evento - Circuito/Produto + Localização + Ano */}
+            <div className={`p-4 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'} mb-4`}>
+              <h3 className={`text-sm font-bold mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                <Flag className="w-4 h-4 inline mr-2 text-purple-500" />
+                Nome do Evento
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Circuito / Produto</label>
+                  <div className="flex gap-1">
+                    <select
+                      value={form.circuito_produto}
+                      onChange={(e) => setForm(prev => ({ ...prev, circuito_produto: e.target.value }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                    >
+                      <option value="">Selecione...</option>
+                      {circuitos.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCircuito(true)}
+                      className="p-2 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                      title="Gerenciar opções"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Ano</label>
+                  <input
+                    type="number"
+                    value={form.ano_evento}
+                    onChange={(e) => setForm(prev => ({ ...prev, ano_evento: Number(e.target.value) }))}
+                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Localização</label>
+                  <div className="flex gap-1">
+                    <select
+                      value={form.localizacao_evento}
+                      onChange={(e) => setForm(prev => ({ ...prev, localizacao_evento: e.target.value }))}
+                      className={`flex-1 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                    >
+                      <option value="">Selecione...</option>
+                      {localizacoes.map(l => <option key={l.id} value={l.nome}>{l.nome}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddLocalizacao(true)}
+                      className="p-2 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                      title="Gerenciar opções"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="col-span-3">
+                  {form.circuito_produto && form.localizacao_evento && (
+                    <div className={`p-2 rounded-lg ${isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200'} border`}>
+                      <p className={`text-xs ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Preview:</p>
+                      <p className={`font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                        {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {showAddCircuito && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setShowAddCircuito(false); setEditingCircuito(null); setNewCircuito(''); }}>
+                <div className={`w-full max-w-md mx-4 rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} p-6`} onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Gerenciar Circuitos</h3>
+                    <button type="button" onClick={() => { setShowAddCircuito(false); setEditingCircuito(null); setNewCircuito(''); }} className="p-1 rounded-lg hover:bg-gray-500/20">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      value={newCircuito}
+                      onChange={(e) => setNewCircuito(e.target.value)}
+                      placeholder="Novo circuito..."
+                      className={`flex-1 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && newCircuito.trim()) {
+                          e.preventDefault();
+                          try {
+                            if (editingCircuito) {
+                              await cadastrosService.updateCircuito(editingCircuito.id, newCircuito.trim());
+                              setEditingCircuito(null);
+                            } else {
+                              await cadastrosService.createCircuito(newCircuito.trim());
+                            }
+                            const data = await cadastrosService.getCircuitos();
+                            setCircuitos(data);
+                            setNewCircuito('');
+                          } catch (err: any) {
+                            alert(err?.response?.data?.detail || 'Erro ao salvar');
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!newCircuito.trim()) return;
+                        try {
+                          if (editingCircuito) {
+                            await cadastrosService.updateCircuito(editingCircuito.id, newCircuito.trim());
+                            setEditingCircuito(null);
+                          } else {
+                            await cadastrosService.createCircuito(newCircuito.trim());
+                          }
+                          const data = await cadastrosService.getCircuitos();
+                          setCircuitos(data);
+                          setNewCircuito('');
+                        } catch (err: any) {
+                          alert(err?.response?.data?.detail || 'Erro ao salvar');
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors font-medium"
+                    >
+                      {editingCircuito ? 'Salvar' : 'Adicionar'}
+                    </button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1">
+                    {circuitos.map(c => (
+                      <div key={c.id} className={`flex items-center justify-between px-3 py-2 rounded-lg ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} transition-colors`}>
+                        <span className={`${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{c.nome}</span>
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => { setEditingCircuito(c); setNewCircuito(c.nome); }} className="p-1 rounded hover:bg-blue-500/20 text-blue-400" title="Editar">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" onClick={async () => {
+                            if (!confirm(`Excluir "${c.nome}"?`)) return;
+                            try {
+                              await cadastrosService.deleteCircuito(c.id);
+                              const data = await cadastrosService.getCircuitos();
+                              setCircuitos(data);
+                            } catch (err: any) { alert(err?.response?.data?.detail || 'Erro ao excluir'); }
+                          }} className="p-1 rounded hover:bg-red-500/20 text-red-400" title="Excluir">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showAddLocalizacao && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setShowAddLocalizacao(false); setEditingLocalizacao(null); setNewLocalizacao(''); }}>
+                <div className={`w-full max-w-md mx-4 rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} p-6`} onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Gerenciar Localizações</h3>
+                    <button type="button" onClick={() => { setShowAddLocalizacao(false); setEditingLocalizacao(null); setNewLocalizacao(''); }} className="p-1 rounded-lg hover:bg-gray-500/20">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mb-4">
+                    <input
+                      type="text"
+                      value={newLocalizacao}
+                      onChange={(e) => setNewLocalizacao(e.target.value)}
+                      placeholder="Nova localização..."
+                      className={`flex-1 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter' && newLocalizacao.trim()) {
+                          e.preventDefault();
+                          try {
+                            if (editingLocalizacao) {
+                              await cadastrosService.updateLocalizacao(editingLocalizacao.id, newLocalizacao.trim());
+                              setEditingLocalizacao(null);
+                            } else {
+                              await cadastrosService.createLocalizacao(newLocalizacao.trim());
+                            }
+                            const data = await cadastrosService.getLocalizacoes();
+                            setLocalizacoes(data);
+                            setNewLocalizacao('');
+                          } catch (err: any) {
+                            alert(err?.response?.data?.detail || 'Erro ao salvar');
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!newLocalizacao.trim()) return;
+                        try {
+                          if (editingLocalizacao) {
+                            await cadastrosService.updateLocalizacao(editingLocalizacao.id, newLocalizacao.trim());
+                            setEditingLocalizacao(null);
+                          } else {
+                            await cadastrosService.createLocalizacao(newLocalizacao.trim());
+                          }
+                          const data = await cadastrosService.getLocalizacoes();
+                          setLocalizacoes(data);
+                          setNewLocalizacao('');
+                        } catch (err: any) {
+                          alert(err?.response?.data?.detail || 'Erro ao salvar');
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-colors font-medium"
+                    >
+                      {editingLocalizacao ? 'Salvar' : 'Adicionar'}
+                    </button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1">
+                    {localizacoes.map(l => (
+                      <div key={l.id} className={`flex items-center justify-between px-3 py-2 rounded-lg ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-100'} transition-colors`}>
+                        <span className={`${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{l.nome}</span>
+                        <div className="flex gap-1">
+                          <button type="button" onClick={() => { setEditingLocalizacao(l); setNewLocalizacao(l.nome); }} className="p-1 rounded hover:bg-blue-500/20 text-blue-400" title="Editar">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button type="button" onClick={async () => {
+                            if (!confirm(`Excluir "${l.nome}"?`)) return;
+                            try {
+                              await cadastrosService.deleteLocalizacao(l.id);
+                              const data = await cadastrosService.getLocalizacoes();
+                              setLocalizacoes(data);
+                            } catch (err: any) { alert(err?.response?.data?.detail || 'Erro ao excluir'); }
+                          }} className="p-1 rounded hover:bg-red-500/20 text-red-400" title="Excluir">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Campos do Projeto */}
             <div className={`p-4 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'} mb-4`}>
               <h3 className={`text-sm font-bold mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -2381,135 +2630,31 @@ const Cadastro: React.FC = () => {
             className={`${isDark ? 'bg-gray-900' : 'bg-white'} rounded-3xl w-[90%] max-w-7xl my-4 shadow-2xl border ${isDark ? 'border-gray-700' : 'border-gray-200'} overflow-hidden max-h-[90vh] flex flex-col`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`relative h-48 overflow-hidden flex-shrink-0 ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}>
-              {form.imagem_kv ? (
-                <img 
-                  src={form.imagem_kv} 
-                  alt="Preview"
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-purple-600/50 to-pink-600/50 flex items-center justify-center">
-                  <div className="text-center">
-                    <ImageIcon className="w-16 h-16 text-white/30 mx-auto mb-2" />
-                    <p className="text-white/50">Adicione uma imagem do evento</p>
+            <div className="p-6 pb-3 flex items-center justify-between">
+              <div>
+                <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  {editItem ? 'Editar Evento' : 'Novo Evento'}
+                </h2>
+                {form.circuito_produto && form.localizacao_evento && (
+                  <div className={`mt-3 p-3 rounded-xl border ${isDark ? 'bg-purple-900/20 border-purple-500/30' : 'bg-purple-50 border-purple-200'}`}>
+                    <p className={`text-xs font-medium mb-1 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>Nome do Evento</p>
+                    <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                      {form.circuito_produto} - {form.localizacao_evento} {form.ano_evento}
+                    </p>
                   </div>
-                </div>
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-              
+                )}
+              </div>
               <button 
                 type="button"
                 onClick={() => {
                   setShowModal(false);
                   setEditItem(null);
                 }}
-                className="absolute top-4 right-4 p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white hover:bg-black/60 transition-colors"
+                className={`p-2 rounded-full ${isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-200'} transition-colors`}
               >
                 <X className="w-6 h-6" />
               </button>
-
-              <div className="absolute bottom-4 left-4 right-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={projetoBusca}
-                    onChange={(e) => {
-                      setProjetoBusca(e.target.value);
-                      setShowProjetoDropdown(true);
-                    }}
-                    onClick={() => {
-                      if (searchInputRef.current) {
-                        const rect = searchInputRef.current.getBoundingClientRect();
-                        setDropdownPosition({ top: rect.bottom + 8, left: rect.left, width: rect.width });
-                      }
-                      setShowProjetoDropdown(true);
-                    }}
-                    onFocus={() => {
-                      if (searchInputRef.current) {
-                        const rect = searchInputRef.current.getBoundingClientRect();
-                        setDropdownPosition({ top: rect.bottom + 8, left: rect.left, width: rect.width });
-                      }
-                      setShowProjetoDropdown(true);
-                    }}
-                    placeholder="Clique para selecionar o evento..."
-                    className="w-full pl-10 pr-16 py-3 text-xl font-bold bg-black/30 backdrop-blur-md text-white placeholder-white/50 border border-white/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
-                  />
-                  {form.projeto_id ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setForm(prev => ({ ...prev, projeto_id: null, nome: '', imagem_kv: '' }));
-                        setProjetoBusca('');
-                      }}
-                      className="absolute right-10 top-1/2 -translate-y-1/2 p-1 rounded-full bg-red-500/80 hover:bg-red-500 text-white transition-colors"
-                      title="Remover seleção"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  ) : null}
-                  <ChevronDown className={`absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50 transition-transform ${showProjetoDropdown ? 'rotate-180' : ''}`} />
-                  {showProjetoDropdown && (
-                    <>
-                      <div 
-                        className="fixed inset-0 z-[100]" 
-                        onClick={() => setShowProjetoDropdown(false)}
-                      />
-                      <div 
-                        className={`fixed max-h-64 overflow-y-auto rounded-xl ${isDark ? 'bg-gray-800' : 'bg-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-2xl z-[101]`}
-                        style={{ top: dropdownPosition.top, left: dropdownPosition.left, width: dropdownPosition.width }}
-                      >
-                        <div className={`sticky top-0 px-4 py-2 border-b ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                          <p className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            {filteredProjetos.length} evento{filteredProjetos.length !== 1 ? 's' : ''} disponível{filteredProjetos.length !== 1 ? 'is' : ''}
-                          </p>
-                        </div>
-                        {filteredProjetos.length > 0 ? (
-                          filteredProjetos.map(projeto => (
-                            <button
-                              key={projeto.id}
-                              type="button"
-                              onClick={() => {
-                                setForm(prev => ({ ...prev, projeto_id: projeto.id, nome: projeto.evento, imagem_kv: projeto.imagem_kv || '' }));
-                                setProjetoBusca(projeto.evento);
-                                setShowProjetoDropdown(false);
-                              }}
-                              className={`w-full px-4 py-3 text-left hover:bg-purple-500/20 transition-colors flex items-center gap-3 ${
-                                form.projeto_id === projeto.id ? (isDark ? 'bg-purple-500/30' : 'bg-purple-100') : ''
-                              } ${isDark ? 'text-white' : 'text-gray-900'}`}
-                            >
-                              {projeto.imagem_kv ? (
-                                <img src={projeto.imagem_kv} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                              ) : (
-                                <div className={`w-10 h-10 rounded-lg ${isDark ? 'bg-gray-700' : 'bg-gray-200'} flex items-center justify-center`}>
-                                  <Calendar className="w-5 h-5 text-gray-400" />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="font-semibold truncate">{projeto.evento}</div>
-                                <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{projeto.codigo}</div>
-                              </div>
-                              {form.projeto_id === projeto.id && (
-                                <Check className="w-5 h-5 text-purple-500 flex-shrink-0" />
-                              )}
-                            </button>
-                          ))
-                        ) : (
-                          <div className={`px-4 py-6 text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                            <p>Nenhum evento encontrado</p>
-                            <p className="text-xs mt-1">Tente outro termo de busca</p>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
             </div>
-
 
             <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-700/50">
               {tabs.map((tab) => {
