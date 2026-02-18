@@ -1,0 +1,93 @@
+SELECT
+    cpev1.value                          AS "ID Evento",
+    cpev2.value                          AS "Evento",
+    SUM(CASE 
+        WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+         AND so.base_grand_total > 0 THEN 1 
+        ELSE 0 
+    END)                                 AS "Qtd Site",
+    SUM(CASE 
+        WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
+            soi.price 
+            - CASE 
+                WHEN soi.price = 0          THEN 0 
+                WHEN soi.name LIKE '%plus%'  THEN 69.00
+                WHEN soi.name LIKE '%super%' THEN 269.00
+                WHEN soi.name LIKE '%vip%'   THEN 199.99
+                ELSE 0 
+              END 
+            + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+            - CASE 
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN COALESCE(soiaa.price, 0) = 14.90 
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0 
+              END
+        ELSE 0 
+    END)                                 AS "Inscrição Líquida Site",
+    SUM(CASE 
+        WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
+            soi.price 
+            - CASE 
+                WHEN soi.price = 0          THEN 0 
+                WHEN soi.name LIKE '%plus%'  THEN 69.00
+                WHEN soi.name LIKE '%super%' THEN 269.00
+                WHEN soi.name LIKE '%vip%'   THEN 199.99
+                ELSE 0 
+              END 
+            + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+            - CASE 
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN COALESCE(soiaa.price, 0) = 14.90 
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0 
+              END
+        ELSE 0 
+    END) / NULLIF(SUM(CASE 
+        WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
+         AND so.base_grand_total > 0 THEN 1 
+        ELSE 0 
+    END), 0)                             AS "Ticket Médio Site"
+FROM sales_order so
+LEFT JOIN sales_order_item soi 
+       ON soi.order_id = so.entity_id 
+      AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1 
+       ON cpev1.entity_id = soi.product_id 
+      AND cpev1.attribute_id = 321
+LEFT JOIN catalog_product_entity_varchar cpev2 
+       ON cpev2.entity_id = cpev1.value 
+      AND cpev2.attribute_id = 73
+LEFT JOIN catalog_product_entity_datetime cped_date
+       ON cped_date.entity_id = cpev1.value
+      AND cped_date.attribute_id = 195
+LEFT JOIN customer_group cg 
+       ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT * FROM sales_order_item WHERE name LIKE '%persona%'
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
+WHERE
+     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+ AND YEAR(cped_date.value) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+ AND so.increment_id NOT LIKE '%-1%'
+ AND so.increment_id NOT LIKE '%-2%'
+ AND so.increment_id NOT LIKE '%-3%'
+ AND so.increment_id NOT LIKE '%-4%'
+ AND so.increment_id NOT LIKE '%-5%'
+ AND so.increment_id NOT LIKE '%-6%'
+ AND so.increment_id NOT LIKE '%-7%'
+ AND so.increment_id NOT LIKE '%-8%'
+ AND so.increment_id NOT LIKE '%-9%'
+ AND so.increment_id NOT LIKE '%-10%'
+ AND so.increment_id NOT LIKE '%-11%'
+ AND so.increment_id NOT LIKE '%-12%'
+ AND so.increment_id NOT LIKE '%-13%'
+ AND so.increment_id NOT LIKE '%-14%'
+ AND so.increment_id NOT LIKE '%-15%'
+ AND so.increment_id NOT LIKE '%-16%'
+ AND so.increment_id NOT LIKE '%-17%'
+GROUP BY
+    cpev1.value,
+    cpev2.value
+ORDER BY
+    cpev1.value;

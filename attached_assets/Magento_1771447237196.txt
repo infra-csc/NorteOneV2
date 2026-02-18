@@ -1,0 +1,148 @@
+SELECT
+    base.id_evento                                                           AS "ID Evento",
+    base.evento                                                              AS "Evento",
+    base.qtd_site                                                            AS "Qtd Site",
+    base.inscricao_liquida                                                   AS "Inscrição Líquida Site",
+    base.inscricao_liquida / NULLIF(base.qtd_site, 0)                       AS "Ticket Médio Site",
+    ROUND(base.qtd_30d / 30.0, 2)                                           AS "Média Diária 30d",
+    ROUND(base.qtd_14d / 14.0, 2)                                           AS "Média Diária 14d",
+    ROUND(base.qtd_7d  /  7.0, 2)                                           AS "Média Diária 7d",
+    GREATEST(DATEDIFF(base.data_evento, CURDATE()), 0)                      AS "Dias até Evento",
+
+    ROUND(base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0), 2)                AS "Fator Aceleração",
+
+    ROUND(
+        base.qtd_site
+        + (base.qtd_14d / 14.0)
+          * GREATEST(DATEDIFF(base.data_evento, CURDATE()), 0)
+    , 0)                                                                     AS "Projeção Linear",
+
+    ROUND(
+        base.qtd_site
+        + (base.qtd_14d / 14.0)
+          * LEAST(GREATEST(
+                base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0),
+                0.3
+            ), 2.5)
+          * GREATEST(DATEDIFF(base.data_evento, CURDATE()), 0)
+    , 0)                                                                     AS "Projeção Ajustada",
+
+    CASE
+        WHEN base.qtd_7d_anterior = 0                                        THEN 'Sem histórico comparativo'
+        WHEN (base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0)) >= 1.15        THEN 'Acelerando'
+        WHEN (base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0)) >= 0.85        THEN 'Estável'
+        ELSE 'Desacelerando'
+    END                                                                      AS "Tendência"
+
+FROM (
+    SELECT
+        cpev1.value                                                          AS id_evento,
+        cpev2.value                                                          AS evento,
+        cped_date.value                                                      AS data_evento,
+
+        -- Qtd total
+        SUM(CASE
+            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+             AND so.base_grand_total > 0 THEN 1
+            ELSE 0
+        END)                                                                 AS qtd_site,
+
+        -- Qtd últimos 30 dias
+        SUM(CASE
+            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+             AND so.base_grand_total > 0
+             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            THEN 1 ELSE 0
+        END)                                                                 AS qtd_30d,
+
+        -- Qtd últimos 14 dias
+        SUM(CASE
+            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+             AND so.base_grand_total > 0
+             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+            THEN 1 ELSE 0
+        END)                                                                 AS qtd_14d,
+
+        -- Qtd últimos 7 dias
+        SUM(CASE
+            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+             AND so.base_grand_total > 0
+             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+            THEN 1 ELSE 0
+        END)                                                                 AS qtd_7d,
+
+        -- Qtd dias 8 a 14 atrás
+        SUM(CASE
+            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+             AND so.base_grand_total > 0
+             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+             AND so.created_at <  DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+            THEN 1 ELSE 0
+        END)                                                                 AS qtd_7d_anterior,
+
+        -- Inscrição líquida
+        SUM(CASE
+            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN
+                soi.price
+                - CASE
+                    WHEN soi.price = 0           THEN 0
+                    WHEN soi.name LIKE '%plus%'  THEN 69.00
+                    WHEN soi.name LIKE '%super%' THEN 269.00
+                    WHEN soi.name LIKE '%vip%'   THEN 199.99
+                    ELSE 0
+                  END
+                + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+                - CASE
+                    WHEN cg.customer_group_id = 4 THEN 0
+                    WHEN COALESCE(soiaa.price, 0) = 14.90
+                     AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                    ELSE 0
+                  END
+            ELSE 0
+        END)                                                                 AS inscricao_liquida
+
+    FROM sales_order so
+    LEFT JOIN sales_order_item soi
+           ON soi.order_id = so.entity_id
+          AND soi.product_type = 'bundle'
+    LEFT JOIN catalog_product_entity_varchar cpev1
+           ON cpev1.entity_id = soi.product_id
+          AND cpev1.attribute_id = 321
+    LEFT JOIN catalog_product_entity_varchar cpev2
+           ON cpev2.entity_id = cpev1.value
+          AND cpev2.attribute_id = 73
+    LEFT JOIN catalog_product_entity_datetime cped_date
+           ON cped_date.entity_id = cpev1.value
+          AND cped_date.attribute_id = 195
+    LEFT JOIN customer_group cg
+           ON cg.customer_group_id = so.customer_group_id
+    LEFT JOIN (
+        SELECT * FROM sales_order_item WHERE name LIKE '%persona%'
+    ) AS soiaa ON soiaa.parent_item_id = soi.item_id
+    WHERE
+         so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+     AND YEAR(cped_date.value) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+     AND so.increment_id NOT LIKE '%-1%'
+     AND so.increment_id NOT LIKE '%-2%'
+     AND so.increment_id NOT LIKE '%-3%'
+     AND so.increment_id NOT LIKE '%-4%'
+     AND so.increment_id NOT LIKE '%-5%'
+     AND so.increment_id NOT LIKE '%-6%'
+     AND so.increment_id NOT LIKE '%-7%'
+     AND so.increment_id NOT LIKE '%-8%'
+     AND so.increment_id NOT LIKE '%-9%'
+     AND so.increment_id NOT LIKE '%-10%'
+     AND so.increment_id NOT LIKE '%-11%'
+     AND so.increment_id NOT LIKE '%-12%'
+     AND so.increment_id NOT LIKE '%-13%'
+     AND so.increment_id NOT LIKE '%-14%'
+     AND so.increment_id NOT LIKE '%-15%'
+     AND so.increment_id NOT LIKE '%-16%'
+     AND so.increment_id NOT LIKE '%-17%'
+    GROUP BY
+        cpev1.value,
+        cpev2.value,
+        cped_date.value
+) AS base
+ORDER BY
+    base.id_evento;

@@ -1,0 +1,56 @@
+SELECT
+    b.id_evento                                         AS "ID Evento",
+ --   b.id_campanha_salesforce                            AS "SKU",
+    b.ds_evento                                         AS "Evento",
+
+   SUM(CASE 
+        WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+         AND h.ds_categoria NOT LIKE '%Grup%'
+         AND c.nr_total > 0 THEN 1 
+        ELSE 0 
+    END)                                              AS "Qtd Site",
+
+    SUM(CASE 
+        WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+         AND h.ds_categoria NOT LIKE '%Grup%' THEN
+            IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+               a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+        ELSE 0 
+    END)                                               AS "Inscrição Líquida Site",
+
+    SUM(CASE 
+        WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+         AND h.ds_categoria NOT LIKE '%Grup%' THEN
+            IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
+               a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
+        ELSE 0 
+    END) / NULLIF(SUM(CASE 
+        WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+         AND h.ds_categoria NOT LIKE '%Grup%'
+         AND c.nr_total > 0 THEN 1 
+        ELSE 0 
+    END), 0)                                            AS "Ticket Médio Site"
+
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b 
+        ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c 
+        ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h 
+       ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e 
+       ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f 
+       ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE
+   -- b.dt_evento BETWEEN '2026-01-01' AND '2026-12-31'
+   YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+    AND c.fl_local_inscricao = '1'
+    AND c.id_pedido_status = 2
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%'  -- Eu add essa linha. é pra remover aqueles eventos 'lixos' com esse começo de SKU
+GROUP BY
+    b.id_evento,
+--    b.id_campanha_salesforce,
+    b.ds_evento
+ORDER BY
+    b.id_evento;
