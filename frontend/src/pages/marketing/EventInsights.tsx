@@ -140,6 +140,7 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                 <Legend
                   formatter={(value: string) => value === 'ia_atual' ? `Ano ${data.ano_atual}` : `Ano ${data.ano_anterior}`}
                 />
+                <ReferenceLine y={1} stroke={COLORS.neutral} strokeDasharray="6 4" label={{ value: 'Neutro', fill: COLORS.neutral, fontSize: 12 }} />
                 <Line type="monotone" dataKey="ia_atual" stroke={COLORS.anoAtual} strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} connectNulls={false} />
                 <Line type="monotone" dataKey="ia_anterior" stroke={COLORS.anoAnterior} strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} connectNulls={false} />
               </LineChart>
