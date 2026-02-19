@@ -833,7 +833,7 @@ const EventDetail: React.FC = () => {
           </h3>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cumulativeData.slice(-30)}>
+              <LineChart data={cumulativeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                 <XAxis 
                   dataKey="date" 
