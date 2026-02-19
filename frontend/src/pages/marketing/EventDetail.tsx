@@ -1019,6 +1019,14 @@ const EventDetail: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
               Análise de Médias de Vendas
             </h3>
+            <div className="relative group">
+              <Info className="w-4 h-4 text-gray-400 dark:text-gray-500 cursor-help" />
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-72 z-50">
+                <p className="mb-1"><strong>Período:</strong> Define a janela de dias analisada. Todas as médias são calculadas dividindo vendas por dias corridos (incluindo dias sem vendas).</p>
+                <p className="mb-1"><strong>Cards:</strong> Mostram a média diária de vendas para sub-períodos relevantes dentro da janela selecionada.</p>
+                <p><strong>Gráfico:</strong> Barras = vendas diárias reais. Linha = média móvel de 7 dias (tendência de curto prazo).</p>
+              </div>
+            </div>
           </div>
           <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
             {[7, 14, 30, 60, 90].map((p) => (
@@ -1044,35 +1052,31 @@ const EventDetail: React.FC = () => {
           </div>
         ) : salesAverages ? (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className={`grid grid-cols-2 ${Array.isArray(salesAverages.medias) ? (salesAverages.medias.length >= 3 ? 'md:grid-cols-4' : 'md:grid-cols-3') : 'md:grid-cols-4'} gap-3 mb-6`}>
               <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-indigo-50'}`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Média Geral</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Média Geral ({salesAverages.periodo_dias}d)</p>
                 <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
                   {salesAverages.media_geral?.toFixed(1) || '0'}
                 </p>
-                <p className="text-[10px] text-gray-400 mt-1">vendas/dia</p>
+                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.total_vendas || 0} vendas em {salesAverages.periodo_dias} dias</p>
               </div>
-              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-blue-50'}`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Média 7 dias</p>
-                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                  {salesAverages.medias?.media_7d?.toFixed(1) || '0'}
-                </p>
-                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.medias?.total_7d || 0} total</p>
-              </div>
-              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-cyan-50'}`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Média 14 dias</p>
-                <p className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">
-                  {salesAverages.medias?.media_14d?.toFixed(1) || '0'}
-                </p>
-                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.medias?.total_14d || 0} total</p>
-              </div>
-              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-emerald-50'}`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Média 30 dias</p>
-                <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                  {salesAverages.medias?.media_30d?.toFixed(1) || '0'}
-                </p>
-                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.medias?.total_30d || 0} total</p>
-              </div>
+              {Array.isArray(salesAverages.medias) && salesAverages.medias.map((m: any, idx: number) => {
+                const colors = [
+                  { bg: 'bg-blue-50', text: 'text-blue-600 dark:text-blue-400', darkBg: 'bg-gray-700/50' },
+                  { bg: 'bg-cyan-50', text: 'text-cyan-600 dark:text-cyan-400', darkBg: 'bg-gray-700/50' },
+                  { bg: 'bg-emerald-50', text: 'text-emerald-600 dark:text-emerald-400', darkBg: 'bg-gray-700/50' },
+                ];
+                const c = colors[idx % colors.length];
+                return (
+                  <div key={m.periodo} className={`p-4 rounded-lg ${isDark ? c.darkBg : c.bg}`}>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Média {m.label}</p>
+                    <p className={`text-2xl font-bold ${c.text}`}>
+                      {m.media?.toFixed(1) || '0'}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-1">{m.total || 0} vendas em {m.dias}d</p>
+                  </div>
+                );
+              })}
             </div>
 
             {salesAverages.tendencia && salesAverages.tendencia.length > 0 ? (

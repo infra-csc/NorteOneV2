@@ -1867,24 +1867,34 @@ def get_sales_averages(
         ref_date = today
     
     start_date = ref_date - timedelta(days=periodo)
-    all_daily_sales = {d: v for d, v in all_raw_sales.items() if d >= start_date and d <= ref_date}
+    all_daily_sales = {d: v for d, v in all_raw_sales.items() if d > start_date and d <= ref_date}
     
     sorted_dates = sorted(all_daily_sales.keys())
     daily_data = [{"date": d.isoformat(), "sales": all_daily_sales[d]} for d in sorted_dates]
     
     total_sales = sum(all_daily_sales.values())
-    days_with_data = len(sorted_dates)
-    media_geral = round(total_sales / days_with_data, 1) if days_with_data > 0 else 0
+    media_geral = round(total_sales / periodo, 1) if periodo > 0 else 0
     
-    periods = [7, 14, 30]
-    medias_por_periodo = {}
-    for p in periods:
+    sub_periods_map = {
+        7:  [7],
+        14: [7, 14],
+        30: [7, 14, 30],
+        60: [7, 30, 60],
+        90: [7, 30, 90],
+    }
+    sub_periods = sub_periods_map.get(periodo, [7, 14, 30])
+    
+    medias_list = []
+    for p in sub_periods:
         cutoff = ref_date - timedelta(days=p)
-        sales_in_period = sum(v for d, v in all_daily_sales.items() if d >= cutoff)
-        days_in_period = sum(1 for d in sorted_dates if d >= cutoff)
-        medias_por_periodo[f"media_{p}d"] = round(sales_in_period / days_in_period, 1) if days_in_period > 0 else 0
-        medias_por_periodo[f"total_{p}d"] = sales_in_period
-        medias_por_periodo[f"dias_{p}d"] = days_in_period
+        sales_in_period = sum(v for d, v in all_daily_sales.items() if d > cutoff)
+        medias_list.append({
+            "periodo": p,
+            "label": f"{p}d",
+            "media": round(sales_in_period / p, 1),
+            "total": sales_in_period,
+            "dias": p,
+        })
     
     tendencia_data = []
     if len(sorted_dates) >= 7:
@@ -1904,8 +1914,8 @@ def get_sales_averages(
         "periodo_dias": periodo,
         "media_geral": media_geral,
         "total_vendas": total_sales,
-        "dias_com_dados": days_with_data,
-        "medias": medias_por_periodo,
+        "dias_com_dados": len(sorted_dates),
+        "medias": medias_list,
         "vendas_diarias": daily_data,
         "tendencia": tendencia_data
     }

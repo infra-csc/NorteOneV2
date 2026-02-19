@@ -808,7 +808,7 @@ export const marketingService = {
     media_geral: number;
     total_vendas: number;
     dias_com_dados: number;
-    medias: Record<string, number>;
+    medias: Array<{ periodo: number; label: string; media: number; total: number; dias: number }>;
     vendas_diarias: { date: string; sales: number }[];
     tendencia: { date: string; media_movel_7d: number; vendas: number }[];
   }> => {
