@@ -107,18 +107,21 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
 
   return (
     <div className="space-y-6">
-      {indice_aceleracao && indice_aceleracao.length > 0 && (
+      {indice_aceleracao && indice_aceleracao.length > 0 && (() => {
+        const firstIdx = indice_aceleracao.findIndex((p: any) => p.ia_atual != null || p.ia_anterior != null);
+        const filteredIA = firstIdx >= 0 ? indice_aceleracao.slice(firstIdx) : [];
+        return filteredIA.length > 0 ? (
         <div className={cardClass}>
           <div className="mb-4">
             <div className="flex items-center gap-1">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Índice de Aceleração (IA)</h3>
-              <InfoTooltip text="O Índice de Aceleração compara a média móvel de vendas dos últimos 7 dias com a dos últimos 30 dias. IA > 1 significa que as vendas recentes estão acima da média de longo prazo (acelerando). IA < 1 indica desaceleração. A linha de referência 'Neutro' em 1.00 marca o equilíbrio." />
+              <InfoTooltip text="O Índice de Aceleração compara a média móvel de vendas dos últimos 7 dias com a dos últimos 30 dias. IA > 1 significa que as vendas recentes estão acima da média de longo prazo (acelerando). IA < 1 indica desaceleração." />
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">IA {'>'} 1 = Acelerando | IA {'<'} 1 = Desacelerando</p>
           </div>
           <div style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={indice_aceleracao}>
+              <LineChart data={filteredIA}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                 <XAxis dataKey="label" tick={{ fill: textColor, fontSize: 12 }} />
                 <YAxis tick={{ fill: textColor, fontSize: 12 }} domain={['auto', 'auto']} />
@@ -137,14 +140,14 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                 <Legend
                   formatter={(value: string) => value === 'ia_atual' ? `Ano ${data.ano_atual}` : `Ano ${data.ano_anterior}`}
                 />
-                <ReferenceLine y={1} stroke={COLORS.neutral} strokeDasharray="6 4" label={{ value: 'Neutro', fill: COLORS.neutral, fontSize: 12 }} />
                 <Line type="monotone" dataKey="ia_atual" stroke={COLORS.anoAtual} strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} connectNulls={false} />
                 <Line type="monotone" dataKey="ia_anterior" stroke={COLORS.anoAnterior} strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} connectNulls={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
-      )}
+      ) : null;
+      })()}
 
       {ticket_medio && ticket_medio.length > 0 && (
         <div className={cardClass}>
