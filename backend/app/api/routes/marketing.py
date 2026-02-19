@@ -2760,28 +2760,18 @@ def get_curva_comparativa_evento(
 
     ultimo_acum_vendas_anterior_mesmo_d = 0
     ultimo_acum_receita_anterior_mesmo_d = 0.0
-    if dias_ate_evento_atual > 0 and data_evento_anterior:
+    if dias_ate_evento_atual > 0:
         best_match = None
         best_diff = float('inf')
         for entry in data:
-            bk_val = entry.get("bucket", 0)
-            if isinstance(bk_val, str):
-                try:
-                    bk_val = int(bk_val.replace("D-", ""))
-                except Exception:
-                    bk_val = 0
+            bk_val = entry.get("dias_antes", 0)
             diff = abs(bk_val - dias_ate_evento_atual)
             if diff < best_diff and bk_val >= dias_ate_evento_atual:
                 best_diff = diff
                 best_match = entry
         if best_match is None:
             for entry in data:
-                bk_val = entry.get("bucket", 0)
-                if isinstance(bk_val, str):
-                    try:
-                        bk_val = int(bk_val.replace("D-", ""))
-                    except Exception:
-                        bk_val = 0
+                bk_val = entry.get("dias_antes", 0)
                 diff = abs(bk_val - dias_ate_evento_atual)
                 if diff < best_diff:
                     best_diff = diff
@@ -2792,6 +2782,30 @@ def get_curva_comparativa_evento(
 
     pct_anterior_vendas_mesmo_d = round((ultimo_acum_vendas_anterior_mesmo_d / total_vendas_anterior * 100), 1) if total_vendas_anterior > 0 else 0
     pct_anterior_receita_mesmo_d = round((ultimo_acum_receita_anterior_mesmo_d / total_receita_anterior * 100), 1) if total_receita_anterior > 0 else 0
+
+    meta_orcada = 0
+    try:
+        if is_grouped:
+            skus_atual = list(set([m.sku for m in mappings_atual if m.sku]))
+            projetos_atual = db.query(DimProjeto).filter(DimProjeto.codigo.in_(skus_atual)).all() if skus_atual else []
+        else:
+            projetos_atual = [projeto] if projeto else []
+        meta_orcada = get_meta_orcada_projetos(db, projetos_atual)
+    except Exception as e:
+        logger.warning(f"Could not fetch meta_orcada for curva comparativa: {e}")
+
+    ritmo_diario_necessario_vendas = 0.0
+    ritmo_diario_necessario_receita = 0.0
+    meta_referencia = meta_orcada if meta_orcada > 0 else total_vendas_anterior
+    if dias_ate_evento_atual > 0 and meta_referencia > 0:
+        faltam_vendas = max(0, meta_referencia - ultimo_acum_vendas_atual)
+        ritmo_diario_necessario_vendas = round(faltam_vendas / dias_ate_evento_atual, 1)
+    if dias_ate_evento_atual > 0 and total_receita_anterior > 0:
+        faltam_receita = max(0, total_receita_anterior - ultimo_acum_receita_atual)
+        ritmo_diario_necessario_receita = round(faltam_receita / dias_ate_evento_atual, 2)
+
+    variacao_mesmo_d_vendas = round(((ultimo_acum_vendas_atual - ultimo_acum_vendas_anterior_mesmo_d) / ultimo_acum_vendas_anterior_mesmo_d * 100), 1) if ultimo_acum_vendas_anterior_mesmo_d > 0 else 0
+    variacao_mesmo_d_receita = round(((ultimo_acum_receita_atual - ultimo_acum_receita_anterior_mesmo_d) / ultimo_acum_receita_anterior_mesmo_d * 100), 1) if ultimo_acum_receita_anterior_mesmo_d > 0 else 0
 
     evento_nome = ""
     if is_grouped:
@@ -2824,6 +2838,12 @@ def get_curva_comparativa_evento(
             "pct_anterior_receita_mesmo_d": pct_anterior_receita_mesmo_d,
             "ultimo_acum_vendas_anterior_mesmo_d": ultimo_acum_vendas_anterior_mesmo_d,
             "ultimo_acum_receita_anterior_mesmo_d": round(ultimo_acum_receita_anterior_mesmo_d, 2),
+            "meta_orcada": meta_orcada,
+            "dias_ate_evento": dias_ate_evento_atual,
+            "ritmo_diario_necessario_vendas": ritmo_diario_necessario_vendas,
+            "ritmo_diario_necessario_receita": ritmo_diario_necessario_receita,
+            "variacao_mesmo_d_vendas": variacao_mesmo_d_vendas,
+            "variacao_mesmo_d_receita": variacao_mesmo_d_receita,
         }
     }
 

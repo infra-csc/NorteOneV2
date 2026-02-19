@@ -1359,77 +1359,82 @@ const EventDetail: React.FC = () => {
 
         {!curvaLoading && curvaData.length > 0 && curvaMeta && (
           <div className="mt-4 space-y-3">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {(() => {
                 const m = curvaMeta;
                 const isVendas = curvaMode === 'vendas';
-                const pctAtingido = isVendas ? m.pct_atingido_vendas : m.pct_atingido_receita;
-                const diffPp = isVendas ? m.diff_pp_vendas : m.diff_pp_receita;
-                const totalAtual = isVendas ? m.total_vendas_atual : m.total_receita_atual;
-                const totalAnterior = isVendas ? m.total_vendas_anterior : m.total_receita_anterior;
                 const acumAnteriorMesmoD = isVendas ? m.ultimo_acum_vendas_anterior_mesmo_d : m.ultimo_acum_receita_anterior_mesmo_d;
                 const pctAnteriorMesmoD = isVendas ? m.pct_anterior_vendas_mesmo_d : m.pct_anterior_receita_mesmo_d;
-                const varTotal = totalAnterior > 0 ? ((totalAtual - totalAnterior) / totalAnterior * 100) : 0;
-                const isAcima = diffPp >= 0;
-                const fmt = (v: number) => isVendas ? formatNumber(v) : formatCurrency(v);
-                const label = isVendas ? 'Inscrições' : 'Receita';
+                const varMesmoD = isVendas ? (m.variacao_mesmo_d_vendas ?? 0) : (m.variacao_mesmo_d_receita ?? 0);
+                const ritmo = isVendas ? (m.ritmo_diario_necessario_vendas ?? 0) : (m.ritmo_diario_necessario_receita ?? 0);
+                const diasAteEvento = m.dias_ate_evento ?? 0;
+                const metaRef = isVendas ? (m.meta_orcada > 0 ? m.meta_orcada : m.total_vendas_anterior) : m.total_receita_anterior;
+                const totalAtual = isVendas ? m.total_vendas_atual : m.total_receita_atual;
+                const faltam = Math.max(0, metaRef - totalAtual);
+                const fmt = (v: number) => isVendas ? formatNumber(Math.round(v)) : formatCurrency(v);
+                const label = isVendas ? 'inscrições' : 'receita';
+
+                const InfoTooltip = ({ text }: { text: string }) => (
+                  <div className="group relative inline-flex ml-1">
+                    <Info className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 cursor-help" />
+                    <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 text-xs text-white bg-gray-900 dark:bg-gray-700 rounded-lg shadow-lg z-50 leading-relaxed">
+                      {text}
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
+                    </div>
+                  </div>
+                );
+
                 return (
                   <>
+                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                      <div className="flex items-center gap-1 mb-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">No mesmo D- em {curvaAnoAnterior}</p>
+                        <InfoTooltip text={`Quantas ${label} o evento de ${curvaAnoAnterior} tinha acumulado faltando o mesmo número de dias (D-${diasAteEvento}) para o evento. Permite comparar o ritmo de vendas no mesmo momento da jornada.`} />
+                      </div>
+                      {acumAnteriorMesmoD > 0 ? (
+                        <>
+                          <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{fmt(acumAnteriorMesmoD)}</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            {pctAnteriorMesmoD}% do total final de {curvaAnoAnterior}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Sem dados de {curvaAnoAnterior}</p>
+                      )}
+                    </div>
+
                     <div className={`p-3 rounded-xl border-2 ${
-                      isAcima 
+                      varMesmoD >= 0 
                         ? 'border-green-400/50 bg-green-50 dark:bg-green-900/20 dark:border-green-500/30' 
                         : 'border-red-400/50 bg-red-50 dark:bg-red-900/20 dark:border-red-500/30'
                     }`}>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Status vs Meta</p>
+                      <div className="flex items-center gap-1 mb-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Variação vs {curvaAnoAnterior} (mesmo D-)</p>
+                        <InfoTooltip text={`Variação percentual das ${label} de ${curvaAnoAtual} comparado com ${curvaAnoAnterior} no mesmo D-${diasAteEvento} (mesma distância do evento). Positivo = melhor que o ano anterior neste momento.`} />
+                      </div>
                       <div className="flex items-center gap-1.5">
-                        {isAcima ? (
+                        {varMesmoD >= 0 ? (
                           <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
                         ) : (
                           <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-400" />
                         )}
-                        <span className={`text-lg font-bold ${isAcima ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {isAcima ? 'Acima' : 'Abaixo'}
+                        <span className={`text-lg font-bold ${varMesmoD >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {varMesmoD >= 0 ? '+' : ''}{varMesmoD.toFixed(1)}%
                         </span>
                       </div>
-                      <p className={`text-xs mt-0.5 font-medium ${isAcima ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {isAcima ? '+' : ''}{diffPp}pp vs {curvaAnoAnterior}
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                        {curvaAnoAtual}: {fmt(totalAtual)} vs {curvaAnoAnterior}: {fmt(acumAnteriorMesmoD)}
                       </p>
                     </div>
 
-                    <div className={`p-3 rounded-xl ${isDark ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-blue-50 border border-blue-200'}`}>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">% da Meta ({curvaAnoAnterior})</p>
-                      <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{pctAtingido}%</p>
-                      <div className="mt-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-                        <div 
-                          className={`h-1.5 rounded-full transition-all ${pctAtingido >= 100 ? 'bg-green-500' : 'bg-blue-500'}`}
-                          style={{ width: `${Math.min(pctAtingido, 100)}%` }}
-                        />
+                    <div className={`p-3 rounded-xl ${isDark ? 'bg-amber-900/20 border border-amber-500/30' : 'bg-amber-50 border border-amber-200'}`}>
+                      <div className="flex items-center gap-1 mb-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Ritmo Diário Necessário</p>
+                        <InfoTooltip text={`Quantidade de ${label} por dia necessária nos próximos ${diasAteEvento} dias restantes para atingir a meta${isVendas && m.meta_orcada > 0 ? ` orçada de ${formatNumber(m.meta_orcada)}` : ''}. Calculado como: (meta - acumulado atual) / dias restantes.`} />
                       </div>
-                    </div>
-
-                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label} {curvaAnoAtual}</p>
-                      <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{fmt(totalAtual)}</p>
+                      <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{fmt(ritmo)}<span className="text-xs font-normal text-gray-400">/dia</span></p>
                       <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        Meta: {fmt(totalAnterior)}
-                      </p>
-                    </div>
-
-                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Mesmo D- em {curvaAnoAnterior}</p>
-                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{fmt(acumAnteriorMesmoD)}</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        {pctAnteriorMesmoD}% da meta
-                      </p>
-                    </div>
-
-                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Variação Total</p>
-                      <p className={`text-lg font-bold ${varTotal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {varTotal >= 0 ? '+' : ''}{varTotal.toFixed(1)}%
-                      </p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        {curvaAnoAtual} vs {curvaAnoAnterior}
+                        Faltam {fmt(faltam)} em {diasAteEvento} dias
                       </p>
                     </div>
                   </>
