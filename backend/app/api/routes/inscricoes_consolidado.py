@@ -48,25 +48,50 @@ def get_sku_mappings_from_db(db: Session, ano: Optional[int] = None) -> Dict[str
     return {"ativo": by_ativo, "magento": by_magento}
 
 
-def enrich_with_mappings(data: List[Dict], mappings: Dict, fonte: str, ano: int) -> List[Dict]:
+def enrich_with_mappings(data: List[Dict], mappings: Dict, fonte: str, ano: int = None) -> List[Dict]:
     """
     Enriquece dados vindos do MySQL com mapeamentos do PostgreSQL.
     Atualiza o SKU e adiciona evento_grupo para cada registro.
     Fallback: usa SKU normalizado como evento_grupo se não houver mapeamento.
+    Tenta encontrar mapeamento com múltiplos anos se o ano específico não for encontrado.
     """
     mapping_dict = mappings.get(fonte, {})
+    
+    all_years = set()
+    for k in mapping_dict:
+        parts = k.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].isdigit():
+            all_years.add(int(parts[1]))
     
     for row in data:
         id_evento = row.get("id_evento")
         if id_evento:
-            key = f"{str(id_evento).strip()}_{ano}"
-            if key in mapping_dict:
-                mapping = mapping_dict[key]
-                row["sku"] = mapping["sku"]
-                row["evento_grupo"] = mapping["evento_grupo"]
-                if mapping.get("nome_evento"):
-                    row["evento"] = mapping["nome_evento"]
-            else:
+            id_str = str(id_evento).strip()
+            found = False
+            
+            if ano:
+                key = f"{id_str}_{ano}"
+                if key in mapping_dict:
+                    mapping = mapping_dict[key]
+                    row["sku"] = mapping["sku"]
+                    row["evento_grupo"] = mapping["evento_grupo"]
+                    if mapping.get("nome_evento"):
+                        row["evento"] = mapping["nome_evento"]
+                    found = True
+            
+            if not found:
+                for try_year in sorted(all_years, reverse=True):
+                    key = f"{id_str}_{try_year}"
+                    if key in mapping_dict:
+                        mapping = mapping_dict[key]
+                        row["sku"] = mapping["sku"]
+                        row["evento_grupo"] = mapping["evento_grupo"]
+                        if mapping.get("nome_evento"):
+                            row["evento"] = mapping["nome_evento"]
+                        found = True
+                        break
+            
+            if not found:
                 existing_sku = row.get("sku") or ""
                 normalized = normalize_sku(existing_sku)
                 if normalized and len(normalized) >= 6:

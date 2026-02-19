@@ -1014,8 +1014,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     mappings = None
     if db:
         try:
-            current_year = datetime.now().year
-            mappings = get_sku_mappings_from_db(db, current_year)
+            mappings = get_sku_mappings_from_db(db)
         except Exception as e:
             logger.warning(f"Erro ao buscar mapeamentos SKU para ISC: {e}")
 
