@@ -276,6 +276,7 @@ class MarketingEvent(BaseModel):
     currentSales: int
     salesGoal: int
     averageTicket: float
+    budgetTicket: float = 0.0
     dMinus: int
     isc: float
     iscComponents: ISCComponents
@@ -1435,6 +1436,15 @@ def get_marketing_events(
         sales_goal = total_capacity if total_capacity > 0 else 1000
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
+        budget_ticket_total_receita = 0.0
+        budget_ticket_total_qtd = 0
+        for p in proj_list:
+            cad_bt = cadastro_by_projeto_id.get(p.id)
+            if cad_bt and cad_bt.atletas_site_tkt_medio and cad_bt.atletas_site_pago:
+                budget_ticket_total_receita += float(cad_bt.atletas_site_tkt_medio) * int(cad_bt.atletas_site_pago)
+                budget_ticket_total_qtd += int(cad_bt.atletas_site_pago)
+        budget_ticket = round(budget_ticket_total_receita / budget_ticket_total_qtd, 2) if budget_ticket_total_qtd > 0 else 0.0
+        
         grupo_media_14d_list = 0.0
         for p in proj_list:
             p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
@@ -1479,6 +1489,7 @@ def get_marketing_events(
             currentSales=current_sales,
             salesGoal=sales_goal,
             averageTicket=round(avg_ticket, 2),
+            budgetTicket=budget_ticket,
             dMinus=d_minus,
             isc=isc,
             iscComponents=isc_components,
@@ -1513,6 +1524,7 @@ def get_marketing_events(
         
         sales_goal = get_meta_from_cadastro(cad) if cad else get_meta_orcada(db, projeto.id)
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
+        standalone_budget_ticket = round(float(cad.atletas_site_tkt_medio), 2) if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0 else 0.0
         
         standalone_m14d = sales_info.get('media_14d', 0.0)
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_m14d)
@@ -1548,6 +1560,7 @@ def get_marketing_events(
             currentSales=current_sales,
             salesGoal=sales_goal,
             averageTicket=round(avg_ticket, 2),
+            budgetTicket=standalone_budget_ticket,
             dMinus=d_minus,
             isc=isc,
             iscComponents=isc_components,
@@ -3171,6 +3184,15 @@ def get_marketing_event_by_id(
         
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
+        detail_bt_total_receita = 0.0
+        detail_bt_total_qtd = 0
+        for p in projetos:
+            detail_cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == p.id).first()
+            if detail_cad and detail_cad.atletas_site_tkt_medio and detail_cad.atletas_site_pago:
+                detail_bt_total_receita += float(detail_cad.atletas_site_tkt_medio) * int(detail_cad.atletas_site_pago)
+                detail_bt_total_qtd += int(detail_cad.atletas_site_pago)
+        detail_budget_ticket = round(detail_bt_total_receita / detail_bt_total_qtd, 2) if detail_bt_total_qtd > 0 else 0.0
+        
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, 
                                                    media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict)
         isc = calculate_isc(isc_components)
@@ -3191,6 +3213,7 @@ def get_marketing_event_by_id(
             currentSales=current_sales,
             salesGoal=sales_goal,
             averageTicket=round(avg_ticket, 2),
+            budgetTicket=detail_budget_ticket,
             dMinus=d_minus,
             isc=isc,
             iscComponents=isc_components,
@@ -3354,6 +3377,8 @@ def get_marketing_event_by_id(
     
     sales_goal = get_meta_orcada(db, projeto.id)
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
+    detail_standalone_cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto.id).first()
+    detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
     
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
@@ -3382,6 +3407,7 @@ def get_marketing_event_by_id(
         currentSales=current_sales,
         salesGoal=sales_goal,
         averageTicket=round(avg_ticket, 2),
+        budgetTicket=detail_standalone_bt,
         dMinus=d_minus,
         isc=isc,
         iscComponents=isc_components,

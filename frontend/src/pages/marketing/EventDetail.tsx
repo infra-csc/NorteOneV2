@@ -640,10 +640,26 @@ const EventDetail: React.FC = () => {
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Ticket Médio Atual</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Ticket Médio / Orçado</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-            {formatCurrency(event.averageTicket)}
+            {formatCurrency(event.averageTicket)} / {formatCurrency(event.budgetTicket || 0)}
           </p>
+          {event.budgetTicket > 0 && (
+            <>
+              <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
+                <div 
+                  className={`h-3 rounded-full transition-all ${
+                    (event.averageTicket / event.budgetTicket) >= 1 ? 'bg-green-500' : 
+                    (event.averageTicket / event.budgetTicket) >= 0.8 ? 'bg-blue-600' : 'bg-orange-500'
+                  }`}
+                  style={{ width: `${Math.min((event.averageTicket / event.budgetTicket) * 100, 100)}%` }}
+                />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                {Math.round((event.averageTicket / event.budgetTicket) * 100)}% do orçado
+              </p>
+            </>
+          )}
           <div className="flex items-center gap-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
             <DollarSign className="w-4 h-4" />
             Receita estimada: {formatCurrency(event.currentSales * event.averageTicket)}

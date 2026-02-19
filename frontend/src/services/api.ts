@@ -609,6 +609,7 @@ export interface MarketingEvent {
   currentSales: number;
   salesGoal: number;
   averageTicket: number;
+  budgetTicket: number;
   dMinus: number;
   isc: number;
   iscComponents: MarketingISCComponents;
