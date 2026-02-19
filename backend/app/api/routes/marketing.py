@@ -63,7 +63,9 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
         WHERE 
             b.id_evento = '{id_evento}'
-            AND c.id_pedido_status = 2
+            AND c.fl_local_inscricao = '1'
+            AND c.id_pedido_status IN (1, 2)
+            AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
             AND DATE(c.dt_pedido) >= '{start_date.isoformat()}'
             AND DATE(c.dt_pedido) <= '{end_date.isoformat()}'
         GROUP BY DATE(c.dt_pedido)
@@ -1790,9 +1792,10 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.id_pedido_status = 2
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND YEAR(c.dt_pedido) IN ({ano_atual}, {ano_anterior})
-    AND (b.id_campanha_salesforce NOT LIKE '701d0000000%%' OR b.id_campanha_salesforce IS NULL)
 GROUP BY YEAR(c.dt_pedido), MONTH(c.dt_pedido)
 ORDER BY ano, mes
 """
@@ -1983,7 +1986,9 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.id_pedido_status = 2
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN ({placeholders})
 GROUP BY MONTH(c.dt_pedido)
 ORDER BY mes
@@ -2081,7 +2086,9 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.id_pedido_status = 2
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN ({placeholders})
 GROUP BY DATE(c.dt_pedido)
 ORDER BY dia
@@ -2103,12 +2110,13 @@ def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
             return []
         placeholders = ",".join(safe_ids)
         query = f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0 THEN 1 END) AS qtd,
     SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
-        (soi.price - CASE WHEN soi.price = 0 THEN 0
+        soi.price
+        - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
             WHEN soi.name LIKE '%%super%%' THEN 269.00
             WHEN soi.name LIKE '%%vip%%' THEN 199.99
@@ -2116,32 +2124,40 @@ SELECT
         + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
         - CASE WHEN cg.customer_group_id = 4 THEN 0
             WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-            ELSE 0 END)
+            ELSE 0 END
     ELSE 0 END) AS receita
-FROM sales_order AS so
-LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
-LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
-LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id
+      AND cpev1.attribute_id = 321
+LEFT JOIN customer_group cg
+       ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT * FROM sales_order_item WHERE name LIKE '%%persona%%'
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.increment_id NOT LIKE "%%-1%%"
-    AND so.increment_id NOT LIKE "%%-2%%"
-    AND so.increment_id NOT LIKE "%%-3%%"
-    AND so.increment_id NOT LIKE "%%-4%%"
-    AND so.increment_id NOT LIKE "%%-5%%"
-    AND so.increment_id NOT LIKE "%%-6%%"
-    AND so.increment_id NOT LIKE "%%-7%%"
-    AND so.increment_id NOT LIKE "%%-8%%"
-    AND so.increment_id NOT LIKE "%%-9%%"
-    AND so.increment_id NOT LIKE "%%-10%%"
-    AND so.increment_id NOT LIKE "%%-11%%"
-    AND so.increment_id NOT LIKE "%%-12%%"
-    AND so.increment_id NOT LIKE "%%-13%%"
-    AND so.increment_id NOT LIKE "%%-14%%"
-    AND so.increment_id NOT LIKE "%%-15%%"
-    AND so.increment_id NOT LIKE "%%-16%%"
-    AND so.status IN ('Processing', 'Complete', 'approved')
-    AND soi.product_type = 'Bundle'
-    AND so.location_pickup_id IN ({placeholders})
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND cpev1.value IN ({placeholders})
+    AND so.increment_id NOT LIKE '%%-1%%'
+    AND so.increment_id NOT LIKE '%%-2%%'
+    AND so.increment_id NOT LIKE '%%-3%%'
+    AND so.increment_id NOT LIKE '%%-4%%'
+    AND so.increment_id NOT LIKE '%%-5%%'
+    AND so.increment_id NOT LIKE '%%-6%%'
+    AND so.increment_id NOT LIKE '%%-7%%'
+    AND so.increment_id NOT LIKE '%%-8%%'
+    AND so.increment_id NOT LIKE '%%-9%%'
+    AND so.increment_id NOT LIKE '%%-10%%'
+    AND so.increment_id NOT LIKE '%%-11%%'
+    AND so.increment_id NOT LIKE '%%-12%%'
+    AND so.increment_id NOT LIKE '%%-13%%'
+    AND so.increment_id NOT LIKE '%%-14%%'
+    AND so.increment_id NOT LIKE '%%-15%%'
+    AND so.increment_id NOT LIKE '%%-16%%'
+    AND so.increment_id NOT LIKE '%%-17%%'
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """
@@ -2174,7 +2190,9 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.id_pedido_status = 2
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN ({placeholders})
 GROUP BY h.ds_categoria
 ORDER BY qtd DESC
