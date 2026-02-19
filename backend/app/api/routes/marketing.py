@@ -547,6 +547,12 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
         cumulative += d_minus_sales.get(dm, 0)
         pattern[dm] = cumulative / total_prev_sales
 
+    if 0 not in pattern:
+        pattern[0] = 1.0
+    if min_dm > 0:
+        for dm in range(min_dm - 1, -1, -1):
+            pattern[dm] = 1.0
+
     logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
     return pattern
 
@@ -635,6 +641,14 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
         except Exception as e:
             logger.warning(f"Error fetching historical pattern for '{evento_grupo}': {e}")
     
+    hist_known_dms = None
+    hist_max_known = None
+    hist_min_known = None
+    if hist_pattern:
+        hist_known_dms = sorted(hist_pattern.keys(), reverse=True)
+        hist_max_known = hist_known_dms[0]
+        hist_min_known = hist_known_dms[-1]
+
     cumulative_sales = 0
     cumulative_expected = 0
     result = []
@@ -642,31 +656,28 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
         sales = all_daily.get(d, 0)
         cumulative_sales += sales
 
-        if hist_pattern and data_evento:
+        if hist_pattern and data_evento and hist_known_dms:
             dm = (data_evento - d).days
-            pct = None
+
             if dm in hist_pattern:
                 pct = hist_pattern[dm]
+            elif dm > hist_max_known:
+                pct = 0.0
+            elif dm <= hist_min_known:
+                pct = hist_pattern[hist_min_known]
             else:
-                known_dms = sorted(hist_pattern.keys(), reverse=True)
-                if dm > known_dms[0]:
-                    pct = 0.0
-                elif dm < known_dms[-1]:
-                    pct = 1.0
-                else:
-                    for i in range(len(known_dms) - 1):
-                        if known_dms[i] >= dm >= known_dms[i + 1]:
-                            upper_dm = known_dms[i]
-                            lower_dm = known_dms[i + 1]
-                            ratio = (upper_dm - dm) / (upper_dm - lower_dm) if upper_dm != lower_dm else 0
-                            pct = hist_pattern[upper_dm] + ratio * (hist_pattern[lower_dm] - hist_pattern[upper_dm])
-                            break
-            if pct is not None:
-                cumulative_expected = pct * sales_goal
-                expected = cumulative_expected - (result[-1]['cumulativeExpected'] if result else 0)
-            else:
-                expected = sales_goal / total_days if total_days > 0 else 0
-                cumulative_expected += expected
+                pct = 0.0
+                for i in range(len(hist_known_dms) - 1):
+                    if hist_known_dms[i] >= dm >= hist_known_dms[i + 1]:
+                        upper_dm = hist_known_dms[i]
+                        lower_dm = hist_known_dms[i + 1]
+                        ratio = (upper_dm - dm) / (upper_dm - lower_dm) if upper_dm != lower_dm else 0
+                        pct = hist_pattern[upper_dm] + ratio * (hist_pattern[lower_dm] - hist_pattern[upper_dm])
+                        break
+
+            cumulative_expected = pct * sales_goal
+            expected = cumulative_expected - (result[-1]['cumulativeExpected'] if result else 0)
+            expected = max(0, expected)
         else:
             expected = sales_goal / total_days if total_days > 0 else 0
             cumulative_expected += expected

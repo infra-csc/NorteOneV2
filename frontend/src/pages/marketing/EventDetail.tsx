@@ -864,7 +864,7 @@ const EventDetail: React.FC = () => {
                 <Line 
                   type="monotone" 
                   dataKey="cumulativeExpected" 
-                  name="Benchmark Esperado"
+                  name="Esperado (Ano Anterior)"
                   stroke="#9CA3AF" 
                   strokeWidth={2}
                   strokeDasharray="5 5"
