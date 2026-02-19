@@ -3070,15 +3070,20 @@ def get_evento_insights(
         pace_diario.append({"d_minus": bk, "label": label, "pace_atual": pace_at, "pace_anterior": pace_ant})
 
     ticket_medio = []
+    acum_q_at = 0
+    acum_r_at = 0.0
+    acum_q_ant = 0
+    acum_r_ant = 0.0
     for bk in sorted_bucket_keys:
         label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
         atual_alcancado = bk >= d_minus_atual
-        q_at = bucket_data_atual[bk]["qtd"]
-        r_at = bucket_data_atual[bk]["receita"]
-        q_ant = bucket_data_anterior[bk]["qtd"]
-        r_ant = bucket_data_anterior[bk]["receita"]
-        ticket_at = round(r_at / q_at, 2) if (q_at > 0 and atual_alcancado) else None
-        ticket_ant = round(r_ant / q_ant, 2) if q_ant > 0 else None
+        acum_q_ant += bucket_data_anterior[bk]["qtd"]
+        acum_r_ant += bucket_data_anterior[bk]["receita"]
+        if atual_alcancado:
+            acum_q_at += bucket_data_atual[bk]["qtd"]
+            acum_r_at += bucket_data_atual[bk]["receita"]
+        ticket_at = round(acum_r_at / acum_q_at, 2) if (acum_q_at > 0 and atual_alcancado) else None
+        ticket_ant = round(acum_r_ant / acum_q_ant, 2) if acum_q_ant > 0 else None
         ticket_medio.append({"d_minus": bk, "label": label, "ticket_atual": ticket_at, "ticket_anterior": ticket_ant})
 
     total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
