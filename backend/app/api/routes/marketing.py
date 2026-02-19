@@ -3052,13 +3052,13 @@ def get_evento_insights(
         if atual_alcancado:
             ma7_atual = _calc_rolling_avg(daily_atual, center_d, 7)
             ma30_atual = _calc_rolling_avg(daily_atual, center_d, 30)
-            ia_atual = round(ma7_atual / ma30_atual, 2) if ma30_atual > 0 else None
+            ia_atual = round(ma7_atual / ma30_atual, 2) if (ma7_atual >= 1 and ma30_atual >= 1) else None
         else:
             ia_atual = None
 
         ma7_ant = _calc_rolling_avg(daily_anterior, center_d, 7)
         ma30_ant = _calc_rolling_avg(daily_anterior, center_d, 30)
-        ia_ant = round(ma7_ant / ma30_ant, 2) if ma30_ant > 0 else None
+        ia_ant = round(ma7_ant / ma30_ant, 2) if (ma7_ant >= 1 and ma30_ant >= 1) else None
         indice_aceleracao.append({"d_minus": bk, "label": label, "ia_atual": ia_atual, "ia_anterior": ia_ant})
 
     pace_diario = []

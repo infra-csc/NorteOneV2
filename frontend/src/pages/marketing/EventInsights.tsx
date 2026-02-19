@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Loader2,
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
+  Info,
 } from 'lucide-react';
 import {
   LineChart,
@@ -92,6 +91,16 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
 
   const cardClass = 'bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700';
 
+  const InfoTooltip = ({ text }: { text: string }) => (
+    <div className="group relative inline-flex ml-1">
+      <Info className="w-4 h-4 text-gray-400 dark:text-gray-500 cursor-help" />
+      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 p-3 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-lg">
+        {text}
+        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
+      </div>
+    </div>
+  );
+
   const hasContent = (indice_aceleracao && indice_aceleracao.length > 0) || (ticket_medio && ticket_medio.length > 0);
 
   if (!hasContent) return null;
@@ -101,7 +110,10 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
       {indice_aceleracao && indice_aceleracao.length > 0 && (
         <div className={cardClass}>
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Índice de Aceleração (IA)</h3>
+            <div className="flex items-center gap-1">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Índice de Aceleração (IA)</h3>
+              <InfoTooltip text="O Índice de Aceleração compara a média móvel de vendas dos últimos 7 dias com a dos últimos 30 dias. IA > 1 significa que as vendas recentes estão acima da média de longo prazo (acelerando). IA < 1 indica desaceleração. A linha de referência 'Neutro' em 1.00 marca o equilíbrio." />
+            </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">IA {'>'} 1 = Acelerando | IA {'<'} 1 = Desacelerando</p>
           </div>
           <div style={{ height: 300 }}>
@@ -118,7 +130,7 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                     color: isDark ? '#fff' : '#111'
                   }}
                   formatter={(value: any, name: any) => [
-                    typeof value === 'number' ? value.toFixed(3) : value,
+                    typeof value === 'number' ? value.toFixed(2) : value,
                     name === 'ia_atual' ? `Ano ${data.ano_atual}` : `Ano ${data.ano_anterior}`
                   ]}
                 />
@@ -137,7 +149,10 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
       {ticket_medio && ticket_medio.length > 0 && (
         <div className={cardClass}>
           <div className="mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Médio por Período</h3>
+            <div className="flex items-center gap-1">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Médio por Período</h3>
+              <InfoTooltip text="Evolução do ticket médio acumulado (receita total acumulada / inscrições totais acumuladas) ao longo do tempo. O último ponto representa o ticket médio global do evento até o momento." />
+            </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">Evolução do ticket médio ao longo do tempo</p>
           </div>
           <div style={{ height: 300 }}>
