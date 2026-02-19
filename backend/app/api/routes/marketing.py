@@ -2760,25 +2760,11 @@ def get_curva_comparativa_evento(
 
     ultimo_acum_vendas_anterior_mesmo_d = 0
     ultimo_acum_receita_anterior_mesmo_d = 0.0
-    if dias_ate_evento_atual > 0:
-        best_match = None
-        best_diff = float('inf')
-        for entry in data:
-            bk_val = entry.get("dias_antes", 0)
-            diff = abs(bk_val - dias_ate_evento_atual)
-            if diff < best_diff and bk_val >= dias_ate_evento_atual:
-                best_diff = diff
-                best_match = entry
-        if best_match is None:
-            for entry in data:
-                bk_val = entry.get("dias_antes", 0)
-                diff = abs(bk_val - dias_ate_evento_atual)
-                if diff < best_diff:
-                    best_diff = diff
-                    best_match = entry
-        if best_match:
-            ultimo_acum_vendas_anterior_mesmo_d = best_match.get(f"acumulado_{ano_anterior}", 0)
-            ultimo_acum_receita_anterior_mesmo_d = best_match.get(f"acumulado_receita_{ano_anterior}", 0.0)
+    if dias_ate_evento_atual > 0 and daily_anterior:
+        for d_ant, vals in daily_anterior.items():
+            if d_ant >= dias_ate_evento_atual:
+                ultimo_acum_vendas_anterior_mesmo_d += vals["qtd"]
+                ultimo_acum_receita_anterior_mesmo_d += vals["receita"]
 
     pct_anterior_vendas_mesmo_d = round((ultimo_acum_vendas_anterior_mesmo_d / total_vendas_anterior * 100), 1) if total_vendas_anterior > 0 else 0
     pct_anterior_receita_mesmo_d = round((ultimo_acum_receita_anterior_mesmo_d / total_receita_anterior * 100), 1) if total_receita_anterior > 0 else 0
