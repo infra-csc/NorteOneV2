@@ -470,7 +470,88 @@ def calculate_isc(components: ISCComponents) -> float:
     return round((components.ia730 + components.curvaDPercent + components.rolling14d) / 3, 2)
 
 
-def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None) -> list:
+def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:
+    from datetime import timedelta
+    from ...models.dimensoes import SkuMapping
+    prev_ano = ano - 1
+
+    prev_data_evento = _find_data_evento(db, evento_grupo, prev_ano)
+    if not prev_data_evento:
+        logger.info(f"No previous year event date found for '{evento_grupo}' ano={prev_ano}")
+        return None
+
+    prev_mappings = db.query(SkuMapping).filter(
+        SkuMapping.evento_grupo == evento_grupo,
+        SkuMapping.ano == prev_ano,
+        SkuMapping.ativo == True
+    ).all()
+
+    if not prev_mappings:
+        prev_skus_from_current = db.query(SkuMapping.sku).filter(
+            SkuMapping.evento_grupo == evento_grupo,
+            SkuMapping.ano == ano,
+            SkuMapping.ativo == True
+        ).distinct().all()
+        prev_skus = [s[0] for s in prev_skus_from_current]
+        if prev_skus:
+            prev_mappings = db.query(SkuMapping).filter(
+                SkuMapping.sku.in_(prev_skus),
+                SkuMapping.ano == prev_ano,
+                SkuMapping.ativo == True
+            ).all()
+
+    if not prev_mappings:
+        logger.info(f"No SKU mappings found for '{evento_grupo}' ano={prev_ano}")
+        return None
+
+    prev_ativo_ids = []
+    prev_magento_ids = []
+    for m in prev_mappings:
+        if m.id_externo:
+            if m.fonte == 'ATIVO':
+                prev_ativo_ids.append(str(m.id_externo))
+            elif m.fonte == 'MAGENTO':
+                prev_magento_ids.append(str(m.id_externo))
+
+    prev_daily = {}
+    if prev_ativo_ids:
+        rows = _fetch_daily_sales_ativo_by_ids(list(set(prev_ativo_ids)))
+        for row in rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            prev_daily[d] = prev_daily.get(d, 0) + row['qtd']
+    if prev_magento_ids:
+        rows = _fetch_daily_sales_magento_by_ids(list(set(prev_magento_ids)))
+        for row in rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            prev_daily[d] = prev_daily.get(d, 0) + row['qtd']
+
+    if not prev_daily:
+        logger.info(f"No sales data found for '{evento_grupo}' ano={prev_ano}")
+        return None
+
+    total_prev_sales = sum(prev_daily.values())
+    if total_prev_sales == 0:
+        return None
+
+    d_minus_sales = {}
+    for sale_date, qty in prev_daily.items():
+        dm = (prev_data_evento - sale_date).days
+        d_minus_sales[dm] = d_minus_sales.get(dm, 0) + qty
+
+    max_dm = max(d_minus_sales.keys())
+    min_dm = min(d_minus_sales.keys())
+
+    cumulative = 0
+    pattern = {}
+    for dm in range(max_dm, min_dm - 1, -1):
+        cumulative += d_minus_sales.get(dm, 0)
+        pattern[dm] = cumulative / total_prev_sales
+
+    logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
+    return pattern
+
+
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None) -> list:
     from datetime import timedelta
     from ...models.dimensoes import SkuMapping
     
@@ -546,15 +627,50 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     
     all_dates = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
     total_days = len(all_dates)
+
+    hist_pattern = None
+    if evento_grupo and data_evento:
+        try:
+            hist_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano)
+        except Exception as e:
+            logger.warning(f"Error fetching historical pattern for '{evento_grupo}': {e}")
     
     cumulative_sales = 0
     cumulative_expected = 0
     result = []
     for d in all_dates:
         sales = all_daily.get(d, 0)
-        expected = sales_goal / total_days if total_days > 0 else 0
         cumulative_sales += sales
-        cumulative_expected += expected
+
+        if hist_pattern and data_evento:
+            dm = (data_evento - d).days
+            pct = None
+            if dm in hist_pattern:
+                pct = hist_pattern[dm]
+            else:
+                known_dms = sorted(hist_pattern.keys(), reverse=True)
+                if dm > known_dms[0]:
+                    pct = 0.0
+                elif dm < known_dms[-1]:
+                    pct = 1.0
+                else:
+                    for i in range(len(known_dms) - 1):
+                        if known_dms[i] >= dm >= known_dms[i + 1]:
+                            upper_dm = known_dms[i]
+                            lower_dm = known_dms[i + 1]
+                            ratio = (upper_dm - dm) / (upper_dm - lower_dm) if upper_dm != lower_dm else 0
+                            pct = hist_pattern[upper_dm] + ratio * (hist_pattern[lower_dm] - hist_pattern[upper_dm])
+                            break
+            if pct is not None:
+                cumulative_expected = pct * sales_goal
+                expected = cumulative_expected - (result[-1]['cumulativeExpected'] if result else 0)
+            else:
+                expected = sales_goal / total_days if total_days > 0 else 0
+                cumulative_expected += expected
+        else:
+            expected = sales_goal / total_days if total_days > 0 else 0
+            cumulative_expected += expected
+
         result.append({
             "date": d.isoformat(),
             "sales": sales,
@@ -3155,7 +3271,7 @@ def get_marketing_event_by_id(
         is_active = d_minus > 0 if ano == datetime.now().year else True
         sales_goal = total_capacity
         
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano)
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=projeto_data_evento)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         current_year = datetime.now().year
@@ -3397,7 +3513,18 @@ def get_marketing_event_by_id(
     detail_standalone_cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto.id).first()
     detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
     
-    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano)
+    standalone_evento_grupo = None
+    if sku:
+        standalone_mapping = db.query(SkuMapping).filter(
+            SkuMapping.sku == sku,
+            SkuMapping.evento_grupo.isnot(None),
+            SkuMapping.evento_grupo != '',
+            SkuMapping.ativo == True
+        ).first()
+        if standalone_mapping:
+            standalone_evento_grupo = standalone_mapping.evento_grupo
+
+    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=projeto_data_evento)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_media_14d = sales_info.get('media_14d', 0.0)
