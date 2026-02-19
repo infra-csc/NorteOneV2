@@ -843,13 +843,22 @@ const EventDetail: React.FC = () => {
                 />
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <Tooltip 
-                  labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
-                  formatter={(value) => formatNumber(Number(value ?? 0))}
-                  contentStyle={{ 
-                    backgroundColor: '#1F2937', 
-                    border: 'none', 
-                    borderRadius: '8px',
-                    color: '#fff'
+                  content={({ active, payload, label }: any) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const real = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulative')?.value ?? 0));
+                    const esperado = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpected')?.value ?? 0));
+                    const diff = real - esperado;
+                    const diffColor = diff >= 0 ? '#22C55E' : '#EF4444';
+                    return (
+                      <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
+                        <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{new Date(label + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                        <p style={{ color: '#3B82F6' }}>Vendas Reais: {formatNumber(real)}</p>
+                        <p style={{ color: '#9CA3AF' }}>Esperado (Ano Anterior): {formatNumber(esperado)}</p>
+                        <p style={{ color: diffColor, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
+                          Diferença: {diff >= 0 ? '+' : ''}{formatNumber(diff)}
+                        </p>
+                      </div>
+                    );
                   }}
                 />
                 <Legend />
@@ -892,7 +901,7 @@ const EventDetail: React.FC = () => {
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <Tooltip 
                   labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
-                  formatter={(value) => formatNumber(Number(value ?? 0))}
+                  formatter={(value: any) => formatNumber(Math.round(Number(value ?? 0)))}
                   contentStyle={{ 
                     backgroundColor: '#1F2937', 
                     border: 'none', 
