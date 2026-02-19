@@ -778,7 +778,7 @@ FROM (
     WHERE
         YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
         AND c.fl_local_inscricao = '1'
-        AND c.id_pedido_status = 2 OR c.id_pedido_status = 1
+        AND c.id_pedido_status IN (1, 2)
         AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     GROUP BY
         b.id_evento,
