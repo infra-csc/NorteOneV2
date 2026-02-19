@@ -837,13 +837,13 @@ const EventDetail: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                 <XAxis 
                   dataKey="date" 
-                  tickFormatter={(value) => new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                  tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                   stroke="#6B7280"
                   fontSize={12}
                 />
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <Tooltip 
-                  labelFormatter={(value) => new Date(value).toLocaleDateString('pt-BR')}
+                  labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
                   formatter={(value) => formatNumber(Number(value ?? 0))}
                   contentStyle={{ 
                     backgroundColor: '#1F2937', 
@@ -885,13 +885,13 @@ const EventDetail: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                 <XAxis 
                   dataKey="date" 
-                  tickFormatter={(value) => new Date(value).toLocaleDateString('pt-BR', { day: '2-digit' })}
+                  tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}
                   stroke="#6B7280"
                   fontSize={12}
                 />
                 <YAxis stroke="#6B7280" fontSize={12} />
                 <Tooltip 
-                  labelFormatter={(value) => new Date(value).toLocaleDateString('pt-BR')}
+                  labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
                   formatter={(value) => formatNumber(Number(value ?? 0))}
                   contentStyle={{ 
                     backgroundColor: '#1F2937', 
@@ -1073,14 +1073,14 @@ const EventDetail: React.FC = () => {
                     <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
                     <XAxis 
                       dataKey="date" 
-                      tickFormatter={(value) => new Date(value).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                       stroke={isDark ? '#9ca3af' : '#6b7280'}
                       fontSize={11}
                       interval={Math.max(0, Math.floor((salesAverages.tendencia?.length || 0) / 10))}
                     />
                     <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} fontSize={12} />
                     <Tooltip 
-                      labelFormatter={(value) => new Date(value).toLocaleDateString('pt-BR')}
+                      labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
                       formatter={(value: any, name: string) => [
                         formatNumber(Number(value ?? 0)),
                         name === 'vendas' ? 'Vendas Diárias' : 'Média Móvel 7d'
