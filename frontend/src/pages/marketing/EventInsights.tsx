@@ -157,20 +157,30 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
       ) : null;
       })()}
 
-      {ticket_medio && ticket_medio.length > 0 && (
+      {ticket_medio && ticket_medio.length > 0 && (() => {
+        const firstTktIdx = ticket_medio.findIndex((p: any) => p.ticket_atual != null || p.ticket_anterior != null);
+        const filteredTkt = firstTktIdx >= 0 ? ticket_medio.slice(firstTktIdx) : [];
+        return filteredTkt.length > 0 ? (
         <div className={cardClass}>
           <div className="mb-4">
             <div className="flex items-center gap-1">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Médio por Período</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Médio Acumulado</h3>
               <InfoTooltip text="Evolução do ticket médio acumulado (receita total acumulada / inscrições totais acumuladas) ao longo do tempo. O último ponto representa o ticket médio global do evento até o momento." />
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">Evolução do ticket médio ao longo do tempo</p>
           </div>
           <div style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={ticket_medio}>
+              <LineChart data={filteredTkt}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                <XAxis dataKey="label" tick={{ fill: textColor, fontSize: 12 }} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: textColor, fontSize: 11 }}
+                  interval={Math.max(0, Math.floor(filteredTkt.length / 15))}
+                  angle={-45}
+                  textAnchor="end"
+                  height={50}
+                />
                 <YAxis
                   tick={{ fill: textColor, fontSize: 12 }}
                   tickFormatter={(v: number) => `R$ ${v}`}
@@ -196,7 +206,8 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
             </ResponsiveContainer>
           </div>
         </div>
-      )}
+      ) : null;
+      })()}
     </div>
   );
 };

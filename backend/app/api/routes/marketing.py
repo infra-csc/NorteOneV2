@@ -3274,17 +3274,18 @@ def get_evento_insights(
     acum_r_at = 0.0
     acum_q_ant = 0
     acum_r_ant = 0.0
-    for bk in sorted_bucket_keys:
-        label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
-        atual_alcancado = bk >= d_minus_atual
-        acum_q_ant += bucket_data_anterior[bk]["qtd"]
-        acum_r_ant += bucket_data_anterior[bk]["receita"]
-        if atual_alcancado:
-            acum_q_at += bucket_data_atual[bk]["qtd"]
-            acum_r_at += bucket_data_atual[bk]["receita"]
+    for d in range(max_d_daily, -1, -1):
+        label = f"D-{d}"
+        atual_alcancado = d >= d_minus_atual
+        if d in daily_anterior:
+            acum_q_ant += daily_anterior[d]["qtd"]
+            acum_r_ant += daily_anterior[d]["receita"]
+        if atual_alcancado and d in daily_atual:
+            acum_q_at += daily_atual[d]["qtd"]
+            acum_r_at += daily_atual[d]["receita"]
         ticket_at = round(acum_r_at / acum_q_at, 2) if (acum_q_at > 0 and atual_alcancado) else None
         ticket_ant = round(acum_r_ant / acum_q_ant, 2) if acum_q_ant > 0 else None
-        ticket_medio.append({"d_minus": bk, "label": label, "ticket_atual": ticket_at, "ticket_anterior": ticket_ant})
+        ticket_medio.append({"d_minus": d, "label": label, "ticket_atual": ticket_at, "ticket_anterior": ticket_ant})
 
     total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
     total_receita_atual = sum(v["receita"] for v in daily_atual.values())
@@ -3293,19 +3294,15 @@ def get_evento_insights(
 
     dias_ate_evento = dias_ate_evento_atual
 
-    dias_recentes = sorted([d for d in daily_atual.keys() if daily_atual[d]["qtd"] > 0])
-    if dias_recentes and dias_ate_evento > 0:
-        window_dias = [d for d in dias_recentes if d >= dias_ate_evento and d <= dias_ate_evento + 14]
-        if not window_dias:
-            window_dias = sorted(dias_recentes)[:14]
-        window_len = min(14, len(window_dias))
-        if window_len > 0:
-            media_diaria_14d = sum(daily_atual[d]["qtd"] for d in window_dias[:window_len]) / window_len
-            media_receita_14d = sum(daily_atual[d]["receita"] for d in window_dias[:window_len]) / window_len
-        else:
-            total_dias = len(dias_recentes)
-            media_diaria_14d = total_vendas_atual / max(1, total_dias)
-            media_receita_14d = total_receita_atual / max(1, total_dias)
+    if dias_ate_evento > 0:
+        total_qtd_14 = 0
+        total_rec_14 = 0.0
+        for dd in range(d_minus_atual, d_minus_atual + 14):
+            if dd in daily_atual:
+                total_qtd_14 += daily_atual[dd]["qtd"]
+                total_rec_14 += daily_atual[dd]["receita"]
+        media_diaria_14d = total_qtd_14 / 14
+        media_receita_14d = total_rec_14 / 14
     else:
         media_diaria_14d = 0
         media_receita_14d = 0.0
