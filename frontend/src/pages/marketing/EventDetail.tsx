@@ -98,6 +98,7 @@ const EventDetail: React.FC = () => {
   const [salesAvgLoading, setSalesAvgLoading] = useState(false);
   const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState<number | null>(null);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -455,6 +456,23 @@ const EventDetail: React.FC = () => {
     return acc;
   }, [] as { date: string; cumulative: number; cumulativeExpected: number; daily: number }[]);
 
+  const filteredCumulativeData = chartPeriod
+    ? cumulativeData.slice(-chartPeriod)
+    : cumulativeData;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const dailySalesArr = event.dailySales || [];
+  const todayDailySale = dailySalesArr.find(d => d.date === todayStr);
+  const lastDailySale = dailySalesArr.length > 0 ? dailySalesArr[dailySalesArr.length - 1] : null;
+  const hasTodayData = !!todayDailySale;
+  const todaySales = todayDailySale?.sales ?? 0;
+  const todayExpectedRounded = Math.round(todayDailySale?.expected ?? 0);
+  const todayPct = todayExpectedRounded > 0 ? Math.round((todaySales / todayExpectedRounded) * 100) : (todaySales > 0 ? 100 : 0);
+  const lastCumData = cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
+  const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
+  const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
+  const acumuladoPct = metaAcumulada > 0 ? Math.round((inscritosTotal / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
+
   const last30Days = (event.dailySales || []).slice(-30);
 
   const getRecommendationStyle = () => {
@@ -756,96 +774,69 @@ const EventDetail: React.FC = () => {
             </div>
           )}
 
-          {comparacaoAnual && (
+          {cumulativeData.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-                Comparativo Ano a Ano: {comparacaoAnual.ano_anterior} vs {comparacaoAnual.ano_atual}
+              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5 text-blue-500" />
+                Acompanhamento de Meta
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Vendas</p>
-                  <div className="flex items-end gap-3">
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
-                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
-                        {formatNumber(comparacaoAnual.anterior.vendas)}
-                      </p>
-                    </div>
-                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">
-                        {formatNumber(comparacaoAnual.atual.vendas)}
-                      </p>
-                    </div>
-                  </div>
-                  {comparacaoAnual.variacao.vendas_pct !== null && (
-                    <div className={`flex items-center gap-1 mt-2 text-sm ${comparacaoAnual.variacao.vendas_pct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {comparacaoAnual.variacao.vendas_pct >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                      {comparacaoAnual.variacao.vendas_pct >= 0 ? '+' : ''}{comparacaoAnual.variacao.vendas_pct}%
-                    </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Meta de Hoje vs Vendas Hoje</p>
+                  {hasTodayData ? (
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <p className="text-xs text-gray-400 mb-1">Vendas Hoje</p>
+                          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatNumber(todaySales)}</p>
+                        </div>
+                        <div className="text-gray-300 dark:text-gray-600 text-lg">vs</div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-400 mb-1">Meta Hoje</p>
+                          <p className="text-2xl font-bold text-gray-600 dark:text-gray-300">{formatNumber(todayExpectedRounded)}</p>
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          <span>Atingimento</span>
+                          <span className={`font-semibold ${todayPct >= 100 ? 'text-green-600 dark:text-green-400' : todayPct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{todayPct}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
+                          <div
+                            className={`h-2.5 rounded-full transition-all ${todayPct >= 100 ? 'bg-green-500' : todayPct >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                            style={{ width: `${Math.min(todayPct, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-400 dark:text-gray-500 italic">Sem dados para hoje</p>
                   )}
                 </div>
 
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Receita</p>
-                  <div className="flex items-end gap-3">
+                <div className="p-5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total</p>
+                  <div className="flex items-center justify-between mb-2">
                     <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
-                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
-                        R$ {formatNumber(comparacaoAnual.anterior.receita)}
-                      </p>
+                      <p className="text-xs text-gray-400 mb-1">Inscritos</p>
+                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatNumber(inscritosTotal)}</p>
                     </div>
-                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">
-                        R$ {formatNumber(comparacaoAnual.atual.receita)}
-                      </p>
+                    <div className="text-gray-300 dark:text-gray-600 text-lg">vs</div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-400 mb-1">Meta Acumulada</p>
+                      <p className="text-2xl font-bold text-gray-600 dark:text-gray-300">{formatNumber(metaAcumulada)}</p>
                     </div>
                   </div>
-                  {comparacaoAnual.variacao.receita_pct !== null && (
-                    <div className={`flex items-center gap-1 mt-2 text-sm ${comparacaoAnual.variacao.receita_pct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {comparacaoAnual.variacao.receita_pct >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                      {comparacaoAnual.variacao.receita_pct >= 0 ? '+' : ''}{comparacaoAnual.variacao.receita_pct}%
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <span>Atingimento</span>
+                      <span className={`font-semibold ${acumuladoPct >= 100 ? 'text-green-600 dark:text-green-400' : acumuladoPct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{acumuladoPct}%</span>
                     </div>
-                  )}
-                </div>
-
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Ticket Medio</p>
-                  <div className="flex items-end gap-3">
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
-                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
-                        R$ {comparacaoAnual.anterior.ticket_medio.toFixed(2)}
-                      </p>
-                    </div>
-                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">
-                        R$ {comparacaoAnual.atual.ticket_medio.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Ocupacao</p>
-                  <div className="flex items-end gap-3">
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_anterior}</p>
-                      <p className="text-lg font-bold text-gray-600 dark:text-gray-300">
-                        {comparacaoAnual.anterior.ocupacao_pct}%
-                      </p>
-                    </div>
-                    <div className="text-gray-300 dark:text-gray-600 pb-1">vs</div>
-                    <div>
-                      <p className="text-xs text-gray-400">{comparacaoAnual.ano_atual}</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">
-                        {comparacaoAnual.atual.ocupacao_pct}%
-                      </p>
+                    <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
+                      <div
+                        className={`h-2.5 rounded-full transition-all ${acumuladoPct >= 100 ? 'bg-green-500' : acumuladoPct >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                        style={{ width: `${Math.min(acumuladoPct, 100)}%` }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -857,12 +848,36 @@ const EventDetail: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-            Curva de Vendas Acumuladas vs Esperado
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Curva de Vendas Acumuladas vs Esperado
+            </h3>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { label: '7d', value: 7 },
+                { label: '14d', value: 14 },
+                { label: '30d', value: 30 },
+                { label: '60d', value: 60 },
+                { label: '90d', value: 90 },
+                { label: 'Todos', value: null as number | null },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setChartPeriod(opt.value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    chartPeriod === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cumulativeData}>
+              <LineChart data={filteredCumulativeData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                 <XAxis 
                   dataKey="date" 
@@ -882,7 +897,7 @@ const EventDetail: React.FC = () => {
                       <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
                         <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{new Date(label + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
                         <p style={{ color: '#3B82F6' }}>Vendas Reais: {formatNumber(real)}</p>
-                        <p style={{ color: '#9CA3AF' }}>Esperado (Ano Anterior): {formatNumber(esperado)}</p>
+                        <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
                         <p style={{ color: diffColor, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
                           Diferença: {diff >= 0 ? '+' : ''}{formatNumber(diff)}
                         </p>
@@ -902,7 +917,7 @@ const EventDetail: React.FC = () => {
                 <Line 
                   type="monotone" 
                   dataKey="cumulativeExpected" 
-                  name="Esperado (Ano Anterior)"
+                  name="Esperado"
                   stroke="#9CA3AF" 
                   strokeWidth={2}
                   strokeDasharray="5 5"
