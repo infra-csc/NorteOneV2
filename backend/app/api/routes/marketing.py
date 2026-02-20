@@ -474,7 +474,7 @@ def calculate_isc(components: ISCComponents) -> float:
     return round((components.ia730 + components.curvaDPercent + components.rolling14d) / 3, 2)
 
 
-def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int, current_start_dm: int = None) -> Optional[dict]:
+def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:
     from datetime import timedelta
     from ...models.dimensoes import SkuMapping
     prev_ano = ano - 1
@@ -559,31 +559,6 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 
     logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
 
-    if current_start_dm is not None and current_start_dm < max_dm:
-        base_pct = 0.0
-        if current_start_dm in pattern:
-            base_pct = pattern[current_start_dm]
-        else:
-            sorted_dms = sorted(pattern.keys(), reverse=True)
-            for i in range(len(sorted_dms) - 1):
-                if sorted_dms[i] >= current_start_dm >= sorted_dms[i + 1]:
-                    upper_dm = sorted_dms[i]
-                    lower_dm = sorted_dms[i + 1]
-                    ratio = (upper_dm - current_start_dm) / (upper_dm - lower_dm) if upper_dm != lower_dm else 0
-                    base_pct = pattern[upper_dm] + ratio * (pattern[lower_dm] - pattern[upper_dm])
-                    break
-
-        top_pct = pattern.get(0, 1.0)
-        range_pct = top_pct - base_pct
-        if range_pct > 0:
-            renorm = {}
-            for dm, pct in pattern.items():
-                if dm <= current_start_dm:
-                    renorm[dm] = max(0.0, (pct - base_pct) / range_pct)
-            renorm[0] = 1.0
-            logger.info(f"Re-normalized pattern from D-{max_dm} to D-{current_start_dm} (base_pct={base_pct:.4f}, range_pct={range_pct:.4f}, entries: {len(pattern)} -> {len(renorm)})")
-            return renorm
-
     return pattern
 
 
@@ -667,14 +642,7 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     hist_pattern = None
     if evento_grupo and data_evento:
         try:
-            if all_daily:
-                earliest_sale = min(all_daily.keys())
-                current_start_dm = (data_evento - earliest_sale).days
-                if current_start_dm <= 0:
-                    current_start_dm = None
-            else:
-                current_start_dm = None
-            hist_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano, current_start_dm=current_start_dm)
+            hist_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano)
         except Exception as e:
             logger.warning(f"Error fetching historical pattern for '{evento_grupo}': {e}")
     
