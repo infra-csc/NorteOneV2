@@ -81,11 +81,6 @@ const Login: React.FC = () => {
             )}
           </button>
         </form>
-
-        <div className="mt-6 text-center text-sm text-gray-500">
-          <p>Credenciais de teste:</p>
-          <p className="font-mono mt-1">admin@cscdoesporte.com / admin123</p>
-        </div>
       </div>
     </div>
   );
