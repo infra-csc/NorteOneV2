@@ -2546,17 +2546,11 @@ ORDER BY cpev1.value, dia
         return {}
 
 
-_daily_sales_prefetch_cache = {}
-_daily_sales_prefetch_ts = {}
-_DAILY_SALES_CACHE_TTL = 300
-
 def _prefetch_all_daily_sales(db: Session, all_projetos: list, ano: int) -> dict:
-    import time as _time
-    cache_key = f"daily_sales_{ano}"
-    now = _time.time()
-    if cache_key in _daily_sales_prefetch_cache:
-        if now - _daily_sales_prefetch_ts.get(cache_key, 0) < _DAILY_SALES_CACHE_TTL:
-            return _daily_sales_prefetch_cache[cache_key]
+    cache_key = f"{ano}_prefetch_daily"
+    cached = daily_sales_cache.get(cache_key)
+    if cached is not None:
+        return cached
     
     from ...models.dimensoes import SkuMapping
     
@@ -2623,8 +2617,7 @@ def _prefetch_all_daily_sales(db: Session, all_projetos: list, ano: int) -> dict
                 for d, qtd in daily.items():
                     sku_daily[sku][d] = sku_daily[sku].get(d, 0) + qtd
     
-    _daily_sales_prefetch_cache[cache_key] = sku_daily
-    _daily_sales_prefetch_ts[cache_key] = now
+    daily_sales_cache.set(cache_key, sku_daily)
     
     return sku_daily
 
