@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -43,6 +43,7 @@ import {
 } from '../../types/marketingPerformance';
 import { useTheme } from '../../context/ThemeContext';
 import EventInsights from './EventInsights';
+import EventSimulator from './EventSimulator';
 
 interface CommercialAction {
   id: string;
@@ -86,6 +87,7 @@ const EventDetail: React.FC = () => {
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator'>('dashboard');
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
@@ -563,6 +565,33 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
+      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'dashboard'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Dashboard
+        </button>
+        <button
+          onClick={() => setActiveTab('simulator')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'simulator'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Simulador
+        </button>
+      </div>
+
+      {activeTab === 'simulator' ? (
+        <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
+      ) : (
+      <>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
@@ -1654,6 +1683,8 @@ const EventDetail: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
       </div>
     </div>

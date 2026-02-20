@@ -820,6 +820,13 @@ export const marketingService = {
     const response = await api.get(url, { signal });
     return response.data;
   },
+  getSimulacao: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<any> => {
+    const queryParams = new URLSearchParams();
+    if (ano) queryParams.append('ano', ano.toString());
+    const url = `/marketing/eventos/${eventoId}/simulacao?${queryParams.toString()}`;
+    const response = await api.get(url, { signal });
+    return response.data;
+  },
   checkDuplicateAction: async (projetoId: number, tipo: string): Promise<{
     status: string;
     has_duplicate: boolean;

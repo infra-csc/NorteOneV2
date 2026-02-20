@@ -1923,6 +1923,197 @@ def get_sales_averages(
     return medias_result
 
 
+@router.get("/eventos/{evento_id}/simulacao")
+def get_event_simulation(
+    evento_id: str,
+    ano: int = Query(default=None, description="Ano do evento"),
+    force_refresh: bool = Query(default=False, description="Forçar atualização"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    from datetime import timedelta
+    today = date.today()
+    if ano is None:
+        ano = today.year
+
+    is_consolidated = evento_id.startswith('grp_')
+
+    all_skus = []
+    projetos = []
+    if is_consolidated:
+        grupo_nome = evento_id.replace('grp_', '')
+        mappings = db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == grupo_nome,
+            SkuMapping.ano == ano,
+            SkuMapping.ativo == True
+        ).all()
+        if not mappings:
+            mappings = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo == grupo_nome,
+                SkuMapping.ativo == True
+            ).all()
+            if mappings:
+                best_year = max(m.ano for m in mappings if m.ano)
+                mappings = [m for m in mappings if m.ano == best_year]
+        all_skus = list(set(m.sku.upper().strip() for m in mappings if m.sku))
+        projetos = db.query(DimProjeto).filter(DimProjeto.codigo.in_(all_skus)).all() if all_skus else []
+    else:
+        try:
+            projeto_id_int = int(evento_id)
+            projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id_int).first()
+            if projeto:
+                projetos = [projeto]
+                if projeto.codigo:
+                    all_skus = [str(projeto.codigo).upper().strip()]
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ID do evento inválido")
+
+    if not all_skus:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    data_evento = None
+    for p in projetos:
+        if p.data_evento:
+            if data_evento is None or p.data_evento > data_evento:
+                data_evento = p.data_evento
+    dias_ate_evento = (data_evento - today).days if data_evento else 0
+
+    meta_orcada = get_meta_orcada_projetos(db, projetos)
+
+    budget_ticket_total_receita = 0.0
+    budget_ticket_total_qtd = 0
+    for p in projetos:
+        cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == p.id).first()
+        if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0:
+            budget_ticket_total_receita += float(cad.atletas_site_tkt_medio) * int(cad.atletas_site_pago)
+            budget_ticket_total_qtd += int(cad.atletas_site_pago)
+    ticket_medio_orcado = round(budget_ticket_total_receita / budget_ticket_total_qtd, 2) if budget_ticket_total_qtd > 0 else 0.0
+
+    all_active_mappings = db.query(SkuMapping).filter(
+        SkuMapping.sku.in_(all_skus),
+        SkuMapping.ativo == True
+    ).all()
+    year_mappings = [m for m in all_active_mappings if m.ano == ano]
+    if not year_mappings and all_active_mappings:
+        available_years = sorted(set(m.ano for m in all_active_mappings if m.ano), reverse=True)
+        if available_years:
+            year_mappings = [m for m in all_active_mappings if m.ano == available_years[0]]
+
+    ativo_ids = []
+    magento_ids = []
+    for m in year_mappings:
+        if m.id_externo:
+            if m.fonte == 'ATIVO':
+                ativo_ids.append(str(m.id_externo))
+            elif m.fonte == 'MAGENTO':
+                magento_ids.append(str(m.id_externo))
+
+    all_raw_sales = {}
+    all_raw_receita = {}
+
+    if ativo_ids:
+        ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+        for row in ativo_rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+            all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
+
+    if magento_ids:
+        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+        for row in magento_rows:
+            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+            all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
+
+    total_vendas = sum(all_raw_sales.values())
+    total_receita = round(sum(all_raw_receita.values()), 2)
+    ticket_medio_atual = round(total_receita / total_vendas, 2) if total_vendas > 0 else 0.0
+
+    sorted_dates = sorted(all_raw_sales.keys())
+
+    media_7d = 0.0
+    media_14d = 0.0
+    media_30d = 0.0
+    if sorted_dates:
+        for window, attr_name in [(7, 'media_7d'), (14, 'media_14d'), (30, 'media_30d')]:
+            cutoff = today - timedelta(days=window)
+            sales_in = sum(v for d, v in all_raw_sales.items() if d > cutoff and d <= today)
+            if attr_name == 'media_7d':
+                media_7d = round(sales_in / window, 1)
+            elif attr_name == 'media_14d':
+                media_14d = round(sales_in / window, 1)
+            else:
+                media_30d = round(sales_in / window, 1)
+
+    primeiro_dia_venda = sorted_dates[0] if sorted_dates else today
+    dias_em_venda = (today - primeiro_dia_venda).days + 1
+    media_historica = round(total_vendas / dias_em_venda, 1) if dias_em_venda > 0 else 0.0
+
+    receita_7d = sum(v for d, v in all_raw_receita.items() if d > today - timedelta(days=7) and d <= today)
+    vendas_7d = sum(v for d, v in all_raw_sales.items() if d > today - timedelta(days=7) and d <= today)
+    ticket_7d = round(receita_7d / vendas_7d, 2) if vendas_7d > 0 else ticket_medio_atual
+
+    cenarios = {}
+    if dias_ate_evento > 0:
+        taxas_base = sorted([media_7d, media_14d, media_30d])
+        for nome, taxa in [("pessimista", taxas_base[0] * 0.85), ("realista", taxas_base[1]), ("otimista", taxas_base[2] * 1.15)]:
+            proj_vendas = total_vendas + round(taxa * dias_ate_evento)
+            proj_receita = total_receita + round(taxa * dias_ate_evento * ticket_7d, 2)
+            pct_meta = round(proj_vendas / meta_orcada * 100, 1) if meta_orcada > 0 else 0
+            cenarios[nome] = {
+                "vendas_projetadas": proj_vendas,
+                "receita_projetada": proj_receita,
+                "ticket_medio_projetado": round(proj_receita / proj_vendas, 2) if proj_vendas > 0 else 0,
+                "ritmo_diario": round(taxa, 1),
+                "pct_meta": pct_meta,
+                "vendas_restantes": max(0, proj_vendas - total_vendas),
+            }
+    else:
+        cenarios = {
+            "pessimista": {"vendas_projetadas": total_vendas, "receita_projetada": total_receita, "ticket_medio_projetado": ticket_medio_atual, "ritmo_diario": 0, "pct_meta": round(total_vendas / meta_orcada * 100, 1) if meta_orcada > 0 else 0, "vendas_restantes": 0},
+            "realista": {"vendas_projetadas": total_vendas, "receita_projetada": total_receita, "ticket_medio_projetado": ticket_medio_atual, "ritmo_diario": 0, "pct_meta": round(total_vendas / meta_orcada * 100, 1) if meta_orcada > 0 else 0, "vendas_restantes": 0},
+            "otimista": {"vendas_projetadas": total_vendas, "receita_projetada": total_receita, "ticket_medio_projetado": ticket_medio_atual, "ritmo_diario": 0, "pct_meta": round(total_vendas / meta_orcada * 100, 1) if meta_orcada > 0 else 0, "vendas_restantes": 0},
+        }
+
+    vendas_por_dia = []
+    if sorted_dates and dias_ate_evento > 0:
+        for d in sorted_dates:
+            vendas_por_dia.append({"date": d.isoformat(), "vendas": all_raw_sales[d], "receita": round(all_raw_receita.get(d, 0), 2)})
+
+    ritmo_necessario = round((meta_orcada - total_vendas) / dias_ate_evento, 1) if dias_ate_evento > 0 and meta_orcada > 0 else 0
+    receita_orcada = round(meta_orcada * ticket_medio_orcado, 2) if ticket_medio_orcado > 0 else 0
+    gap_vendas = max(0, meta_orcada - total_vendas)
+    gap_receita = round(max(0, receita_orcada - total_receita), 2)
+
+    return {
+        "status": "success",
+        "evento": {
+            "data_evento": data_evento.isoformat() if data_evento else None,
+            "dias_ate_evento": dias_ate_evento,
+            "meta_orcada": meta_orcada,
+            "ticket_medio_orcado": ticket_medio_orcado,
+            "receita_orcada": receita_orcada,
+        },
+        "atual": {
+            "total_vendas": total_vendas,
+            "total_receita": total_receita,
+            "ticket_medio": ticket_medio_atual,
+            "ticket_medio_7d": ticket_7d,
+            "pct_meta": round(total_vendas / meta_orcada * 100, 1) if meta_orcada > 0 else 0,
+            "media_7d": media_7d,
+            "media_14d": media_14d,
+            "media_30d": media_30d,
+            "media_historica": media_historica,
+            "dias_em_venda": dias_em_venda,
+            "ritmo_necessario": ritmo_necessario,
+            "gap_vendas": gap_vendas,
+            "gap_receita": gap_receita,
+        },
+        "cenarios": cenarios,
+        "vendas_diarias": vendas_por_dia,
+    }
+
+
 @router.get("/check-duplicate-action/{projeto_id}")
 def check_duplicate_action_endpoint(
     projeto_id: int,
