@@ -3232,10 +3232,9 @@ def get_evento_insights(
             bucket_data_anterior[bk]["qtd"] += vals["qtd"]
             bucket_data_anterior[bk]["receita"] += vals["receita"]
 
-    def _calc_rolling_avg(daily_map: dict, center_d: int, window: int) -> float:
+    def _calc_rolling_avg(daily_map: dict, d_minus: int, window: int) -> float:
         total = 0
-        half = window // 2
-        for d in range(center_d - half, center_d + half + 1):
+        for d in range(d_minus, d_minus + window):
             if d in daily_map:
                 total += daily_map[d]["qtd"]
         return total / window
