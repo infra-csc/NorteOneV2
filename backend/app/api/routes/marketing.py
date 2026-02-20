@@ -403,22 +403,44 @@ def calculate_d_minus(event_date: date, reference_year: int = None) -> int:
     delta = (event_date - today).days
     return max(0, delta)
 
+def _interpolate_hist_pattern(hist_pattern: dict, d_minus: int) -> float:
+    sorted_dms = sorted(hist_pattern.keys(), reverse=True)
+    if d_minus in hist_pattern:
+        return hist_pattern[d_minus]
+    if d_minus >= sorted_dms[0]:
+        return hist_pattern[sorted_dms[0]]
+    if d_minus <= sorted_dms[-1]:
+        return hist_pattern[sorted_dms[-1]]
+    for i in range(len(sorted_dms) - 1):
+        if sorted_dms[i] > d_minus > sorted_dms[i + 1]:
+            upper_dm = sorted_dms[i]
+            lower_dm = sorted_dms[i + 1]
+            ratio = (upper_dm - d_minus) / (upper_dm - lower_dm) if upper_dm != lower_dm else 0
+            return hist_pattern[upper_dm] + ratio * (hist_pattern[lower_dm] - hist_pattern[upper_dm])
+    return hist_pattern.get(0, 1.0)
+
+
 def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int, 
                               media_14d: float = None, daily_sales_dict: dict = None,
-                              media_7d: float = None, media_30d: float = None) -> ISCComponents:
+                              media_7d: float = None, media_30d: float = None,
+                              hist_pattern: dict = None) -> ISCComponents:
     if sales_goal == 0:
         return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0)
     
     progress_percent = current_sales / sales_goal
-    
-    total_days = 90
-    elapsed_days = max(1, total_days - d_minus)
-    expected_progress = elapsed_days / total_days
-    
-    if expected_progress == 0:
-        expected_progress = 0.01
-    
-    curva_d_percent = progress_percent / expected_progress
+
+    if hist_pattern and len(hist_pattern) > 0:
+        expected_progress = _interpolate_hist_pattern(hist_pattern, d_minus)
+        if expected_progress <= 0:
+            expected_progress = 0.01
+        curva_d_percent = progress_percent / expected_progress
+    else:
+        total_days = 90
+        elapsed_days = max(1, total_days - d_minus)
+        expected_progress = elapsed_days / total_days
+        if expected_progress == 0:
+            expected_progress = 0.01
+        curva_d_percent = progress_percent / expected_progress
 
     ia730_calculated = False
     if media_7d is not None and media_30d is not None:
@@ -446,16 +468,20 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     if not ia730_calculated:
         ia730 = curva_d_percent
 
+    remaining_sales = max(0, sales_goal - current_sales)
+    if d_minus > 0:
+        expected_daily = remaining_sales / d_minus
+    else:
+        expected_daily = remaining_sales if remaining_sales > 0 else 1.0
+
     if media_14d is not None and media_14d > 0:
-        expected_daily = sales_goal / total_days if total_days > 0 else 1
-        rolling14d = media_14d / expected_daily if expected_daily > 0 else 1.0
+        rolling14d = media_14d / expected_daily if expected_daily > 0 else 1.5
     elif daily_sales_dict and len(daily_sales_dict) > 0:
         from datetime import timedelta
         today = date.today()
         sales_14d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(14))
         avg_14d = sales_14d / 14
-        expected_daily = sales_goal / total_days if total_days > 0 else 1
-        rolling14d = avg_14d / expected_daily if expected_daily > 0 else 1.0
+        rolling14d = avg_14d / expected_daily if expected_daily > 0 else 1.5
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
@@ -1590,8 +1616,15 @@ def get_marketing_events(
                 grupo_media_7d += isc_data[p_sku].get('media_7d', 0.0)
                 grupo_media_30d += isc_data[p_sku].get('media_30d', 0.0)
         
+        grupo_hist_pattern = None
+        try:
+            grupo_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
+        except Exception:
+            pass
+        
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=grupo_media_14d_list,
-                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d)
+                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d,
+                                                   hist_pattern=grupo_hist_pattern)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -1669,8 +1702,18 @@ def get_marketing_events(
         standalone_m14d = sales_info.get('media_14d', 0.0)
         standalone_m7d = sales_info.get('media_7d', 0.0)
         standalone_m30d = sales_info.get('media_30d', 0.0)
+        
+        standalone_eg = sku_to_grupo.get(normalize_sku(sku))
+        standalone_hist = None
+        if standalone_eg:
+            try:
+                standalone_hist = _fetch_previous_year_cumulative_pattern(db, standalone_eg, ano)
+            except Exception:
+                pass
+        
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_m14d,
-                                                   media_7d=standalone_m7d, media_30d=standalone_m30d)
+                                                   media_7d=standalone_m7d, media_30d=standalone_m30d,
+                                                   hist_pattern=standalone_hist)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -3570,9 +3613,16 @@ def get_marketing_event_by_id(
                 detail_bt_total_qtd += int(detail_cad.atletas_site_pago)
         detail_budget_ticket = round(detail_bt_total_receita / detail_bt_total_qtd, 2) if detail_bt_total_qtd > 0 else 0.0
         
+        detail_hist_pattern = None
+        try:
+            detail_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
+        except Exception:
+            pass
+        
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, 
                                                    media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict,
-                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d)
+                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d,
+                                                   hist_pattern=detail_hist_pattern)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -3774,8 +3824,16 @@ def get_marketing_event_by_id(
     
     standalone_media_14d = sales_info.get('media_14d', 0.0)
     
+    standalone_detail_hist = None
+    if standalone_evento_grupo:
+        try:
+            standalone_detail_hist = _fetch_previous_year_cumulative_pattern(db, standalone_evento_grupo, ano)
+        except Exception:
+            pass
+    
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
-                                               media_14d=standalone_media_14d, daily_sales_dict=daily_sales_dict)
+                                               media_14d=standalone_media_14d, daily_sales_dict=daily_sales_dict,
+                                               hist_pattern=standalone_detail_hist)
     isc = calculate_isc(isc_components)
     isc_status = get_isc_status(isc)
     suggested_action = get_suggested_action(isc, d_minus)
@@ -4739,8 +4797,15 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
+        pricing_hist_pattern = None
+        try:
+            pricing_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
+        except Exception:
+            pass
+        
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=combined_rolling_14d,
-                                                   media_7d=combined_m7d, media_30d=combined_m30d)
+                                                   media_7d=combined_m7d, media_30d=combined_m30d,
+                                                   hist_pattern=pricing_hist_pattern)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         
@@ -4830,8 +4895,23 @@ def get_pricing_analysis(
         standalone_pricing_m14d = sales_info.get('media_14d', 0.0)
         standalone_pricing_m7d = sales_info.get('media_7d', 0.0)
         standalone_pricing_m30d = sales_info.get('media_30d', 0.0)
+        
+        standalone_pricing_eg = None
+        standalone_pricing_eg_mapping = db.query(SkuMapping).filter(
+            SkuMapping.sku == sku, SkuMapping.evento_grupo.isnot(None), SkuMapping.evento_grupo != '', SkuMapping.ativo == True
+        ).first()
+        if standalone_pricing_eg_mapping:
+            standalone_pricing_eg = standalone_pricing_eg_mapping.evento_grupo
+        standalone_pricing_hist = None
+        if standalone_pricing_eg:
+            try:
+                standalone_pricing_hist = _fetch_previous_year_cumulative_pattern(db, standalone_pricing_eg, ano)
+            except Exception:
+                pass
+        
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_pricing_m14d,
-                                                   media_7d=standalone_pricing_m7d, media_30d=standalone_pricing_m30d)
+                                                   media_7d=standalone_pricing_m7d, media_30d=standalone_pricing_m30d,
+                                                   hist_pattern=standalone_pricing_hist)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         
