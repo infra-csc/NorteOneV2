@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
 import NoriButton from '../nori/NoriButton';
 import { 
   LayoutDashboard, 
@@ -33,33 +34,34 @@ interface LayoutProps {
 }
 
 const menuItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/nori', icon: Sparkles, label: 'Nori - Assistente' },
-  { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas' },
-  { path: '/cadastros/eventos', icon: Target, label: 'Eventos' },
-  { path: '/orcamento', icon: TrendingUp, label: 'Orcamento' },
-  { path: '/atletas', icon: Users, label: 'Atletas' },
+  { path: '/', icon: LayoutDashboard, label: 'Dashboard', modulo: 'dashboard' },
+  { path: '/nori', icon: Sparkles, label: 'Nori - Assistente', modulo: 'nori' },
+  { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas', modulo: 'categorias_atletas' },
+  { path: '/cadastros/eventos', icon: Target, label: 'Eventos', modulo: 'eventos' },
+  { path: '/orcamento', icon: TrendingUp, label: 'Orcamento', modulo: 'orcamento' },
+  { path: '/atletas', icon: Users, label: 'Atletas', modulo: 'atletas' },
 ];
 
 const marketingItems = [
-  { path: '/marketing', icon: Activity, label: 'Dashboard ISC' },
-  { path: '/marketing/pricing', icon: DollarSign, label: 'Analise de Pricing' },
-  { path: '/marketing/comparativo', icon: BarChart3, label: 'Comparativo' },
-  { path: '/marketing/configuracoes', icon: Settings, label: 'Configuracoes' },
+  { path: '/marketing', icon: Activity, label: 'Dashboard ISC', modulo: 'marketing_dashboard' },
+  { path: '/marketing/pricing', icon: DollarSign, label: 'Analise de Pricing', modulo: 'marketing_pricing' },
+  { path: '/marketing/comparativo', icon: BarChart3, label: 'Comparativo', modulo: 'marketing_comparativo' },
+  { path: '/marketing/configuracoes', icon: Settings, label: 'Configuracoes', modulo: 'marketing_configuracoes' },
 ];
 
 const adminItems = [
-  { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados' },
-  { path: '/admin/sku-mappings', icon: Package, label: 'Mapeamento SKUs' },
-
-  { path: '/admin/usuarios', icon: UserCog, label: 'Usuários' },
-  { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo' },
-  { path: '/admin/contas', icon: FileSpreadsheet, label: 'Contas' },
+  { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados', modulo: 'admin_dados_consolidados' },
+  { path: '/admin/sku-mappings', icon: Package, label: 'Mapeamento SKUs', modulo: 'admin_sku_mappings' },
+  { path: '/admin/usuarios', icon: UserCog, label: 'Usuários', modulo: 'admin_usuarios' },
+  { path: '/admin/perfis-acesso', icon: ShieldCheck, label: 'Perfis de Acesso', modulo: 'admin_perfis_acesso' },
+  { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo', modulo: 'admin_centros_custo' },
+  { path: '/admin/contas', icon: FileSpreadsheet, label: 'Contas', modulo: 'admin_contas' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const { isDark, toggleTheme } = useTheme();
+  const { canView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -72,8 +74,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     navigate('/login');
   };
 
-  const cadastroItems = menuItems.filter(item => item.path.includes('/cadastros/'));
-  const mainItems = menuItems.filter(item => !item.path.includes('/cadastros/'));
+  const cadastroItems = menuItems.filter(item => item.path.includes('/cadastros/') && canView(item.modulo));
+  const mainItems = menuItems.filter(item => !item.path.includes('/cadastros/') && canView(item.modulo));
+  const filteredMarketingItems = marketingItems.filter(item => canView(item.modulo));
+  const filteredAdminItems = adminItems.filter(item => canView(item.modulo));
 
   return (
     <div className={`min-h-screen ${isDark ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
@@ -107,6 +111,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             );
           })}
 
+          {filteredMarketingItems.length > 0 && (
           <div>
             <button
               onClick={() => setMarketingOpen(!marketingOpen)}
@@ -125,7 +130,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             
             {marketingOpen && (
               <div className="ml-4 mt-1 space-y-1">
-                {marketingItems.map((item) => {
+                {filteredMarketingItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
                   return (
@@ -148,7 +153,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
             )}
           </div>
+          )}
 
+          {cadastroItems.length > 0 && (
           <div>
             <button
               onClick={() => setCadastrosOpen(!cadastrosOpen)}
@@ -188,8 +195,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
             )}
           </div>
+          )}
 
-          {user?.perfil === 'ADMIN' && (
+          {filteredAdminItems.length > 0 && (
             <div>
               <button
                 onClick={() => setAdminOpen(!adminOpen)}
@@ -208,7 +216,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               
               {adminOpen && (
                 <div className="ml-4 mt-1 space-y-1">
-                  {adminItems.map((item) => {
+                  {filteredAdminItems.map((item) => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path;
                     return (

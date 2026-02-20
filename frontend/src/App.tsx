@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { PermissionProvider } from './context/PermissionContext';
 import Layout from './components/common/Layout';
 import Login from './pages/auth/Login';
 
@@ -21,6 +22,7 @@ const NoriAssistant = lazy(() => import('./pages/nori/NoriAssistant'));
 const DadosConsolidados = lazy(() => import('./pages/admin/DadosConsolidados'));
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'));
 const SkuMappings = lazy(() => import('./pages/admin/SkuMappings'));
+const PerfisAcesso = lazy(() => import('./pages/admin/PerfisAcesso'));
 
 
 const PageLoader = () => (
@@ -47,6 +49,7 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <PermissionProvider>
         <Router>
           <Suspense fallback={<PageLoader />}>
             <Routes>
@@ -68,9 +71,11 @@ function App() {
 
               <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
               <Route path="/admin/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
+              <Route path="/admin/perfis-acesso" element={<PrivateRoute><Layout><PerfisAcesso /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>
         </Router>
+        </PermissionProvider>
       </AuthProvider>
     </ThemeProvider>
   );

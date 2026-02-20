@@ -11,11 +11,18 @@ interface CentroCusto {
   nome: string;
 }
 
+interface PerfilAcessoOption {
+  id: number;
+  nome: string;
+  descricao: string | null;
+}
+
 interface Usuario {
   id: number;
   email: string;
   nome: string;
   perfil: string;
+  perfil_acesso_id: number | null;
   centro_custo_id: number | null;
   ativo: boolean;
 }
@@ -25,6 +32,7 @@ interface UsuarioForm {
   nome: string;
   password: string;
   perfil: string;
+  perfil_acesso_id: number | null;
   centro_custo_id: number | null;
   ativo: boolean;
 }
@@ -35,6 +43,7 @@ const Usuarios: React.FC = () => {
   const { isDark } = useTheme();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [centrosCusto, setCentrosCusto] = useState<CentroCusto[]>([]);
+  const [perfisAcesso, setPerfisAcesso] = useState<PerfilAcessoOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -58,12 +67,14 @@ const Usuarios: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [usersRes, centrosRes] = await Promise.all([
+      const [usersRes, centrosRes, perfisRes] = await Promise.all([
         api.get('/users/'),
-        api.get('/centros-custo/')
+        api.get('/centros-custo/'),
+        api.get('/perfis-acesso/')
       ]);
       setUsuarios(usersRes.data);
       setCentrosCusto(centrosRes.data);
+      setPerfisAcesso(perfisRes.data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao carregar dados');
     } finally {
@@ -93,6 +104,12 @@ const Usuarios: React.FC = () => {
     return matchesSearch && matchesPerfil && matchesCentro && matchesStatus;
   });
 
+  const getPerfilAcessoNome = (id: number | null) => {
+    if (!id) return '-';
+    const perfil = perfisAcesso.find(p => p.id === id);
+    return perfil?.nome || '-';
+  };
+
   const openCreateModal = () => {
     setEditingUser(null);
     setFormData({
@@ -100,6 +117,7 @@ const Usuarios: React.FC = () => {
       nome: '',
       password: '',
       perfil: 'VISUALIZADOR',
+      perfil_acesso_id: null,
       centro_custo_id: null,
       ativo: true
     });
@@ -114,6 +132,7 @@ const Usuarios: React.FC = () => {
       nome: user.nome,
       password: '',
       perfil: user.perfil,
+      perfil_acesso_id: user.perfil_acesso_id,
       centro_custo_id: user.centro_custo_id,
       ativo: user.ativo
     });
@@ -131,6 +150,7 @@ const Usuarios: React.FC = () => {
         const updateData: any = {
           nome: formData.nome,
           perfil: formData.perfil,
+          perfil_acesso_id: formData.perfil_acesso_id,
           centro_custo_id: formData.centro_custo_id,
           ativo: formData.ativo
         };
@@ -336,6 +356,9 @@ const Usuarios: React.FC = () => {
                     Perfil
                   </th>
                   <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Perfil de Acesso
+                  </th>
+                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                     Centro de Custo
                   </th>
                   <th className={`px-6 py-3 text-center text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -349,14 +372,14 @@ const Usuarios: React.FC = () => {
               <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
+                    <td colSpan={7} className="px-6 py-12 text-center">
                       <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando usuários...</p>
                     </td>
                   </tr>
                 ) : filteredUsuarios.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
+                    <td colSpan={7} className="px-6 py-12 text-center">
                       <Users className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum usuário encontrado</p>
                     </td>
@@ -384,6 +407,12 @@ const Usuarios: React.FC = () => {
                         <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPerfilBadgeColor(user.perfil)}`}>
                           {user.perfil}
                         </span>
+                      </td>
+                      <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-indigo-400" />
+                          {getPerfilAcessoNome(user.perfil_acesso_id)}
+                        </div>
                       </td>
                       <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                         <div className="flex items-center gap-2">
@@ -513,7 +542,7 @@ const Usuarios: React.FC = () => {
 
               <div>
                 <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Perfil de Acesso *
+                  Perfil (Hierarquia) *
                 </label>
                 <select
                   value={formData.perfil}
@@ -526,7 +555,26 @@ const Usuarios: React.FC = () => {
                   ))}
                 </select>
                 <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Define o nível de acesso do usuário no sistema
+                  Define a hierarquia do usuário no sistema
+                </p>
+              </div>
+
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Perfil de Acesso (Permissões)
+                </label>
+                <select
+                  value={formData.perfil_acesso_id || ''}
+                  onChange={(e) => setFormData({ ...formData, perfil_acesso_id: e.target.value ? parseInt(e.target.value) : null })}
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
+                >
+                  <option value="">Selecione um perfil de acesso</option>
+                  {perfisAcesso.map(p => (
+                    <option key={p.id} value={p.id}>{p.nome}</option>
+                  ))}
+                </select>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Define quais telas e ações o usuário pode acessar
                 </p>
               </div>
 

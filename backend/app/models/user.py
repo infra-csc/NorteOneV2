@@ -11,8 +11,10 @@ class Usuario(Base):
     nome = Column(String(100), nullable=False)
     senha_hash = Column(String(255), nullable=False)
     perfil = Column(String(20))
+    perfil_acesso_id = Column(Integer, ForeignKey("perfil_acesso.id"), nullable=True)
     centro_custo_id = Column(Integer, ForeignKey("dim_centro_custo.id"))
     ativo = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     
     centro_custo = relationship("DimCentroCusto")
+    perfil_acesso_rel = relationship("PerfilAcesso", back_populates="usuarios")

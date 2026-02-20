@@ -33,6 +33,7 @@ def create_user(
         nome=user.nome,
         senha_hash=get_password_hash(user.password),
         perfil=user.perfil,
+        perfil_acesso_id=user.perfil_acesso_id,
         centro_custo_id=user.centro_custo_id
     )
     db.add(db_user)

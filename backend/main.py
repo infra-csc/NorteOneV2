@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
-from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings
+from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso
 from app.core.cache import cache_scheduler
 import logging
 
@@ -65,6 +65,7 @@ app.include_router(inscricoes_consolidado.router, prefix="/api/inscricoes", tags
 app.include_router(marketing.router, prefix="/api", tags=["Marketing ISC"])
 app.include_router(sku_mappings.router, tags=["SKU Mappings"])
 app.include_router(sku_mappings.grupo_router, tags=["Evento Grupos"])
+app.include_router(perfil_acesso.router, prefix="/api", tags=["Perfis de Acesso"])
 
 @app.get("/api/health")
 async def health_check():

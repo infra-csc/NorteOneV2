@@ -21,6 +21,7 @@ The frontend utilizes React, TypeScript, and Tailwind CSS to deliver a modern, c
 - **Database:** PostgreSQL as the primary application database. MySQL is used for accessing external athlete data via SSH Tunnel.
 - **ORM:** SQLAlchemy for efficient and abstracted database interactions.
 - **Authentication:** JWT (JSON Web Tokens) for secure session management and role-based access control (ADMIN, GESTOR, ANALISTA, VISUALIZADOR).
+- **Access Management:** Hybrid approach combining Access Profiles (PerfilAcesso) for granular CRUD permissions per module (16 modules) and Cost Centers for data-level filtering. PermissionContext provides global permission checking (canView, canCreate, canEdit, canDelete) across the frontend. Sidebar menu items are dynamically filtered based on user permissions. ADMIN users automatically receive full permissions.
 - **Charting:** Recharts library for interactive data visualization across various dashboards.
 - **SSH Tunneling:** Paramiko library manages secure SSH connections to external MySQL databases, supporting diverse SSH key types and automatic tunnel lifecycle.
 - **Virtual Assistant (Nori):** An AI-powered assistant using OpenAI GPT-4o-mini for NLP, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese. It offers event scenario analysis, conversational chat, and task scheduling.
