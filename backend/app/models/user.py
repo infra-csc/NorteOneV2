@@ -10,7 +10,6 @@ class Usuario(Base):
     email = Column(String(100), unique=True, nullable=False, index=True)
     nome = Column(String(100), nullable=False)
     senha_hash = Column(String(255), nullable=False)
-    perfil = Column(String(20))
     perfil_acesso_id = Column(Integer, ForeignKey("perfil_acesso.id"), nullable=True)
     centro_custo_id = Column(Integer, ForeignKey("dim_centro_custo.id"))
     ativo = Column(Boolean, default=True)

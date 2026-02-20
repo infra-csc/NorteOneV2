@@ -57,6 +57,7 @@ class PerfilAcessoUpdate(BaseModel):
 class PerfilAcessoResponse(PerfilAcessoBase):
     id: int
     is_sistema: bool
+    is_admin: bool = False
     ativo: bool
     permissoes: List[PermissaoResponse] = []
 
@@ -69,6 +70,7 @@ class PerfilAcessoListResponse(BaseModel):
     nome: str
     descricao: Optional[str] = None
     is_sistema: bool
+    is_admin: bool = False
     ativo: bool
     total_usuarios: int = 0
 
@@ -84,5 +86,5 @@ class ModuloInfo(BaseModel):
 class UserPermissoesResponse(BaseModel):
     perfil_acesso_id: Optional[int] = None
     perfil_acesso_nome: Optional[str] = None
-    perfil: str
+    is_admin: bool = False
     permissoes: dict = {}

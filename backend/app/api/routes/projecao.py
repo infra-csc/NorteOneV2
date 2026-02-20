@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_roles, is_user_admin
 from ...models.fatos import FatoProjecao
 from ...models.dimensoes import DimTempo, DimConta
 from ...models.user import Usuario
@@ -23,7 +23,7 @@ def list_projecoes(
 ):
     query = db.query(FatoProjecao)
     
-    if current_user.perfil == "GESTOR" and current_user.centro_custo_id:
+    if not is_user_admin(current_user) and current_user.centro_custo_id:
         query = query.filter(FatoProjecao.centro_custo_id == current_user.centro_custo_id)
     elif centro_custo_id:
         query = query.filter(FatoProjecao.centro_custo_id == centro_custo_id)
@@ -42,7 +42,7 @@ def create_projecao(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
 ):
-    if current_user.perfil == "GESTOR" and current_user.centro_custo_id:
+    if not is_user_admin(current_user) and current_user.centro_custo_id:
         if projecao.centro_custo_id != current_user.centro_custo_id:
             raise HTTPException(status_code=403, detail="Sem permissão para este centro de custo")
     
@@ -63,7 +63,7 @@ def update_projecao(
     if not projecao:
         raise HTTPException(status_code=404, detail="Projeção não encontrada")
     
-    if current_user.perfil == "GESTOR" and projecao.centro_custo_id != current_user.centro_custo_id:
+    if not is_user_admin(current_user) and current_user.centro_custo_id and projecao.centro_custo_id != current_user.centro_custo_id:
         raise HTTPException(status_code=403, detail="Sem permissão")
     
     for field, value in projecao_update.model_dump(exclude_unset=True).items():

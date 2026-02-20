@@ -32,4 +32,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @router.get("/me", response_model=UserResponse)
 def get_me(current_user: Usuario = Depends(get_current_user)):
-    return current_user
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "nome": current_user.nome,
+        "perfil_acesso_id": current_user.perfil_acesso_id,
+        "perfil_acesso_nome": current_user.perfil_acesso_rel.nome if current_user.perfil_acesso_rel else None,
+        "is_admin": current_user.perfil_acesso_rel.is_admin if current_user.perfil_acesso_rel else False,
+        "centro_custo_id": current_user.centro_custo_id,
+        "ativo": current_user.ativo,
+    }

@@ -2,7 +2,9 @@ export interface User {
   id: number;
   email: string;
   nome: string;
-  perfil: string;
+  perfil_acesso_id?: number;
+  perfil_acesso_nome?: string;
+  is_admin: boolean;
   centro_custo_id?: number;
   ativo: boolean;
 }

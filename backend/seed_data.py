@@ -128,13 +128,13 @@ def seed_usuarios(db: Session):
             email="admin@cscdoesporte.com",
             nome="Administrador",
             senha_hash=get_password_hash("admin123"),
-            perfil="ADMIN"
+            perfil_acesso_id=1
         ),
         Usuario(
             email="gestor@cscdoesporte.com",
             nome="Gestor Comercial",
             senha_hash=get_password_hash("gestor123"),
-            perfil="GESTOR",
+            perfil_acesso_id=2,
             centro_custo_id=1
         ),
     ]

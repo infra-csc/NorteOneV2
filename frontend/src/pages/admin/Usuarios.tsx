@@ -21,8 +21,9 @@ interface Usuario {
   id: number;
   email: string;
   nome: string;
-  perfil: string;
   perfil_acesso_id: number | null;
+  perfil_acesso_nome: string | null;
+  is_admin: boolean;
   centro_custo_id: number | null;
   ativo: boolean;
 }
@@ -31,13 +32,10 @@ interface UsuarioForm {
   email: string;
   nome: string;
   password: string;
-  perfil: string;
   perfil_acesso_id: number | null;
   centro_custo_id: number | null;
   ativo: boolean;
 }
-
-const perfis = ['ADMIN', 'GERENTE', 'ANALISTA', 'VISUALIZADOR'];
 
 const Usuarios: React.FC = () => {
   const { isDark } = useTheme();
@@ -47,7 +45,7 @@ const Usuarios: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [filterPerfil, setFilterPerfil] = useState<string>('todos');
+  const [filterPerfilAcesso, setFilterPerfilAcesso] = useState<string>('todos');
   const [filterCentroCusto, setFilterCentroCusto] = useState<string>('todos');
   const [filterStatus, setFilterStatus] = useState<string>('ativos');
   
@@ -57,8 +55,9 @@ const Usuarios: React.FC = () => {
     email: '',
     nome: '',
     password: '',
-    perfil: 'VISUALIZADOR',
-    centro_custo_id: null
+    perfil_acesso_id: null,
+    centro_custo_id: null,
+    ativo: true
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -96,12 +95,13 @@ const Usuarios: React.FC = () => {
     const matchesSearch = !search || 
       user.nome.toLowerCase().includes(search.toLowerCase()) ||
       user.email.toLowerCase().includes(search.toLowerCase());
-    const matchesPerfil = filterPerfil === 'todos' || user.perfil === filterPerfil;
+    const matchesPerfilAcesso = filterPerfilAcesso === 'todos' || 
+      (filterPerfilAcesso === 'sem_perfil' ? !user.perfil_acesso_id : user.perfil_acesso_id === parseInt(filterPerfilAcesso));
     const matchesCentro = filterCentroCusto === 'todos' || 
       (filterCentroCusto === 'sem_centro' ? !user.centro_custo_id : user.centro_custo_id === parseInt(filterCentroCusto));
     const matchesStatus = filterStatus === 'todos' || 
       (filterStatus === 'ativos' ? user.ativo : !user.ativo);
-    return matchesSearch && matchesPerfil && matchesCentro && matchesStatus;
+    return matchesSearch && matchesPerfilAcesso && matchesCentro && matchesStatus;
   });
 
   const getPerfilAcessoNome = (id: number | null) => {
@@ -116,7 +116,6 @@ const Usuarios: React.FC = () => {
       email: '',
       nome: '',
       password: '',
-      perfil: 'VISUALIZADOR',
       perfil_acesso_id: null,
       centro_custo_id: null,
       ativo: true
@@ -131,7 +130,6 @@ const Usuarios: React.FC = () => {
       email: user.email,
       nome: user.nome,
       password: '',
-      perfil: user.perfil,
       perfil_acesso_id: user.perfil_acesso_id,
       centro_custo_id: user.centro_custo_id,
       ativo: user.ativo
@@ -149,7 +147,6 @@ const Usuarios: React.FC = () => {
       if (editingUser) {
         const updateData: any = {
           nome: formData.nome,
-          perfil: formData.perfil,
           perfil_acesso_id: formData.perfil_acesso_id,
           centro_custo_id: formData.centro_custo_id,
           ativo: formData.ativo
@@ -194,14 +191,10 @@ const Usuarios: React.FC = () => {
     }
   };
 
-  const getPerfilBadgeColor = (perfil: string) => {
-    switch (perfil) {
-      case 'ADMIN': return 'bg-red-500/20 text-red-400 border-red-500/30';
-      case 'GERENTE': return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
-      case 'ANALISTA': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-      case 'VISUALIZADOR': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
-      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
-    }
+  const getPerfilBadgeColor = (isAdmin: boolean) => {
+    return isAdmin 
+      ? 'bg-red-500/20 text-red-400 border-red-500/30'
+      : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30';
   };
 
   return (
@@ -262,7 +255,7 @@ const Usuarios: React.FC = () => {
               <ShieldCheck className="w-5 h-5 text-red-500" />
             </div>
             <p className={`text-2xl font-bold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              {usuarios.filter(u => u.perfil === 'ADMIN').length}
+              {usuarios.filter(u => u.is_admin).length}
             </p>
           </div>
           <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/80' : 'bg-white'} shadow-lg backdrop-blur-sm border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
@@ -291,13 +284,14 @@ const Usuarios: React.FC = () => {
               </div>
             </div>
             <select
-              value={filterPerfil}
-              onChange={(e) => setFilterPerfil(e.target.value)}
+              value={filterPerfilAcesso}
+              onChange={(e) => setFilterPerfilAcesso(e.target.value)}
               className={`px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
             >
               <option value="todos">Todos os perfis</option>
-              {perfis.map(p => (
-                <option key={p} value={p}>{p}</option>
+              <option value="sem_perfil">Sem perfil de acesso</option>
+              {perfisAcesso.map(p => (
+                <option key={p.id} value={p.id}>{p.nome}</option>
               ))}
             </select>
             <select
@@ -353,9 +347,6 @@ const Usuarios: React.FC = () => {
                     Email
                   </th>
                   <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                    Perfil
-                  </th>
-                  <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                     Perfil de Acesso
                   </th>
                   <th className={`px-6 py-3 text-left text-xs font-medium uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -372,14 +363,14 @@ const Usuarios: React.FC = () => {
               <tbody className={`divide-y ${isDark ? 'divide-gray-700' : 'divide-gray-200'}`}>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={6} className="px-6 py-12 text-center">
                       <RefreshCw className={`w-8 h-8 mx-auto animate-spin ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando usuários...</p>
                     </td>
                   </tr>
                 ) : filteredUsuarios.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={6} className="px-6 py-12 text-center">
                       <Users className={`w-8 h-8 mx-auto ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                       <p className={`mt-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum usuário encontrado</p>
                     </td>
@@ -403,15 +394,12 @@ const Usuarios: React.FC = () => {
                       <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                         {user.email}
                       </td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPerfilBadgeColor(user.perfil)}`}>
-                          {user.perfil}
-                        </span>
-                      </td>
                       <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                         <div className="flex items-center gap-2">
                           <ShieldCheck className="w-4 h-4 text-indigo-400" />
-                          {getPerfilAcessoNome(user.perfil_acesso_id)}
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPerfilBadgeColor(user.is_admin)}`}>
+                            {user.perfil_acesso_nome || 'Sem perfil'}
+                          </span>
                         </div>
                       </td>
                       <td className={`px-6 py-4 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -542,30 +530,12 @@ const Usuarios: React.FC = () => {
 
               <div>
                 <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Perfil (Hierarquia) *
-                </label>
-                <select
-                  value={formData.perfil}
-                  onChange={(e) => setFormData({ ...formData, perfil: e.target.value })}
-                  required
-                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
-                >
-                  {perfis.map(p => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-                <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Define a hierarquia do usuário no sistema
-                </p>
-              </div>
-
-              <div>
-                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  Perfil de Acesso (Permissões)
+                  Perfil de Acesso *
                 </label>
                 <select
                   value={formData.perfil_acesso_id || ''}
                   onChange={(e) => setFormData({ ...formData, perfil_acesso_id: e.target.value ? parseInt(e.target.value) : null })}
+                  required
                   className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} focus:ring-2 focus:ring-indigo-500`}
                 >
                   <option value="">Selecione um perfil de acesso</option>

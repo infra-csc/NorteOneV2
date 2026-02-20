@@ -255,7 +255,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </button>
             
             <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-              {user?.nome} <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 ml-2">{user?.perfil}</span>
+              {user?.nome} <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 ml-2">{user?.perfil_acesso_nome || 'Sem perfil'}</span>
             </div>
             
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">

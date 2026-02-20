@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sa_func
 from typing import List
 from ...core.database import get_db
-from ...core.security import require_roles, get_current_user
+from ...core.security import require_roles, require_admin, get_current_user, is_user_admin
 from ...models.perfil_acesso import PerfilAcesso, PerfilPermissao
 from ...models.user import Usuario
 from ...schemas.perfil_acesso import (
@@ -37,6 +37,7 @@ def list_perfis(
             nome=perfil.nome,
             descricao=perfil.descricao,
             is_sistema=perfil.is_sistema,
+            is_admin=perfil.is_admin,
             ativo=perfil.ativo,
             total_usuarios=total or 0
         ))
@@ -170,7 +171,7 @@ def get_my_permissions(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    if current_user.perfil == 'ADMIN':
+    if is_user_admin(current_user):
         all_perms = {}
         for mod in MODULOS_SISTEMA:
             all_perms[mod["key"]] = {
@@ -181,14 +182,14 @@ def get_my_permissions(
             }
         return UserPermissoesResponse(
             perfil_acesso_id=current_user.perfil_acesso_id,
-            perfil_acesso_nome="ADMIN",
-            perfil=current_user.perfil,
+            perfil_acesso_nome=current_user.perfil_acesso_rel.nome if current_user.perfil_acesso_rel else "Administrador",
+            is_admin=True,
             permissoes=all_perms,
         )
 
     if not current_user.perfil_acesso_id:
         return UserPermissoesResponse(
-            perfil=current_user.perfil,
+            is_admin=False,
             permissoes={},
         )
 
@@ -198,7 +199,7 @@ def get_my_permissions(
 
     if not perfil:
         return UserPermissoesResponse(
-            perfil=current_user.perfil,
+            is_admin=False,
             permissoes={},
         )
 
@@ -214,6 +215,6 @@ def get_my_permissions(
     return UserPermissoesResponse(
         perfil_acesso_id=perfil.id,
         perfil_acesso_nome=perfil.nome,
-        perfil=current_user.perfil,
+        is_admin=False,
         permissoes=perms,
     )

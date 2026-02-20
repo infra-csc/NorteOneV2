@@ -181,7 +181,7 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
 const Dashboard: React.FC = () => {
   const { isDark } = useTheme();
   const { user } = useAuth();
-  const isAdmin = user?.perfil === 'ADMIN';
+  const isAdmin = user?.is_admin === true;
   
   const [resumo, setResumo] = useState<DashboardResumo | null>(null);
   const [evolucao, setEvolucao] = useState<EvolucaoMensal[]>([]);

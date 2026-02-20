@@ -39,6 +39,7 @@ def decode_token(token: str) -> dict:
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     from ..models.user import Usuario
+    from sqlalchemy.orm import joinedload
     payload = decode_token(token)
     user_id_str = payload.get("sub")
     if user_id_str is None:
@@ -47,7 +48,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             detail="Token invalido",
         )
     user_id = int(user_id_str)
-    user = db.query(Usuario).filter(Usuario.id == user_id).first()
+    user = db.query(Usuario).options(joinedload(Usuario.perfil_acesso_rel)).filter(Usuario.id == user_id).first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -60,12 +61,45 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         )
     return user
 
-def require_roles(allowed_roles: list):
-    async def role_checker(current_user = Depends(get_current_user)):
-        if current_user.perfil not in allowed_roles:
+def is_user_admin(user) -> bool:
+    return user.perfil_acesso_rel is not None and user.perfil_acesso_rel.is_admin
+
+def require_admin():
+    async def admin_checker(current_user = Depends(get_current_user)):
+        if not is_user_admin(current_user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permissao insuficiente",
+                detail="Permissao insuficiente - requer perfil administrador",
+            )
+        return current_user
+    return admin_checker
+
+def require_permission(modulo: str, permissao: str = "pode_visualizar"):
+    async def permission_checker(current_user = Depends(get_current_user)):
+        if is_user_admin(current_user):
+            return current_user
+        if not current_user.perfil_acesso_rel:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permissao insuficiente - sem perfil de acesso",
+            )
+        for perm in current_user.perfil_acesso_rel.permissoes:
+            if perm.modulo == modulo and getattr(perm, permissao, False):
+                return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permissao insuficiente para {modulo}",
+        )
+    return permission_checker
+
+def require_roles(allowed_roles: list):
+    async def role_checker(current_user = Depends(get_current_user)):
+        if is_user_admin(current_user):
+            return current_user
+        if "ADMIN" in allowed_roles and len(allowed_roles) == 1:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permissao insuficiente - requer perfil administrador",
             )
         return current_user
     return role_checker

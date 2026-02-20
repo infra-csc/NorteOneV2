@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_roles, is_user_admin
 from ...models.fatos import FatoRealizado
 from ...models.dimensoes import DimTempo, DimConta
 from ...models.user import Usuario
@@ -22,7 +22,7 @@ def list_realizados(
 ):
     query = db.query(FatoRealizado)
     
-    if current_user.perfil == "GESTOR" and current_user.centro_custo_id:
+    if not is_user_admin(current_user) and current_user.centro_custo_id:
         query = query.filter(FatoRealizado.centro_custo_id == current_user.centro_custo_id)
     elif centro_custo_id:
         query = query.filter(FatoRealizado.centro_custo_id == centro_custo_id)

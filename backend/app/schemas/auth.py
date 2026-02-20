@@ -16,13 +16,11 @@ class UserCreate(BaseModel):
     email: EmailStr
     nome: str
     password: str
-    perfil: str = "VISUALIZADOR"
     perfil_acesso_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
 
 class UserUpdate(BaseModel):
     nome: Optional[str] = None
-    perfil: Optional[str] = None
     perfil_acesso_id: Optional[int] = None
     centro_custo_id: Optional[int] = None
     ativo: Optional[bool] = None
@@ -32,10 +30,11 @@ class UserResponse(BaseModel):
     id: int
     email: str
     nome: str
-    perfil: str
     perfil_acesso_id: Optional[int] = None
+    perfil_acesso_nome: Optional[str] = None
+    is_admin: bool = False
     centro_custo_id: Optional[int] = None
     ativo: bool
-    
+
     class Config:
         from_attributes = True

@@ -12,7 +12,7 @@ interface ModulePermission {
 interface PermissionsData {
   perfil_acesso_id: number | null;
   perfil_acesso_nome: string | null;
-  perfil: string;
+  is_admin: boolean;
   permissoes: Record<string, ModulePermission>;
 }
 
@@ -55,25 +55,25 @@ export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children
 
   const canView = (modulo: string): boolean => {
     if (!permissions) return false;
-    if (permissions.perfil === 'ADMIN') return true;
+    if (permissions.is_admin) return true;
     return permissions.permissoes[modulo]?.pode_visualizar || false;
   };
 
   const canCreate = (modulo: string): boolean => {
     if (!permissions) return false;
-    if (permissions.perfil === 'ADMIN') return true;
+    if (permissions.is_admin) return true;
     return permissions.permissoes[modulo]?.pode_criar || false;
   };
 
   const canEdit = (modulo: string): boolean => {
     if (!permissions) return false;
-    if (permissions.perfil === 'ADMIN') return true;
+    if (permissions.is_admin) return true;
     return permissions.permissoes[modulo]?.pode_editar || false;
   };
 
   const canDelete = (modulo: string): boolean => {
     if (!permissions) return false;
-    if (permissions.perfil === 'ADMIN') return true;
+    if (permissions.is_admin) return true;
     return permissions.permissoes[modulo]?.pode_deletar || false;
   };
 

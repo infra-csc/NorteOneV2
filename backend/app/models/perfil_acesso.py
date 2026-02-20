@@ -11,6 +11,7 @@ class PerfilAcesso(Base):
     nome = Column(String(50), unique=True, nullable=False)
     descricao = Column(String(200))
     is_sistema = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
     ativo = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
