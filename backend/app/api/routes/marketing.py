@@ -404,7 +404,8 @@ def calculate_d_minus(event_date: date, reference_year: int = None) -> int:
     return max(0, delta)
 
 def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int, 
-                              media_14d: float = None, daily_sales_dict: dict = None) -> ISCComponents:
+                              media_14d: float = None, daily_sales_dict: dict = None,
+                              media_7d: float = None, media_30d: float = None) -> ISCComponents:
     if sales_goal == 0:
         return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0)
     
@@ -419,6 +420,7 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     
     curva_d_percent = progress_percent / expected_progress
 
+    ia730_calculated = False
     if daily_sales_dict and len(daily_sales_dict) > 0:
         from datetime import timedelta
         today = date.today()
@@ -428,19 +430,21 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
         
         if sales_30d > 0:
             ia730 = (sales_7d / sales_30d) * (30 / 7)
+            ia730_calculated = True
         elif sales_7d > 0:
             ia730 = 1.2
-        else:
-            ia730 = curva_d_percent
-    else:
-        if curva_d_percent > 1.2:
-            ia730 = 1.15 + (curva_d_percent - 1.2) * 0.3
-        elif curva_d_percent > 1.0:
-            ia730 = 1.0 + (curva_d_percent - 1.0) * 0.5
-        elif curva_d_percent > 0.8:
-            ia730 = 0.9 + (curva_d_percent - 0.8) * 0.5
-        else:
-            ia730 = 0.7 + curva_d_percent * 0.25
+            ia730_calculated = True
+    
+    if not ia730_calculated and media_7d is not None and media_30d is not None:
+        if media_30d > 0:
+            ia730 = media_7d / media_30d
+            ia730_calculated = True
+        elif media_7d > 0:
+            ia730 = 1.2
+            ia730_calculated = True
+    
+    if not ia730_calculated:
+        ia730 = curva_d_percent
 
     if media_14d is not None and media_14d > 0:
         expected_daily = sales_goal / total_days if total_days > 0 else 1
@@ -1607,12 +1611,17 @@ def get_marketing_events(
         budget_ticket = round(budget_ticket_total_receita / budget_ticket_total_qtd, 2) if budget_ticket_total_qtd > 0 else 0.0
         
         grupo_media_14d_list = 0.0
+        grupo_media_7d = 0.0
+        grupo_media_30d = 0.0
         for p in proj_list:
             p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
             if p_sku and p_sku in isc_data:
                 grupo_media_14d_list += isc_data[p_sku].get('media_14d', 0.0)
+                grupo_media_7d += isc_data[p_sku].get('media_7d', 0.0)
+                grupo_media_30d += isc_data[p_sku].get('media_30d', 0.0)
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=grupo_media_14d_list)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=grupo_media_14d_list,
+                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -1688,7 +1697,10 @@ def get_marketing_events(
         standalone_budget_ticket = round(float(cad.atletas_site_tkt_medio), 2) if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0 else 0.0
         
         standalone_m14d = sales_info.get('media_14d', 0.0)
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_m14d)
+        standalone_m7d = sales_info.get('media_7d', 0.0)
+        standalone_m30d = sales_info.get('media_30d', 0.0)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_m14d,
+                                                   media_7d=standalone_m7d, media_30d=standalone_m30d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
@@ -4698,6 +4710,8 @@ def get_pricing_analysis(
         current_receita = 0.0
         combined_rolling_14d = 0.0
         combined_rolling_14d_ly = 0.0
+        combined_m7d = 0.0
+        combined_m30d = 0.0
         seen_pricing_norms = set()
         for p in proj_list:
             p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
@@ -4707,6 +4721,8 @@ def get_pricing_analysis(
                 current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
                 combined_rolling_14d += isc_data[p_sku].get('media_14d', 0.0)
                 combined_rolling_14d_ly += isc_data[p_sku].get('media_14d_ano_passado', 0.0)
+                combined_m7d += isc_data[p_sku].get('media_7d', 0.0)
+                combined_m30d += isc_data[p_sku].get('media_30d', 0.0)
         
         average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         sales_goal = total_capacity if total_capacity > 0 else 1000
@@ -4742,7 +4758,8 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=combined_rolling_14d)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=combined_rolling_14d,
+                                                   media_7d=combined_m7d, media_30d=combined_m30d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         
@@ -4830,7 +4847,10 @@ def get_pricing_analysis(
             events_maintain += 1
         
         standalone_pricing_m14d = sales_info.get('media_14d', 0.0)
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_pricing_m14d)
+        standalone_pricing_m7d = sales_info.get('media_7d', 0.0)
+        standalone_pricing_m30d = sales_info.get('media_30d', 0.0)
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_pricing_m14d,
+                                                   media_7d=standalone_pricing_m7d, media_30d=standalone_pricing_m30d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         
