@@ -421,7 +421,15 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     curva_d_percent = progress_percent / expected_progress
 
     ia730_calculated = False
-    if daily_sales_dict and len(daily_sales_dict) > 0:
+    if media_7d is not None and media_30d is not None:
+        if media_30d > 0:
+            ia730 = media_7d / media_30d
+            ia730_calculated = True
+        elif media_7d > 0:
+            ia730 = 1.2
+            ia730_calculated = True
+    
+    if not ia730_calculated and daily_sales_dict and len(daily_sales_dict) > 0:
         from datetime import timedelta
         today = date.today()
         
@@ -432,14 +440,6 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
             ia730 = (sales_7d / sales_30d) * (30 / 7)
             ia730_calculated = True
         elif sales_7d > 0:
-            ia730 = 1.2
-            ia730_calculated = True
-    
-    if not ia730_calculated and media_7d is not None and media_30d is not None:
-        if media_30d > 0:
-            ia730 = media_7d / media_30d
-            ia730_calculated = True
-        elif media_7d > 0:
             ia730 = 1.2
             ia730_calculated = True
     
@@ -1613,9 +1613,11 @@ def get_marketing_events(
         grupo_media_14d_list = 0.0
         grupo_media_7d = 0.0
         grupo_media_30d = 0.0
+        seen_media_norms = set()
         for p in proj_list:
             p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
-            if p_sku and p_sku in isc_data:
+            if p_sku and p_sku not in seen_media_norms and p_sku in isc_data:
+                seen_media_norms.add(p_sku)
                 grupo_media_14d_list += isc_data[p_sku].get('media_14d', 0.0)
                 grupo_media_7d += isc_data[p_sku].get('media_7d', 0.0)
                 grupo_media_30d += isc_data[p_sku].get('media_30d', 0.0)
@@ -3554,10 +3556,18 @@ def get_marketing_event_by_id(
                 current_receita += info.get('receita_liquida_site', 0.0)
             
             grupo_media_14d = 0.0
+            grupo_media_7d = 0.0
+            grupo_media_30d = 0.0
+            seen_media_norms = set()
             for s_sku in skus:
                 s_norm = normalize_sku(s_sku)
+                if s_norm in seen_media_norms:
+                    continue
+                seen_media_norms.add(s_norm)
                 info = isc_data.get(s_norm, {})
                 grupo_media_14d += info.get('media_14d', 0.0)
+                grupo_media_7d += info.get('media_7d', 0.0)
+                grupo_media_30d += info.get('media_30d', 0.0)
         else:
             ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
             magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
@@ -3578,6 +3588,8 @@ def get_marketing_event_by_id(
                     current_receita += row.get('receita', 0.0)
             
             grupo_media_14d = 0.0
+            grupo_media_7d = 0.0
+            grupo_media_30d = 0.0
         
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
@@ -3591,7 +3603,8 @@ def get_marketing_event_by_id(
         detail_budget_ticket = round(detail_bt_total_receita / detail_bt_total_qtd, 2) if detail_bt_total_qtd > 0 else 0.0
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, 
-                                                   media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict)
+                                                   media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict,
+                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
         suggested_action = get_suggested_action(isc, d_minus)
