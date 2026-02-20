@@ -442,26 +442,30 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
             expected_progress = 0.01
         curva_d_percent = progress_percent / expected_progress
 
+    from datetime import timedelta
+    today = date.today()
+
+    real_7d = None
+    real_14d = None
+    real_30d = None
+    if daily_sales_dict and len(daily_sales_dict) > 0:
+        s7 = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(7))
+        s14 = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(14))
+        s30 = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(30))
+        real_7d = s7 / 7.0
+        real_14d = s14 / 14.0
+        real_30d = s30 / 30.0
+
+    effective_7d = real_7d if real_7d is not None else media_7d
+    effective_14d = real_14d if real_14d is not None else media_14d
+    effective_30d = real_30d if real_30d is not None else media_30d
+
     ia730_calculated = False
-    if media_7d is not None and media_30d is not None:
-        if media_30d > 0:
-            ia730 = media_7d / media_30d
+    if effective_7d is not None and effective_30d is not None:
+        if effective_30d > 0:
+            ia730 = effective_7d / effective_30d
             ia730_calculated = True
-        elif media_7d > 0:
-            ia730 = 1.2
-            ia730_calculated = True
-    
-    if not ia730_calculated and daily_sales_dict and len(daily_sales_dict) > 0:
-        from datetime import timedelta
-        today = date.today()
-        
-        sales_7d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(7))
-        sales_30d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(30))
-        
-        if sales_30d > 0:
-            ia730 = (sales_7d / sales_30d) * (30 / 7)
-            ia730_calculated = True
-        elif sales_7d > 0:
+        elif effective_7d > 0:
             ia730 = 1.2
             ia730_calculated = True
     
@@ -474,14 +478,8 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     else:
         expected_daily = remaining_sales if remaining_sales > 0 else 1.0
 
-    if media_14d is not None and media_14d > 0:
-        rolling14d = media_14d / expected_daily if expected_daily > 0 else 1.5
-    elif daily_sales_dict and len(daily_sales_dict) > 0:
-        from datetime import timedelta
-        today = date.today()
-        sales_14d = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(14))
-        avg_14d = sales_14d / 14
-        rolling14d = avg_14d / expected_daily if expected_daily > 0 else 1.5
+    if effective_14d is not None and effective_14d > 0:
+        rolling14d = effective_14d / expected_daily if expected_daily > 0 else 1.5
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
@@ -1549,6 +1547,12 @@ def get_marketing_events(
     
     active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
     
+    all_projetos_flat = []
+    for proj_list in grupo_projetos.values():
+        all_projetos_flat.extend(proj_list)
+    all_projetos_flat.extend(standalone_projetos)
+    sku_daily_prefetch = _prefetch_all_daily_sales(db, all_projetos_flat, ano)
+    
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -1604,17 +1608,7 @@ def get_marketing_events(
                 budget_ticket_total_qtd += int(cad_bt.atletas_site_pago)
         budget_ticket = round(budget_ticket_total_receita / budget_ticket_total_qtd, 2) if budget_ticket_total_qtd > 0 else 0.0
         
-        grupo_media_14d_list = 0.0
-        grupo_media_7d = 0.0
-        grupo_media_30d = 0.0
-        seen_media_norms = set()
-        for p in proj_list:
-            p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
-            if p_sku and p_sku not in seen_media_norms and p_sku in isc_data:
-                seen_media_norms.add(p_sku)
-                grupo_media_14d_list += isc_data[p_sku].get('media_14d', 0.0)
-                grupo_media_7d += isc_data[p_sku].get('media_7d', 0.0)
-                grupo_media_30d += isc_data[p_sku].get('media_30d', 0.0)
+        grupo_daily_sales_dict = _build_grupo_daily_dict(sku_daily_prefetch, proj_list)
         
         grupo_hist_pattern = None
         try:
@@ -1622,8 +1616,8 @@ def get_marketing_events(
         except Exception:
             pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=grupo_media_14d_list,
-                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+                                                   daily_sales_dict=grupo_daily_sales_dict,
                                                    hist_pattern=grupo_hist_pattern)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
@@ -1699,11 +1693,10 @@ def get_marketing_events(
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         standalone_budget_ticket = round(float(cad.atletas_site_tkt_medio), 2) if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0 else 0.0
         
-        standalone_m14d = sales_info.get('media_14d', 0.0)
-        standalone_m7d = sales_info.get('media_7d', 0.0)
-        standalone_m30d = sales_info.get('media_30d', 0.0)
-        
         standalone_eg = sku_to_grupo.get(normalize_sku(sku))
+        
+        standalone_daily_dict = _build_grupo_daily_dict(sku_daily_prefetch, [projeto])
+        
         standalone_hist = None
         if standalone_eg:
             try:
@@ -1711,8 +1704,8 @@ def get_marketing_events(
             except Exception:
                 pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_m14d,
-                                                   media_7d=standalone_m7d, media_30d=standalone_m30d,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+                                                   daily_sales_dict=standalone_daily_dict,
                                                    hist_pattern=standalone_hist)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
@@ -2444,6 +2437,210 @@ ORDER BY mes
     except Exception as e:
         logger.error(f"Erro monthly sales Magento by IDs: {e}")
         return []
+
+
+def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
+    if db_module.engine_ssh is None or not id_eventos:
+        return {}
+    try:
+        safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        placeholders = ",".join(safe_ids)
+        query = f"""
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
+    b.id_evento,
+    DATE(c.dt_pedido) AS dia,
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND c.nr_total > 0 THEN 1 END) AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE 
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND b.id_evento IN ({placeholders})
+GROUP BY b.id_evento, DATE(c.dt_pedido)
+ORDER BY b.id_evento, dia
+"""
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(text(query))
+            grouped = {}
+            for r in result.fetchall():
+                eid = str(r[0])
+                d_str = str(r[1])
+                qtd = int(r[2] or 0)
+                if eid not in grouped:
+                    grouped[eid] = {}
+                d = date.fromisoformat(d_str)
+                grouped[eid][d] = grouped[eid].get(d, 0) + qtd
+            return grouped
+    except Exception as e:
+        logger.error(f"Erro daily sales Ativo grouped: {e}")
+        return {}
+
+
+def _fetch_daily_sales_magento_by_ids_grouped(location_ids: list) -> dict:
+    if db_module.engine_magento is None or not location_ids:
+        return {}
+    try:
+        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        placeholders = ",".join(safe_ids)
+        query = f"""
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
+    cpev1.value AS location_id,
+    DATE(so.created_at) AS dia,
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id
+      AND cpev1.attribute_id = 321
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND cpev1.value IN ({placeholders})
+    AND so.increment_id NOT LIKE '%%-1%%'
+    AND so.increment_id NOT LIKE '%%-2%%'
+    AND so.increment_id NOT LIKE '%%-3%%'
+    AND so.increment_id NOT LIKE '%%-4%%'
+    AND so.increment_id NOT LIKE '%%-5%%'
+    AND so.increment_id NOT LIKE '%%-6%%'
+    AND so.increment_id NOT LIKE '%%-7%%'
+    AND so.increment_id NOT LIKE '%%-8%%'
+    AND so.increment_id NOT LIKE '%%-9%%'
+    AND so.increment_id NOT LIKE '%%-10%%'
+    AND so.increment_id NOT LIKE '%%-11%%'
+    AND so.increment_id NOT LIKE '%%-12%%'
+    AND so.increment_id NOT LIKE '%%-13%%'
+    AND so.increment_id NOT LIKE '%%-14%%'
+    AND so.increment_id NOT LIKE '%%-15%%'
+    AND so.increment_id NOT LIKE '%%-16%%'
+    AND so.increment_id NOT LIKE '%%-17%%'
+GROUP BY cpev1.value, DATE(so.created_at)
+ORDER BY cpev1.value, dia
+"""
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(query))
+            grouped = {}
+            for r in result.fetchall():
+                lid = str(r[0])
+                d_str = str(r[1])
+                qtd = int(r[2] or 0)
+                if lid not in grouped:
+                    grouped[lid] = {}
+                d = date.fromisoformat(d_str)
+                grouped[lid][d] = grouped[lid].get(d, 0) + qtd
+            return grouped
+    except Exception as e:
+        logger.error(f"Erro daily sales Magento grouped: {e}")
+        return {}
+
+
+_daily_sales_prefetch_cache = {}
+_daily_sales_prefetch_ts = {}
+_DAILY_SALES_CACHE_TTL = 300
+
+def _prefetch_all_daily_sales(db: Session, all_projetos: list, ano: int) -> dict:
+    import time as _time
+    cache_key = f"daily_sales_{ano}"
+    now = _time.time()
+    if cache_key in _daily_sales_prefetch_cache:
+        if now - _daily_sales_prefetch_ts.get(cache_key, 0) < _DAILY_SALES_CACHE_TTL:
+            return _daily_sales_prefetch_cache[cache_key]
+    
+    from ...models.dimensoes import SkuMapping
+    
+    all_skus = []
+    sku_to_projetos = {}
+    for p in all_projetos:
+        if hasattr(p, 'codigo') and p.codigo:
+            sku = str(p.codigo).upper().strip()
+            all_skus.append(sku)
+            if sku not in sku_to_projetos:
+                sku_to_projetos[sku] = []
+            sku_to_projetos[sku].append(p)
+    
+    if not all_skus:
+        return {}
+    
+    all_active_mappings = db.query(SkuMapping).filter(
+        SkuMapping.sku.in_(list(set(all_skus))),
+        SkuMapping.ativo == True
+    ).all()
+    
+    year_mappings = [m for m in all_active_mappings if m.ano == ano]
+    if not year_mappings and all_active_mappings:
+        available_years = sorted(set(m.ano for m in all_active_mappings if m.ano), reverse=True)
+        if available_years:
+            year_mappings = [m for m in all_active_mappings if m.ano == available_years[0]]
+    
+    ativo_ids = []
+    magento_ids = []
+    id_to_sku = {}
+    
+    for m in year_mappings:
+        if m.id_externo:
+            ext_id = str(m.id_externo)
+            sku = m.sku.upper().strip()
+            if m.fonte == 'ATIVO':
+                ativo_ids.append(ext_id)
+                if ext_id not in id_to_sku:
+                    id_to_sku[ext_id] = set()
+                id_to_sku[ext_id].add(sku)
+            elif m.fonte == 'MAGENTO':
+                magento_ids.append(ext_id)
+                if ext_id not in id_to_sku:
+                    id_to_sku[ext_id] = set()
+                id_to_sku[ext_id].add(sku)
+    
+    sku_daily = {}
+    
+    if ativo_ids:
+        ativo_grouped = _fetch_daily_sales_ativo_by_ids_grouped(list(set(ativo_ids)))
+        for ext_id, daily in ativo_grouped.items():
+            for sku in id_to_sku.get(ext_id, []):
+                if sku not in sku_daily:
+                    sku_daily[sku] = {}
+                for d, qtd in daily.items():
+                    sku_daily[sku][d] = sku_daily[sku].get(d, 0) + qtd
+    
+    if magento_ids:
+        magento_grouped = _fetch_daily_sales_magento_by_ids_grouped(list(set(magento_ids)))
+        for ext_id, daily in magento_grouped.items():
+            for sku in id_to_sku.get(ext_id, []):
+                if sku not in sku_daily:
+                    sku_daily[sku] = {}
+                for d, qtd in daily.items():
+                    sku_daily[sku][d] = sku_daily[sku].get(d, 0) + qtd
+    
+    _daily_sales_prefetch_cache[cache_key] = sku_daily
+    _daily_sales_prefetch_ts[cache_key] = now
+    
+    return sku_daily
+
+
+def _build_grupo_daily_dict(sku_daily: dict, proj_list: list) -> dict:
+    combined = {}
+    seen = set()
+    for p in proj_list:
+        if hasattr(p, 'codigo') and p.codigo:
+            sku = str(p.codigo).upper().strip()
+            if sku in seen:
+                continue
+            seen.add(sku)
+            for d, qtd in sku_daily.get(sku, {}).items():
+                combined[d] = combined.get(d, 0) + qtd
+    return combined
 
 
 def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
@@ -3619,9 +3816,8 @@ def get_marketing_event_by_id(
         except Exception:
             pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, 
-                                                   media_14d=grupo_media_14d, daily_sales_dict=daily_sales_dict,
-                                                   media_7d=grupo_media_7d, media_30d=grupo_media_30d,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+                                                   daily_sales_dict=daily_sales_dict,
                                                    hist_pattern=detail_hist_pattern)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
@@ -3832,7 +4028,7 @@ def get_marketing_event_by_id(
             pass
     
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
-                                               media_14d=standalone_media_14d, daily_sales_dict=daily_sales_dict,
+                                               daily_sales_dict=daily_sales_dict,
                                                hist_pattern=standalone_detail_hist)
     isc = calculate_isc(isc_components)
     isc_status = get_isc_status(isc)
@@ -4704,6 +4900,12 @@ def get_pricing_analysis(
     events_maintain = 0
     events_decrease = 0
     
+    pricing_all_projetos = []
+    for proj_list in grupo_projetos.values():
+        pricing_all_projetos.extend(proj_list)
+    pricing_all_projetos.extend(standalone_projetos)
+    pricing_sku_daily = _prefetch_all_daily_sales(db, pricing_all_projetos, ano)
+    
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -4797,14 +4999,16 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
+        pricing_daily_dict = _build_grupo_daily_dict(pricing_sku_daily, proj_list)
+        
         pricing_hist_pattern = None
         try:
             pricing_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
         except Exception:
             pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=combined_rolling_14d,
-                                                   media_7d=combined_m7d, media_30d=combined_m30d,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+                                                   daily_sales_dict=pricing_daily_dict,
                                                    hist_pattern=pricing_hist_pattern)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
@@ -4892,16 +5096,15 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
-        standalone_pricing_m14d = sales_info.get('media_14d', 0.0)
-        standalone_pricing_m7d = sales_info.get('media_7d', 0.0)
-        standalone_pricing_m30d = sales_info.get('media_30d', 0.0)
-        
         standalone_pricing_eg = None
         standalone_pricing_eg_mapping = db.query(SkuMapping).filter(
             SkuMapping.sku == sku, SkuMapping.evento_grupo.isnot(None), SkuMapping.evento_grupo != '', SkuMapping.ativo == True
         ).first()
         if standalone_pricing_eg_mapping:
             standalone_pricing_eg = standalone_pricing_eg_mapping.evento_grupo
+        
+        standalone_pricing_daily_dict = _build_grupo_daily_dict(pricing_sku_daily, [projeto])
+        
         standalone_pricing_hist = None
         if standalone_pricing_eg:
             try:
@@ -4909,8 +5112,8 @@ def get_pricing_analysis(
             except Exception:
                 pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus, media_14d=standalone_pricing_m14d,
-                                                   media_7d=standalone_pricing_m7d, media_30d=standalone_pricing_m30d,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+                                                   daily_sales_dict=standalone_pricing_daily_dict,
                                                    hist_pattern=standalone_pricing_hist)
         isc = calculate_isc(isc_components)
         isc_status = get_isc_status(isc)
