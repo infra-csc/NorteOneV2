@@ -3245,22 +3245,22 @@ def get_evento_insights(
     d_minus_atual = max(0, dias_ate_evento_atual)
 
     indice_aceleracao = []
-    for bk in sorted_bucket_keys:
-        label = f"D-{bk}" if bk >= 0 else f"D+{abs(bk)}"
-        center_d = bk + BUCKET_SIZE // 2
+    max_d_daily = max_dias if max_dias > 0 else 180
+    for d in range(max_d_daily, -1, -1):
+        label = f"D-{d}"
 
-        atual_alcancado = bk >= d_minus_atual
+        atual_alcancado = d >= d_minus_atual
         if atual_alcancado:
-            ma7_atual = _calc_rolling_avg(daily_atual, center_d, 7)
-            ma30_atual = _calc_rolling_avg(daily_atual, center_d, 30)
+            ma7_atual = _calc_rolling_avg(daily_atual, d, 7)
+            ma30_atual = _calc_rolling_avg(daily_atual, d, 30)
             ia_atual = round(ma7_atual / ma30_atual, 2) if (ma7_atual >= 1 and ma30_atual >= 1) else None
         else:
             ia_atual = None
 
-        ma7_ant = _calc_rolling_avg(daily_anterior, center_d, 7)
-        ma30_ant = _calc_rolling_avg(daily_anterior, center_d, 30)
+        ma7_ant = _calc_rolling_avg(daily_anterior, d, 7)
+        ma30_ant = _calc_rolling_avg(daily_anterior, d, 30)
         ia_ant = round(ma7_ant / ma30_ant, 2) if (ma7_ant >= 1 and ma30_ant >= 1) else None
-        indice_aceleracao.append({"d_minus": bk, "label": label, "ia_atual": ia_atual, "ia_anterior": ia_ant})
+        indice_aceleracao.append({"d_minus": d, "label": label, "ia_atual": ia_atual, "ia_anterior": ia_ant})
 
     pace_diario = []
     for bk in sorted_bucket_keys:

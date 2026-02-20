@@ -123,7 +123,14 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={filteredIA}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                <XAxis dataKey="label" tick={{ fill: textColor, fontSize: 12 }} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: textColor, fontSize: 11 }}
+                  interval={Math.max(0, Math.floor(filteredIA.length / 15))}
+                  angle={-45}
+                  textAnchor="end"
+                  height={50}
+                />
                 <YAxis tick={{ fill: textColor, fontSize: 12 }} domain={['auto', 'auto']} />
                 <Tooltip
                   contentStyle={{
