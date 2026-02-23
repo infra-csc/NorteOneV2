@@ -4,7 +4,7 @@ import api from '../../services/api';
 import {
   ShieldCheck, Search, Plus, Edit2, Trash2, RefreshCw,
   AlertTriangle, X, Users, Eye, PenLine, FilePlus, Trash,
-  Check, ChevronDown, ChevronUp, Save
+  Check, ChevronDown, ChevronUp, Save, Layers
 } from 'lucide-react';
 
 interface Permissao {
@@ -54,16 +54,21 @@ const PerfisAcesso: React.FC = () => {
   const [expandedPermissoes, setExpandedPermissoes] = useState<Permissao[]>([]);
   const [loadingPermissoes, setLoadingPermissoes] = useState(false);
 
+  const [camposEventos, setCamposEventos] = useState<{key: string; label: string; tipo: string}[]>([]);
+  const [formPermissoesCampo, setFormPermissoesCampo] = useState<Record<string, {pode_visualizar: boolean; pode_editar: boolean}>>({});
+
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [perfisRes, modulosRes] = await Promise.all([
+      const [perfisRes, modulosRes, camposRes] = await Promise.all([
         api.get('/perfis-acesso/'),
-        api.get('/perfis-acesso/modulos')
+        api.get('/perfis-acesso/modulos'),
+        api.get('/perfis-acesso/campos-eventos')
       ]);
       setPerfis(perfisRes.data);
       setModulos(modulosRes.data);
+      setCamposEventos(camposRes.data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao carregar dados');
     } finally {
@@ -114,12 +119,25 @@ const PerfisAcesso: React.FC = () => {
     return map;
   };
 
+  const initFormPermissoesCampo = (permsCampo?: {entidade: string; campo: string; pode_visualizar: boolean; pode_editar: boolean}[]) => {
+    const map: Record<string, {pode_visualizar: boolean; pode_editar: boolean}> = {};
+    camposEventos.forEach(c => {
+      const existing = permsCampo?.find(p => p.entidade === 'eventos' && p.campo === c.key);
+      map[c.key] = {
+        pode_visualizar: existing ? existing.pode_visualizar : true,
+        pode_editar: existing ? existing.pode_editar : true,
+      };
+    });
+    return map;
+  };
+
   const openCreateModal = () => {
     setEditingPerfil(null);
     setFormNome('');
     setFormDescricao('');
     setFormIsAdmin(false);
     setFormPermissoes(initFormPermissoes());
+    setFormPermissoesCampo(initFormPermissoesCampo());
     setFormError(null);
     setShowModal(true);
   };
@@ -127,12 +145,16 @@ const PerfisAcesso: React.FC = () => {
   const openEditModal = async (perfil: PerfilAcesso) => {
     setFormError(null);
     try {
-      const res = await api.get(`/perfis-acesso/${perfil.id}`);
-      setEditingPerfil(res.data);
-      setFormNome(res.data.nome);
-      setFormDescricao(res.data.descricao || '');
-      setFormIsAdmin(res.data.is_admin || false);
-      setFormPermissoes(initFormPermissoes(res.data.permissoes));
+      const [perfilRes, camposRes] = await Promise.all([
+        api.get(`/perfis-acesso/${perfil.id}`),
+        api.get(`/perfis-acesso/${perfil.id}/permissoes-campo`)
+      ]);
+      setEditingPerfil(perfilRes.data);
+      setFormNome(perfilRes.data.nome);
+      setFormDescricao(perfilRes.data.descricao || '');
+      setFormIsAdmin(perfilRes.data.is_admin || false);
+      setFormPermissoes(initFormPermissoes(perfilRes.data.permissoes));
+      setFormPermissoesCampo(initFormPermissoesCampo(camposRes.data));
       setShowModal(true);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao carregar perfil');
@@ -202,6 +224,13 @@ const PerfisAcesso: React.FC = () => {
       p.pode_visualizar || p.pode_criar || p.pode_editar || p.pode_deletar
     );
 
+    const permissoesCampoList = Object.entries(formPermissoesCampo).map(([campo, perms]) => ({
+      entidade: 'eventos',
+      campo,
+      pode_visualizar: perms.pode_visualizar,
+      pode_editar: perms.pode_editar,
+    }));
+
     try {
       if (editingPerfil) {
         await api.put(`/perfis-acesso/${editingPerfil.id}`, {
@@ -210,13 +239,15 @@ const PerfisAcesso: React.FC = () => {
           is_admin: formIsAdmin,
           permissoes: permissoesList,
         });
+        await api.put(`/perfis-acesso/${editingPerfil.id}/permissoes-campo`, permissoesCampoList);
       } else {
-        await api.post('/perfis-acesso/', {
+        const res = await api.post('/perfis-acesso/', {
           nome: formNome,
           descricao: formDescricao || null,
           is_admin: formIsAdmin,
           permissoes: permissoesList,
         });
+        await api.put(`/perfis-acesso/${res.data.id}/permissoes-campo`, permissoesCampoList);
       }
       setShowModal(false);
       fetchData();
@@ -626,6 +657,95 @@ const PerfisAcesso: React.FC = () => {
                     </table>
                   </div>
                 </div>
+
+                {camposEventos.length > 0 && (
+                  <div>
+                    <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                      <Layers className="w-4 h-4 text-purple-500" />
+                      Permissões de Abas - Eventos
+                      {formIsAdmin && <span className="text-xs font-normal text-indigo-400 ml-2">(Administradores possuem acesso total automaticamente)</span>}
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className={`${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                            <th className={`text-left text-xs font-medium uppercase px-3 py-2 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                              Aba do Evento
+                            </th>
+                            <th className="text-center text-xs font-medium uppercase px-3 py-2">
+                              <div className={`flex items-center justify-center gap-1 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                <Eye className="w-3 h-3" /> Visualizar
+                              </div>
+                            </th>
+                            <th className="text-center text-xs font-medium uppercase px-3 py-2">
+                              <div className={`flex items-center justify-center gap-1 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                <PenLine className="w-3 h-3" /> Editar
+                              </div>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {camposEventos.map(campo => {
+                            const perm = formPermissoesCampo[campo.key] || { pode_visualizar: true, pode_editar: true };
+                            return (
+                              <tr key={campo.key} className={`${isDark ? 'hover:bg-gray-700/30 border-gray-700/50' : 'hover:bg-gray-50 border-gray-100'} border-b`}>
+                                <td className={`px-3 py-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  {campo.label}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFormPermissoesCampo(prev => {
+                                        const updated = { ...prev };
+                                        const newVis = !perm.pode_visualizar;
+                                        updated[campo.key] = {
+                                          pode_visualizar: newVis,
+                                          pode_editar: newVis ? perm.pode_editar : false,
+                                        };
+                                        return updated;
+                                      });
+                                    }}
+                                    className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors mx-auto ${
+                                      perm.pode_visualizar
+                                        ? 'bg-indigo-500 border-indigo-500 text-white'
+                                        : isDark ? 'border-gray-600 hover:border-gray-500' : 'border-gray-300 hover:border-gray-400'
+                                    }`}
+                                  >
+                                    {perm.pode_visualizar && <Check className="w-4 h-4" />}
+                                  </button>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFormPermissoesCampo(prev => {
+                                        const updated = { ...prev };
+                                        const newEdit = !perm.pode_editar;
+                                        updated[campo.key] = {
+                                          pode_visualizar: newEdit ? true : perm.pode_visualizar,
+                                          pode_editar: newEdit,
+                                        };
+                                        return updated;
+                                      });
+                                    }}
+                                    className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors mx-auto ${
+                                      perm.pode_editar
+                                        ? 'bg-indigo-500 border-indigo-500 text-white'
+                                        : isDark ? 'border-gray-600 hover:border-gray-500' : 'border-gray-300 hover:border-gray-400'
+                                    }`}
+                                  >
+                                    {perm.pode_editar && <Check className="w-4 h-4" />}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className={`flex items-center justify-end gap-3 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>

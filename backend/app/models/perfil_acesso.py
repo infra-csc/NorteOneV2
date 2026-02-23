@@ -17,6 +17,7 @@ class PerfilAcesso(Base):
     updated_at = Column(DateTime, onupdate=func.now())
 
     permissoes = relationship("PerfilPermissao", back_populates="perfil_acesso", cascade="all, delete-orphan")
+    permissoes_campo = relationship("PerfilPermissaoCampo", back_populates="perfil_acesso_rel", cascade="all, delete-orphan")
     usuarios = relationship("Usuario", back_populates="perfil_acesso_rel")
 
 
@@ -32,3 +33,16 @@ class PerfilPermissao(Base):
     pode_deletar = Column(Boolean, default=False)
 
     perfil_acesso = relationship("PerfilAcesso", back_populates="permissoes")
+
+
+class PerfilPermissaoCampo(Base):
+    __tablename__ = "perfil_permissao_campo"
+
+    id = Column(Integer, primary_key=True, index=True)
+    perfil_acesso_id = Column(Integer, ForeignKey("perfil_acesso.id", ondelete="CASCADE"), nullable=False)
+    entidade = Column(String(50), nullable=False)
+    campo = Column(String(50), nullable=False)
+    pode_visualizar = Column(Boolean, default=True)
+    pode_editar = Column(Boolean, default=True)
+
+    perfil_acesso_rel = relationship("PerfilAcesso", back_populates="permissoes_campo")

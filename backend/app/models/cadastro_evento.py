@@ -20,6 +20,16 @@ class Localizacao(Base):
     created_at = Column(DateTime, default=func.now())
 
 
+class DistanciaOpcao(Base):
+    __tablename__ = "distancia_opcao"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(20), nullable=False, unique=True)
+    ativo = Column(Boolean, default=True)
+    ordem = Column(Integer, default=0)
+    created_at = Column(DateTime, default=func.now())
+
+
 class CadastroEvento(Base):
     """Cadastro principal de eventos esportivos"""
     __tablename__ = "cadastro_evento"

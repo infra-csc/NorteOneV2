@@ -9,11 +9,17 @@ interface ModulePermission {
   pode_deletar: boolean;
 }
 
+interface CampoPermission {
+  pode_visualizar: boolean;
+  pode_editar: boolean;
+}
+
 interface PermissionsData {
   perfil_acesso_id: number | null;
   perfil_acesso_nome: string | null;
   is_admin: boolean;
   permissoes: Record<string, ModulePermission>;
+  permissoes_campo: Record<string, Record<string, CampoPermission>>;
 }
 
 interface PermissionContextType {
@@ -23,6 +29,8 @@ interface PermissionContextType {
   canCreate: (modulo: string) => boolean;
   canEdit: (modulo: string) => boolean;
   canDelete: (modulo: string) => boolean;
+  canViewCampo: (entidade: string, campo: string) => boolean;
+  canEditCampo: (entidade: string, campo: string) => boolean;
   refreshPermissions: () => Promise<void>;
 }
 
@@ -77,6 +85,26 @@ export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children
     return permissions.permissoes[modulo]?.pode_deletar || false;
   };
 
+  const canViewCampo = (entidade: string, campo: string): boolean => {
+    if (!permissions) return false;
+    if (permissions.is_admin) return true;
+    const entidadePerms = permissions.permissoes_campo?.[entidade];
+    if (!entidadePerms) return true;
+    const campoPerms = entidadePerms[campo];
+    if (!campoPerms) return true;
+    return campoPerms.pode_visualizar;
+  };
+
+  const canEditCampo = (entidade: string, campo: string): boolean => {
+    if (!permissions) return false;
+    if (permissions.is_admin) return true;
+    const entidadePerms = permissions.permissoes_campo?.[entidade];
+    if (!entidadePerms) return true;
+    const campoPerms = entidadePerms[campo];
+    if (!campoPerms) return true;
+    return campoPerms.pode_editar;
+  };
+
   return (
     <PermissionContext.Provider value={{
       permissions,
@@ -85,6 +113,8 @@ export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children
       canCreate,
       canEdit,
       canDelete,
+      canViewCampo,
+      canEditCampo,
       refreshPermissions: fetchPermissions,
     }}>
       {children}

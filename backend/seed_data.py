@@ -5,6 +5,7 @@ from app.core.database import SessionLocal, engine, Base
 from app.core.security import get_password_hash
 from app.models.dimensoes import DimTempo, DimCentroCusto, DimConta, DimProjeto, DimCategoriaAtleta
 from app.models.user import Usuario
+from app.models.cadastro_evento import DistanciaOpcao
 from app.models.fatos import FatoOrcamento, FatoProjecao, FatoRealizado, FatoAtletasMetricas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
 
 Base.metadata.create_all(bind=engine)
@@ -318,6 +319,15 @@ def seed_atletas_satelite(db: Session):
     db.commit()
 
 
+def seed_distancias(db: Session):
+    if db.query(DistanciaOpcao).first():
+        return
+    distancias = ['3k', '5k', '10k', '13k', '15k', '21k', '42k']
+    for i, nome in enumerate(distancias):
+        db.add(DistanciaOpcao(nome=nome, ordem=i, ativo=True))
+    db.commit()
+
+
 def main():
     db = SessionLocal()
     try:
@@ -339,6 +349,8 @@ def main():
         seed_atletas_metricas(db)
         print("Seeding atletas satelite (canais, kits, custos)...")
         seed_atletas_satelite(db)
+        print("Seeding distancias...")
+        seed_distancias(db)
         print("Seed completed!")
     finally:
         db.close()

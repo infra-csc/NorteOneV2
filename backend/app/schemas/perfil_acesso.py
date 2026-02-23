@@ -85,8 +85,42 @@ class ModuloInfo(BaseModel):
     label: str
 
 
+CAMPOS_EVENTOS = [
+    {"key": "info_geral", "label": "Info Geral", "tipo": "aba"},
+    {"key": "retirada_kit", "label": "Retirada Kit", "tipo": "aba"},
+    {"key": "atletas", "label": "Atletas", "tipo": "aba"},
+    {"key": "cortesias", "label": "Cortesias", "tipo": "aba"},
+    {"key": "kit_produto", "label": "Kit Produto", "tipo": "aba"},
+    {"key": "faixas_preco_site", "label": "Faixa Preço - Site", "tipo": "aba"},
+    {"key": "faixas_preco_grupos", "label": "Faixa Preço - Grupos", "tipo": "aba"},
+    {"key": "taxas", "label": "Taxas", "tipo": "aba"},
+]
+
+
+class PermissaoCampoBase(BaseModel):
+    entidade: str
+    campo: str
+    pode_visualizar: bool = True
+    pode_editar: bool = True
+
+
+class PermissaoCampoResponse(PermissaoCampoBase):
+    id: int
+    perfil_acesso_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class CampoEventoInfo(BaseModel):
+    key: str
+    label: str
+    tipo: str
+
+
 class UserPermissoesResponse(BaseModel):
     perfil_acesso_id: Optional[int] = None
     perfil_acesso_nome: Optional[str] = None
     is_admin: bool = False
     permissoes: dict = {}
+    permissoes_campo: dict = {}

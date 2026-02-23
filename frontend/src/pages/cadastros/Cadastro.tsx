@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
 import { cadastrosService } from '../../services/api';
+import api from '../../services/api';
 import { 
   Plus, Pencil, X, Check, Calendar, MapPin, Users, 
   Trophy, Zap, Target, Sparkles, Clock, Package,
@@ -111,7 +113,7 @@ interface FormData {
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
 
-const distanciasOptions = ['3k', '5k', '10k', '15k', '21k', '42k'];
+const distanciasOptionsFallback = ['3k', '5k', '10k', '13k', '15k', '21k', '42k'];
 const pelotoesOptions = ['Quênia', 'Azul', 'Verde', 'Branco'];
 const kitOptions = ['Kit Participação', 'Kit Básico', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const faixaOptions = ['1', '2', '3', '4', '5'];
@@ -211,6 +213,8 @@ const tabs = [
 
 const Cadastro: React.FC = () => {
   const { isDark } = useTheme();
+  const { permissions, canViewCampo, canEditCampo } = usePermissions();
+  const isAdmin = permissions?.is_admin || false;
   const [cadastros, setCadastros] = useState<CadastroEvento[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -230,9 +234,24 @@ const Cadastro: React.FC = () => {
   const [showAddCircuito, setShowAddCircuito] = useState(false);
   const [showAddLocalizacao, setShowAddLocalizacao] = useState(false);
 
+  const [distanciasOptions, setDistanciasOptions] = useState<string[]>(distanciasOptionsFallback);
+  const [showAddDistancia, setShowAddDistancia] = useState(false);
+  const [newDistancia, setNewDistancia] = useState('');
+
+  const visibleTabs = useMemo(() => {
+    return tabs.filter(tab => canViewCampo('eventos', tab.id));
+  }, [permissions]);
+
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.find(t => t.id === activeTab)) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs]);
+
   useEffect(() => {
     loadCadastros();
     loadOpcoes();
+    loadDistancias();
   }, []);
 
   const loadCadastros = async () => {
@@ -257,6 +276,30 @@ const Cadastro: React.FC = () => {
       setLocalizacoes(locData);
     } catch (error) {
       console.error('Erro ao carregar opções:', error);
+    }
+  };
+
+  const loadDistancias = async () => {
+    try {
+      const res = await api.get('/distancias/');
+      if (res.data && res.data.length > 0) {
+        setDistanciasOptions(res.data.map((d: any) => d.nome));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar distâncias:', error);
+    }
+  };
+
+  const handleAddDistancia = async () => {
+    const nome = newDistancia.trim();
+    if (!nome) return;
+    try {
+      await api.post('/distancias/', { nome });
+      setNewDistancia('');
+      setShowAddDistancia(false);
+      loadDistancias();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Erro ao adicionar distância');
     }
   };
 
@@ -1776,7 +1819,7 @@ const Cadastro: React.FC = () => {
                 <Ruler className="w-4 h-4 inline mr-2 text-purple-500" />
                 Distâncias
               </label>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 items-center">
                 {distanciasOptions.map(d => (
                   <button
                     key={d}
@@ -1796,6 +1839,34 @@ const Cadastro: React.FC = () => {
                     {d}
                   </button>
                 ))}
+                {isAdmin && !showAddDistancia && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddDistancia(true)}
+                    className="px-3 py-2 rounded-xl font-medium transition-all bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg hover:opacity-90"
+                    title="Adicionar nova distância"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
+                {isAdmin && showAddDistancia && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={newDistancia}
+                      onChange={(e) => setNewDistancia(e.target.value)}
+                      placeholder="Ex: 13k"
+                      className={`w-24 px-3 py-2 rounded-xl border text-sm ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-emerald-500`}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddDistancia(); } }}
+                    />
+                    <button type="button" onClick={handleAddDistancia} className="p-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600">
+                      <Check className="w-4 h-4" />
+                    </button>
+                    <button type="button" onClick={() => { setShowAddDistancia(false); setNewDistancia(''); }} className="p-2 rounded-xl bg-gray-500 text-white hover:bg-gray-600">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -3012,9 +3083,10 @@ const Cadastro: React.FC = () => {
             </div>
 
             <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-700/50">
-              {tabs.map((tab) => {
+              {visibleTabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
+                const tabEditable = canEditCampo('eventos', tab.id);
                 return (
                   <button
                     key={tab.id}
@@ -3027,7 +3099,7 @@ const Cadastro: React.FC = () => {
                     }`}
                   >
                     <Icon className={`w-4 h-4 ${isActive ? 'text-purple-500' : ''}`} />
-                    <span className="text-sm">{tab.label}</span>
+                    <span className="text-sm">{tab.label}{!tabEditable ? ' (somente leitura)' : ''}</span>
                     {isActive && (
                       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500" />
                     )}
@@ -3038,7 +3110,16 @@ const Cadastro: React.FC = () => {
 
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
               <div className="p-6 flex-1 overflow-y-auto scrollbar-thin-custom">
-                {renderTabContent()}
+                {!canEditCampo('eventos', activeTab) ? (
+                  <div className="relative">
+                    <div className="pointer-events-none opacity-60">
+                      {renderTabContent()}
+                    </div>
+                    <div className={`absolute top-0 left-0 right-0 p-3 rounded-xl text-center text-sm font-medium ${isDark ? 'bg-amber-900/40 text-amber-300 border border-amber-500/30' : 'bg-amber-50 text-amber-700 border border-amber-300'}`}>
+                      Somente leitura - Você não tem permissão para editar esta aba
+                    </div>
+                  </div>
+                ) : renderTabContent()}
               </div>
 
               <div className={`p-4 border-t flex-shrink-0 ${isDark ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'} flex justify-end gap-3`}>
