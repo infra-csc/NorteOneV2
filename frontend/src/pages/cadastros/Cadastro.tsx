@@ -3112,11 +3112,12 @@ const Cadastro: React.FC = () => {
               <div className="p-6 flex-1 overflow-y-auto scrollbar-thin-custom">
                 {!canEditCampo('eventos', activeTab) ? (
                   <div className="relative">
-                    <div className="pointer-events-none opacity-60">
+                    <div className="pointer-events-none select-none">
                       {renderTabContent()}
                     </div>
-                    <div className={`absolute top-0 left-0 right-0 p-3 rounded-xl text-center text-sm font-medium ${isDark ? 'bg-amber-900/40 text-amber-300 border border-amber-500/30' : 'bg-amber-50 text-amber-700 border border-amber-300'}`}>
-                      Somente leitura - Você não tem permissão para editar esta aba
+                    <div className={`sticky top-0 z-10 flex items-center justify-center gap-2 py-1.5 px-4 rounded-lg text-xs font-medium mx-auto w-fit mt-[-8px] mb-2 ${isDark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-100/90 text-gray-500'}`}>
+                      <Eye className="w-3 h-3" />
+                      Visualização
                     </div>
                   </div>
                 ) : renderTabContent()}
