@@ -2168,6 +2168,15 @@ const Cadastro: React.FC = () => {
                     />
                   </div>
                 </div>
+                <div className="mb-4">
+                  <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <TrendingUp className="w-4 h-4 inline mr-2 text-blue-500" />
+                    Valor Total (Valor Unitário × Atletas Site Pago: {form.atletas.site.pago || 0})
+                  </label>
+                  <div className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600/50 border-gray-500 text-emerald-400' : 'bg-gray-100 border-gray-300 text-emerald-600'} font-bold text-lg`}>
+                    R$ {((taxa.valor_unitario || 0) * (form.atletas.site.pago || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center gap-3">
                     <label className={`block text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -2794,6 +2803,7 @@ const Cadastro: React.FC = () => {
                         <thead>
                           <tr className={isDark ? 'bg-gray-800' : 'bg-gray-50'}>
                             <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Unitário</th>
+                            <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Total</th>
                             <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>% Inscrição</th>
                             <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Validado</th>
                             <th className={`text-left px-4 py-2 text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data Validação</th>
@@ -2803,6 +2813,7 @@ const Cadastro: React.FC = () => {
                           {selectedCadastro.taxas.map((t: any, i: number) => (
                             <tr key={i} className={`border-t ${isDark ? 'border-gray-700/50' : 'border-gray-100'}`}>
                               <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(t.valor_unitario || 0) || '0'}</td>
+                              <td className={`px-4 py-2 text-sm font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>R$ {((t.valor_unitario || 0) * (selectedCadastro.atletas.site.pago || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(t.percentual_inscricao || 0) || '0'}%</td>
                               <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.validado ? 'Sim' : 'Não'}</td>
                               <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{t.data_validacao ? formatDateDisplay(t.data_validacao) : '-'}</td>
