@@ -3111,13 +3111,13 @@ const Cadastro: React.FC = () => {
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
               <div className="p-6 flex-1 overflow-y-auto scrollbar-thin-custom">
                 {!canEditCampo('eventos', activeTab) ? (
-                  <div className="relative">
-                    <div className="pointer-events-none select-none">
-                      {renderTabContent()}
-                    </div>
-                    <div className={`sticky top-0 z-10 flex items-center justify-center gap-2 py-1.5 px-4 rounded-lg text-xs font-medium mx-auto w-fit mt-[-8px] mb-2 ${isDark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-100/90 text-gray-500'}`}>
+                  <div>
+                    <div className={`flex items-center justify-center gap-2 py-1.5 px-4 rounded-lg text-xs font-medium mx-auto w-fit mb-4 ${isDark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-100/90 text-gray-500'}`}>
                       <Eye className="w-3 h-3" />
                       Visualização
+                    </div>
+                    <div className="pointer-events-none select-none">
+                      {renderTabContent()}
                     </div>
                   </div>
                 ) : renderTabContent()}
