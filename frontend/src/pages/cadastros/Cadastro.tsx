@@ -115,7 +115,7 @@ interface FormData {
 
 const distanciasOptionsFallback = ['3k', '5k', '10k', '13k', '15k', '21k', '42k'];
 const pelotoesOptions = ['Quênia', 'Azul', 'Verde', 'Branco'];
-const kitOptions = ['Kit Participação', 'Kit Básico', 'Kit Vip', 'Kit Plus', 'Kit Super'];
+const kitOptions = ['Kit Básico', 'Kit Participação', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const faixaOptions = ['1', '2', '3', '4', '5'];
 const coresPeitoOptions = ['Branco', 'Amarelo', 'Laranja', 'Verde', 'Azul', 'Vermelho', 'Rosa', 'Roxo', 'Preto'];
 const modalidadesOptions = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
@@ -2252,11 +2252,12 @@ const Cadastro: React.FC = () => {
                       setForm(prev => {
                         const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
                         let produtosFinais = defaultProdutos;
-                        if (kitBasico && selectedKit !== 'Kit Básico') {
-                          produtosFinais = defaultProdutos.map(p => {
-                            const matchBasico = kitBasico.produtos.find(bp => bp.nome === p.nome);
-                            return matchBasico ? { ...p, valor_unitario: matchBasico.valor_unitario } : p;
-                          });
+                        if (kitBasico && selectedKit !== 'Kit Básico' && selectedKit !== 'Kit Participação') {
+                          const basicoProdutos = kitBasico.produtos.map(bp => ({ ...bp }));
+                          const defaultExtraNomes = defaultProdutos
+                            .filter(p => !basicoProdutos.some(bp => bp.nome === p.nome))
+                            .map(p => ({ ...p }));
+                          produtosFinais = [...basicoProdutos, ...defaultExtraNomes];
                         }
                         return {
                           ...prev,
@@ -2289,24 +2290,36 @@ const Cadastro: React.FC = () => {
                           onClick={() => {
                             setForm(prev => {
                               const currentKit = prev.kit_produto[index];
+                              const isKitBasico = currentKit.kit === 'Kit Básico';
                               let produtos;
                               if (isSelected) {
                                 produtos = currentKit.produtos.filter(p => p.nome !== produto);
                               } else {
                                 let valorInicial = 0;
-                                if (currentKit.kit !== 'Kit Básico') {
+                                if (!isKitBasico) {
                                   const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
                                   const matchBasico = kitBasico?.produtos.find(bp => bp.nome === produto);
                                   if (matchBasico) valorInicial = matchBasico.valor_unitario;
                                 }
                                 produtos = [...currentKit.produtos, { nome: produto, valor_unitario: valorInicial }];
                               }
-                              return {
-                                ...prev,
-                                kit_produto: prev.kit_produto.map((k, i) => 
-                                  i === index ? { ...k, produtos } : k
-                                )
-                              };
+                              let updatedKits = prev.kit_produto.map((k, i) => 
+                                i === index ? { ...k, produtos } : k
+                              );
+                              if (isKitBasico) {
+                                updatedKits = updatedKits.map((k, i) => {
+                                  if (i === index || k.kit === 'Kit Participação' || !k.kit) return k;
+                                  if (isSelected) {
+                                    return { ...k, produtos: k.produtos.filter(p => p.nome !== produto) };
+                                  } else {
+                                    if (!k.produtos.some(p => p.nome === produto)) {
+                                      return { ...k, produtos: [...k.produtos, { nome: produto, valor_unitario: 0 }] };
+                                    }
+                                  }
+                                  return k;
+                                });
+                              }
+                              return { ...prev, kit_produto: updatedKits };
                             });
                           }}
                           className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
