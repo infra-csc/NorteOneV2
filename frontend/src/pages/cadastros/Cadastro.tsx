@@ -3099,7 +3099,7 @@ const Cadastro: React.FC = () => {
                     }`}
                   >
                     <Icon className={`w-4 h-4 ${isActive ? 'text-purple-500' : ''}`} />
-                    <span className="text-sm">{tab.label}{!tabEditable ? ' (somente leitura)' : ''}</span>
+                    <span className="text-sm">{tab.label}</span>
                     {isActive && (
                       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500" />
                     )}
