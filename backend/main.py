@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
-from app.api.routes import auth, users, centros_custo, contas, projetos, categorias_atletas, orcamento, projecao, realizado, atletas, atletas_satelite, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes
 from app.core.cache import cache_scheduler
 import logging
 
@@ -47,14 +47,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(centros_custo.router, prefix="/api")
-app.include_router(contas.router, prefix="/api")
 app.include_router(projetos.router, prefix="/api")
 app.include_router(categorias_atletas.router, prefix="/api")
-app.include_router(orcamento.router, prefix="/api")
-app.include_router(projecao.router, prefix="/api")
-app.include_router(realizado.router, prefix="/api")
-app.include_router(atletas.router, prefix="/api")
-app.include_router(atletas_satelite.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(nori.router, prefix="/api")
 app.include_router(tarefas.router, prefix="/api")

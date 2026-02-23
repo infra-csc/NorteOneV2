@@ -5,11 +5,11 @@ import { Projeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   Plus, Pencil, X, Check, Calendar, MapPin, Users, Globe, 
-  UsersRound, Trophy, Zap, Target, TrendingUp, Sparkles,
-  Image as ImageIcon, Building2, FileText, Search, Filter,
-  ChevronDown, RotateCcw, Eye, BarChart3, ArrowUpRight, 
-  ArrowDownRight, Minus, Award, Hash, Briefcase, Landmark,UserStar,Scale,Component,LoaderPinwheel,
-  Database, RefreshCw, DollarSign, Store, ShoppingBag, Truck, Gift, Clock,
+  Trophy, Zap, Target, Sparkles,
+  Image as ImageIcon, FileText, Search, Filter,
+  ChevronDown, RotateCcw, Eye, BarChart3,
+  Hash, Briefcase, UserStar, Scale, Component, LoaderPinwheel,
+  Database, RefreshCw, Store, Truck, Gift, Clock,
 } from 'lucide-react';
 
 const modalidades = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
@@ -17,15 +17,6 @@ const tiposEvento = ['Próprio', 'Incentivado', 'Organização', 'Licenciado'];
 const leis = ['','LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'];
 const statusList = ['Em andamento', 'Concluído', 'Cancelado'];
 
-// Interface estendida para incluir dados de atletas
-interface ProjetoComAtletas extends Projeto {
-  imagem_kv?: string;
-  atletas_total?: number;
-  atletas_site?: number;
-  atletas_grupo?: number;
-  qtd_atletas_orcado?: number;
-  qtd_atletas_projetado?: number;
-}
 
 // Interface para filtros
 interface Filtros {
@@ -121,51 +112,15 @@ const parseDateForSort = (dateString: string | null | undefined): number => {
   return Infinity;
 };
 
-// Função para gerar insight de atletas
-const getAtletasInsight = (orcado: number, realizado: number) => {
-  if (orcado === 0) {
-    return {
-      percentage: 0,
-      type: 'neutral' as const,
-      message: 'Sem meta orçada definida',
-      icon: <Minus className="w-4 h-4" />
-    };
-  }
-
-  const percentage = ((realizado - orcado) / orcado) * 100;
-
-  if (percentage > 10) {
-    return {
-      percentage: Math.abs(percentage),
-      type: 'positive' as const,
-      message: `Superou a meta em ${Math.abs(percentage).toFixed(1)}%`,
-      icon: <ArrowUpRight className="w-4 h-4" />
-    };
-  } else if (percentage < -10) {
-    return {
-      percentage: Math.abs(percentage),
-      type: 'negative' as const,
-      message: `Abaixo da meta em ${Math.abs(percentage).toFixed(1)}%`,
-      icon: <ArrowDownRight className="w-4 h-4" />
-    };
-  } else {
-    return {
-      percentage: Math.abs(percentage),
-      type: 'neutral' as const,
-      message: `Meta atingida (${percentage >= 0 ? '+' : ''}${percentage.toFixed(1)}%)`,
-      icon: <Check className="w-4 h-4" />
-    };
-  }
-};
 
 const Projetos: React.FC = () => {
   const { isDark } = useTheme();
-  const [projetos, setProjetos] = useState<ProjetoComAtletas[]>([]);
+  const [projetos, setProjetos] = useState<Projeto[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedProjeto, setSelectedProjeto] = useState<ProjetoComAtletas | null>(null);
-  const [editItem, setEditItem] = useState<ProjetoComAtletas | null>(null);
+  const [selectedProjeto, setSelectedProjeto] = useState<Projeto | null>(null);
+  const [editItem, setEditItem] = useState<Projeto | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filtrosDisponiveis, setFiltrosDisponiveis] = useState<FiltrosDisponiveis | null>(null);
   const [dadosExternos, setDadosExternos] = useState<AtletaExternoPorProjeto | null>(null);
@@ -233,16 +188,10 @@ const Projetos: React.FC = () => {
       if (filtros.ano) params.ano = filtros.ano;
       if (filtros.busca) params.busca = filtros.busca;
 
-      const data = await projetosService.listComAtletas(params);
+      const data = await projetosService.list();
       setProjetos(data);
     } catch (error) {
       console.error('Erro:', error);
-      try {
-        const data = await projetosService.list();
-        setProjetos(data);
-      } catch (e) {
-        console.error('Erro no fallback:', e);
-      }
     } finally {
       setLoading(false);
     }
@@ -291,7 +240,7 @@ const Projetos: React.FC = () => {
     }
   };
 
-  const handleEdit = (item: ProjetoComAtletas) => {
+  const handleEdit = (item: Projeto) => {
     setEditItem(item);
     setForm({
       codigo: item.codigo || '',
@@ -331,7 +280,7 @@ const Projetos: React.FC = () => {
     }
   }, []);
 
-  const handleViewDetails = async (projeto: ProjetoComAtletas) => {
+  const handleViewDetails = async (projeto: Projeto) => {
     setSelectedProjeto(projeto);
     setShowDetailsModal(true);
     setDadosExternos(null);
@@ -400,8 +349,6 @@ const Projetos: React.FC = () => {
   const totalProjetos = projetos.length;
   const emAndamento = projetos.filter(p => p.status === 'Em andamento').length;
   const concluidos = projetos.filter(p => p.status === 'Concluído').length;
-  const totalAtletas = projetos.reduce((acc, p) => acc + (p.atletas_total || 0), 0);
-
   return (
     <div className="min-h-screen">
       {/* Background effects */}
@@ -565,7 +512,7 @@ const Projetos: React.FC = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
             <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
             <div className="relative">
@@ -605,18 +552,6 @@ const Projetos: React.FC = () => {
             </div>
           </div>
 
-          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-orange-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="relative">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 rounded-lg bg-orange-500/20">
-                  <Users className="w-4 h-4 text-orange-400" />
-                </div>
-                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Total Atletas</span>
-              </div>
-              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{totalAtletas.toLocaleString('pt-BR')}</p>
-            </div>
-          </div>
         </div>
 
         {/* Cards Grid */}
@@ -652,9 +587,6 @@ const Projetos: React.FC = () => {
           ) : projetosOrdenados.map((projeto, index) => {
             const modalidadeStyle = getModalidadeStyle(projeto.modalidade);
             const statusStyle = getStatusStyle(projeto.status);
-            const atletasTotal = projeto.atletas_total || 0;
-            const atletasSite = projeto.atletas_site || 0;
-            const atletasGrupo = projeto.atletas_grupo || 0;
 
             return (
               <div 
@@ -740,57 +672,6 @@ const Projetos: React.FC = () => {
                         <Component className="w-4 h-4 text-amber-500" />
                       </div>
                       <span className="text-sm font-medium">{projeto.tipo_evento}</span>
-                    </div>
-                  </div>
-
-                  {/* Atletas Section */}
-                  <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <TrendingUp className={`w-4 h-4 ${modalidadeStyle.text}`} />
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Atletas
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      {/* Total/Realizado */}
-                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-100 to-pink-100 border border-purple-200'}`}>
-                        <div className="relative text-center">
-                          <Users className="w-4 h-4 text-purple-500 mx-auto mb-1" />
-                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            {atletasTotal.toLocaleString('pt-BR')}
-                          </p>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
-                            Realizado
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Site */}
-                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-100 to-blue-100 border border-cyan-200'}`}>
-                        <div className="relative text-center">
-                          <Globe className="w-4 h-4 text-cyan-500 mx-auto mb-1" />
-                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            {atletasSite.toLocaleString('pt-BR')}
-                          </p>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
-                            Site
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Grupo */}
-                      <div className={`relative overflow-hidden p-2 rounded-xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-100 to-amber-100 border border-orange-200'}`}>
-                        <div className="relative text-center">
-                          <Award className="w-4 h-4 text-orange-500 mx-auto mb-1" />
-                          <p className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            {atletasGrupo.toLocaleString('pt-BR')}
-                          </p>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
-                            Grupo
-                          </span>
-                        </div>
-                      </div>
                     </div>
                   </div>
 
@@ -986,166 +867,6 @@ const Projetos: React.FC = () => {
                     {selectedProjeto.capacidade_maxima?.toLocaleString('pt-BR') || '-'}
                   </p>
                 </div>
-              </div>
-
-              {/* Atletas Analysis Section */}
-              <div className={`p-6 rounded-3xl ${isDark ? 'bg-gradient-to-br from-gray-800 to-gray-800/50' : 'bg-gradient-to-br from-gray-50 to-white'} border ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
-                      <BarChart3 className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h3 className={`text-xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        Análise de Atletas
-                      </h3>
-                      <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                        Comparativo entre orçado, projetado e realizado (dados consolidados)
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {loadingConsolidados && (
-                      <LoaderPinwheel className="w-4 h-4 text-purple-500 animate-spin" />
-                    )}
-                    {lastConsolidadosUpdate && (
-                      <div className={`flex items-center gap-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                        <Clock className="w-3 h-3" />
-                        <span>Atualizado: {lastConsolidadosUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-                  {/* Orçado */}
-                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-amber-500/20 to-yellow-500/20 border border-amber-500/30' : 'bg-gradient-to-br from-amber-50 to-yellow-50 border border-amber-200'}`}>
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/20 rounded-full blur-2xl" />
-                    <div className="relative text-center">
-                      <Landmark className="w-6 h-6 text-amber-500 mx-auto mb-2" />
-                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(selectedProjeto.qtd_atletas_orcado || 0).toLocaleString('pt-BR')}
-                      </p>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                        Orçado
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Projetado */}
-                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-indigo-500/20 to-violet-500/20 border border-indigo-500/30' : 'bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-200'}`}>
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-indigo-500/20 rounded-full blur-2xl" />
-                    <div className="relative text-center">
-                      <Target className="w-6 h-6 text-indigo-500 mx-auto mb-2" />
-                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(selectedProjeto.qtd_atletas_projetado || 0).toLocaleString('pt-BR')}
-                      </p>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}>
-                        Projetado
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Total Realizado - from consolidated data */}
-                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-purple-500/20 to-pink-500/20 border border-purple-500/30' : 'bg-gradient-to-br from-purple-50 to-pink-50 border border-purple-200'}`}>
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-purple-500/20 rounded-full blur-2xl" />
-                    <div className="relative text-center">
-                      <Users className="w-6 h-6 text-purple-500 mx-auto mb-2" />
-                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(dadosConsolidados?.qtd_vendida_total || selectedProjeto.atletas_total || 0).toLocaleString('pt-BR')}
-                      </p>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
-                        Realizado
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Site - from consolidated data */}
-                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30' : 'bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200'}`}>
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-cyan-500/20 rounded-full blur-2xl" />
-                    <div className="relative text-center">
-                      <Globe className="w-6 h-6 text-cyan-500 mx-auto mb-2" />
-                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(dadosConsolidados?.qtd_site_total || selectedProjeto.atletas_site || 0).toLocaleString('pt-BR')}
-                      </p>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
-                        Site
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Grupo - from consolidated data */}
-                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/20 border border-orange-500/30' : 'bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200'}`}>
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-orange-500/20 rounded-full blur-2xl" />
-                    <div className="relative text-center">
-                      <Award className="w-6 h-6 text-orange-500 mx-auto mb-2" />
-                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(dadosConsolidados?.qtd_grupos_total || selectedProjeto.atletas_grupo || 0).toLocaleString('pt-BR')}
-                      </p>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-orange-400' : 'text-orange-600'}`}>
-                        Grupo
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Cortesia - from consolidated data */}
-                  <div className={`relative overflow-hidden p-4 rounded-2xl ${isDark ? 'bg-gradient-to-br from-rose-500/20 to-pink-500/20 border border-rose-500/30' : 'bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200'}`}>
-                    <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/20 rounded-full blur-2xl" />
-                    <div className="relative text-center">
-                      <Gift className="w-6 h-6 text-rose-500 mx-auto mb-2" />
-                      <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {(dadosConsolidados?.cortesia_total || 0).toLocaleString('pt-BR')}
-                      </p>
-                      <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-rose-400' : 'text-rose-600'}`}>
-                        Cortesia
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Insight Card */}
-                {(() => {
-                  const realizadoTotal = dadosConsolidados?.qtd_vendida_total || selectedProjeto.atletas_total || 0;
-                  const insight = getAtletasInsight(
-                    selectedProjeto.qtd_atletas_orcado || 0,
-                    realizadoTotal
-                  );
-
-                  const bgColor = insight.type === 'positive' 
-                    ? isDark ? 'from-emerald-500/20 to-green-500/20 border-emerald-500/30' : 'from-emerald-50 to-green-50 border-emerald-200'
-                    : insight.type === 'negative'
-                    ? isDark ? 'from-red-500/20 to-rose-500/20 border-red-500/30' : 'from-red-50 to-rose-50 border-red-200'
-                    : isDark ? 'from-gray-500/20 to-slate-500/20 border-gray-500/30' : 'from-gray-50 to-slate-50 border-gray-200';
-
-                  const textColor = insight.type === 'positive'
-                    ? 'text-emerald-500'
-                    : insight.type === 'negative'
-                    ? 'text-red-500'
-                    : isDark ? 'text-gray-400' : 'text-gray-500';
-
-                  return (
-                    <div className={`p-4 rounded-2xl bg-gradient-to-r ${bgColor} border flex items-center gap-4`}>
-                      <div className={`p-3 rounded-xl ${insight.type === 'positive' ? 'bg-emerald-500/20' : insight.type === 'negative' ? 'bg-red-500/20' : 'bg-gray-500/20'}`}>
-                        <div className={textColor}>
-                          {insight.icon}
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-sm font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          Insight de Performance
-                        </p>
-                        <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          {insight.message}
-                        </p>
-                      </div>
-                      {insight.type !== 'neutral' && (
-                        <div className={`text-3xl font-black ${textColor}`}>
-                          {insight.percentage.toFixed(0)}%
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
               </div>
 
               {/* Dados em Tempo Real - Banco Externo */}

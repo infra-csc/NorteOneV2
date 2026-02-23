@@ -1,40 +1,14 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { dashboardService } from '../../services/api';
-import { DashboardResumo, EvolucaoMensal, AtletasPorProjeto } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
 import { 
-  TrendingUp, 
-  TrendingDown, 
-  Users, 
-  DollarSign,
-  Target,
-  BarChart3,
-  PieChart as PieChartIcon,
-  Activity,
   Filter,
-  X,
   Search,
   ChevronDown,
   LayoutDashboard,
   Sparkles,
   RotateCcw
 } from 'lucide-react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell
-} from 'recharts';
-
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', {
@@ -180,13 +154,6 @@ const SearchableDropdown: React.FC<SearchableDropdownProps> = ({
 
 const Dashboard: React.FC = () => {
   const { isDark } = useTheme();
-  const { user } = useAuth();
-  const isAdmin = user?.is_admin === true;
-  
-  const [resumo, setResumo] = useState<DashboardResumo | null>(null);
-  const [evolucao, setEvolucao] = useState<EvolucaoMensal[]>([]);
-  const [atletasProjeto, setAtletasProjeto] = useState<AtletasPorProjeto[]>([]);
-  const [atletasModalidade, setAtletasModalidade] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   const [showFilters, setShowFilters] = useState(false);
@@ -222,7 +189,6 @@ const Dashboard: React.FC = () => {
   }, [filters]);
 
   const [defaultAno, setDefaultAno] = useState<number>(2025);
-  const filtersRef = React.useRef<string>('');
 
   const clearAllFilters = () => {
     setFilters({
@@ -247,49 +213,12 @@ const Dashboard: React.FC = () => {
       } catch (error) {
         console.error('Erro ao carregar filtros:', error);
         setFilters(prev => ({ ...prev, ano: 2025 }));
-      }
-    };
-    loadFilterOptions();
-  }, []);
-
-  useEffect(() => {
-    if (!filters.ano) return;
-
-    const filtersKey = JSON.stringify(filters);
-    if (filtersKey === filtersRef.current) return;
-    filtersRef.current = filtersKey;
-    
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const apiFilters = {
-          ano: filters.ano,
-          mes: filters.mes,
-          produto: filters.produto,
-          tipo_evento: filters.tipoEvento,
-          projeto_id: filters.projeto,
-          modalidade: filters.modalidade,
-          cidade: filters.cidade
-        };
-        
-        const [resumoData, evolucaoData, atletasProjetoData, atletasModalidadeData] = await Promise.all([
-          dashboardService.getResumoGeral(apiFilters),
-          dashboardService.getEvolucaoMensal(apiFilters),
-          dashboardService.getAtletasPorProjeto(apiFilters),
-          dashboardService.getAtletasPorModalidade(apiFilters)
-        ]);
-        setResumo(resumoData);
-        setEvolucao(evolucaoData);
-        setAtletasProjeto(atletasProjetoData);
-        setAtletasModalidade(atletasModalidadeData);
-      } catch (error) {
-        console.error('Erro ao carregar dashboard:', error);
       } finally {
         setLoading(false);
       }
     };
-    loadData();
-  }, [filters]);
+    loadFilterOptions();
+  }, []);
 
   if (loading) {
     return (
@@ -422,203 +351,18 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {isAdmin && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-2xl" />
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="p-1.5 rounded-lg bg-blue-500/20">
-                    <Target className="w-4 h-4 text-blue-400" />
-                  </div>
-                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Orcado (Ano)</span>
-                </div>
-                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(resumo?.financeiro.orcado_resultado || 0)}</p>
-              </div>
+        <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-12`}>
+          <div className="flex flex-col items-center justify-center text-center">
+            <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 mb-6">
+              <Sparkles className="w-12 h-12 text-indigo-400" />
             </div>
-
-            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-yellow-500/20 to-transparent rounded-full blur-2xl" />
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="p-1.5 rounded-lg bg-yellow-500/20">
-                    <TrendingUp className="w-4 h-4 text-yellow-400" />
-                  </div>
-                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Projetado (Ano)</span>
-                </div>
-                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(resumo?.financeiro.projetado_resultado || 0)}</p>
-              </div>
-            </div>
-
-            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-emerald-500/20 to-transparent rounded-full blur-2xl" />
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="p-1.5 rounded-lg bg-emerald-500/20">
-                    <DollarSign className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Realizado (YTD)</span>
-                </div>
-                <p className={`text-2xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(resumo?.financeiro.realizado_resultado || 0)}</p>
-              </div>
-            </div>
-
-            <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-              <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`p-1.5 rounded-lg ${(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 'bg-emerald-500/20' : 'bg-red-500/20'}`}>
-                    {(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 
-                      <TrendingUp className="w-4 h-4 text-emerald-400" /> : 
-                      <TrendingDown className="w-4 h-4 text-red-400" />
-                    }
-                  </div>
-                  <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Variacao Orc x Real</span>
-                </div>
-                <p className={`text-2xl font-black ${(resumo?.financeiro.variacao_percentual || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {resumo?.financeiro.variacao_percentual || 0}%
-                </p>
-              </div>
-            </div>
+            <h2 className={`text-2xl font-black mb-3 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Dashboard em construção
+            </h2>
+            <p className={`text-lg max-w-md ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              Estamos reestruturando o dashboard para oferecer uma experiência ainda melhor. Em breve, novas visualizações estarão disponíveis.
+            </p>
           </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-purple-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="relative">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 rounded-lg bg-purple-500/20">
-                  <Users className="w-4 h-4 text-purple-400" />
-                </div>
-                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Atletas Orcados</span>
-              </div>
-              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{resumo?.atletas.total_orcado?.toLocaleString() || 0}</p>
-            </div>
-          </div>
-
-          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-indigo-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="relative">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 rounded-lg bg-indigo-500/20">
-                  <Users className="w-4 h-4 text-indigo-400" />
-                </div>
-                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Atletas Projetados</span>
-              </div>
-              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{resumo?.atletas.total_projetado?.toLocaleString() || 0}</p>
-            </div>
-          </div>
-
-          <div className={`relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            <div className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-teal-500/20 to-transparent rounded-full blur-2xl" />
-            <div className="relative">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="p-1.5 rounded-lg bg-teal-500/20">
-                  <Users className="w-4 h-4 text-teal-400" />
-                </div>
-                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Atletas Realizados</span>
-              </div>
-              <p className={`text-3xl font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{resumo?.atletas.total_realizado?.toLocaleString() || 0}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-2' : ''} gap-6`}>
-          {isAdmin && (
-            <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
-              <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500">
-                  <BarChart3 className="w-5 h-5 text-white" />
-                </div>
-                <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  Evolucao Mensal - Orcado x Realizado
-                </h3>
-              </div>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={evolucao}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                  <XAxis dataKey="mes" stroke={isDark ? '#9ca3af' : '#6b7280'} />
-                  <YAxis tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`} stroke={isDark ? '#9ca3af' : '#6b7280'} />
-                  <Tooltip 
-                    formatter={(value: number) => formatCurrency(value)} 
-                    contentStyle={{ 
-                      backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                      borderRadius: '12px'
-                    }}
-                  />
-                  <Legend />
-                  <Bar dataKey="orcado" name="Orcado" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="realizado" name="Realizado" fill="#10B981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
-                <PieChartIcon className="w-5 h-5 text-white" />
-              </div>
-              <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                Atletas por Modalidade
-              </h3>
-            </div>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={atletasModalidade}
-                  dataKey="total"
-                  nameKey="modalidade"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                >
-                  {atletasModalidade.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                    border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                    borderRadius: '12px'
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className={`rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'} p-6`}>
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-500">
-              <Activity className="w-5 h-5 text-white" />
-            </div>
-            <h3 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Atletas por Evento
-            </h3>
-          </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={atletasProjeto} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis type="number" stroke={isDark ? '#9ca3af' : '#6b7280'} />
-              <YAxis dataKey="evento" type="category" width={200} stroke={isDark ? '#9ca3af' : '#6b7280'} />
-              <Tooltip 
-                contentStyle={{ 
-                  backgroundColor: isDark ? '#1f2937' : '#ffffff',
-                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                  borderRadius: '12px'
-                }}
-              />
-              <Legend />
-              <Bar dataKey="orcado" name="Orcado" fill="#3B82F6" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="projetado" name="Projetado" fill="#F59E0B" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="realizado" name="Realizado" fill="#10B981" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
         </div>
       </div>
     </div>

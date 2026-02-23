@@ -27,32 +27,6 @@ class CentroCustoResponse(CentroCustoBase):
     class Config:
         from_attributes = True
 
-class ContaBase(BaseModel):
-    codigo: str
-    nome: str
-    tipo: str
-    grupo: Optional[str] = None
-    subgrupo: Optional[str] = None
-    ativo: bool = True
-
-class ContaCreate(ContaBase):
-    pass
-
-class ContaUpdate(BaseModel):
-    codigo: Optional[str] = None
-    nome: Optional[str] = None
-    tipo: Optional[str] = None
-    grupo: Optional[str] = None
-    subgrupo: Optional[str] = None
-    ativo: Optional[bool] = None
-
-class ContaResponse(ContaBase):
-    id: int
-    created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
 class ProjetoBase(BaseModel):
     codigo: str
     produto: str
@@ -93,36 +67,6 @@ class ProjetoUpdate(BaseModel):
 class ProjetoResponse(ProjetoBase):
     id: int
     created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
-
-
-# Schema estendido com dados de atletas por canal
-class ProjetoComAtletasResponse(BaseModel):
-    """Schema para projeto com dados de atletas - não herda de ProjetoResponse para evitar conflito de Config"""
-    id: int
-    codigo: str
-    produto: str
-    modalidade: str
-    tipo_evento: str
-    evento: str
-    lei: str
-    cliente: Optional[str] = None
-    status: str
-    data_evento: date
-    local_evento: str
-    cidade: Optional[str] = None
-    estado: Optional[str] = None
-    capacidade_maxima: Optional[int] = None
-    etapa: Optional[int] = None
-    imagem_kv: Optional[str] = None
-    created_at: Optional[datetime] = None
-    atletas_total: int = 0
-    atletas_site: int = 0
-    atletas_grupo: int = 0
-    qtd_atletas_orcado: int = 0
-    qtd_atletas_projetado: int = 0
 
     class Config:
         from_attributes = True

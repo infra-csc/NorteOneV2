@@ -9,9 +9,7 @@ import {
   Building2, 
   FileSpreadsheet, 
   Users, 
-  TrendingUp,
   Target,
-  CheckCircle,
   UserCog,
   Menu,
   X,
@@ -38,8 +36,6 @@ const menuItems = [
   { path: '/nori', icon: Sparkles, label: 'Nori - Assistente', modulo: 'nori' },
   { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas', modulo: 'categorias_atletas' },
   { path: '/cadastros/eventos', icon: Target, label: 'Eventos', modulo: 'eventos' },
-  { path: '/orcamento', icon: TrendingUp, label: 'Orcamento', modulo: 'orcamento' },
-  { path: '/atletas', icon: Users, label: 'Atletas', modulo: 'atletas' },
 ];
 
 const cotacaoItems = [
@@ -58,7 +54,6 @@ const adminItems = [
   { path: '/admin/usuarios', icon: UserCog, label: 'Usuários', modulo: 'admin_usuarios' },
   { path: '/admin/perfis-acesso', icon: ShieldCheck, label: 'Perfis de Acesso', modulo: 'admin_perfis_acesso' },
   { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo', modulo: 'admin_centros_custo' },
-  { path: '/admin/contas', icon: FileSpreadsheet, label: 'Contas', modulo: 'admin_contas' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {

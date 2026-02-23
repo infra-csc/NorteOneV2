@@ -18,16 +18,6 @@ export interface CentroCusto {
   ativo: boolean;
 }
 
-export interface Conta {
-  id: number;
-  codigo: string;
-  nome: string;
-  tipo: 'RECEITA' | 'DESPESA';
-  grupo?: string;
-  subgrupo?: string;
-  ativo: boolean;
-}
-
 export interface Projeto {
   id: number;
   codigo: string;
@@ -46,13 +36,6 @@ export interface Projeto {
   etapa?: number | null;
   imagem_kv?: string | null;  // NOVO CAMPO
   created_at?: string | null;
-}
-
-// Interface estendida com dados de atletas (NOVA)
-export interface ProjetoComAtletas extends Projeto {
-  atletas_total: number;
-  atletas_site: number;
-  atletas_grupo: number;
 }
 
 // Interface para filtros disponíveis (NOVA)
@@ -126,36 +109,3 @@ export interface CategoriaAtleta {
   ativo: boolean;
 }
 
-export interface DashboardResumo {
-  ano: number;
-  financeiro: {
-    orcado_receita: number;
-    orcado_despesa: number;
-    orcado_resultado: number;
-    projetado_receita: number;
-    projetado_despesa: number;
-    projetado_resultado: number;
-    realizado_receita: number;
-    realizado_despesa: number;
-    realizado_resultado: number;
-    variacao_percentual: number;
-  };
-  atletas: {
-    total_orcado: number;
-    total_projetado: number;
-    total_realizado: number;
-  };
-}
-
-export interface EvolucaoMensal {
-  mes: string;
-  orcado: number;
-  realizado: number;
-}
-
-export interface AtletasPorProjeto {
-  evento: string;
-  orcado: number;
-  projetado: number;
-  realizado: number;
-}

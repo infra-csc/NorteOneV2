@@ -29,22 +29,6 @@ class DimCentroCusto(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
-class DimConta(Base):
-    __tablename__ = "dim_conta"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    codigo = Column(String(20), unique=True, nullable=False)
-    nome = Column(String(100), nullable=False)
-    tipo = Column(String(20))
-    grupo = Column(String(50))
-    subgrupo = Column(String(50))
-    ativo = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=func.now())
-    
-    __table_args__ = (
-        CheckConstraint("tipo IN ('RECEITA', 'DESPESA')", name="check_tipo_conta"),
-    )
-
 class DimProjeto(Base):
     __tablename__ = "dim_projeto"
     

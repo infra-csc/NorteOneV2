@@ -75,26 +75,6 @@ export const dashboardService = {
     const response = await api.get(`/dashboard/resumo-geral?${params}`);
     return response.data;
   },
-  getEvolucaoMensal: async (filters: DashboardFilters) => {
-    const params = buildFilterParams(filters);
-    const response = await api.get(`/dashboard/evolucao-mensal?${params}`);
-    return response.data;
-  },
-  getDistribuicaoTipo: async (filters: DashboardFilters) => {
-    const params = buildFilterParams(filters);
-    const response = await api.get(`/dashboard/distribuicao-tipo?${params}`);
-    return response.data;
-  },
-  getAtletasPorModalidade: async (filters: DashboardFilters) => {
-    const params = buildFilterParams(filters);
-    const response = await api.get(`/dashboard/atletas-por-modalidade?${params}`);
-    return response.data;
-  },
-  getAtletasPorProjeto: async (filters: DashboardFilters) => {
-    const params = buildFilterParams(filters);
-    const response = await api.get(`/dashboard/atletas-por-projeto?${params}`);
-    return response.data;
-  }
 };
 
 export const centrosCustoService = {
@@ -116,59 +96,13 @@ export const centrosCustoService = {
   }
 };
 
-export const contasService = {
-  list: async (tipo?: string) => {
-    const params = tipo ? `?tipo=${tipo}` : '';
-    const response = await api.get(`/contas/${params}`);
-    return response.data;
-  },
-  create: async (data: any) => {
-    const response = await api.post('/contas/', data);
-    return response.data;
-  },
-  update: async (id: number, data: any) => {
-    const response = await api.put(`/contas/${id}`, data);
-    return response.data;
-  },
-  delete: async (id: number) => {
-    const response = await api.delete(`/contas/${id}`);
-    return response.data;
-  }
-};
-
 export const projetosService = {
-  // Método original
   list: async () => {
     const response = await api.get('/projetos/');
     return response.data;
   },
 
-  // NOVO: Lista projetos com dados de atletas (com fallback para list original)
-  listComAtletas: async (params?: Record<string, string>) => {
-    try {
-      const queryString = params && Object.keys(params).length > 0
-        ? '?' + new URLSearchParams(params).toString() 
-        : '';
-      const response = await api.get(`/projetos/com-atletas${queryString}`);
-      return response.data;
-    } catch (error: any) {
-      // Se o endpoint não existir (404), usa o endpoint antigo
-      if (error.response?.status === 404) {
-        console.warn('Endpoint /projetos/com-atletas não encontrado, usando fallback');
-        const response = await api.get('/projetos/');
-        // Adiciona campos de atletas vazios para compatibilidade
-        return response.data.map((projeto: any) => ({
-          ...projeto,
-          atletas_total: projeto.atletas_total || 0,
-          atletas_site: projeto.atletas_site || 0,
-          atletas_grupo: projeto.atletas_grupo || 0,
-        }));
-      }
-      throw error;
-    }
-  },
 
-  // NOVO: Busca filtros disponíveis (com fallback para valores padrão)
   getFiltros: async () => {
     try {
       const response = await api.get('/projetos/filtros');
@@ -243,50 +177,6 @@ export const usersService = {
   }
 };
 
-export const orcamentoService = {
-  list: async (params?: any) => {
-    const queryParams = new URLSearchParams(params).toString();
-    const response = await api.get(`/orcamento/?${queryParams}`);
-    return response.data;
-  },
-  getResumo: async (ano: number) => {
-    const response = await api.get(`/orcamento/resumo?ano=${ano}`);
-    return response.data;
-  },
-  getPorMes: async (ano: number) => {
-    const response = await api.get(`/orcamento/por-mes?ano=${ano}`);
-    return response.data;
-  },
-  create: async (data: any) => {
-    const response = await api.post('/orcamento/', data);
-    return response.data;
-  }
-};
-
-export const atletasService = {
-  list: async (params?: any) => {
-    const queryParams = params ? new URLSearchParams(params).toString() : '';
-    const response = await api.get(`/atletas/?${queryParams}`);
-    return response.data;
-  },
-  getResumo: async (projeto_id?: number) => {
-    const params = projeto_id ? `?projeto_id=${projeto_id}` : '';
-    const response = await api.get(`/atletas/resumo${params}`);
-    return response.data;
-  },
-  getPorProjeto: async () => {
-    const response = await api.get('/atletas/por-projeto');
-    return response.data;
-  },
-  create: async (data: any) => {
-    const response = await api.post('/atletas/', data);
-    return response.data;
-  },
-  update: async (id: number, data: any) => {
-    const response = await api.put(`/atletas/${id}`, data);
-    return response.data;
-  }
-};
 
 export interface ChatMessage {
   role: 'user' | 'assistant';

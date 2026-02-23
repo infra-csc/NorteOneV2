@@ -8,11 +8,8 @@ import Login from './pages/auth/Login';
 
 const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
 const CentrosCusto = lazy(() => import('./pages/cadastros/CentrosCusto'));
-const Contas = lazy(() => import('./pages/cadastros/Contas'));
 const CategoriasAtletas = lazy(() => import('./pages/cadastros/CategoriasAtletas'));
 const Eventos = lazy(() => import('./pages/cadastros/Cadastro'));
-const Orcamento = lazy(() => import('./pages/Orcamento'));
-const Atletas = lazy(() => import('./pages/Atletas'));
 const MarketingDashboard = lazy(() => import('./pages/marketing/MarketingDashboard'));
 const EventDetail = lazy(() => import('./pages/marketing/EventDetail'));
 const EventComparison = lazy(() => import('./pages/marketing/EventComparison'));
@@ -57,8 +54,6 @@ function App() {
               <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
               <Route path="/cadastros/categorias-atletas" element={<PrivateRoute><Layout><CategoriasAtletas /></Layout></PrivateRoute>} />
               <Route path="/cadastros/eventos" element={<PrivateRoute><Layout><Eventos /></Layout></PrivateRoute>} />
-              <Route path="/orcamento" element={<PrivateRoute><Layout><Orcamento /></Layout></PrivateRoute>} />
-              <Route path="/atletas" element={<PrivateRoute><Layout><Atletas /></Layout></PrivateRoute>} />
               <Route path="/marketing" element={<PrivateRoute><Layout><MarketingDashboard /></Layout></PrivateRoute>} />
               <Route path="/marketing/evento/:id" element={<PrivateRoute><Layout><EventDetail /></Layout></PrivateRoute>} />
               <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
@@ -69,7 +64,6 @@ function App() {
               <Route path="/admin/sku-mappings" element={<PrivateRoute><Layout><SkuMappings /></Layout></PrivateRoute>} />
 
               <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
-              <Route path="/admin/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
               <Route path="/admin/perfis-acesso" element={<PrivateRoute><Layout><PerfisAcesso /></Layout></PrivateRoute>} />
               <Route path="/cotacoes" element={<PrivateRoute><Layout><CotacoesImportacao /></Layout></PrivateRoute>} />
             </Routes>
