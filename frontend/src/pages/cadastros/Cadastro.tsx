@@ -136,6 +136,12 @@ const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario:
   'Kit Super': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }]
 };
 
+const produtosExtrasPorKit: Record<string, string[]> = {
+  'Kit Vip': ['Moletom', 'Jaqueta'],
+  'Kit Plus': ['Boné', 'Viseira'],
+  'Kit Super': [],
+};
+
 const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   projeto_id: null,
   nome: '',
@@ -2252,12 +2258,20 @@ const Cadastro: React.FC = () => {
                       setForm(prev => {
                         const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
                         let produtosFinais = defaultProdutos;
-                        if (kitBasico && selectedKit !== 'Kit Básico' && selectedKit !== 'Kit Participação') {
-                          const basicoProdutos = kitBasico.produtos.map(bp => ({ ...bp }));
-                          const defaultExtraNomes = defaultProdutos
-                            .filter(p => !basicoProdutos.some(bp => bp.nome === p.nome))
-                            .map(p => ({ ...p }));
-                          produtosFinais = [...basicoProdutos, ...defaultExtraNomes];
+                        if (kitBasico && selectedKit !== 'Kit Básico') {
+                          if (selectedKit === 'Kit Participação') {
+                            produtosFinais = defaultProdutos.map(p => {
+                              const matchBasico = kitBasico.produtos.find(bp => bp.nome === p.nome);
+                              return matchBasico ? { ...p, valor_unitario: matchBasico.valor_unitario } : p;
+                            });
+                          } else {
+                            const basicoProdutos = kitBasico.produtos.map(bp => ({ ...bp }));
+                            const extras = produtosExtrasPorKit[selectedKit] || [];
+                            const extraProdutos = extras
+                              .filter(nome => !basicoProdutos.some(bp => bp.nome === nome))
+                              .map(nome => ({ nome, valor_unitario: 0 }));
+                            produtosFinais = [...basicoProdutos, ...extraProdutos];
+                          }
                         }
                         return {
                           ...prev,
