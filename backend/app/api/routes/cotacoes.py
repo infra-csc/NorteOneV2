@@ -436,6 +436,44 @@ def add_evento_to_cotacao(
     )
 
 
+@router.put("/cotacoes-evento/{ce_id}", response_model=CotacaoEventoResponse)
+def update_evento_cotacao(
+    ce_id: int,
+    data: CotacaoEventoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_edit_cotacao)
+):
+    ce = db.query(CotacaoEvento).filter(CotacaoEvento.id == ce_id).first()
+    if not ce:
+        raise HTTPException(status_code=404, detail="Vínculo não encontrado")
+
+    if data.cadastro_evento_id:
+        ev = db.query(CadastroEvento).filter(CadastroEvento.id == data.cadastro_evento_id).first()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Evento não encontrado")
+        ce.cadastro_evento_id = data.cadastro_evento_id
+        ce.evento_nome_manual = None
+        evento_nome = ev.nome
+    elif data.evento_nome_manual:
+        ce.cadastro_evento_id = None
+        ce.evento_nome_manual = data.evento_nome_manual
+        evento_nome = data.evento_nome_manual
+    else:
+        raise HTTPException(status_code=400, detail="Informe um evento cadastrado ou digite o nome do evento")
+
+    ce.quantidade = data.quantidade
+    ce.observacoes = data.observacoes
+    db.commit()
+    db.refresh(ce)
+    return CotacaoEventoResponse(
+        id=ce.id, cotacao_id=ce.cotacao_id,
+        cadastro_evento_id=ce.cadastro_evento_id,
+        evento_nome_manual=ce.evento_nome_manual,
+        quantidade=ce.quantidade, observacoes=ce.observacoes,
+        evento_nome=evento_nome,
+    )
+
+
 @router.delete("/cotacoes-evento/{ce_id}")
 def remove_evento_from_cotacao(
     ce_id: int,

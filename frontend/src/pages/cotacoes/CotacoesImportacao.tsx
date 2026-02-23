@@ -63,6 +63,7 @@ const CotacoesImportacao: React.FC = () => {
   const [editFornecedor, setEditFornecedor] = useState<Fornecedor | null>(null);
   const [showEventoModal, setShowEventoModal] = useState(false);
   const [linkingCotacaoId, setLinkingCotacaoId] = useState<number | null>(null);
+  const [editingEventoId, setEditingEventoId] = useState<number | null>(null);
 
   const [formViagem, setFormViagem] = useState({ titulo: '', destino: 'China', ano_competencia: new Date().getFullYear(), data_inicio: '', data_fim: '', status: 'Planejada', observacoes: '' });
   const [formCotacao, setFormCotacao] = useState({ produto_nome: '', descricao: '', fornecedor_id: '', valor_unitario_usd: '', quantidade: '1', taxa_cambio: '', data_cotacao: '', observacoes: '' });
@@ -265,7 +266,7 @@ const CotacoesImportacao: React.FC = () => {
   };
 
   const handleLinkEvento = async () => {
-    if (!linkingCotacaoId || !selectedViagem) return;
+    if (!selectedViagem) return;
     if (eventoInputMode === 'select' && !formEvento.cadastro_evento_id) { setError('Selecione um evento'); return; }
     if (eventoInputMode === 'free' && !formEvento.evento_nome_manual.trim()) { setError('Digite o nome do evento'); return; }
     setSaving(true);
@@ -279,8 +280,13 @@ const CotacoesImportacao: React.FC = () => {
       } else {
         payload.evento_nome_manual = formEvento.evento_nome_manual.trim();
       }
-      await api.post(`/cotacoes/cotacoes/${linkingCotacaoId}/eventos`, payload);
+      if (editingEventoId) {
+        await api.put(`/cotacoes/cotacoes-evento/${editingEventoId}`, payload);
+      } else {
+        await api.post(`/cotacoes/cotacoes/${linkingCotacaoId}/eventos`, payload);
+      }
       setShowEventoModal(false);
+      setEditingEventoId(null);
       loadViagemDetail(selectedViagem.id);
     } catch (err: any) { setError(err.response?.data?.detail || 'Erro ao vincular evento'); }
     finally { setSaving(false); }
@@ -339,8 +345,22 @@ const CotacoesImportacao: React.FC = () => {
 
   const openEventoLink = (cotacaoId: number) => {
     setLinkingCotacaoId(cotacaoId);
+    setEditingEventoId(null);
     setFormEvento({ cadastro_evento_id: '', evento_nome_manual: '', quantidade: '1', observacoes: '' });
     setEventoInputMode('select');
+    setShowEventoModal(true);
+  };
+
+  const openEditEvento = (ce: CotacaoEvento) => {
+    setEditingEventoId(ce.id);
+    setLinkingCotacaoId(ce.cotacao_id);
+    if (ce.cadastro_evento_id) {
+      setEventoInputMode('select');
+      setFormEvento({ cadastro_evento_id: String(ce.cadastro_evento_id), evento_nome_manual: '', quantidade: String(ce.quantidade), observacoes: ce.observacoes || '' });
+    } else {
+      setEventoInputMode('free');
+      setFormEvento({ cadastro_evento_id: '', evento_nome_manual: ce.evento_nome_manual || ce.evento_nome || '', quantidade: String(ce.quantidade), observacoes: ce.observacoes || '' });
+    }
     setShowEventoModal(true);
   };
 
@@ -418,8 +438,8 @@ const CotacoesImportacao: React.FC = () => {
                 <BarChart data={dashData.por_evento}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
                   <XAxis dataKey="evento" tick={{ fontSize: 10, fill: isDark ? '#9ca3af' : '#6b7280' }} />
-                  <YAxis tick={{ fontSize: 10, fill: isDark ? '#9ca3af' : '#6b7280' }} />
-                  <Tooltip contentStyle={{ backgroundColor: isDark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8 }} />
+                  <YAxis tick={{ fontSize: 10, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={(v: number) => v.toLocaleString('pt-BR')} />
+                  <Tooltip contentStyle={{ backgroundColor: isDark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8 }} formatter={(v: any) => `R$ ${fmt(v)}`} />
                   <Bar dataKey="total_brl" name="BRL" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -620,12 +640,19 @@ const CotacoesImportacao: React.FC = () => {
                         </div>
                         {c.descricao && <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{c.descricao}</p>}
                         {c.eventos.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
+                          <div className="flex flex-col gap-1.5 mt-2">
                             {c.eventos.map(ce => (
-                              <span key={ce.id} className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${isDark ? 'bg-purple-900/30 text-purple-300' : 'bg-purple-100 text-purple-700'}`}>
-                                {ce.evento_nome || `Evento #${ce.cadastro_evento_id}`}
-                                <button onClick={() => handleUnlinkEvento(ce.id)} className="hover:text-red-400"><X className="w-3 h-3" /></button>
-                              </span>
+                              <div key={ce.id} className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg ${isDark ? 'bg-purple-900/30 text-purple-300' : 'bg-purple-100 text-purple-700'}`}>
+                                <div className="flex-1 min-w-0">
+                                  <span className="font-medium">{ce.evento_nome || ce.evento_nome_manual || `Evento #${ce.cadastro_evento_id}`}</span>
+                                  <span className={`ml-2 ${isDark ? 'text-purple-400' : 'text-purple-500'}`}>Qtd: {ce.quantidade}</span>
+                                  {ce.observacoes && <span className={`ml-2 truncate ${isDark ? 'text-purple-400/70' : 'text-purple-400'}`}>• {ce.observacoes}</span>}
+                                </div>
+                                <div className="flex items-center gap-1 ml-2 shrink-0">
+                                  <button onClick={() => openEditEvento(ce)} title="Editar vínculo" className="hover:text-blue-400"><Edit2 className="w-3 h-3" /></button>
+                                  <button onClick={() => handleUnlinkEvento(ce.id)} title="Remover vínculo" className="hover:text-red-400"><X className="w-3 h-3" /></button>
+                                </div>
+                              </div>
                             ))}
                           </div>
                         )}
@@ -891,7 +918,7 @@ const CotacoesImportacao: React.FC = () => {
         </>
       ))}
 
-      {renderModal(showEventoModal, () => setShowEventoModal(false), 'Vincular Evento', handleLinkEvento, (
+      {renderModal(showEventoModal, () => { setShowEventoModal(false); setEditingEventoId(null); }, editingEventoId ? 'Editar Vínculo de Evento' : 'Vincular Evento', handleLinkEvento, (
         <>
           <div>
             <label className={labelClass}>Tipo de vínculo</label>
