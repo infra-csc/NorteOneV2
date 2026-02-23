@@ -22,6 +22,7 @@ interface PerfilAcesso {
   nome: string;
   descricao: string | null;
   is_sistema: boolean;
+  is_admin: boolean;
   ativo: boolean;
   total_usuarios?: number;
   permissoes?: Permissao[];
@@ -44,6 +45,7 @@ const PerfisAcesso: React.FC = () => {
   const [editingPerfil, setEditingPerfil] = useState<PerfilAcesso | null>(null);
   const [formNome, setFormNome] = useState('');
   const [formDescricao, setFormDescricao] = useState('');
+  const [formIsAdmin, setFormIsAdmin] = useState(false);
   const [formPermissoes, setFormPermissoes] = useState<Record<string, Permissao>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -116,6 +118,7 @@ const PerfisAcesso: React.FC = () => {
     setEditingPerfil(null);
     setFormNome('');
     setFormDescricao('');
+    setFormIsAdmin(false);
     setFormPermissoes(initFormPermissoes());
     setFormError(null);
     setShowModal(true);
@@ -128,6 +131,7 @@ const PerfisAcesso: React.FC = () => {
       setEditingPerfil(res.data);
       setFormNome(res.data.nome);
       setFormDescricao(res.data.descricao || '');
+      setFormIsAdmin(res.data.is_admin || false);
       setFormPermissoes(initFormPermissoes(res.data.permissoes));
       setShowModal(true);
     } catch (err: any) {
@@ -203,12 +207,14 @@ const PerfisAcesso: React.FC = () => {
         await api.put(`/perfis-acesso/${editingPerfil.id}`, {
           nome: formNome,
           descricao: formDescricao || null,
+          is_admin: formIsAdmin,
           permissoes: permissoesList,
         });
       } else {
         await api.post('/perfis-acesso/', {
           nome: formNome,
           descricao: formDescricao || null,
+          is_admin: formIsAdmin,
           permissoes: permissoesList,
         });
       }
@@ -352,6 +358,11 @@ const PerfisAcesso: React.FC = () => {
                         {perfil.is_sistema && (
                           <span className="px-2 py-0.5 text-xs rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
                             Sistema
+                          </span>
+                        )}
+                        {perfil.is_admin && (
+                          <span className="px-2 py-0.5 text-xs rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                            Admin
                           </span>
                         )}
                       </div>
@@ -501,9 +512,29 @@ const PerfisAcesso: React.FC = () => {
                   </div>
                 </div>
 
+                <div className={`flex items-center gap-3 p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formIsAdmin}
+                      onChange={(e) => setFormIsAdmin(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-400 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </label>
+                  <div>
+                    <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                      Administrador do Sistema
+                    </span>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Administradores possuem acesso total a todos os módulos, independente das permissões configuradas abaixo
+                    </p>
+                  </div>
+                </div>
+
                 <div>
                   <h3 className={`text-sm font-semibold mb-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                    Matriz de Permissões
+                    Matriz de Permissões {formIsAdmin && <span className="text-xs font-normal text-indigo-400 ml-2">(Administradores possuem todas as permissões automaticamente)</span>}
                   </h3>
                   <div className="overflow-x-auto">
                     <table className="w-full">

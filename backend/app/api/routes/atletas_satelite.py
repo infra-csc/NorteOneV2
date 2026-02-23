@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.fatos import FatoAtletasMetricas, FatoAtletasCanais, FatoAtletasKits, FatoAtletasCustos
 from ...models.dimensoes import DimProjeto
 from ...models.user import Usuario
@@ -41,7 +41,7 @@ def list_metricas(
 def create_metrica(
     data: AtletasMetricasCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
     if not projeto:
@@ -59,7 +59,7 @@ def update_metrica(
     item_id: int,
     data: AtletasMetricasUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_editar"))
 ):
     item = db.query(FatoAtletasMetricas).filter(FatoAtletasMetricas.id == item_id).first()
     if not item:
@@ -77,7 +77,7 @@ def update_metrica(
 def delete_metrica(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_deletar"))
 ):
     item = db.query(FatoAtletasMetricas).filter(FatoAtletasMetricas.id == item_id).first()
     if not item:
@@ -92,7 +92,7 @@ def delete_metrica(
 def create_metricas_bulk(
     data: List[AtletasMetricasCreate],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     items = [FatoAtletasMetricas(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
@@ -130,7 +130,7 @@ def list_canais(
 def create_canal(
     data: AtletasCanaisCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
     if not projeto:
@@ -148,7 +148,7 @@ def update_canal(
     item_id: int,
     data: AtletasCanaisUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_editar"))
 ):
     item = db.query(FatoAtletasCanais).filter(FatoAtletasCanais.id == item_id).first()
     if not item:
@@ -166,7 +166,7 @@ def update_canal(
 def delete_canal(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_deletar"))
 ):
     item = db.query(FatoAtletasCanais).filter(FatoAtletasCanais.id == item_id).first()
     if not item:
@@ -205,7 +205,7 @@ def list_kits(
 def create_kit(
     data: AtletasKitsCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
     if not projeto:
@@ -223,7 +223,7 @@ def update_kit(
     item_id: int,
     data: AtletasKitsUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_editar"))
 ):
     item = db.query(FatoAtletasKits).filter(FatoAtletasKits.id == item_id).first()
     if not item:
@@ -241,7 +241,7 @@ def update_kit(
 def delete_kit(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_deletar"))
 ):
     item = db.query(FatoAtletasKits).filter(FatoAtletasKits.id == item_id).first()
     if not item:
@@ -280,7 +280,7 @@ def list_custos(
 def create_custo(
     data: AtletasCustosCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == data.projeto_id).first()
     if not projeto:
@@ -298,7 +298,7 @@ def update_custo(
     item_id: int,
     data: AtletasCustosUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_editar"))
 ):
     item = db.query(FatoAtletasCustos).filter(FatoAtletasCustos.id == item_id).first()
     if not item:
@@ -316,7 +316,7 @@ def update_custo(
 def delete_custo(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_deletar"))
 ):
     item = db.query(FatoAtletasCustos).filter(FatoAtletasCustos.id == item_id).first()
     if not item:
@@ -332,7 +332,7 @@ def delete_custo(
 def create_canais_bulk(
     data: List[AtletasCanaisCreate],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     items = [FatoAtletasCanais(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
@@ -346,7 +346,7 @@ def create_canais_bulk(
 def create_kits_bulk(
     data: List[AtletasKitsCreate],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     items = [FatoAtletasKits(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)
@@ -360,7 +360,7 @@ def create_kits_bulk(
 def create_custos_bulk(
     data: List[AtletasCustosCreate],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     items = [FatoAtletasCustos(**item.model_dump(), created_by=current_user.id) for item in data]
     db.add_all(items)

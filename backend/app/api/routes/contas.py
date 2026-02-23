@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.dimensoes import DimConta
 from ...models.user import Usuario
 from ...schemas.dimensoes import ContaCreate, ContaUpdate, ContaResponse
@@ -27,7 +27,7 @@ def list_contas(
 def create_conta(
     conta: ContaCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
+    current_user: Usuario = Depends(require_permission("admin_contas", "pode_criar"))
 ):
     existing = db.query(DimConta).filter(DimConta.codigo == conta.codigo).first()
     if existing:
@@ -55,7 +55,7 @@ def update_conta(
     conta_id: int,
     conta_update: ContaUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
+    current_user: Usuario = Depends(require_permission("admin_contas", "pode_editar"))
 ):
     conta = db.query(DimConta).filter(DimConta.id == conta_id).first()
     if not conta:
@@ -72,7 +72,7 @@ def update_conta(
 def delete_conta(
     conta_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_contas", "pode_deletar"))
 ):
     conta = db.query(DimConta).filter(DimConta.id == conta_id).first()
     if not conta:

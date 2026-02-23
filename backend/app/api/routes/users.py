@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_password_hash, require_admin, get_current_user
+from ...core.security import get_password_hash, require_permission, get_current_user
 from ...models.user import Usuario
 from ...schemas.auth import UserCreate, UserUpdate, UserResponse
 
@@ -25,7 +25,7 @@ def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_admin())
+    current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_visualizar"))
 ):
     users = db.query(Usuario).options(joinedload(Usuario.perfil_acesso_rel)).offset(skip).limit(limit).all()
     return [_user_to_response(u) for u in users]
@@ -34,7 +34,7 @@ def list_users(
 def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_admin())
+    current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_criar"))
 ):
     existing = db.query(Usuario).filter(Usuario.email == user.email).first()
     if existing:
@@ -57,7 +57,7 @@ def create_user(
 def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_admin())
+    current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_visualizar"))
 ):
     user = db.query(Usuario).options(joinedload(Usuario.perfil_acesso_rel)).filter(Usuario.id == user_id).first()
     if not user:
@@ -69,7 +69,7 @@ def update_user(
     user_id: int,
     user_update: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_admin())
+    current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_editar"))
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:
@@ -93,7 +93,7 @@ def update_user(
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_admin())
+    current_user: Usuario = Depends(require_permission("admin_usuarios", "pode_deletar"))
 ):
     user = db.query(Usuario).filter(Usuario.id == user_id).first()
     if not user:

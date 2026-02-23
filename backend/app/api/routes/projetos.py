@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.dimensoes import DimProjeto
 from ...models.fatos import FatoAtletasCanais, FatoAtletasMetricas
 from ...models.user import Usuario
@@ -211,7 +211,7 @@ def get_filtros_disponiveis(
 def create_projeto(
     projeto: ProjetoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("eventos", "pode_criar"))
 ):
     existing = db.query(DimProjeto).filter(DimProjeto.codigo == projeto.codigo).first()
     if existing:
@@ -295,7 +295,7 @@ def update_projeto(
     projeto_id: int,
     projeto_update: ProjetoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("eventos", "pode_editar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
     if not projeto:
@@ -313,7 +313,7 @@ def update_projeto(
 def delete_projeto(
     projeto_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("eventos", "pode_deletar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
     if not projeto:

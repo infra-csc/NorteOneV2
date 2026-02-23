@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles, is_user_admin
+from ...core.security import get_current_user, require_permission, is_user_admin
 from ...models.fatos import FatoRealizado
 from ...models.dimensoes import DimTempo, DimConta
 from ...models.user import Usuario
@@ -37,7 +37,7 @@ def list_realizados(
 def create_realizado(
     realizado: RealizadoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_criar"))
 ):
     db_realizado = FatoRealizado(**realizado.model_dump())
     db.add(db_realizado)
@@ -80,7 +80,7 @@ def get_resumo_realizado(
 def delete_realizado(
     realizado_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_deletar"))
 ):
     realizado = db.query(FatoRealizado).filter(FatoRealizado.id == realizado_id).first()
     if not realizado:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles, is_user_admin
+from ...core.security import get_current_user, require_permission, is_user_admin
 from ...models.fatos import FatoProjecao
 from ...models.dimensoes import DimTempo, DimConta
 from ...models.user import Usuario
@@ -40,7 +40,7 @@ def list_projecoes(
 def create_projecao(
     projecao: ProjecaoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_criar"))
 ):
     if not is_user_admin(current_user) and current_user.centro_custo_id:
         if projecao.centro_custo_id != current_user.centro_custo_id:
@@ -57,7 +57,7 @@ def update_projecao(
     projecao_id: int,
     projecao_update: ProjecaoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_editar"))
 ):
     projecao = db.query(FatoProjecao).filter(FatoProjecao.id == projecao_id).first()
     if not projecao:
@@ -77,7 +77,7 @@ def update_projecao(
 def aprovar_projecao(
     projecao_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_criar"))
 ):
     projecao = db.query(FatoProjecao).filter(FatoProjecao.id == projecao_id).first()
     if not projecao:
@@ -93,7 +93,7 @@ def aprovar_projecao(
 def rejeitar_projecao(
     projecao_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_deletar"))
 ):
     projecao = db.query(FatoProjecao).filter(FatoProjecao.id == projecao_id).first()
     if not projecao:

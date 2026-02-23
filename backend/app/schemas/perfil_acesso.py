@@ -44,12 +44,14 @@ class PerfilAcessoBase(BaseModel):
 
 
 class PerfilAcessoCreate(PerfilAcessoBase):
+    is_admin: bool = False
     permissoes: List[PermissaoBase] = []
 
 
 class PerfilAcessoUpdate(BaseModel):
     nome: Optional[str] = None
     descricao: Optional[str] = None
+    is_admin: Optional[bool] = None
     ativo: Optional[bool] = None
     permissoes: Optional[List[PermissaoBase]] = None
 

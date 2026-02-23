@@ -5,7 +5,7 @@ from typing import List
 import pandas as pd
 import io
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.fatos import FatoOrcamento
 from ...models.dimensoes import DimTempo, DimCentroCusto, DimConta, DimProjeto
 from ...models.user import Usuario
@@ -37,7 +37,7 @@ def list_orcamentos(
 def create_orcamento(
     orcamento: OrcamentoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_criar"))
 ):
     db_orcamento = FatoOrcamento(**orcamento.model_dump(), created_by=current_user.id)
     db.add(db_orcamento)
@@ -106,7 +106,7 @@ def update_orcamento(
     orcamento_id: int,
     orcamento_update: OrcamentoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_editar"))
 ):
     orcamento = db.query(FatoOrcamento).filter(FatoOrcamento.id == orcamento_id).first()
     if not orcamento:
@@ -123,7 +123,7 @@ def update_orcamento(
 def delete_orcamento(
     orcamento_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("orcamento", "pode_deletar"))
 ):
     orcamento = db.query(FatoOrcamento).filter(FatoOrcamento.id == orcamento_id).first()
     if not orcamento:

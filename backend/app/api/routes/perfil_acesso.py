@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sa_func
 from typing import List
 from ...core.database import get_db
-from ...core.security import require_roles, require_admin, get_current_user, is_user_admin
+from ...core.security import require_permission, get_current_user, is_user_admin
 from ...models.perfil_acesso import PerfilAcesso, PerfilPermissao
 from ...models.user import Usuario
 from ...schemas.perfil_acesso import (
@@ -23,7 +23,7 @@ def list_modulos(current_user: Usuario = Depends(get_current_user)):
 @router.get("/", response_model=List[PerfilAcessoListResponse])
 def list_perfis(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_visualizar"))
 ):
     perfis = db.query(PerfilAcesso).filter(PerfilAcesso.ativo == True).all()
     result = []
@@ -48,7 +48,7 @@ def list_perfis(
 def get_perfil(
     perfil_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_visualizar"))
 ):
     perfil = db.query(PerfilAcesso).options(
         joinedload(PerfilAcesso.permissoes)
@@ -62,13 +62,19 @@ def get_perfil(
 def create_perfil(
     data: PerfilAcessoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_criar"))
 ):
+    if data.is_admin and not is_user_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem criar perfis com privilégio de administrador"
+        )
+
     existing = db.query(PerfilAcesso).filter(PerfilAcesso.nome == data.nome).first()
     if existing:
         raise HTTPException(status_code=400, detail="Já existe um perfil com este nome")
 
-    perfil = PerfilAcesso(nome=data.nome, descricao=data.descricao)
+    perfil = PerfilAcesso(nome=data.nome, descricao=data.descricao, is_admin=data.is_admin)
     db.add(perfil)
     db.flush()
 
@@ -95,7 +101,7 @@ def update_perfil(
     perfil_id: int,
     data: PerfilAcessoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_editar"))
 ):
     perfil = db.query(PerfilAcesso).filter(PerfilAcesso.id == perfil_id).first()
     if not perfil:
@@ -112,6 +118,14 @@ def update_perfil(
 
     if data.descricao is not None:
         perfil.descricao = data.descricao
+
+    if data.is_admin is not None and data.is_admin != perfil.is_admin:
+        if not is_user_admin(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem alterar o privilégio de administrador"
+            )
+        perfil.is_admin = data.is_admin
 
     if data.ativo is not None:
         perfil.ativo = data.ativo
@@ -142,7 +156,7 @@ def update_perfil(
 def delete_perfil(
     perfil_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_deletar"))
 ):
     perfil = db.query(PerfilAcesso).filter(PerfilAcesso.id == perfil_id).first()
     if not perfil:

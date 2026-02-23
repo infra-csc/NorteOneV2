@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.dimensoes import DimCategoriaAtleta
 from ...models.user import Usuario
 from ...schemas.dimensoes import CategoriaAtletaCreate, CategoriaAtletaUpdate, CategoriaAtletaResponse
@@ -30,7 +30,7 @@ def list_categorias(
 def create_categoria(
     categoria: CategoriaAtletaCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
+    current_user: Usuario = Depends(require_permission("categorias_atletas", "pode_criar"))
 ):
     existing = db.query(DimCategoriaAtleta).filter(DimCategoriaAtleta.codigo == categoria.codigo).first()
     if existing:
@@ -58,7 +58,7 @@ def update_categoria(
     categoria_id: int,
     categoria_update: CategoriaAtletaUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
+    current_user: Usuario = Depends(require_permission("categorias_atletas", "pode_editar"))
 ):
     categoria = db.query(DimCategoriaAtleta).filter(DimCategoriaAtleta.id == categoria_id).first()
     if not categoria:
@@ -75,7 +75,7 @@ def update_categoria(
 def delete_categoria(
     categoria_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("categorias_atletas", "pode_deletar"))
 ):
     categoria = db.query(DimCategoriaAtleta).filter(DimCategoriaAtleta.id == categoria_id).first()
     if not categoria:

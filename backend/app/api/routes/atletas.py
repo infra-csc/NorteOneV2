@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.fatos import FatoAtletasMetricas, FatoAtletasCanais
 from ...models.dimensoes import DimProjeto, DimCategoriaAtleta
 from ...models.user import Usuario
@@ -37,7 +37,7 @@ def list_atletas(
 def create_atleta(
     atleta: AtletasMetricasCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_criar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == atleta.projeto_id).first()
     if not projeto:
@@ -162,7 +162,7 @@ def update_atleta(
     atleta_id: int,
     atleta_update: AtletasMetricasUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA", "GESTOR"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_editar"))
 ):
     atleta = db.query(FatoAtletasMetricas).filter(FatoAtletasMetricas.id == atleta_id).first()
     if not atleta:
@@ -179,7 +179,7 @@ def update_atleta(
 def delete_atleta(
     atleta_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("atletas", "pode_deletar"))
 ):
     atleta = db.query(FatoAtletasMetricas).filter(FatoAtletasMetricas.id == atleta_id).first()
     if not atleta:

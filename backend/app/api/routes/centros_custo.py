@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_current_user, require_roles
+from ...core.security import get_current_user, require_permission
 from ...models.dimensoes import DimCentroCusto
 from ...models.user import Usuario
 from ...schemas.dimensoes import CentroCustoCreate, CentroCustoUpdate, CentroCustoResponse
@@ -23,7 +23,7 @@ def list_centros_custo(
 def create_centro_custo(
     centro: CentroCustoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
+    current_user: Usuario = Depends(require_permission("admin_centros_custo", "pode_criar"))
 ):
     existing = db.query(DimCentroCusto).filter(DimCentroCusto.codigo == centro.codigo).first()
     if existing:
@@ -51,7 +51,7 @@ def update_centro_custo(
     centro_id: int,
     centro_update: CentroCustoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN", "ANALISTA"]))
+    current_user: Usuario = Depends(require_permission("admin_centros_custo", "pode_editar"))
 ):
     centro = db.query(DimCentroCusto).filter(DimCentroCusto.id == centro_id).first()
     if not centro:
@@ -68,7 +68,7 @@ def update_centro_custo(
 def delete_centro_custo(
     centro_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_roles(["ADMIN"]))
+    current_user: Usuario = Depends(require_permission("admin_centros_custo", "pode_deletar"))
 ):
     centro = db.query(DimCentroCusto).filter(DimCentroCusto.id == centro_id).first()
     if not centro:
