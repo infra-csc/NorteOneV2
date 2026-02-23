@@ -90,6 +90,75 @@ function Scene() {
   );
 }
 
+function RunnerSilhouette({ style, flip }: { style: React.CSSProperties; flip?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 120 160"
+      style={{ ...style, transform: `${style.transform || ''} ${flip ? 'scaleX(-1)' : ''}`.trim() }}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <g fill="currentColor">
+        <circle cx="62" cy="18" r="10" />
+        <path d="M55 28 C50 28, 42 35, 40 48 L38 60 L28 72 L36 74 L46 62 L48 56 L52 68 L38 95 L30 120 L40 122 L54 96 L60 80 L66 96 L62 122 L72 124 L80 96 L72 68 L68 48 C66 35, 62 28, 55 28Z" />
+        <path d="M40 48 L24 58 L20 70 L28 72" />
+        <path d="M68 48 L85 42 L95 48 L88 54 L72 52" />
+        <path d="M30 120 L22 130 L18 140 L28 138 L36 128 L40 122" />
+        <path d="M62 122 L58 135 L60 148 L70 146 L72 132 L72 124" />
+      </g>
+    </svg>
+  );
+}
+
+function FinishLine({ style }: { style: React.CSSProperties }) {
+  const squares = [];
+  const cols = 4;
+  const rows = 20;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if ((r + c) % 2 === 0) {
+        squares.push(
+          <rect key={`${r}-${c}`} x={c * 6} y={r * 6} width="6" height="6" fill="currentColor" />
+        );
+      }
+    }
+  }
+  return (
+    <svg viewBox={`0 0 ${cols * 6} ${rows * 6}`} style={style} xmlns="http://www.w3.org/2000/svg">
+      {squares}
+    </svg>
+  );
+}
+
+function SpeedLines() {
+  return (
+    <svg
+      style={{
+        position: 'absolute',
+        bottom: '18%',
+        left: 0,
+        width: '100%',
+        height: '120px',
+        opacity: 0.06,
+        pointerEvents: 'none',
+      }}
+      viewBox="0 0 1200 120"
+      preserveAspectRatio="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <style>{`
+        @keyframes dashFlow {
+          from { stroke-dashoffset: 0; }
+          to { stroke-dashoffset: -200; }
+        }
+      `}</style>
+      <line x1="0" y1="30" x2="1200" y2="30" stroke="#1a4fff" strokeWidth="1" strokeDasharray="40 60" style={{ animation: 'dashFlow 4s linear infinite' }} />
+      <line x1="0" y1="55" x2="1200" y2="55" stroke="#ff4400" strokeWidth="1.5" strokeDasharray="60 40" style={{ animation: 'dashFlow 3s linear infinite' }} />
+      <line x1="0" y1="80" x2="1200" y2="80" stroke="#1a4fff" strokeWidth="0.8" strokeDasharray="30 70" style={{ animation: 'dashFlow 5s linear infinite' }} />
+      <line x1="0" y1="100" x2="1200" y2="100" stroke="#ff4400" strokeWidth="0.6" strokeDasharray="20 80" style={{ animation: 'dashFlow 6s linear infinite' }} />
+    </svg>
+  );
+}
+
 function CSSFallbackBackground() {
   return (
     <div
@@ -116,6 +185,22 @@ function CSSFallbackBackground() {
         @keyframes twinkle {
           0%, 100% { opacity: 0; }
           50% { opacity: 0.8; }
+        }
+        @keyframes runnerGlide {
+          0% { transform: translateX(-100px); opacity: 0; }
+          15% { opacity: 1; }
+          85% { opacity: 1; }
+          100% { transform: translateX(calc(100vw + 100px)); opacity: 0; }
+        }
+        @keyframes runnerGlideReverse {
+          0% { transform: translateX(100vw) scaleX(-1); opacity: 0; }
+          15% { opacity: 1; }
+          85% { opacity: 1; }
+          100% { transform: translateX(-200px) scaleX(-1); opacity: 0; }
+        }
+        @keyframes pulseTrack {
+          0%, 100% { opacity: 0.03; }
+          50% { opacity: 0.07; }
         }
       `}</style>
 
@@ -158,6 +243,73 @@ function CSSFallbackBackground() {
           }}
         />
       ))}
+
+      <RunnerSilhouette
+        style={{
+          position: 'absolute',
+          bottom: '8%',
+          left: 0,
+          width: '45px',
+          height: '60px',
+          color: 'rgba(26, 79, 255, 0.08)',
+          animation: 'runnerGlide 18s linear infinite',
+        }}
+      />
+
+      <RunnerSilhouette
+        style={{
+          position: 'absolute',
+          bottom: '12%',
+          left: 0,
+          width: '35px',
+          height: '48px',
+          color: 'rgba(255, 68, 0, 0.06)',
+          animation: 'runnerGlide 24s linear 6s infinite',
+        }}
+      />
+
+      <RunnerSilhouette
+        flip
+        style={{
+          position: 'absolute',
+          top: '10%',
+          right: 0,
+          width: '30px',
+          height: '40px',
+          color: 'rgba(26, 79, 255, 0.05)',
+          animation: 'runnerGlideReverse 22s linear 3s infinite',
+        }}
+      />
+
+      <SpeedLines />
+
+      <FinishLine style={{
+        position: 'absolute',
+        right: '6%',
+        bottom: '5%',
+        width: '18px',
+        height: '90px',
+        color: 'rgba(255, 255, 255, 0.04)',
+        animation: 'pulseTrack 6s ease-in-out infinite',
+      }} />
+
+      <svg
+        style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          width: '100%',
+          height: '80px',
+          opacity: 0.04,
+          pointerEvents: 'none',
+        }}
+        viewBox="0 0 1200 80"
+        preserveAspectRatio="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <ellipse cx="600" cy="70" rx="600" ry="15" fill="none" stroke="#1a4fff" strokeWidth="1" strokeDasharray="8 12" />
+        <ellipse cx="600" cy="60" rx="550" ry="12" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="0.5" strokeDasharray="4 16" />
+      </svg>
     </div>
   );
 }
