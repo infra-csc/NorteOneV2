@@ -19,6 +19,7 @@ MODULOS_SISTEMA = [
     {"key": "admin_centros_custo", "label": "Admin - Centros de Custo"},
     {"key": "admin_contas", "label": "Admin - Contas"},
     {"key": "admin_perfis_acesso", "label": "Admin - Perfis de Acesso"},
+    {"key": "cotacoes_importacao", "label": "Cotação & Importação"},
 ]
 
 

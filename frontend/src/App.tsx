@@ -22,6 +22,7 @@ const DadosConsolidados = lazy(() => import('./pages/admin/DadosConsolidados'));
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'));
 const SkuMappings = lazy(() => import('./pages/admin/SkuMappings'));
 const PerfisAcesso = lazy(() => import('./pages/admin/PerfisAcesso'));
+const CotacoesImportacao = lazy(() => import('./pages/cotacoes/CotacoesImportacao'));
 
 
 const PageLoader = () => (
@@ -70,6 +71,7 @@ function App() {
               <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
               <Route path="/admin/contas" element={<PrivateRoute><Layout><Contas /></Layout></PrivateRoute>} />
               <Route path="/admin/perfis-acesso" element={<PrivateRoute><Layout><PerfisAcesso /></Layout></PrivateRoute>} />
+              <Route path="/cotacoes" element={<PrivateRoute><Layout><CotacoesImportacao /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>
         </Router>

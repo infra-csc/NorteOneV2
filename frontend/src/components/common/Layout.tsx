@@ -25,7 +25,8 @@ import {
   Sparkles,
   Database,
   ShieldCheck,
-  Package
+  Package,
+  Plane
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -39,6 +40,10 @@ const menuItems = [
   { path: '/cadastros/eventos', icon: Target, label: 'Eventos', modulo: 'eventos' },
   { path: '/orcamento', icon: TrendingUp, label: 'Orcamento', modulo: 'orcamento' },
   { path: '/atletas', icon: Users, label: 'Atletas', modulo: 'atletas' },
+];
+
+const cotacaoItems = [
+  { path: '/cotacoes', icon: Plane, label: 'Cotação & Importação', modulo: 'cotacoes_importacao' },
 ];
 
 const marketingItems = [
@@ -74,6 +79,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const cadastroItems = menuItems.filter(item => item.path.includes('/cadastros/') && canView(item.modulo));
   const mainItems = menuItems.filter(item => !item.path.includes('/cadastros/') && canView(item.modulo));
+  const filteredCotacaoItems = cotacaoItems.filter(item => canView(item.modulo));
   const filteredMarketingItems = marketingItems.filter(item => canView(item.modulo));
   const filteredAdminItems = adminItems.filter(item => canView(item.modulo));
 
@@ -89,6 +95,27 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         
         <nav className="p-4 space-y-2">
           {mainItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                    : isDark
+                    ? 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Icon className="w-5 h-5 mr-3" />
+                {item.label}
+              </Link>
+            );
+          })}
+
+          {filteredCotacaoItems.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (

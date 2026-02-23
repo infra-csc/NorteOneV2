@@ -9,3 +9,6 @@ from app.models.cadastro_evento import (
     CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos,
     CircuitoProduto, Localizacao, DistanciaOpcao
 )
+from app.models.cotacao import (
+    ViagemCotacao, Fornecedor, Cotacao, CustoImportacao, CotacaoEvento
+)
