@@ -24,7 +24,8 @@ class FornecedorResponse(FornecedorBase):
 
 
 class CotacaoEventoBase(BaseModel):
-    cadastro_evento_id: int
+    cadastro_evento_id: Optional[int] = None
+    evento_nome_manual: Optional[str] = None
     quantidade: int = 1
     observacoes: Optional[str] = None
 

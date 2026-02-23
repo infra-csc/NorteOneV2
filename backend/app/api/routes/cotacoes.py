@@ -176,12 +176,17 @@ def get_viagem(
     for c in v.cotacoes:
         eventos_resp = []
         for ce in c.eventos:
-            ev = db.query(CadastroEvento).filter(CadastroEvento.id == ce.cadastro_evento_id).first()
+            if ce.cadastro_evento_id:
+                ev = db.query(CadastroEvento).filter(CadastroEvento.id == ce.cadastro_evento_id).first()
+                ev_nome = ev.nome if ev else None
+            else:
+                ev_nome = ce.evento_nome_manual
             eventos_resp.append(CotacaoEventoResponse(
                 id=ce.id, cotacao_id=ce.cotacao_id,
                 cadastro_evento_id=ce.cadastro_evento_id,
+                evento_nome_manual=ce.evento_nome_manual,
                 quantidade=ce.quantidade, observacoes=ce.observacoes,
-                evento_nome=ev.nome if ev else None,
+                evento_nome=ev_nome,
             ))
         cotacoes_resp.append(CotacaoResponse(
             id=c.id, viagem_id=c.viagem_id,
@@ -341,12 +346,17 @@ def update_cotacao(
 
     eventos_resp = []
     for ce in c.eventos:
-        ev = db.query(CadastroEvento).filter(CadastroEvento.id == ce.cadastro_evento_id).first()
+        if ce.cadastro_evento_id:
+            ev = db.query(CadastroEvento).filter(CadastroEvento.id == ce.cadastro_evento_id).first()
+            ev_nome = ev.nome if ev else None
+        else:
+            ev_nome = ce.evento_nome_manual
         eventos_resp.append(CotacaoEventoResponse(
             id=ce.id, cotacao_id=ce.cotacao_id,
             cadastro_evento_id=ce.cadastro_evento_id,
+            evento_nome_manual=ce.evento_nome_manual,
             quantidade=ce.quantidade, observacoes=ce.observacoes,
-            evento_nome=ev.nome if ev else None,
+            evento_nome=ev_nome,
         ))
 
     return CotacaoResponse(
@@ -394,19 +404,35 @@ def add_evento_to_cotacao(
     c = db.query(Cotacao).filter(Cotacao.id == cid).first()
     if not c:
         raise HTTPException(status_code=404, detail="Cotação não encontrada")
-    ev = db.query(CadastroEvento).filter(CadastroEvento.id == data.cadastro_evento_id).first()
-    if not ev:
-        raise HTTPException(status_code=404, detail="Evento não encontrado")
 
-    ce = CotacaoEvento(cotacao_id=cid, **data.dict())
+    if not data.cadastro_evento_id and not data.evento_nome_manual:
+        raise HTTPException(status_code=400, detail="Informe um evento cadastrado ou digite o nome do evento")
+
+    evento_nome = None
+    if data.cadastro_evento_id:
+        ev = db.query(CadastroEvento).filter(CadastroEvento.id == data.cadastro_evento_id).first()
+        if not ev:
+            raise HTTPException(status_code=404, detail="Evento não encontrado")
+        evento_nome = ev.nome
+    else:
+        evento_nome = data.evento_nome_manual
+
+    ce = CotacaoEvento(
+        cotacao_id=cid,
+        cadastro_evento_id=data.cadastro_evento_id,
+        evento_nome_manual=data.evento_nome_manual,
+        quantidade=data.quantidade,
+        observacoes=data.observacoes,
+    )
     db.add(ce)
     db.commit()
     db.refresh(ce)
     return CotacaoEventoResponse(
         id=ce.id, cotacao_id=ce.cotacao_id,
         cadastro_evento_id=ce.cadastro_evento_id,
+        evento_nome_manual=ce.evento_nome_manual,
         quantidade=ce.quantidade, observacoes=ce.observacoes,
-        evento_nome=ev.nome,
+        evento_nome=evento_nome,
     )
 
 
@@ -519,20 +545,26 @@ def get_dashboard(
     total_custos_brl = sum(float(ci.valor_brl or 0) for ci in all_custos)
 
     fornecedores_ids = set(c.fornecedor_id for c in all_cotacoes if c.fornecedor_id)
-    eventos_ids = set()
+    eventos_keys = set()
     for c in cotacoes_sel:
         for ce in c.eventos:
-            eventos_ids.add(ce.cadastro_evento_id)
+            key = ce.cadastro_evento_id or ce.evento_nome_manual or "sem_evento"
+            eventos_keys.add(key)
 
     evento_custos = {}
     for c in cotacoes_sel:
         for ce in c.eventos:
-            eid = ce.cadastro_evento_id
-            if eid not in evento_custos:
-                ev = db.query(CadastroEvento).filter(CadastroEvento.id == eid).first()
-                evento_custos[eid] = {"evento": ev.nome if ev else f"ID {eid}", "total_usd": 0, "total_brl": 0}
-            evento_custos[eid]["total_usd"] += float(c.valor_total_usd or 0)
-            evento_custos[eid]["total_brl"] += float(c.valor_total_brl or 0)
+            if ce.cadastro_evento_id:
+                key = ce.cadastro_evento_id
+                if key not in evento_custos:
+                    ev = db.query(CadastroEvento).filter(CadastroEvento.id == key).first()
+                    evento_custos[key] = {"evento": ev.nome if ev else f"ID {key}", "total_usd": 0, "total_brl": 0}
+            else:
+                key = ce.evento_nome_manual or "Evento sem nome"
+                if key not in evento_custos:
+                    evento_custos[key] = {"evento": key, "total_usd": 0, "total_brl": 0}
+            evento_custos[key]["total_usd"] += float(c.valor_total_usd or 0)
+            evento_custos[key]["total_brl"] += float(c.valor_total_brl or 0)
 
     fornecedor_custos = {}
     for c in cotacoes_sel:
@@ -562,7 +594,7 @@ def get_dashboard(
         total_custos_importacao_brl=total_custos_brl,
         custo_total_brl=total_brl + total_custos_brl,
         total_fornecedores=len(fornecedores_ids),
-        total_eventos_vinculados=len(eventos_ids),
+        total_eventos_vinculados=len(eventos_keys),
         por_evento=list(evento_custos.values()),
         por_fornecedor=list(fornecedor_custos.values()),
         por_status=[{"status": k, "quantidade": v} for k, v in status_count.items()],

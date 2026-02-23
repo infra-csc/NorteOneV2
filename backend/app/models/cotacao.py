@@ -90,7 +90,8 @@ class CotacaoEvento(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     cotacao_id = Column(Integer, ForeignKey("cotacao.id", ondelete="CASCADE"), nullable=False)
-    cadastro_evento_id = Column(Integer, ForeignKey("cadastro_evento.id"), nullable=False)
+    cadastro_evento_id = Column(Integer, ForeignKey("cadastro_evento.id"), nullable=True)
+    evento_nome_manual = Column(String(300), nullable=True)
     quantidade = Column(Integer, default=1)
     observacoes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())

@@ -15,7 +15,7 @@ const COLORS_CHART = ['#8b5cf6', '#ec4899', '#f97316', '#10b981', '#3b82f6', '#e
 type ViewMode = 'dashboard' | 'viagens' | 'viagem-detail' | 'fornecedores';
 
 interface Fornecedor { id: number; nome: string; contato?: string; localizacao?: string; observacoes?: string; ativo: boolean; }
-interface CotacaoEvento { id: number; cotacao_id: number; cadastro_evento_id: number; quantidade: number; observacoes?: string; evento_nome?: string; }
+interface CotacaoEvento { id: number; cotacao_id: number; cadastro_evento_id?: number; evento_nome_manual?: string; quantidade: number; observacoes?: string; evento_nome?: string; }
 interface Cotacao {
   id: number; viagem_id: number; fornecedor_id?: number; produto_nome: string; descricao?: string;
   valor_unitario_usd: number; quantidade: number; taxa_cambio?: number;
@@ -68,7 +68,8 @@ const CotacoesImportacao: React.FC = () => {
   const [formCotacao, setFormCotacao] = useState({ produto_nome: '', descricao: '', fornecedor_id: '', valor_unitario_usd: '', quantidade: '1', taxa_cambio: '', data_cotacao: '', observacoes: '' });
   const [formCusto, setFormCusto] = useState({ descricao: '', tipo: 'Frete Internacional', valor_usd: '', valor_brl: '', observacoes: '' });
   const [formFornecedor, setFormFornecedor] = useState({ nome: '', contato: '', localizacao: '', observacoes: '' });
-  const [formEvento, setFormEvento] = useState({ cadastro_evento_id: '', quantidade: '1', observacoes: '' });
+  const [formEvento, setFormEvento] = useState({ cadastro_evento_id: '', evento_nome_manual: '', quantidade: '1', observacoes: '' });
+  const [eventoInputMode, setEventoInputMode] = useState<'select' | 'free'>('select');
   const [saving, setSaving] = useState(false);
   const [searchViagem, setSearchViagem] = useState('');
 
@@ -265,13 +266,20 @@ const CotacoesImportacao: React.FC = () => {
 
   const handleLinkEvento = async () => {
     if (!linkingCotacaoId || !selectedViagem) return;
+    if (eventoInputMode === 'select' && !formEvento.cadastro_evento_id) { setError('Selecione um evento'); return; }
+    if (eventoInputMode === 'free' && !formEvento.evento_nome_manual.trim()) { setError('Digite o nome do evento'); return; }
     setSaving(true);
     try {
-      await api.post(`/cotacoes/cotacoes/${linkingCotacaoId}/eventos`, {
-        cadastro_evento_id: Number(formEvento.cadastro_evento_id),
+      const payload: any = {
         quantidade: Number(formEvento.quantidade) || 1,
         observacoes: formEvento.observacoes || null,
-      });
+      };
+      if (eventoInputMode === 'select') {
+        payload.cadastro_evento_id = Number(formEvento.cadastro_evento_id);
+      } else {
+        payload.evento_nome_manual = formEvento.evento_nome_manual.trim();
+      }
+      await api.post(`/cotacoes/cotacoes/${linkingCotacaoId}/eventos`, payload);
       setShowEventoModal(false);
       loadViagemDetail(selectedViagem.id);
     } catch (err: any) { setError(err.response?.data?.detail || 'Erro ao vincular evento'); }
@@ -331,7 +339,8 @@ const CotacoesImportacao: React.FC = () => {
 
   const openEventoLink = (cotacaoId: number) => {
     setLinkingCotacaoId(cotacaoId);
-    setFormEvento({ cadastro_evento_id: '', quantidade: '1', observacoes: '' });
+    setFormEvento({ cadastro_evento_id: '', evento_nome_manual: '', quantidade: '1', observacoes: '' });
+    setEventoInputMode('select');
     setShowEventoModal(true);
   };
 
@@ -884,11 +893,26 @@ const CotacoesImportacao: React.FC = () => {
 
       {renderModal(showEventoModal, () => setShowEventoModal(false), 'Vincular Evento', handleLinkEvento, (
         <>
+          <div>
+            <label className={labelClass}>Tipo de vínculo</label>
+            <div className="flex gap-2 mb-3">
+              <button type="button" onClick={() => { setEventoInputMode('select'); setFormEvento(f => ({ ...f, evento_nome_manual: '' })); }} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${eventoInputMode === 'select' ? 'bg-indigo-500 text-white' : isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                Evento cadastrado
+              </button>
+              <button type="button" onClick={() => { setEventoInputMode('free'); setFormEvento(f => ({ ...f, cadastro_evento_id: '' })); }} className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${eventoInputMode === 'free' ? 'bg-indigo-500 text-white' : isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                Digitar manualmente
+              </button>
+            </div>
+          </div>
           <div><label className={labelClass}>Evento *</label>
-            <select value={formEvento.cadastro_evento_id} onChange={e => setFormEvento({ ...formEvento, cadastro_evento_id: e.target.value })} className={inputClass}>
-              <option value="">Selecione um evento...</option>
-              {eventos.map(e => <option key={e.id} value={e.id}>{e.nome}{e.ano_evento ? ` (${e.ano_evento})` : ''}</option>)}
-            </select>
+            {eventoInputMode === 'select' ? (
+              <select value={formEvento.cadastro_evento_id} onChange={e => setFormEvento({ ...formEvento, cadastro_evento_id: e.target.value })} className={inputClass}>
+                <option value="">Selecione um evento...</option>
+                {eventos.map(e => <option key={e.id} value={e.id}>{e.nome}{e.ano_evento ? ` (${e.ano_evento})` : ''}</option>)}
+              </select>
+            ) : (
+              <input value={formEvento.evento_nome_manual} onChange={e => setFormEvento({ ...formEvento, evento_nome_manual: e.target.value })} className={inputClass} placeholder="Digite o nome do evento..." />
+            )}
           </div>
           <div><label className={labelClass}>Quantidade</label><input type="number" value={formEvento.quantidade} onChange={e => setFormEvento({ ...formEvento, quantidade: e.target.value })} className={inputClass} /></div>
           <div><label className={labelClass}>Observações</label><textarea value={formEvento.observacoes} onChange={e => setFormEvento({ ...formEvento, observacoes: e.target.value })} className={`${inputClass} h-16 resize-none`} /></div>
