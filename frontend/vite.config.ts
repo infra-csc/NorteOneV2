@@ -9,6 +9,12 @@ export default defineConfig({
       '@assets': path.resolve(__dirname, '../attached_assets')
     }
   },
+  optimizeDeps: {
+    exclude: ['three-stdlib'],
+    esbuildOptions: {
+      sourcemap: false,
+    }
+  },
   build: {
     rollupOptions: {
       output: {
@@ -16,10 +22,11 @@ export default defineConfig({
           vendor: ['react', 'react-dom', 'react-router-dom'],
           charts: ['recharts'],
           icons: ['lucide-react'],
+          three: ['three', '@react-three/fiber', '@react-three/drei'],
         }
       }
     },
-    chunkSizeWarningLimit: 500,
+    chunkSizeWarningLimit: 1000,
   },
   server: {
     host: '0.0.0.0',
