@@ -727,6 +727,110 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
+      {((event.margemOrcadaPct ?? 0) !== 0 || (event.margemRealizadaPct ?? 0) !== 0 || (event.kitCostPerUnit ?? 0) > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Margem Orçada</p>
+            <p className={`text-2xl font-bold mt-2 ${
+              (event.margemOrcadaPct ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'
+            }`}>
+              {(event.margemOrcadaPct ?? 0).toFixed(1)}%
+            </p>
+            <div className="mt-3 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">Por inscrição</span>
+                <span className={`font-medium ${(event.margemOrcadaUnit ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
+                  {formatCurrency(event.margemOrcadaUnit ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">Total projetado</span>
+                <span className={`font-medium ${(event.margemOrcadaTotal ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
+                  {formatCurrency(event.margemOrcadaTotal ?? 0)}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">Custo kit</span>
+                <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.kitCostPerUnit ?? 0)}</span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mt-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${(event.margemOrcadaPct ?? 0) >= 0 ? 'bg-blue-500' : 'bg-red-500'}`}
+                  style={{ width: `${Math.min(Math.max(event.margemOrcadaPct ?? 0, 0), 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Margem Prevista / Realizada</p>
+              {event.currentSales > 0 && (event.margemOrcadaPct ?? 0) !== 0 && (
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) 
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) * 0.9
+                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                }`}>
+                  {(event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) ? 'Acima' : 'Abaixo'} do orçado
+                </span>
+              )}
+            </div>
+            <p className={`text-2xl font-bold mt-2 ${
+              event.currentSales === 0
+                ? 'text-gray-400 dark:text-gray-500'
+                : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0)
+                  ? 'text-green-600 dark:text-green-400'
+                  : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) * 0.9
+                    ? 'text-yellow-600 dark:text-yellow-400'
+                    : 'text-red-600 dark:text-red-400'
+            }`}>
+              {event.currentSales > 0 ? `${(event.margemRealizadaPct ?? 0).toFixed(1)}%` : '—'}
+            </p>
+            <div className="mt-3 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">Por inscrição</span>
+                <span className={`font-medium ${(event.margemRealizadaUnit ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
+                  {event.currentSales > 0 ? formatCurrency(event.margemRealizadaUnit ?? 0) : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">Total realizado</span>
+                <span className={`font-medium ${(event.margemRealizadaTotal ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
+                  {event.currentSales > 0 ? formatCurrency(event.margemRealizadaTotal ?? 0) : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-gray-400">vs Orçada</span>
+                <span className={`font-medium ${
+                  (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0)
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-red-600 dark:text-red-400'
+                }`}>
+                  {event.currentSales > 0 && (event.margemOrcadaPct ?? 0) !== 0
+                    ? `${((event.margemRealizadaPct ?? 0) - (event.margemOrcadaPct ?? 0)).toFixed(1)} p.p.`
+                    : '—'}
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mt-2">
+                <div
+                  className={`h-2 rounded-full transition-all ${
+                    event.currentSales === 0 ? 'bg-gray-400' :
+                    (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0)
+                      ? 'bg-green-500'
+                      : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) * 0.9
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
+                  }`}
+                  style={{ width: `${Math.min(Math.max(event.margemRealizadaPct ?? 0, 0), 100)}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={`rounded-xl p-4 border ${getRecommendationStyle()}`}>
         <div className="flex items-start gap-3">
           {event.iscStatus === 'accelerating' ? (

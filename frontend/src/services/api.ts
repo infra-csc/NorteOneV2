@@ -508,6 +508,13 @@ export interface MarketingEvent {
   isActive: boolean;
   sku?: string;
   activeAction?: { id: number; tipo: string; descricao: string; data_acao: string; dias_restantes: number } | null;
+  kitCostPerUnit?: number;
+  margemOrcadaUnit?: number;
+  margemOrcadaTotal?: number;
+  margemOrcadaPct?: number;
+  margemRealizadaUnit?: number;
+  margemRealizadaTotal?: number;
+  margemRealizadaPct?: number;
 }
 
 export interface MarketingDashboardSummary {

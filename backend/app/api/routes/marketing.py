@@ -288,6 +288,13 @@ class MarketingEvent(BaseModel):
     activeAction: Optional[ActiveActionInfo] = None
     isActive: bool
     sku: Optional[str] = None
+    kitCostPerUnit: float = 0.0
+    margemOrcadaUnit: float = 0.0
+    margemOrcadaTotal: float = 0.0
+    margemOrcadaPct: float = 0.0
+    margemRealizadaUnit: float = 0.0
+    margemRealizadaTotal: float = 0.0
+    margemRealizadaPct: float = 0.0
 
 class DashboardSummary(BaseModel):
     totalActiveEvents: int
@@ -818,6 +825,31 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
         costs = {pid: 50.0 for pid in projeto_ids}
     
     return costs
+
+
+def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
+                        avg_ticket: float, current_sales: int, current_receita: float) -> dict:
+    has_budget = budget_ticket > 0 and kit_cost > 0
+    has_sales = current_sales > 0 and avg_ticket > 0
+
+    margem_orcada_unit = round(budget_ticket - kit_cost, 2) if has_budget else 0.0
+    margem_orcada_total = round(margem_orcada_unit * sales_goal, 2) if has_budget else 0.0
+    margem_orcada_pct = round((margem_orcada_unit / budget_ticket) * 100, 1) if has_budget else 0.0
+
+    margem_realizada_unit = round(avg_ticket - kit_cost, 2) if has_sales else 0.0
+    margem_realizada_total = round(current_receita - (kit_cost * current_sales), 2) if has_sales else 0.0
+    margem_realizada_pct = round((margem_realizada_unit / avg_ticket) * 100, 1) if has_sales else 0.0
+
+    return {
+        "kitCostPerUnit": round(kit_cost, 2),
+        "margemOrcadaUnit": margem_orcada_unit,
+        "margemOrcadaTotal": margem_orcada_total,
+        "margemOrcadaPct": margem_orcada_pct,
+        "margemRealizadaUnit": margem_realizada_unit,
+        "margemRealizadaTotal": margem_realizada_total,
+        "margemRealizadaPct": margem_realizada_pct,
+    }
+
 
 _isc_cache = {}
 _isc_cache_timestamp = None
@@ -1546,6 +1578,7 @@ def get_marketing_events(
     all_projeto_ids.extend([p.id for p in standalone_projetos])
     
     active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
+    kit_costs_batch = get_kit_basico_costs_batch(db, all_projeto_ids) if all_projeto_ids else {}
     
     all_projetos_flat = []
     for proj_list in grupo_projetos.values():
@@ -1646,6 +1679,18 @@ def get_marketing_events(
                 grupo_active_action = active_actions_map[p.id]
                 break
         
+        grupo_kit_weighted_num = 0.0
+        grupo_kit_weighted_den = 0
+        for p in proj_list:
+            p_cad = cadastro_by_projeto_id.get(p.id)
+            p_cap = get_meta_from_cadastro(p_cad) if p_cad else get_meta_orcada(db, p.id)
+            p_kc = kit_costs_batch.get(p.id, 50.0)
+            grupo_kit_weighted_num += p_kc * p_cap
+            grupo_kit_weighted_den += p_cap
+        grupo_kit_cost_avg = round(grupo_kit_weighted_num / grupo_kit_weighted_den, 2) if grupo_kit_weighted_den > 0 else 50.0
+        grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
+                                            avg_ticket, current_sales, current_receita)
+        
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
             name=grupo.nome,
@@ -1664,7 +1709,8 @@ def get_marketing_events(
             suggestedAction=suggested_action,
             activeAction=grupo_active_action,
             isActive=is_active,
-            sku=",".join(skus_list)
+            sku=",".join(skus_list),
+            **grupo_margin
         )
         eventos.append(evento)
     
@@ -1729,6 +1775,10 @@ def get_marketing_events(
         
         standalone_active_action = active_actions_map.get(projeto.id)
         
+        standalone_kit_cost = kit_costs_batch.get(projeto.id, 50.0)
+        standalone_margin = _calc_margin_fields(standalone_budget_ticket, standalone_kit_cost, sales_goal,
+                                                 avg_ticket, current_sales, current_receita)
+        
         evento = MarketingEvent(
             id=str(projeto.id),
             name=evento_nome,
@@ -1747,7 +1797,8 @@ def get_marketing_events(
             suggestedAction=suggested_action,
             activeAction=standalone_active_action,
             isActive=is_active,
-            sku=sku
+            sku=sku,
+            **standalone_margin
         )
         eventos.append(evento)
     
@@ -3820,6 +3871,20 @@ def get_marketing_event_by_id(
         projeto_cidade = str(rep_projeto.cidade) if rep_projeto and rep_projeto.cidade else None
         projeto_estado = str(rep_projeto.estado) if rep_projeto and rep_projeto.estado else None
         
+        detail_kit_ids = [p.id for p in projetos]
+        detail_kit_costs = get_kit_basico_costs_batch(db, detail_kit_ids) if detail_kit_ids else {}
+        detail_kit_w_num = 0.0
+        detail_kit_w_den = 0
+        for p in projetos:
+            p_cad_d = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == p.id).first()
+            p_cap_d = get_meta_from_cadastro(p_cad_d) if p_cad_d else get_meta_orcada(db, p.id)
+            p_kc_d = detail_kit_costs.get(p.id, 50.0)
+            detail_kit_w_num += p_kc_d * p_cap_d
+            detail_kit_w_den += p_cap_d
+        detail_kit_cost_avg = round(detail_kit_w_num / detail_kit_w_den, 2) if detail_kit_w_den > 0 else 50.0
+        detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
+                                             avg_ticket, current_sales, current_receita)
+        
         evento = MarketingEvent(
             id=evento_id,
             name=grupo.nome,
@@ -3837,7 +3902,8 @@ def get_marketing_event_by_id(
             iscStatus=isc_status,
             suggestedAction=suggested_action,
             isActive=is_active,
-            sku=",".join(skus)
+            sku=",".join(skus),
+            **detail_margin
         )
         
         daily_sales = daily_sales_list
@@ -4033,6 +4099,10 @@ def get_marketing_event_by_id(
     projeto_nome = str(projeto.evento) if projeto.evento else "Evento sem nome"
     projeto_limite = sales_goal
     
+    detail_sa_kit_cost = get_kit_basico_cost(db, projeto.id)
+    detail_sa_margin = _calc_margin_fields(detail_standalone_bt, detail_sa_kit_cost, sales_goal,
+                                            avg_ticket, current_sales, current_receita)
+    
     evento = MarketingEvent(
         id=str(projeto.id),
         name=projeto_nome,
@@ -4050,7 +4120,8 @@ def get_marketing_event_by_id(
         iscStatus=isc_status,
         suggestedAction=suggested_action,
         isActive=is_active,
-        sku=sku
+        sku=sku,
+        **detail_sa_margin
     )
     
     daily_sales = daily_sales_list
