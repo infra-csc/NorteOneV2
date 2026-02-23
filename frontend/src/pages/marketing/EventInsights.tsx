@@ -169,9 +169,9 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">Evolução do ticket médio ao longo do tempo</p>
           </div>
-          <div style={{ height: 300 }}>
+          <div style={{ height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={filteredTkt}>
+              <LineChart data={filteredTkt} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                 <XAxis
                   dataKey="label"
@@ -184,6 +184,7 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                 <YAxis
                   tick={{ fill: textColor, fontSize: 12 }}
                   tickFormatter={(v: number) => `R$ ${v}`}
+                  domain={['auto', 'auto']}
                 />
                 <Tooltip
                   contentStyle={{
@@ -192,16 +193,12 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                     borderRadius: '8px',
                     color: isDark ? '#fff' : '#111'
                   }}
-                  formatter={(value: any, name: any) => [
+                  formatter={(value: any) => [
                     typeof value === 'number' ? formatCurrency(value) : value,
-                    name === 'ticket_atual' ? `Ano ${data.ano_atual}` : `Ano ${data.ano_anterior}`
+                    'Ticket Médio'
                   ]}
                 />
-                <Legend
-                  formatter={(value: string) => value === 'ticket_atual' ? `Ano ${data.ano_atual}` : `Ano ${data.ano_anterior}`}
-                />
-                <Line type="monotone" dataKey="ticket_atual" stroke={COLORS.ticketMedio} strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} connectNulls={false} />
-                <Line type="monotone" dataKey="ticket_anterior" stroke={COLORS.anoAnterior} strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} connectNulls={false} />
+                <Line type="monotone" dataKey="ticket_atual" name="Ticket Médio" stroke={COLORS.ticketMedio} strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} connectNulls={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
