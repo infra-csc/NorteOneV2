@@ -44,6 +44,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import EventInsights from './EventInsights';
 import EventSimulator from './EventSimulator';
+import EventPricing from './EventPricing';
 
 interface CommercialAction {
   id: string;
@@ -87,7 +88,7 @@ const EventDetail: React.FC = () => {
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing'>('dashboard');
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
@@ -604,9 +605,21 @@ const EventDetail: React.FC = () => {
         >
           Simulador
         </button>
+        <button
+          onClick={() => setActiveTab('pricing')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'pricing'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Pricing
+        </button>
       </div>
 
-      {activeTab === 'simulator' ? (
+      {activeTab === 'pricing' ? (
+        <EventPricing eventoId={id!} ano={anoParam} />
+      ) : activeTab === 'simulator' ? (
         <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
       ) : (
       <>

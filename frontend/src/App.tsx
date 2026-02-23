@@ -17,7 +17,6 @@ const MarketingDashboard = lazy(() => import('./pages/marketing/MarketingDashboa
 const EventDetail = lazy(() => import('./pages/marketing/EventDetail'));
 const EventComparison = lazy(() => import('./pages/marketing/EventComparison'));
 const MarketingSettings = lazy(() => import('./pages/marketing/MarketingSettings'));
-const PricingAnalysis = lazy(() => import('./pages/marketing/PricingAnalysis'));
 const NoriAssistant = lazy(() => import('./pages/nori/NoriAssistant'));
 const DadosConsolidados = lazy(() => import('./pages/admin/DadosConsolidados'));
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'));
@@ -63,7 +62,6 @@ function App() {
               <Route path="/marketing/evento/:id" element={<PrivateRoute><Layout><EventDetail /></Layout></PrivateRoute>} />
               <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
               <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
-              <Route path="/marketing/pricing" element={<PrivateRoute><Layout><PricingAnalysis /></Layout></PrivateRoute>} />
               <Route path="/nori" element={<PrivateRoute><Layout><NoriAssistant /></Layout></PrivateRoute>} />
               <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
               <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />
