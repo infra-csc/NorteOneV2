@@ -2248,13 +2248,23 @@ const Cadastro: React.FC = () => {
                     value={kit.kit}
                     onChange={(e) => {
                       const selectedKit = e.target.value;
-                      const defaultProdutos = produtosPadraoPorKit[selectedKit] || [];
-                      setForm(prev => ({
-                        ...prev,
-                        kit_produto: prev.kit_produto.map((k, i) => 
-                          i === index ? { ...k, kit: selectedKit, produtos: defaultProdutos } : k
-                        )
-                      }));
+                      const defaultProdutos = (produtosPadraoPorKit[selectedKit] || []).map(p => ({ ...p }));
+                      setForm(prev => {
+                        const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
+                        let produtosFinais = defaultProdutos;
+                        if (kitBasico && selectedKit !== 'Kit Básico') {
+                          produtosFinais = defaultProdutos.map(p => {
+                            const matchBasico = kitBasico.produtos.find(bp => bp.nome === p.nome);
+                            return matchBasico ? { ...p, valor_unitario: matchBasico.valor_unitario } : p;
+                          });
+                        }
+                        return {
+                          ...prev,
+                          kit_produto: prev.kit_produto.map((k, i) => 
+                            i === index ? { ...k, kit: selectedKit, produtos: produtosFinais } : k
+                          )
+                        };
+                      });
                     }}
                     className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   >
@@ -2277,15 +2287,27 @@ const Cadastro: React.FC = () => {
                           key={produto}
                           type="button"
                           onClick={() => {
-                            const produtos = isSelected
-                              ? kit.produtos.filter(p => p.nome !== produto)
-                              : [...kit.produtos, { nome: produto, valor_unitario: 0 }];
-                            setForm(prev => ({
-                              ...prev,
-                              kit_produto: prev.kit_produto.map((k, i) => 
-                                i === index ? { ...k, produtos } : k
-                              )
-                            }));
+                            setForm(prev => {
+                              const currentKit = prev.kit_produto[index];
+                              let produtos;
+                              if (isSelected) {
+                                produtos = currentKit.produtos.filter(p => p.nome !== produto);
+                              } else {
+                                let valorInicial = 0;
+                                if (currentKit.kit !== 'Kit Básico') {
+                                  const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
+                                  const matchBasico = kitBasico?.produtos.find(bp => bp.nome === produto);
+                                  if (matchBasico) valorInicial = matchBasico.valor_unitario;
+                                }
+                                produtos = [...currentKit.produtos, { nome: produto, valor_unitario: valorInicial }];
+                              }
+                              return {
+                                ...prev,
+                                kit_produto: prev.kit_produto.map((k, i) => 
+                                  i === index ? { ...k, produtos } : k
+                                )
+                              };
+                            });
                           }}
                           className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                             isSelected
@@ -2316,17 +2338,32 @@ const Cadastro: React.FC = () => {
                                 value={produto.valor_unitario || ''}
                                 onChange={(e) => {
                                   const newValue = parseFloat(e.target.value) || 0;
-                                  setForm(prev => ({
-                                    ...prev,
-                                    kit_produto: prev.kit_produto.map((k, i) => 
-                                      i === index ? {
-                                        ...k,
-                                        produtos: k.produtos.map((p, pi) => 
-                                          pi === prodIndex ? { ...p, valor_unitario: newValue } : p
-                                        )
-                                      } : k
-                                    )
-                                  }));
+                                  const produtoNome = produto.nome;
+                                  setForm(prev => {
+                                    const isKitBasico = prev.kit_produto[index]?.kit === 'Kit Básico';
+                                    return {
+                                      ...prev,
+                                      kit_produto: prev.kit_produto.map((k, i) => {
+                                        if (i === index) {
+                                          return {
+                                            ...k,
+                                            produtos: k.produtos.map((p, pi) => 
+                                              pi === prodIndex ? { ...p, valor_unitario: newValue } : p
+                                            )
+                                          };
+                                        }
+                                        if (isKitBasico && k.kit && k.kit !== 'Kit Básico') {
+                                          return {
+                                            ...k,
+                                            produtos: k.produtos.map(p => 
+                                              p.nome === produtoNome ? { ...p, valor_unitario: newValue } : p
+                                            )
+                                          };
+                                        }
+                                        return k;
+                                      })
+                                    };
+                                  });
                                 }}
                                 placeholder="0,00"
                                 className={`w-full pl-7 pr-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
