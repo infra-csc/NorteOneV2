@@ -310,25 +310,57 @@ class MarketingEventsResponse(BaseModel):
     ultima_atualizacao: str
     avisos: List[str] = []
 
-def get_isc_status(isc: float) -> str:
-    if isc > 1.10:
+_isc_settings_cache: dict = {"value": None, "ts": 0}
+_ISC_SETTINGS_TTL = 60
+
+_DEFAULT_ISC_SETTINGS = {
+    "ia730Weight": 33.33,
+    "curvaDWeight": 33.33,
+    "rolling14dWeight": 33.34,
+    "greenThreshold": 1.10,
+    "yellowThreshold": 0.90,
+    "criticalWindowStart": 45,
+    "criticalWindowEnd": 40,
+    "promotionDeadline": 40,
+}
+
+def _get_isc_settings(db: Session) -> dict:
+    import time
+    now = time.time()
+    if _isc_settings_cache["value"] is not None and (now - _isc_settings_cache["ts"]) < _ISC_SETTINGS_TTL:
+        return _isc_settings_cache["value"]
+    try:
+        setting = db.query(MarketingSettings).filter(MarketingSettings.key == "isc_parameters").first()
+        if setting and setting.value:
+            merged = {**_DEFAULT_ISC_SETTINGS, **setting.value}
+            _isc_settings_cache["value"] = merged
+            _isc_settings_cache["ts"] = now
+            return merged
+    except Exception:
+        pass
+    _isc_settings_cache["value"] = _DEFAULT_ISC_SETTINGS
+    _isc_settings_cache["ts"] = now
+    return _DEFAULT_ISC_SETTINGS
+
+def get_isc_status(isc: float, green_threshold: float = 1.10, yellow_threshold: float = 0.90) -> str:
+    if isc > green_threshold:
         return "accelerating"
-    if isc >= 0.90:
+    if isc >= yellow_threshold:
         return "stable"
     return "decelerating"
 
-def get_suggested_action(isc: float, d_minus: int) -> str:
-    status = get_isc_status(isc)
+def get_suggested_action(isc: float, d_minus: int, green_threshold: float = 1.10, yellow_threshold: float = 0.90, promotion_deadline: int = 40) -> str:
+    status = get_isc_status(isc, green_threshold, yellow_threshold)
     
     if status == "accelerating":
         return "Evento forte. Considere ajuste de preço para cima."
     
     if status == "stable":
-        if d_minus >= 40:
+        if d_minus >= promotion_deadline:
             return "Evento estável. Monitore e reforce comunicação."
         return "Evento estável. Apenas ajustes de comunicação."
     
-    if d_minus >= 40:
+    if d_minus >= promotion_deadline:
         return "Evento fraco. Janela aberta para ação promocional."
     
     return "⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação."
@@ -500,9 +532,13 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
         rolling14d=round(rolling14d, 2)
     )
 
-def calculate_isc(components: ISCComponents) -> float:
-    """Calcula o ISC como média dos 3 componentes"""
-    return round((components.ia730 + components.curvaDPercent + components.rolling14d) / 3, 2)
+def calculate_isc(components: ISCComponents, ia_weight: float = 33.33, curva_weight: float = 33.33, rolling_weight: float = 33.34) -> float:
+    return round(
+        (components.ia730 * ia_weight / 100) +
+        (components.curvaDPercent * curva_weight / 100) +
+        (components.rolling14d * rolling_weight / 100),
+        2
+    )
 
 
 def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:
@@ -1518,6 +1554,8 @@ def get_marketing_events(
     if ano is None:
         ano = datetime.now().year
     
+    isc_cfg = _get_isc_settings(db)
+    
     cadastro_query = db.query(CadastroEvento)
     if categoria and categoria != 'all':
         cadastro_query = cadastro_query.filter(CadastroEvento.modalidade == categoria)
@@ -1652,9 +1690,9 @@ def get_marketing_events(
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
                                                    daily_sales_dict=grupo_daily_sales_dict,
                                                    hist_pattern=grupo_hist_pattern)
-        isc = calculate_isc(isc_components)
-        isc_status = get_isc_status(isc)
-        suggested_action = get_suggested_action(isc, d_minus)
+        isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
+        suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
         if is_active:
             active_count += 1
@@ -1753,9 +1791,9 @@ def get_marketing_events(
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
                                                    daily_sales_dict=standalone_daily_dict,
                                                    hist_pattern=standalone_hist)
-        isc = calculate_isc(isc_components)
-        isc_status = get_isc_status(isc)
-        suggested_action = get_suggested_action(isc, d_minus)
+        isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
+        suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
         if is_active:
             active_count += 1
@@ -3745,6 +3783,7 @@ def get_marketing_event_by_id(
     Retorna os dados de um evento específico pelo ID.
     Suporta IDs de EventoGrupo (prefixo 'grp_') e DimProjeto (número puro).
     """
+    isc_cfg = _get_isc_settings(db)
     is_grouped = evento_id.startswith("grp_")
     
     if is_grouped:
@@ -3863,9 +3902,9 @@ def get_marketing_event_by_id(
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
                                                    daily_sales_dict=daily_sales_dict,
                                                    hist_pattern=detail_hist_pattern)
-        isc = calculate_isc(isc_components)
-        isc_status = get_isc_status(isc)
-        suggested_action = get_suggested_action(isc, d_minus)
+        isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
+        suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
         projeto_modalidade = str(rep_projeto.modalidade) if rep_projeto and rep_projeto.modalidade else None
         projeto_cidade = str(rep_projeto.cidade) if rep_projeto and rep_projeto.cidade else None
@@ -4089,9 +4128,9 @@ def get_marketing_event_by_id(
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
                                                daily_sales_dict=daily_sales_dict,
                                                hist_pattern=standalone_detail_hist)
-    isc = calculate_isc(isc_components)
-    isc_status = get_isc_status(isc)
-    suggested_action = get_suggested_action(isc, d_minus)
+    isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+    isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
+    suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
     
     projeto_modalidade = str(projeto.modalidade) if projeto.modalidade else None
     projeto_cidade = str(projeto.cidade) if projeto.cidade else None
@@ -4911,6 +4950,8 @@ def get_pricing_analysis(
     if ano is None:
         ano = datetime.now().year
     
+    isc_cfg = _get_isc_settings(db)
+    
     cadastro_query = db.query(CadastroEvento)
     if categoria and categoria != 'all':
         cadastro_query = cadastro_query.filter(CadastroEvento.modalidade == categoria)
@@ -5074,8 +5115,8 @@ def get_pricing_analysis(
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
                                                    daily_sales_dict=pricing_daily_dict,
                                                    hist_pattern=pricing_hist_pattern)
-        isc = calculate_isc(isc_components)
-        isc_status = get_isc_status(isc)
+        isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         
         evento = PricingEvent(
             id=f"grp_{grupo_nome}",
@@ -5179,8 +5220,8 @@ def get_pricing_analysis(
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
                                                    daily_sales_dict=standalone_pricing_daily_dict,
                                                    hist_pattern=standalone_pricing_hist)
-        isc = calculate_isc(isc_components)
-        isc_status = get_isc_status(isc)
+        isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         
         evento = PricingEvent(
             id=sku,
@@ -5243,4 +5284,7 @@ def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db)
         setting = MarketingSettings(key=key, value=body.get("value", {}))
         db.add(setting)
     db.commit()
+    if key == "isc_parameters":
+        _isc_settings_cache["value"] = None
+        _isc_settings_cache["ts"] = 0
     return {"status": "success", "key": key, "value": setting.value}
