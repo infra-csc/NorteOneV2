@@ -75,6 +75,11 @@ export const dashboardService = {
     const response = await api.get(`/dashboard/resumo-geral?${params}`);
     return response.data;
   },
+  getConsolidado: async (filters: DashboardFilters) => {
+    const params = buildFilterParams(filters);
+    const response = await api.get(`/dashboard/consolidado?${params}`);
+    return response.data;
+  },
 };
 
 export const centrosCustoService = {
