@@ -381,19 +381,13 @@ def get_atletas_por_projeto_sku(
     if cached:
         return {"status": "success", "cached": True, "data": cached}
     
-    where_clauses = ["c.id_pedido_status = 2", "b.id_campanha_salesforce = :codigo_sku"]
-    params = {"codigo_sku": codigo_sku}
-    
-    if data_inicio:
-        where_clauses.append("c.dt_pedido >= :data_inicio")
-        params["data_inicio"] = data_inicio
-    if data_fim:
-        where_clauses.append("c.dt_pedido <= :data_fim")
-        params["data_fim"] = data_fim
-    
-    where_sql = " AND ".join(where_clauses)
-    
-    query_total = f"""
+    params = {
+        "codigo_sku": codigo_sku,
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+    }
+
+    query_total = text("""
     SELECT
         b.id_campanha_salesforce AS sku,
         b.ds_evento AS evento,
@@ -407,11 +401,14 @@ def get_atletas_por_projeto_sku(
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
     LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-    WHERE {where_sql}
+    WHERE c.id_pedido_status = 2
+      AND b.id_campanha_salesforce = :codigo_sku
+      AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+      AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY b.id_campanha_salesforce, b.ds_evento, DATE(b.dt_evento)
-    """
-    
-    query_por_categoria = f"""
+    """)
+
+    query_por_categoria = text("""
     SELECT
         h.ds_categoria AS categoria,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
@@ -423,12 +420,15 @@ def get_atletas_por_projeto_sku(
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
     LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-    WHERE {where_sql}
+    WHERE c.id_pedido_status = 2
+      AND b.id_campanha_salesforce = :codigo_sku
+      AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+      AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY h.ds_categoria
     ORDER BY qtd DESC
-    """
-    
-    query_por_local = f"""
+    """)
+
+    query_por_local = text("""
     SELECT
         CASE
             WHEN c.fl_local_inscricao = '1' THEN 'Site'
@@ -445,12 +445,15 @@ def get_atletas_por_projeto_sku(
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
     LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-    WHERE {where_sql}
+    WHERE c.id_pedido_status = 2
+      AND b.id_campanha_salesforce = :codigo_sku
+      AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+      AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY local_inscricao
     ORDER BY qtd DESC
-    """
-    
-    query_por_dia = f"""
+    """)
+
+    query_por_dia = text("""
     SELECT
         DATE(c.dt_pedido) AS data_pedido,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
@@ -462,14 +465,17 @@ def get_atletas_por_projeto_sku(
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
     LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-    WHERE {where_sql}
+    WHERE c.id_pedido_status = 2
+      AND b.id_campanha_salesforce = :codigo_sku
+      AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+      AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY DATE(c.dt_pedido)
     ORDER BY DATE(c.dt_pedido)
-    """
+    """)
     
     try:
         with db_module.engine_ssh.connect() as conn:
-            total_result = conn.execute(text(query_total), params)
+            total_result = conn.execute(query_total, params)
             total_row = total_result.fetchone()
             
             if not total_row:
@@ -488,19 +494,19 @@ def get_atletas_por_projeto_sku(
                     }
                 }
             
-            categorias_result = conn.execute(text(query_por_categoria), params)
+            categorias_result = conn.execute(query_por_categoria, params)
             por_categoria = [
                 {"categoria": row[0] or "Sem categoria", "qtd": int(row[1] or 0), "receita": float(row[2] or 0)}
                 for row in categorias_result.fetchall()
             ]
             
-            locais_result = conn.execute(text(query_por_local), params)
+            locais_result = conn.execute(query_por_local, params)
             por_local = [
                 {"local": row[0], "qtd": int(row[1] or 0), "receita": float(row[2] or 0)}
                 for row in locais_result.fetchall()
             ]
             
-            dias_result = conn.execute(text(query_por_dia), params)
+            dias_result = conn.execute(query_por_dia, params)
             por_dia = [
                 {"data": str(row[0]) if row[0] else None, "qtd": int(row[1] or 0), "receita": float(row[2] or 0)}
                 for row in dias_result.fetchall()
