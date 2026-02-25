@@ -862,29 +862,29 @@ const EventDetail: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {isConsolidated && cumulativeData.length > 0 ? (
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2 text-sm">
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Target className="w-4 h-4 text-blue-500" />
               Acompanhamento de Meta
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Meta de Hoje vs Vendas Hoje</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta de Hoje vs Vendas Hoje</p>
                 {hasTodayData ? (
                   <>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-2">
                       <div>
-                        <p className="text-[10px] text-gray-400 mb-0.5">Vendas Hoje</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Vendas Hoje</p>
                         <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(todaySales)}</p>
                       </div>
                       <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
                       <div className="text-right">
-                        <p className="text-[10px] text-gray-400 mb-0.5">Meta Hoje</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Meta Hoje</p>
                         <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(todayExpectedRounded)}</p>
                       </div>
                     </div>
                     <div className="mt-2">
-                      <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                         <span>Atingimento</span>
                         <span className={`font-semibold ${todayPct >= 100 ? 'text-green-600 dark:text-green-400' : todayPct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{todayPct}%</span>
                       </div>
@@ -901,21 +901,21 @@ const EventDetail: React.FC = () => {
                 )}
               </div>
 
-              <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Meta Acumulada vs Inscritos Total</p>
-                <div className="flex items-center justify-between mb-1">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total</p>
+                <div className="flex items-center justify-between mb-2">
                   <div>
-                    <p className="text-[10px] text-gray-400 mb-0.5">Inscritos</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Inscritos</p>
                     <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(inscritosTotal)}</p>
                   </div>
                   <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
                   <div className="text-right">
-                    <p className="text-[10px] text-gray-400 mb-0.5">Meta Acumulada</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Meta Acumulada</p>
                     <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(metaAcumulada)}</p>
                   </div>
                 </div>
                 <div className="mt-2 flex items-center justify-center gap-2">
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400">Gap vs Meta</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Gap vs Meta</span>
                   <span className={`text-lg font-bold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                     {acumuladoGap > 0 ? '+' : ''}{acumuladoGap}%
                   </span>
@@ -924,33 +924,33 @@ const EventDetail: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+            <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
               {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
             </p>
-            <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
+            <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
               <div 
-                className="bg-blue-600 h-3 rounded-full transition-all"
+                className="bg-blue-600 h-2 rounded-full transition-all"
                 style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
               />
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
               {Math.round((event.currentSales / event.salesGoal) * 100)}% da meta
             </p>
           </div>
         )}
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Ticket Médio / Orçado</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white mt-2">
+          <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
             {formatCurrency(event.averageTicket)} / {formatCurrency(event.budgetTicket || 0)}
           </p>
           {event.budgetTicket > 0 && (
             <>
-              <div className="mt-2 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
+              <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                 <div 
-                  className={`h-2.5 rounded-full transition-all ${
+                  className={`h-2 rounded-full transition-all ${
                     (event.averageTicket / event.budgetTicket) >= 1 ? 'bg-green-500' : 
                     (event.averageTicket / event.budgetTicket) >= 0.8 ? 'bg-blue-600' : 'bg-orange-500'
                   }`}
@@ -962,7 +962,7 @@ const EventDetail: React.FC = () => {
               </p>
             </>
           )}
-          <div className="flex items-center gap-1 mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-1 mt-3 text-xs text-gray-500 dark:text-gray-400">
             <DollarSign className="w-3.5 h-3.5" />
             Receita estimada: {formatCurrency(event.currentSales * event.averageTicket)}
           </div>
