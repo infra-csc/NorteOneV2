@@ -121,7 +121,11 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
     <div className="space-y-6">
       {indice_aceleracao && indice_aceleracao.length > 0 && (() => {
         const firstIdx = indice_aceleracao.findIndex((p: any) => p.ia_atual != null || p.ia_anterior != null);
-        const allIA = firstIdx >= 0 ? indice_aceleracao.slice(firstIdx) : [];
+        let lastIdx = -1;
+        for (let i = indice_aceleracao.length - 1; i >= 0; i--) {
+          if (indice_aceleracao[i].ia_atual != null || indice_aceleracao[i].ia_anterior != null) { lastIdx = i; break; }
+        }
+        const allIA = (firstIdx >= 0 && lastIdx >= firstIdx) ? indice_aceleracao.slice(firstIdx, lastIdx + 1) : [];
         const filteredIA = iaPeriod ? allIA.slice(-iaPeriod) : allIA;
         return filteredIA.length > 0 ? (
         <div className={cardClass}>
@@ -189,7 +193,11 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
 
       {ticket_medio && ticket_medio.length > 0 && (() => {
         const firstTktIdx = ticket_medio.findIndex((p: any) => p.ticket_atual != null || p.ticket_anterior != null);
-        const allTkt = firstTktIdx >= 0 ? ticket_medio.slice(firstTktIdx) : [];
+        let lastTktIdx = -1;
+        for (let i = ticket_medio.length - 1; i >= 0; i--) {
+          if (ticket_medio[i].ticket_atual != null || ticket_medio[i].ticket_anterior != null) { lastTktIdx = i; break; }
+        }
+        const allTkt = (firstTktIdx >= 0 && lastTktIdx >= firstTktIdx) ? ticket_medio.slice(firstTktIdx, lastTktIdx + 1) : [];
         const filteredTkt = ticketPeriod ? allTkt.slice(-ticketPeriod) : allTkt;
         return filteredTkt.length > 0 ? (
         <div className={cardClass}>
