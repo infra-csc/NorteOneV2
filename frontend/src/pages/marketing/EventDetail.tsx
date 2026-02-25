@@ -1392,6 +1392,54 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Target className="w-4 h-4 text-purple-500" />
+          Caminhos para Meta Margem
+        </h3>
+        {(() => {
+          const base = Math.max(volumeParaMeta, 0);
+          const rows = [
+            { label: 'Cenário 1', inscritos: Math.round(base * 0.81) },
+            { label: 'Cenário 2', inscritos: Math.round(base * 0.90) },
+            { label: 'Volume p/ Meta', inscritos: Math.round(base), isBase: true },
+            { label: 'Cenário 4', inscritos: Math.round(base * 1.10) },
+            { label: 'Cenário 5', inscritos: Math.round(base * 1.21) },
+          ];
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Inscrições Totais</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr
+                      key={row.label}
+                      className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                        row.isBase
+                          ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                      }`}
+                    >
+                      <td className={`py-2.5 px-3 ${row.isBase ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'}`}>
+                        {row.label}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {formatNumber(row.inscritos)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+      </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
           <div className="flex flex-col gap-1">
