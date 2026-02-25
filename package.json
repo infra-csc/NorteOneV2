@@ -9,14 +9,6 @@
   "author": "",
   "license": "ISC",
   "description": "",
-  "dependencies": {
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.5.0",
-    "@types/three": "^0.183.1",
-    "@vitejs/plugin-react-swc": "^4.2.3",
-    "framer-motion": "^12.34.3",
-    "three": "^0.183.1"
-  },
   "overrides": {
     "rollup": "4.59.0"
   }
