@@ -16,5 +16,8 @@
     "@vitejs/plugin-react-swc": "^4.2.3",
     "framer-motion": "^12.34.3",
     "three": "^0.183.1"
+  },
+  "overrides": {
+    "rollup": "4.59.0"
   }
 }
