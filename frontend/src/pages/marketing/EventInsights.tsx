@@ -33,11 +33,23 @@ const COLORS = {
   ticketMedio: '#10b981',
 };
 
+const PERIOD_OPTIONS = [
+  { label: '7d', value: 7 },
+  { label: '10d', value: 10 },
+  { label: '14d', value: 14 },
+  { label: '30d', value: 30 },
+  { label: '60d', value: 60 },
+  { label: '90d', value: 90 },
+  { label: 'Todos', value: null as number | null },
+];
+
 const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefresh }) => {
   const { isDark } = useTheme();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [iaPeriod, setIaPeriod] = useState<number | null>(null);
+  const [ticketPeriod, setTicketPeriod] = useState<number | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -109,15 +121,33 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
     <div className="space-y-6">
       {indice_aceleracao && indice_aceleracao.length > 0 && (() => {
         const firstIdx = indice_aceleracao.findIndex((p: any) => p.ia_atual != null || p.ia_anterior != null);
-        const filteredIA = firstIdx >= 0 ? indice_aceleracao.slice(firstIdx) : [];
+        const allIA = firstIdx >= 0 ? indice_aceleracao.slice(firstIdx) : [];
+        const filteredIA = iaPeriod ? allIA.slice(-iaPeriod) : allIA;
         return filteredIA.length > 0 ? (
         <div className={cardClass}>
-          <div className="mb-4">
-            <div className="flex items-center gap-1">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Índice de Aceleração (IA)</h3>
-              <InfoTooltip text="O Índice de Aceleração compara a média móvel de vendas dos últimos 7 dias com a dos últimos 30 dias. IA > 1 significa que as vendas recentes estão acima da média de longo prazo (acelerando). IA < 1 indica desaceleração." />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <div className="flex items-center gap-1">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Índice de Aceleração (IA)</h3>
+                <InfoTooltip text="O Índice de Aceleração compara a média móvel de vendas dos últimos 7 dias com a dos últimos 30 dias. IA > 1 significa que as vendas recentes estão acima da média de longo prazo (acelerando). IA < 1 indica desaceleração." />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">IA {'>'} 1 = Acelerando | IA {'<'} 1 = Desacelerando</p>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">IA {'>'} 1 = Acelerando | IA {'<'} 1 = Desacelerando</p>
+            <div className="flex flex-wrap gap-1">
+              {PERIOD_OPTIONS.map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setIaPeriod(opt.value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    iaPeriod === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -159,15 +189,33 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
 
       {ticket_medio && ticket_medio.length > 0 && (() => {
         const firstTktIdx = ticket_medio.findIndex((p: any) => p.ticket_atual != null || p.ticket_anterior != null);
-        const filteredTkt = firstTktIdx >= 0 ? ticket_medio.slice(firstTktIdx) : [];
+        const allTkt = firstTktIdx >= 0 ? ticket_medio.slice(firstTktIdx) : [];
+        const filteredTkt = ticketPeriod ? allTkt.slice(-ticketPeriod) : allTkt;
         return filteredTkt.length > 0 ? (
         <div className={cardClass}>
-          <div className="mb-4">
-            <div className="flex items-center gap-1">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Médio Acumulado</h3>
-              <InfoTooltip text="Evolução do ticket médio acumulado (receita total acumulada / inscrições totais acumuladas) ao longo do tempo. O último ponto representa o ticket médio global do evento até o momento." />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <div>
+              <div className="flex items-center gap-1">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Médio Acumulado</h3>
+                <InfoTooltip text="Evolução do ticket médio acumulado (receita total acumulada / inscrições totais acumuladas) ao longo do tempo. O último ponto representa o ticket médio global do evento até o momento." />
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Evolução do ticket médio ao longo do tempo</p>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Evolução do ticket médio ao longo do tempo</p>
+            <div className="flex flex-wrap gap-1">
+              {PERIOD_OPTIONS.map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setTicketPeriod(opt.value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    ticketPeriod === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div style={{ height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
