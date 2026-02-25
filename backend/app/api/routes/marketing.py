@@ -2246,7 +2246,7 @@ def _fetch_monthly_sales_ativo(ano_atual: int, ano_anterior: int) -> list:
     if db_module.engine_ssh is None:
         return []
     try:
-        query = f"""
+        query = """
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     YEAR(c.dt_pedido) AS ano,
     MONTH(c.dt_pedido) AS mes,
@@ -2268,12 +2268,12 @@ WHERE
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
-    AND YEAR(c.dt_pedido) IN ({ano_atual}, {ano_anterior})
+    AND YEAR(c.dt_pedido) IN (:ano_atual, :ano_anterior)
 GROUP BY YEAR(c.dt_pedido), MONTH(c.dt_pedido)
 ORDER BY ano, mes
 """
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(text(query), {"ano_atual": ano_atual, "ano_anterior": ano_anterior})
             return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Ativo: {e}")
