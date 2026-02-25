@@ -32,7 +32,8 @@ import {
   Tooltip, 
   Legend, 
   ResponsiveContainer,
-  ReferenceLine
+  ReferenceLine,
+  Cell
 } from 'recharts';
 import { marketingService, MarketingEvent } from '../../services/api';
 import { 
@@ -460,6 +461,24 @@ const EventDetail: React.FC = () => {
   const filteredCumulativeData = chartPeriod
     ? cumulativeData.slice(-chartPeriod)
     : cumulativeData;
+
+  const goalAttainmentData = cumulativeData
+    .filter(d => d.cumulativeExpected > 0)
+    .map(d => {
+      const eventDate = new Date(event.date + 'T12:00:00');
+      const dayDate = new Date(d.date + 'T12:00:00');
+      const diffMs = eventDate.getTime() - dayDate.getTime();
+      const dMinus = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const pct = parseFloat((((d.cumulative / d.cumulativeExpected) * 100) - 100).toFixed(1));
+      return {
+        date: d.date,
+        dMinus,
+        label: `D-${dMinus}`,
+        percentual: pct,
+        cumulative: Math.round(d.cumulative),
+        cumulativeExpected: Math.round(d.cumulativeExpected),
+      };
+    });
 
   const todayStr = new Date().toISOString().split('T')[0];
   const dailySalesArr = event.dailySales || [];
@@ -1094,6 +1113,54 @@ const EventDetail: React.FC = () => {
                   dot={false}
                 />
               </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
+            Atingimento da Meta Acumulada por D-
+          </h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={goalAttainmentData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                <XAxis
+                  dataKey="label"
+                  stroke="#6B7280"
+                  fontSize={11}
+                  interval="preserveStartEnd"
+                  reversed
+                />
+                <YAxis
+                  stroke="#6B7280"
+                  fontSize={12}
+                  tickFormatter={(v) => `${v}%`}
+                />
+                <Tooltip
+                  content={({ active, payload }: any) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const d = payload[0].payload;
+                    const color = d.percentual >= 0 ? '#22C55E' : '#EF4444';
+                    return (
+                      <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff', minWidth: 200 }}>
+                        <p style={{ marginBottom: '4px', color: '#9CA3AF', fontWeight: 600 }}>{d.label} — {new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                        <p style={{ color: '#3B82F6' }}>Inscrições: {formatNumber(d.cumulative)}</p>
+                        <p style={{ color: '#9CA3AF' }}>Meta Acumulada: {formatNumber(d.cumulativeExpected)}</p>
+                        <p style={{ color, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 700, fontSize: '14px' }}>
+                          {d.percentual >= 0 ? '+' : ''}{d.percentual}% da meta
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
+                <Bar dataKey="percentual" name="% Atingimento" radius={[4, 4, 0, 0]}>
+                  {goalAttainmentData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
+                  ))}
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
