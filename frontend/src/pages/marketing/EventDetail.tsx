@@ -1399,13 +1399,17 @@ const EventDetail: React.FC = () => {
         </h3>
         {(() => {
           const base = Math.max(volumeParaMeta, 0);
-          const rows = [
-            { label: 'Cenário 1', inscritos: Math.round(base * 0.81) },
-            { label: 'Cenário 2', inscritos: Math.round(base * 0.90) },
-            { label: 'Volume p/ Meta', inscritos: Math.round(base), isBase: true },
-            { label: 'Cenário 4', inscritos: Math.round(base * 1.10) },
-            { label: 'Cenário 5', inscritos: Math.round(base * 1.21) },
-          ];
+          const ticketBase = base > 0 && event.budgetTicket > 0
+            ? Math.max(0, ((event.budgetTicket * event.salesGoal) - (event.averageTicket * inscritosTotal)) / base)
+            : 0;
+          const multipliers = [0.81, 0.90, 1.00, 1.10, 1.21];
+          const labels = ['Cenário 1', 'Cenário 2', 'Volume p/ Meta', 'Cenário 4', 'Cenário 5'];
+          const rows = multipliers.map((m, i) => ({
+            label: labels[i],
+            inscritos: Math.round(base * m),
+            ticket: ticketBase * m,
+            isBase: m === 1.00,
+          }));
           return (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1413,6 +1417,7 @@ const EventDetail: React.FC = () => {
                   <tr className="border-b border-gray-200 dark:border-gray-700">
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Inscrições Totais</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket Convergência</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1430,6 +1435,9 @@ const EventDetail: React.FC = () => {
                       </td>
                       <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
                         {formatNumber(row.inscritos)}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {formatCurrency(row.ticket)}
                       </td>
                     </tr>
                   ))}
