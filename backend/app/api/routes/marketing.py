@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, bindparam
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
@@ -2437,11 +2437,10 @@ def _fetch_monthly_sales_ativo_by_ids(id_eventos: list) -> list:
     if db_module.engine_ssh is None or not id_eventos:
         return []
     try:
-        safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+        safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
         if not safe_ids:
             return []
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     MONTH(c.dt_pedido) AS mes,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
@@ -2462,12 +2461,12 @@ WHERE
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
-    AND b.id_evento IN ({placeholders})
+    AND b.id_evento IN :id_eventos
 GROUP BY MONTH(c.dt_pedido)
 ORDER BY mes
-"""
+""").bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"id_eventos": safe_ids})
             return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Ativo by IDs: {e}")
