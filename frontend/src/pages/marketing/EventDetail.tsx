@@ -774,6 +774,100 @@ const EventDetail: React.FC = () => {
                   </table>
                 </div>
               </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700 mt-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+                  Por variação de ticket (no volume da meta)
+                </h3>
+                {(() => {
+                  const kitCost = event.kitCostPerUnit || 0;
+                  const ticketAtual = event.averageTicket || 0;
+                  const volRestante = Math.max(volumeParaMeta, 0);
+                  const ticketConvergencia = volRestante > 0 && event.budgetTicket > 0
+                    ? Math.max(0, ((event.budgetTicket * event.salesGoal) - (ticketAtual * inscritosTotal)) / volRestante)
+                    : 0;
+                  const margemRealizada = event.margemRealizadaTotal || 0;
+                  const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * metaAcumulada : 0;
+
+                  const rows = [
+                    { label: 'Atual', ticket: ticketAtual, isSeparator: false },
+                    { label: 'Ticket p/ Meta', ticket: ticketConvergencia, isSeparator: false },
+                    { label: 'Análise de sensibilidade', ticket: 0, isSeparator: true },
+                    { label: 'Atual + 10%', ticket: ticketAtual * 1.10, isSeparator: false },
+                    { label: 'Atual + 20%', ticket: ticketAtual * 1.20, isSeparator: false },
+                    { label: 'Atual + 30%', ticket: ticketAtual * 1.30, isSeparator: false },
+                    { label: 'Atual + 40%', ticket: ticketAtual * 1.40, isSeparator: false },
+                  ];
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-700">
+                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket vendas futuras</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Restante</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Adicional</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Global</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Nominal</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => {
+                            if (row.isSeparator) {
+                              return (
+                                <tr key={row.label} className="bg-gray-100 dark:bg-gray-700/60">
+                                  <td colSpan={7} className="py-2 px-3 text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                                    {row.label}
+                                  </td>
+                                </tr>
+                              );
+                            }
+                            const margemAdicional = (volRestante * row.ticket) - (kitCost * volRestante);
+                            const margemGlobal = margemAdicional + margemRealizada;
+                            const margemNominal = margemGlobal - metaMargem;
+                            const margemPct = metaMargem > 0 ? (margemNominal / metaMargem) * 100 : 0;
+                            const isConvergencia = row.label === 'Ticket p/ Meta';
+                            return (
+                              <tr
+                                key={row.label}
+                                className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                                  isConvergencia
+                                    ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
+                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                                }`}
+                              >
+                                <td className={`py-2.5 px-3 ${isConvergencia ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
+                                  {row.label}
+                                </td>
+                                <td className={`py-2.5 px-3 text-right ${isConvergencia ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                                  {formatCurrency(row.ticket)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
+                                  {formatNumber(volRestante)}
+                                </td>
+                                <td className={`py-2.5 px-3 text-right ${margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {formatCurrency(margemAdicional)}
+                                </td>
+                                <td className={`py-2.5 px-3 text-right ${margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {formatCurrency(margemGlobal)}
+                                </td>
+                                <td className={`py-2.5 px-3 text-right font-semibold ${margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {formatCurrency(margemNominal)}
+                                </td>
+                                <td className={`py-2.5 px-3 text-right font-semibold ${margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {margemPct >= 0 ? '+' : ''}{Math.round(margemPct * 10) / 10}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           );
         })()
