@@ -1284,21 +1284,6 @@ const EventDetail: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
-            {[7, 14, 30, 60, 90].map((p) => (
-              <button
-                key={p}
-                onClick={() => setSalesAvgPeriod(p)}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  salesAvgPeriod === p
-                    ? 'bg-indigo-500 text-white'
-                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
-                }`}
-              >
-                {p}d
-              </button>
-            ))}
-          </div>
         </div>
 
         {salesAvgLoading ? (
