@@ -859,9 +859,9 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div>
         {isConsolidated && cumulativeData.length > 0 ? (
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
               <Target className="w-4 h-4 text-blue-500" />
               Acompanhamento de Meta
@@ -923,7 +923,7 @@ const EventDetail: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
               {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
@@ -939,33 +939,6 @@ const EventDetail: React.FC = () => {
             </p>
           </div>
         )}
-
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Ticket Médio / Orçado</p>
-          <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
-            {formatCurrency(event.averageTicket)} / {formatCurrency(event.budgetTicket || 0)}
-          </p>
-          {event.budgetTicket > 0 && (
-            <>
-              <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-                <div 
-                  className={`h-2 rounded-full transition-all ${
-                    (event.averageTicket / event.budgetTicket) >= 1 ? 'bg-green-500' : 
-                    (event.averageTicket / event.budgetTicket) >= 0.8 ? 'bg-blue-600' : 'bg-orange-500'
-                  }`}
-                  style={{ width: `${Math.min((event.averageTicket / event.budgetTicket) * 100, 100)}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {Math.round((event.averageTicket / event.budgetTicket) * 100)}% do orçado
-              </p>
-            </>
-          )}
-          <div className="flex items-center gap-1 mt-3 text-xs text-gray-500 dark:text-gray-400">
-            <DollarSign className="w-3.5 h-3.5" />
-            Receita estimada: {formatCurrency(event.currentSales * event.averageTicket)}
-          </div>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1266,6 +1239,98 @@ const EventDetail: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-green-500" />
+            Análise de Ticket Médio
+          </h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Médio Atual</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(event.averageTicket)}</span>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Orçado</span>
+              <span className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatCurrency(event.budgetTicket || 0)}</span>
+            </div>
+            {event.budgetTicket > 0 && (
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <span className="text-xs text-gray-500 dark:text-gray-400">% do Orçado</span>
+                <span className={`text-lg font-bold ${(event.averageTicket / event.budgetTicket) >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {Math.round((event.averageTicket / event.budgetTicket) * 100)}%
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Inscrições p/ Meta</span>
+              <span className={`text-lg font-bold ${volumeParaMeta <= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                {formatNumber(Math.max(volumeParaMeta, 0))}
+              </span>
+            </div>
+            {event.budgetTicket > 0 && volumeParaMeta > 0 && (
+              <div className="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Necessário p/ Convergência</span>
+                <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                  {formatCurrency(
+                    Math.max(0, ((event.budgetTicket * event.salesGoal) - (event.averageTicket * inscritosTotal)) / Math.max(volumeParaMeta, 1))
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Target className="w-4 h-4 text-amber-500" />
+            Análise de Margem
+          </h3>
+          {(() => {
+            const kitCost = event.kitCostPerUnit || 0;
+            const receitaAcumulada = event.averageTicket * inscritosTotal;
+            const custoAcumulado = kitCost * inscritosTotal;
+            const margemAcumulada = receitaAcumulada - custoAcumulado;
+            const margemMeta = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
+            const faltaParaMeta = margemMeta - margemAcumulada;
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Margem Acumulada</span>
+                  <span className={`text-lg font-bold ${margemAcumulada >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {formatCurrency(margemAcumulada)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Margem Meta</span>
+                  <span className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatCurrency(margemMeta)}</span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Falta p/ Meta</span>
+                  <span className={`text-lg font-bold ${faltaParaMeta <= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {formatCurrency(Math.max(faltaParaMeta, 0))}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Volume p/ Meta</span>
+                  <span className={`text-lg font-bold ${volumeParaMeta <= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                    {formatNumber(Math.max(volumeParaMeta, 0))}
+                  </span>
+                </div>
+                {kitCost > 0 && (
+                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Custo Kit Unitário</span>
+                      <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(kitCost)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
