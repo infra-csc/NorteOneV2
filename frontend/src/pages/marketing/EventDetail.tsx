@@ -101,6 +101,7 @@ const EventDetail: React.FC = () => {
   const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
+  const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -1118,12 +1119,37 @@ const EventDetail: React.FC = () => {
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-            Atingimento da Meta Acumulada por D-
-          </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Atingimento da Meta Acumulada por D-
+            </h3>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { label: '7d', value: 7 },
+                { label: '10d', value: 10 },
+                { label: '14d', value: 14 },
+                { label: '30d', value: 30 },
+                { label: '60d', value: 60 },
+                { label: '90d', value: 90 },
+                { label: 'Todos', value: null as number | null },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setAttainmentPeriod(opt.value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    attainmentPeriod === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={goalAttainmentData}>
+              <BarChart data={attainmentPeriod ? goalAttainmentData.slice(-attainmentPeriod) : goalAttainmentData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                 <XAxis
                   dataKey="label"
@@ -1155,7 +1181,7 @@ const EventDetail: React.FC = () => {
                 />
                 <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
                 <Bar dataKey="percentual" name="% Atingimento" radius={[4, 4, 0, 0]}>
-                  {goalAttainmentData.map((entry, index) => (
+                  {(attainmentPeriod ? goalAttainmentData.slice(-attainmentPeriod) : goalAttainmentData).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
                   ))}
                 </Bar>
