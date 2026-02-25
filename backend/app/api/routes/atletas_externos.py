@@ -85,25 +85,14 @@ def get_atletas_externos_resumo(
     if cached:
         return {"status": "success", "cached": True, "data": cached}
     
-    where_clauses = ["c.id_pedido_status = 2"]
-    params = {}
-    
-    if id_evento:
-        where_clauses.append("b.id_evento = :id_evento")
-        params["id_evento"] = id_evento
-    if sku:
-        where_clauses.append("b.id_campanha_salesforce = :sku")
-        params["sku"] = sku
-    if data_inicio:
-        where_clauses.append("c.dt_pedido >= :data_inicio")
-        params["data_inicio"] = data_inicio
-    if data_fim:
-        where_clauses.append("c.dt_pedido <= :data_fim")
-        params["data_fim"] = data_fim
-    
-    where_sql = " AND ".join(where_clauses)
-    
-    query = f"""
+    params = {
+        "id_evento": id_evento if id_evento else None,
+        "sku": sku if sku else None,
+        "data_inicio": data_inicio if data_inicio else None,
+        "data_fim": data_fim if data_fim else None,
+    }
+
+    query = text("""
     SELECT
         b.ds_evento AS evento,
         b.id_campanha_salesforce AS sku,
@@ -124,14 +113,18 @@ def get_atletas_externos_resumo(
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
     LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-    WHERE {where_sql}
+    WHERE c.id_pedido_status = 2
+      AND (:id_evento IS NULL OR b.id_evento = :id_evento)
+      AND (:sku IS NULL OR b.id_campanha_salesforce = :sku)
+      AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+      AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY b.ds_evento, b.id_campanha_salesforce, h.ds_categoria, DATE(b.dt_evento), local_inscricao
     ORDER BY b.ds_evento, h.ds_categoria
-    """
+    """)
     
     try:
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query), params)
+            result = conn.execute(query, params)
             rows = result.fetchall()
             
             data = []
