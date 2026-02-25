@@ -3,9 +3,11 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "")
-    SECRET_KEY: str = os.getenv("SESSION_SECRET", "default-secret-key-change-in-production")
+    SECRET_KEY: str = os.getenv("SESSION_SECRET", "")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "http://localhost:5000,http://localhost:5173")
     
     # SSH Tunnel Configuration
     SSH_HOST: str = os.getenv("SSH_HOST", "")
@@ -20,9 +22,9 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
     DB_NAME: str = os.getenv("DB_NAME", "")
     
-    MYSQL_ATIVO_HOST: str = "o2-db-ativos-2-aurora-cluster.cluster-ro-cgqle4cw3o4s.us-east-1.rds.amazonaws.com"
+    MYSQL_ATIVO_HOST: str = os.getenv("MYSQL_ATIVO_HOST", "")
     MYSQL_ATIVO_PORT: int = 3306
-    MYSQL_ATIVO_USER: str = "user-matheus"
+    MYSQL_ATIVO_USER: str = os.getenv("MYSQL_ATIVO_USER", "")
     MYSQL_ATIVO_PASSWORD: str = os.getenv("MYSQL_ATIVO_PASSWORD", "")
     MYSQL_ATIVO_DATABASE: str = os.getenv("MYSQL_ATIVO_DATABASE", "")
     

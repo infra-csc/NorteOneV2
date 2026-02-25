@@ -1,11 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
+from sqlalchemy.orm import Session
+import logging
 import app.core.database as db_module
+from app.core.database import get_db
+from ...core.security import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 @router.get("/test")
-def test_magento_connection():
+def test_magento_connection(current_user=Depends(get_current_user)):
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,
@@ -21,13 +27,14 @@ def test_magento_connection():
                 "test_result": result[0] if result else None
             }
     except Exception as e:
+        logger.error(f"Erro ao conectar no banco Magento: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao conectar no banco Magento: {str(e)}"
+            detail="Erro interno ao conectar no banco de dados"
         )
 
 @router.get("/tables")
-def list_magento_tables():
+def list_magento_tables(current_user=Depends(get_current_user)):
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,
@@ -44,13 +51,14 @@ def list_magento_tables():
                 "tables": tables[:50]
             }
     except Exception as e:
+        logger.error(f"Erro ao listar tabelas Magento: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao listar tabelas: {str(e)}"
+            detail="Erro interno ao listar tabelas"
         )
 
 @router.get("/sales-summary")
-def get_sales_summary():
+def get_sales_summary(current_user=Depends(get_current_user)):
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,
@@ -74,7 +82,8 @@ def get_sales_summary():
                 "total_revenue": float(result[1]) if result and result[1] else 0
             }
     except Exception as e:
+        logger.error(f"Erro ao buscar resumo de vendas Magento: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Erro ao buscar resumo de vendas: {str(e)}"
+            detail="Erro interno ao buscar resumo de vendas"
         )

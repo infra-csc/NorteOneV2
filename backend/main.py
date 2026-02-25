@@ -36,9 +36,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0", lifespan=lifespan)
 
+from app.core.config import settings as app_settings
+
+cors_origins = [origin.strip() for origin in app_settings.CORS_ORIGINS.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
