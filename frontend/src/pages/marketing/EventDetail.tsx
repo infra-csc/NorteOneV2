@@ -1405,10 +1405,14 @@ const EventDetail: React.FC = () => {
           const inscMultipliers = [0.81, 0.90, 1.00, 1.10, 1.21];
           const ticketMultipliers = [1.21, 1.10, 1.00, 0.90, 0.81];
           const labels = ['Cenário 1', 'Cenário 2', 'Volume p/ Meta', 'Cenário 4', 'Cenário 5'];
+          const ticketBase5 = ticketBase * 1.05;
+          const ticketBase10 = ticketBase * 1.10;
           const rows = labels.map((label, i) => ({
             label,
             inscritos: Math.round(base * inscMultipliers[i]),
             ticket: ticketBase * ticketMultipliers[i],
+            ticket5: ticketBase5 * ticketMultipliers[i],
+            ticket10: ticketBase10 * ticketMultipliers[i],
             isBase: i === 2,
           }));
           return (
@@ -1419,6 +1423,8 @@ const EventDetail: React.FC = () => {
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Inscrições Totais</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket Convergência</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket +5%</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket +10%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1439,6 +1445,12 @@ const EventDetail: React.FC = () => {
                       </td>
                       <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
                         {formatCurrency(row.ticket)}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {formatCurrency(row.ticket5)}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {formatCurrency(row.ticket10)}
                       </td>
                     </tr>
                   ))}
