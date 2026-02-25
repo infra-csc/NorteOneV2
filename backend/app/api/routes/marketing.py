@@ -54,7 +54,7 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         return {}
     
     try:
-        query = f"""
+        query = text("""
         SELECT 
             DATE(c.dt_pedido) AS data_venda,
             COUNT(a.id_pedido_evento) AS quantidade
@@ -62,18 +62,18 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
         INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
         WHERE 
-            b.id_evento = '{id_evento}'
+            b.id_evento = :id_evento
             AND c.fl_local_inscricao = '1'
             AND c.id_pedido_status IN (1, 2)
-            AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
-            AND DATE(c.dt_pedido) >= '{start_date.isoformat()}'
-            AND DATE(c.dt_pedido) <= '{end_date.isoformat()}'
+            AND b.id_campanha_salesforce NOT LIKE '701d0000000%'
+            AND DATE(c.dt_pedido) >= :start_date
+            AND DATE(c.dt_pedido) <= :end_date
         GROUP BY DATE(c.dt_pedido)
         ORDER BY data_venda
-        """
+        """)
         
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"id_evento": id_evento, "start_date": start_date.isoformat(), "end_date": end_date.isoformat()})
             rows = result.fetchall()
             
         daily_sales = {}
