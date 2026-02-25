@@ -1041,33 +1041,11 @@ const EventDetail: React.FC = () => {
                       <p className="text-2xl font-bold text-gray-600 dark:text-gray-300">{formatNumber(metaAcumulada)}</p>
                     </div>
                   </div>
-                  <div className="mt-3">
-                    <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-                      <span>Gap vs Meta</span>
-                      <span className={`font-semibold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : acumuladoGap >= -15 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {acumuladoGap > 0 ? '+' : ''}{acumuladoGap}%
-                      </span>
-                    </div>
-                    <div className="relative w-full h-3 flex items-center">
-                      <div className="absolute inset-0 bg-gray-200 dark:bg-gray-600 rounded-full" />
-                      <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gray-400 dark:bg-gray-500 z-10" />
-                      {acumuladoGap >= 0 ? (
-                        <div
-                          className="absolute h-full rounded-r-full bg-green-500 transition-all"
-                          style={{ left: '50%', width: `${Math.min(acumuladoGap, 50)}%` }}
-                        />
-                      ) : (
-                        <div
-                          className={`absolute h-full rounded-l-full transition-all ${acumuladoGap >= -15 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                          style={{ right: '50%', width: `${Math.min(acumuladoGapAbs, 50)}%` }}
-                        />
-                      )}
-                    </div>
-                    <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                      <span>-50%</span>
-                      <span>Meta</span>
-                      <span>+50%</span>
-                    </div>
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Gap vs Meta</span>
+                    <span className={`text-2xl font-bold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : acumuladoGap >= -15 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                      {acumuladoGap > 0 ? '+' : ''}{acumuladoGap}%
+                    </span>
                   </div>
                 </div>
               </div>
