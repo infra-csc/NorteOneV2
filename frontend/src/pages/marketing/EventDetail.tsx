@@ -25,7 +25,6 @@ import {
   Line, 
   BarChart, 
   Bar, 
-  ComposedChart,
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -1281,8 +1280,7 @@ const EventDetail: React.FC = () => {
               <Info className="w-4 h-4 text-gray-400 dark:text-gray-500 cursor-help" />
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-72 z-50">
                 <p className="mb-1"><strong>Período:</strong> Define a janela de dias analisada. Todas as médias são calculadas dividindo vendas por dias corridos (incluindo dias sem vendas).</p>
-                <p className="mb-1"><strong>Cards:</strong> Mostram a média diária de vendas para sub-períodos relevantes dentro da janela selecionada.</p>
-                <p><strong>Gráfico:</strong> Barras = vendas diárias reais. Linha = média móvel de 7 dias (tendência de curto prazo).</p>
+                <p><strong>Cards:</strong> Mostram a média diária de vendas para sub-períodos relevantes dentro da janela selecionada.</p>
               </div>
             </div>
           </div>
@@ -1310,7 +1308,7 @@ const EventDetail: React.FC = () => {
           </div>
         ) : salesAverages ? (
           <>
-            <div className={`grid grid-cols-2 ${Array.isArray(salesAverages.medias) ? (salesAverages.medias.length >= 3 ? 'md:grid-cols-4' : 'md:grid-cols-3') : 'md:grid-cols-4'} gap-3 mb-6`}>
+            <div className={`grid grid-cols-2 ${Array.isArray(salesAverages.medias) ? (salesAverages.medias.length >= 3 ? 'md:grid-cols-4' : 'md:grid-cols-3') : 'md:grid-cols-4'} gap-3`}>
               <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-indigo-50'}`}>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Média Geral ({salesAverages.periodo_dias}d)</p>
                 <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
@@ -1336,55 +1334,6 @@ const EventDetail: React.FC = () => {
                 );
               })}
             </div>
-
-            {salesAverages.tendencia && salesAverages.tendencia.length > 0 ? (
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={salesAverages.tendencia}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                    <XAxis 
-                      dataKey="date" 
-                      tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                      stroke={isDark ? '#9ca3af' : '#6b7280'}
-                      fontSize={11}
-                      interval={Math.max(0, Math.floor((salesAverages.tendencia?.length || 0) / 10))}
-                    />
-                    <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} fontSize={12} />
-                    <Tooltip 
-                      labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
-                      formatter={(value: any, name: string) => [
-                        formatNumber(Number(value ?? 0)),
-                        name === 'vendas' ? 'Vendas Diárias' : 'Média Móvel 7d'
-                      ]}
-                      contentStyle={{ 
-                        backgroundColor: isDark ? '#1f2937' : '#fff',
-                        border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                        borderRadius: '8px',
-                        color: isDark ? '#fff' : '#111'
-                      }}
-                    />
-                    <Legend formatter={(value: string) => value === 'vendas' ? 'Vendas Diárias' : 'Média Móvel 7d'} />
-                    <Bar 
-                      dataKey="vendas" 
-                      fill={isDark ? '#6366f1' : '#818cf8'}
-                      radius={[4, 4, 0, 0]}
-                      opacity={0.7}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="media_movel_7d" 
-                      stroke="#f59e0b"
-                      strokeWidth={2.5}
-                      dot={false}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center h-40 text-gray-500 dark:text-gray-400">
-                Sem dados suficientes para mostrar tendência.
-              </div>
-            )}
           </>
         ) : (
           <div className="flex items-center justify-center h-40 text-gray-500 dark:text-gray-400">
