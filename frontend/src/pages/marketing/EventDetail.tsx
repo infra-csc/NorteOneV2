@@ -88,7 +88,7 @@ const EventDetail: React.FC = () => {
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing' | 'projection'>('dashboard');
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
@@ -685,12 +685,98 @@ const EventDetail: React.FC = () => {
         >
           Pricing
         </button>
+        <button
+          onClick={() => setActiveTab('projection')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'projection'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Projeção
+        </button>
       </div>
 
       {activeTab === 'pricing' ? (
         <EventPricing eventoId={id!} ano={anoParam} />
       ) : activeTab === 'simulator' ? (
         <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
+      ) : activeTab === 'projection' ? (
+        (() => {
+          const periodos = [3, 7, 14];
+          const cenarios = periodos.map(dias => {
+            const vendas = (event.dailySales || []).slice(-dias);
+            const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
+            const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
+            const projecaoLinear = media * event.dMinus;
+            const saldoMeta = Math.max(volumeParaMeta, 0);
+            const projecaoVsSaldo = saldoMeta > 0 ? (projecaoLinear / saldoMeta) - 1 : (projecaoLinear > 0 ? 1 : 0);
+            const volumeGlobal = projecaoLinear + inscritosTotal;
+            const volumeVsMeta = event.salesGoal > 0 ? volumeGlobal / event.salesGoal : 0;
+            return {
+              label: `${dias} dias`,
+              media: Math.round(media * 10) / 10,
+              projecaoLinear: Math.round(projecaoLinear),
+              projecaoVsSaldo: Math.round(projecaoVsSaldo * 1000) / 10,
+              volumeGlobal: Math.round(volumeGlobal),
+              volumeVsMeta: Math.round(volumeVsMeta * 1000) / 10,
+            };
+          });
+          return (
+            <div className="space-y-6">
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+                  Projeção para visualização de cenários
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Dias Restantes</span>
+                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{event.dMinus}</p>
+                  </div>
+                  {cenarios.map(c => (
+                    <div key={c.label} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Média {c.label}</span>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{c.media}</p>
+                      <span className="text-xs text-gray-400">vendas/dia</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 dark:border-gray-700">
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Média Vendas</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Projeção Linear</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Projeção × Saldo Meta</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Global Projetado</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Global × Meta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cenarios.map(c => (
+                        <tr key={c.label} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                          <td className="py-2.5 px-3 text-gray-900 dark:text-white font-medium">{c.label}</td>
+                          <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{c.media}</td>
+                          <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(c.projecaoLinear)}</td>
+                          <td className={`py-2.5 px-3 text-right font-semibold ${c.projecaoVsSaldo >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {c.projecaoVsSaldo >= 0 ? '+' : ''}{c.projecaoVsSaldo}%
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300 font-semibold">{formatNumber(c.volumeGlobal)}</td>
+                          <td className={`py-2.5 px-3 text-right font-semibold ${c.volumeVsMeta >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {c.volumeVsMeta}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })()
       ) : (
       <>
       <div className={`rounded-xl px-4 py-2 shadow-sm border flex flex-wrap items-center gap-3 ${getRecommendationStyle()}`}>
