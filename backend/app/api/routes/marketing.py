@@ -2840,8 +2840,7 @@ def _fetch_category_sales_ativo_by_ids(id_eventos: list) -> list:
         safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
         if not safe_ids:
             return []
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     h.ds_categoria AS categoria,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
@@ -2857,12 +2856,12 @@ WHERE
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
-    AND b.id_evento IN ({placeholders})
+    AND b.id_evento IN :id_eventos
 GROUP BY h.ds_categoria
 ORDER BY qtd DESC
-"""
+""").bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"id_eventos": safe_ids})
             return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro category sales Ativo by IDs: {e}")
