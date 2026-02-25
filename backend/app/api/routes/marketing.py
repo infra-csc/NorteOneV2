@@ -2477,11 +2477,10 @@ def _fetch_monthly_sales_magento_by_ids(location_ids: list) -> list:
     if db_module.engine_magento is None or not location_ids:
         return []
     try:
-        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
         if not safe_ids:
             return []
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT
     MONTH(so.created_at) AS mes,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
@@ -2502,30 +2501,30 @@ LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.increment_id NOT LIKE "%%-1%%"
-    AND so.increment_id NOT LIKE "%%-2%%"
-    AND so.increment_id NOT LIKE "%%-3%%"
-    AND so.increment_id NOT LIKE "%%-4%%"
-    AND so.increment_id NOT LIKE "%%-5%%"
-    AND so.increment_id NOT LIKE "%%-6%%"
-    AND so.increment_id NOT LIKE "%%-7%%"
-    AND so.increment_id NOT LIKE "%%-8%%"
-    AND so.increment_id NOT LIKE "%%-9%%"
-    AND so.increment_id NOT LIKE "%%-10%%"
-    AND so.increment_id NOT LIKE "%%-11%%"
-    AND so.increment_id NOT LIKE "%%-12%%"
-    AND so.increment_id NOT LIKE "%%-13%%"
-    AND so.increment_id NOT LIKE "%%-14%%"
-    AND so.increment_id NOT LIKE "%%-15%%"
-    AND so.increment_id NOT LIKE "%%-16%%"
+    so.increment_id NOT LIKE '%%-1%%'
+    AND so.increment_id NOT LIKE '%%-2%%'
+    AND so.increment_id NOT LIKE '%%-3%%'
+    AND so.increment_id NOT LIKE '%%-4%%'
+    AND so.increment_id NOT LIKE '%%-5%%'
+    AND so.increment_id NOT LIKE '%%-6%%'
+    AND so.increment_id NOT LIKE '%%-7%%'
+    AND so.increment_id NOT LIKE '%%-8%%'
+    AND so.increment_id NOT LIKE '%%-9%%'
+    AND so.increment_id NOT LIKE '%%-10%%'
+    AND so.increment_id NOT LIKE '%%-11%%'
+    AND so.increment_id NOT LIKE '%%-12%%'
+    AND so.increment_id NOT LIKE '%%-13%%'
+    AND so.increment_id NOT LIKE '%%-14%%'
+    AND so.increment_id NOT LIKE '%%-15%%'
+    AND so.increment_id NOT LIKE '%%-16%%'
     AND so.status IN ('Processing', 'Complete', 'approved')
     AND soi.product_type = 'Bundle'
-    AND so.location_pickup_id IN ({placeholders})
+    AND so.location_pickup_id IN :location_ids
 GROUP BY MONTH(so.created_at)
 ORDER BY mes
-"""
+""").bindparams(bindparam("location_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"location_ids": safe_ids})
             return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Magento by IDs: {e}")
