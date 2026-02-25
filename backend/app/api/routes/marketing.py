@@ -2872,11 +2872,10 @@ def _fetch_category_sales_magento_by_ids(location_ids: list) -> list:
     if db_module.engine_magento is None or not location_ids:
         return []
     try:
-        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
         if not safe_ids:
             return []
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT
     soi.name AS categoria,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
@@ -2903,12 +2902,12 @@ WHERE
     AND so.increment_id NOT LIKE "%%-16%%"
     AND so.status IN ('Processing', 'Complete', 'approved')
     AND soi.product_type = 'Bundle'
-    AND so.location_pickup_id IN ({placeholders})
+    AND so.location_pickup_id IN :location_ids
 GROUP BY soi.name
 ORDER BY qtd DESC
-"""
+""").bindparams(bindparam("location_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"location_ids": safe_ids})
             return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro category sales Magento by IDs: {e}")
