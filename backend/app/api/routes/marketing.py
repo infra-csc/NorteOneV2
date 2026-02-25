@@ -2284,7 +2284,7 @@ def _fetch_monthly_sales_magento(ano_atual: int, ano_anterior: int) -> list:
     if db_module.engine_magento is None:
         return []
     try:
-        query = f"""
+        query = """
 SELECT
     YEAR(so.created_at) AS ano,
     MONTH(so.created_at) AS mes,
@@ -2307,7 +2307,7 @@ LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    YEAR(so.created_at) IN ({ano_atual}, {ano_anterior})
+    YEAR(so.created_at) IN (:ano_atual, :ano_anterior)
     AND so.increment_id NOT LIKE "%%-1%%"
     AND so.increment_id NOT LIKE "%%-2%%"
     AND so.increment_id NOT LIKE "%%-3%%"
@@ -2330,7 +2330,7 @@ GROUP BY YEAR(so.created_at), MONTH(so.created_at)
 ORDER BY ano, mes
 """
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(text(query), {"ano_atual": ano_atual, "ano_anterior": ano_anterior})
             return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Magento: {e}")
