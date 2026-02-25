@@ -102,6 +102,7 @@ const EventDetail: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
+  const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -480,6 +481,27 @@ const EventDetail: React.FC = () => {
         cumulativeExpected: Math.round(d.cumulativeExpected),
       };
     });
+
+  const goalAttainmentDailyData = (event.dailySales || [])
+    .filter(d => d.expected > 0)
+    .map(d => {
+      const eventDate = new Date(event.date + 'T12:00:00');
+      const dayDate = new Date(d.date + 'T12:00:00');
+      const diffMs = eventDate.getTime() - dayDate.getTime();
+      const dMinus = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const pct = parseFloat((((d.sales / d.expected) * 100) - 100).toFixed(1));
+      return {
+        date: d.date,
+        dMinus,
+        label: `D-${dMinus}`,
+        percentual: pct,
+        sales: Math.round(d.sales),
+        expected: Math.round(d.expected),
+      };
+    });
+
+  const activeAttainmentData = attainmentMode === 'acumulado' ? goalAttainmentData : goalAttainmentDailyData;
+  const filteredAttainmentData = attainmentPeriod ? activeAttainmentData.slice(-attainmentPeriod) : activeAttainmentData;
 
   const todayStr = new Date().toISOString().split('T')[0];
   const dailySalesArr = event.dailySales || [];
@@ -1121,35 +1143,59 @@ const EventDetail: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
             <h3 className="font-semibold text-gray-900 dark:text-white">
-              Atingimento da Meta Acumulada por D-
+              Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
             </h3>
-            <div className="flex flex-wrap gap-1">
-              {[
-                { label: '7d', value: 7 },
-                { label: '10d', value: 10 },
-                { label: '14d', value: 14 },
-                { label: '30d', value: 30 },
-                { label: '60d', value: 60 },
-                { label: '90d', value: 90 },
-                { label: 'Todos', value: null as number | null },
-              ].map((opt) => (
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
                 <button
-                  key={opt.label}
-                  onClick={() => setAttainmentPeriod(opt.value)}
+                  onClick={() => setAttainmentMode('acumulado')}
                   className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    attainmentPeriod === opt.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    attainmentMode === 'acumulado'
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
-                  {opt.label}
+                  Acumulado
                 </button>
-              ))}
+                <button
+                  onClick={() => setAttainmentMode('diario')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    attainmentMode === 'diario'
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Diário
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  { label: '7d', value: 7 },
+                  { label: '10d', value: 10 },
+                  { label: '14d', value: 14 },
+                  { label: '30d', value: 30 },
+                  { label: '60d', value: 60 },
+                  { label: '90d', value: 90 },
+                  { label: 'Todos', value: null as number | null },
+                ].map((opt) => (
+                  <button
+                    key={opt.label}
+                    onClick={() => setAttainmentPeriod(opt.value)}
+                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                      attainmentPeriod === opt.value
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={attainmentPeriod ? goalAttainmentData.slice(-attainmentPeriod) : goalAttainmentData}>
+              <BarChart data={filteredAttainmentData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                 <XAxis
                   dataKey="label"
@@ -1167,11 +1213,12 @@ const EventDetail: React.FC = () => {
                     if (!active || !payload || !payload.length) return null;
                     const d = payload[0].payload;
                     const color = d.percentual >= 0 ? '#22C55E' : '#EF4444';
+                    const isAcumulado = attainmentMode === 'acumulado';
                     return (
                       <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff', minWidth: 200 }}>
                         <p style={{ marginBottom: '4px', color: '#9CA3AF', fontWeight: 600 }}>{d.label} — {new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
-                        <p style={{ color: '#3B82F6' }}>Inscrições: {formatNumber(d.cumulative)}</p>
-                        <p style={{ color: '#9CA3AF' }}>Meta Acumulada: {formatNumber(d.cumulativeExpected)}</p>
+                        <p style={{ color: '#3B82F6' }}>{isAcumulado ? 'Inscrições' : 'Vendas do Dia'}: {formatNumber(isAcumulado ? d.cumulative : d.sales)}</p>
+                        <p style={{ color: '#9CA3AF' }}>{isAcumulado ? 'Meta Acumulada' : 'Esperado Diário'}: {formatNumber(isAcumulado ? d.cumulativeExpected : d.expected)}</p>
                         <p style={{ color, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 700, fontSize: '14px' }}>
                           {d.percentual >= 0 ? '+' : ''}{d.percentual}% da meta
                         </p>
@@ -1181,7 +1228,7 @@ const EventDetail: React.FC = () => {
                 />
                 <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
                 <Bar dataKey="percentual" name="% Atingimento" radius={[4, 4, 0, 0]}>
-                  {(attainmentPeriod ? goalAttainmentData.slice(-attainmentPeriod) : goalAttainmentData).map((entry, index) => (
+                  {filteredAttainmentData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
                   ))}
                 </Bar>
