@@ -2580,11 +2580,10 @@ def _fetch_daily_sales_magento_by_ids_grouped(location_ids: list) -> dict:
     if db_module.engine_magento is None or not location_ids:
         return {}
     try:
-        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     cpev1.value AS location_id,
     DATE(so.created_at) AS dia,
@@ -2599,7 +2598,7 @@ LEFT JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
-    AND cpev1.value IN ({placeholders})
+    AND cpev1.value IN :location_ids
     AND so.increment_id NOT LIKE '%%-1%%'
     AND so.increment_id NOT LIKE '%%-2%%'
     AND so.increment_id NOT LIKE '%%-3%%'
@@ -2619,9 +2618,9 @@ WHERE
     AND so.increment_id NOT LIKE '%%-17%%'
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
-"""
+""").bindparams(bindparam("location_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"location_ids": safe_ids})
             grouped = {}
             for r in result.fetchall():
                 lid = str(r[0])
