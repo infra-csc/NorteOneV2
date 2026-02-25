@@ -160,7 +160,11 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                   textAnchor="end"
                   height={50}
                 />
-                <YAxis tick={{ fill: textColor, fontSize: 12 }} domain={['auto', 'auto']} />
+                <YAxis
+                  tick={{ fill: textColor, fontSize: 12 }}
+                  domain={[(dataMin: number) => Math.floor((dataMin - 0.05) * 100) / 100, (dataMax: number) => Math.ceil((dataMax + 0.05) * 100) / 100]}
+                  tickCount={8}
+                />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: isDark ? '#1f2937' : '#fff',
@@ -229,8 +233,9 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
                 />
                 <YAxis
                   tick={{ fill: textColor, fontSize: 12 }}
-                  tickFormatter={(v: number) => `R$ ${v}`}
-                  domain={['auto', 'auto']}
+                  tickFormatter={(v: number) => `R$ ${Math.round(v)}`}
+                  domain={[(dataMin: number) => Math.floor(dataMin * 0.95), (dataMax: number) => Math.ceil(dataMax * 1.05)]}
+                  tickCount={8}
                 />
                 <Tooltip
                   contentStyle={{
