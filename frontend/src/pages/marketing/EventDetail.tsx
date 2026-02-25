@@ -1402,13 +1402,14 @@ const EventDetail: React.FC = () => {
           const ticketBase = base > 0 && event.budgetTicket > 0
             ? Math.max(0, ((event.budgetTicket * event.salesGoal) - (event.averageTicket * inscritosTotal)) / base)
             : 0;
-          const multipliers = [0.81, 0.90, 1.00, 1.10, 1.21];
+          const inscMultipliers = [0.81, 0.90, 1.00, 1.10, 1.21];
+          const ticketMultipliers = [1.21, 1.10, 1.00, 0.90, 0.81];
           const labels = ['Cenário 1', 'Cenário 2', 'Volume p/ Meta', 'Cenário 4', 'Cenário 5'];
-          const rows = multipliers.map((m, i) => ({
-            label: labels[i],
-            inscritos: Math.round(base * m),
-            ticket: ticketBase * m,
-            isBase: m === 1.00,
+          const rows = labels.map((label, i) => ({
+            label,
+            inscritos: Math.round(base * inscMultipliers[i]),
+            ticket: ticketBase * ticketMultipliers[i],
+            isBase: i === 2,
           }));
           return (
             <div className="overflow-x-auto">
