@@ -4579,12 +4579,8 @@ def fetch_rolling_avg_magento() -> dict:
         '481': 'NRU26SP3', '492': 'BRV26SP4',
     }
     
-    increment_filters = " ".join([
-        f"AND so.increment_id NOT LIKE '%%-{i}%%'" for i in range(1, 18)
-    ])
-    
     try:
-        query = f"""
+        query = """
         SELECT /*+ MAX_EXECUTION_TIME(25000) */
             wl.location_id,
             d.sku AS product_sku,
@@ -4604,10 +4600,26 @@ def fetch_rolling_avg_magento() -> dict:
         LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
         WHERE
             YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
-            {increment_filters}
+            AND so.increment_id NOT LIKE '%-1%'
+            AND so.increment_id NOT LIKE '%-2%'
+            AND so.increment_id NOT LIKE '%-3%'
+            AND so.increment_id NOT LIKE '%-4%'
+            AND so.increment_id NOT LIKE '%-5%'
+            AND so.increment_id NOT LIKE '%-6%'
+            AND so.increment_id NOT LIKE '%-7%'
+            AND so.increment_id NOT LIKE '%-8%'
+            AND so.increment_id NOT LIKE '%-9%'
+            AND so.increment_id NOT LIKE '%-10%'
+            AND so.increment_id NOT LIKE '%-11%'
+            AND so.increment_id NOT LIKE '%-12%'
+            AND so.increment_id NOT LIKE '%-13%'
+            AND so.increment_id NOT LIKE '%-14%'
+            AND so.increment_id NOT LIKE '%-15%'
+            AND so.increment_id NOT LIKE '%-16%'
+            AND so.increment_id NOT LIKE '%-17%'
             AND so.status IN ('Processing', 'Complete', 'approved')
             AND soi.product_type = 'Bundle'
-            AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+            AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
             AND so.base_grand_total > 0
             AND (
                 DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
