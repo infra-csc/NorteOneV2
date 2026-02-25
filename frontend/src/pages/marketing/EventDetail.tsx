@@ -1130,7 +1130,6 @@ const EventDetail: React.FC = () => {
                   stroke="#6B7280"
                   fontSize={11}
                   interval="preserveStartEnd"
-                  reversed
                 />
                 <YAxis
                   stroke="#6B7280"
