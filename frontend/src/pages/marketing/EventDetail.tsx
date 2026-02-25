@@ -1349,7 +1349,7 @@ const EventDetail: React.FC = () => {
           </h3>
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
-            const margemOrcadaTotal = event.margemOrcadaTotal || 0;
+            const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * metaAcumulada : 0;
             const margemRealizadaTotal = event.margemRealizadaTotal || 0;
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
