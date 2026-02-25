@@ -2773,8 +2773,7 @@ def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
         safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
         if not safe_ids:
             return []
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
@@ -2805,7 +2804,7 @@ LEFT JOIN (
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
-    AND cpev1.value IN ({placeholders})
+    AND cpev1.value IN :location_ids
     AND so.increment_id NOT LIKE '%%-1%%'
     AND so.increment_id NOT LIKE '%%-2%%'
     AND so.increment_id NOT LIKE '%%-3%%'
@@ -2825,9 +2824,9 @@ WHERE
     AND so.increment_id NOT LIKE '%%-17%%'
 GROUP BY DATE(so.created_at)
 ORDER BY dia
-"""
+""").bindparams(bindparam("location_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"location_ids": safe_ids})
             return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro daily sales Magento by IDs: {e}")
