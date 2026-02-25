@@ -694,28 +694,43 @@ const EventDetail: React.FC = () => {
         <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
       ) : (
       <>
-      <div className="bg-white dark:bg-gray-800 rounded-xl px-4 py-2 shadow-sm border border-gray-200 dark:border-gray-700 flex items-center gap-3">
-        <Clock className="w-4 h-4 text-gray-400" />
-        <span className="text-sm text-gray-500 dark:text-gray-400">Dias para o Evento</span>
-        <span className={`text-xl font-bold ${
-          event.dMinus < 40 
-            ? 'text-orange-600 dark:text-orange-400' 
-            : 'text-gray-900 dark:text-white'
-        }`}>
-          D-{event.dMinus}
-        </span>
-        {event.dMinus < 40 && (
-          <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3" />
-            Fora da janela de promoção
+      <div className={`rounded-xl px-4 py-2 shadow-sm border flex flex-wrap items-center gap-3 ${getRecommendationStyle()}`}>
+        <div className="flex items-center gap-3">
+          <Clock className="w-4 h-4 text-gray-400" />
+          <span className="text-sm text-gray-500 dark:text-gray-400">Dias para o Evento</span>
+          <span className={`text-xl font-bold ${
+            event.dMinus < 40 
+              ? 'text-orange-600 dark:text-orange-400' 
+              : 'text-gray-900 dark:text-white'
+          }`}>
+            D-{event.dMinus}
           </span>
-        )}
-        {isInCriticalWindow(event.dMinus) && (
-          <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-            <Target className="w-3 h-3" />
-            Janela crítica D-45 a D-40
-          </span>
-        )}
+          {event.dMinus < 40 && (
+            <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" />
+              Fora da janela de promoção
+            </span>
+          )}
+          {isInCriticalWindow(event.dMinus) && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+              <Target className="w-3 h-3" />
+              Janela crítica D-45 a D-40
+            </span>
+          )}
+        </div>
+        <div className="hidden sm:block w-px h-6 bg-gray-300 dark:bg-gray-600" />
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {event.iscStatus === 'accelerating' ? (
+            <TrendingUp className="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" />
+          ) : event.iscStatus === 'stable' ? (
+            <Activity className="w-4 h-4 text-yellow-600 dark:text-yellow-400 shrink-0" />
+          ) : (
+            <TrendingDown className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+          )}
+          <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
+            {event.suggestedAction}
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -845,138 +860,114 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className={`rounded-xl p-4 border ${getRecommendationStyle()}`}>
-        <div className="flex items-start gap-3">
-          {event.iscStatus === 'accelerating' ? (
-            <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400 mt-0.5" />
-          ) : event.iscStatus === 'stable' ? (
-            <Activity className="w-6 h-6 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-          ) : (
-            <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400 mt-0.5" />
-          )}
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Recomendação Automática
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {isConsolidated && cumulativeData.length > 0 ? (
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2 text-sm">
+              <Target className="w-4 h-4 text-blue-500" />
+              Acompanhamento de Meta
             </h3>
-            <p className="text-gray-700 dark:text-gray-300 mt-1">
-              {event.suggestedAction}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Meta de Hoje vs Vendas Hoje</p>
+                {hasTodayData ? (
+                  <>
+                    <div className="flex items-center justify-between mb-1">
+                      <div>
+                        <p className="text-[10px] text-gray-400 mb-0.5">Vendas Hoje</p>
+                        <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(todaySales)}</p>
+                      </div>
+                      <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
+                      <div className="text-right">
+                        <p className="text-[10px] text-gray-400 mb-0.5">Meta Hoje</p>
+                        <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(todayExpectedRounded)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-2">
+                      <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                        <span>Atingimento</span>
+                        <span className={`font-semibold ${todayPct >= 100 ? 'text-green-600 dark:text-green-400' : todayPct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{todayPct}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${todayPct >= 100 ? 'bg-green-500' : todayPct >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                          style={{ width: `${Math.min(todayPct, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 italic">Sem dados para hoje</p>
+                )}
+              </div>
+
+              <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Meta Acumulada vs Inscritos Total</p>
+                <div className="flex items-center justify-between mb-1">
+                  <div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Inscritos</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(inscritosTotal)}</p>
+                  </div>
+                  <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-gray-400 mb-0.5">Meta Acumulada</p>
+                    <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatNumber(metaAcumulada)}</p>
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">Gap vs Meta</span>
+                  <span className={`text-lg font-bold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {acumuladoGap > 0 ? '+' : ''}{acumuladoGap}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+              {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
+            </p>
+            <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
+              <div 
+                className="bg-blue-600 h-3 rounded-full transition-all"
+                style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
+              />
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              {Math.round((event.currentSales / event.salesGoal) * 100)}% da meta
             </p>
           </div>
-        </div>
-      </div>
+        )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
-            {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
-          </p>
-          <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
-            <div 
-              className="bg-blue-600 h-3 rounded-full transition-all"
-              style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
-            />
-          </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-            {Math.round((event.currentSales / event.salesGoal) * 100)}% da meta
-          </p>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Ticket Médio / Orçado</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
+          <p className="text-xl font-bold text-gray-900 dark:text-white mt-2">
             {formatCurrency(event.averageTicket)} / {formatCurrency(event.budgetTicket || 0)}
           </p>
           {event.budgetTicket > 0 && (
             <>
-              <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-3">
+              <div className="mt-2 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
                 <div 
-                  className={`h-3 rounded-full transition-all ${
+                  className={`h-2.5 rounded-full transition-all ${
                     (event.averageTicket / event.budgetTicket) >= 1 ? 'bg-green-500' : 
                     (event.averageTicket / event.budgetTicket) >= 0.8 ? 'bg-blue-600' : 'bg-orange-500'
                   }`}
                   style={{ width: `${Math.min((event.averageTicket / event.budgetTicket) * 100, 100)}%` }}
                 />
               </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {Math.round((event.averageTicket / event.budgetTicket) * 100)}% do orçado
               </p>
             </>
           )}
-          <div className="flex items-center gap-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
-            <DollarSign className="w-4 h-4" />
+          <div className="flex items-center gap-1 mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <DollarSign className="w-3.5 h-3.5" />
             Receita estimada: {formatCurrency(event.currentSales * event.averageTicket)}
           </div>
         </div>
       </div>
-
-      {isConsolidated && (
-        <div className="flex flex-col gap-6">
-          {cumulativeData.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                <Target className="w-5 h-5 text-blue-500" />
-                Acompanhamento de Meta
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Meta de Hoje vs Vendas Hoje</p>
-                  {hasTodayData ? (
-                    <>
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <p className="text-xs text-gray-400 mb-1">Vendas Hoje</p>
-                          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatNumber(todaySales)}</p>
-                        </div>
-                        <div className="text-gray-300 dark:text-gray-600 text-lg">vs</div>
-                        <div className="text-right">
-                          <p className="text-xs text-gray-400 mb-1">Meta Hoje</p>
-                          <p className="text-2xl font-bold text-gray-600 dark:text-gray-300">{formatNumber(todayExpectedRounded)}</p>
-                        </div>
-                      </div>
-                      <div className="mt-3">
-                        <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-                          <span>Atingimento</span>
-                          <span className={`font-semibold ${todayPct >= 100 ? 'text-green-600 dark:text-green-400' : todayPct >= 70 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>{todayPct}%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2.5">
-                          <div
-                            className={`h-2.5 rounded-full transition-all ${todayPct >= 100 ? 'bg-green-500' : todayPct >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                            style={{ width: `${Math.min(todayPct, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-gray-400 dark:text-gray-500 italic">Sem dados para hoje</p>
-                  )}
-                </div>
-
-                <div className="p-5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total</p>
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <p className="text-xs text-gray-400 mb-1">Inscritos</p>
-                      <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatNumber(inscritosTotal)}</p>
-                    </div>
-                    <div className="text-gray-300 dark:text-gray-600 text-lg">vs</div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400 mb-1">Meta Acumulada</p>
-                      <p className="text-2xl font-bold text-gray-600 dark:text-gray-300">{formatNumber(metaAcumulada)}</p>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-center gap-2">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Gap vs Meta</span>
-                    <span className={`text-2xl font-bold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                      {acumuladoGap > 0 ? '+' : ''}{acumuladoGap}%
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
