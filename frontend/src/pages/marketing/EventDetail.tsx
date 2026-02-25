@@ -514,11 +514,38 @@ const EventDetail: React.FC = () => {
   const lastCumData = cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
   const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
-  const acumuladoPct = metaAcumulada > 0 ? Math.round((inscritosTotal / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
-  const acumuladoGapAbs = Math.abs(acumuladoGap);
 
   const last30Days = (event.dailySales || []).slice(-30);
+
+  const volumeParaMeta = event.salesGoal - event.currentSales;
+  const mediaDiariaNecessaria = event.dMinus > 0 ? volumeParaMeta / event.dMinus : 0;
+  const last7DaysSales = (event.dailySales || []).slice(-7);
+  const mediaSemanaAtual = last7DaysSales.length > 0
+    ? last7DaysSales.reduce((sum, d) => sum + d.sales, 0) / last7DaysSales.length
+    : 0;
+  const pctMedias = mediaDiariaNecessaria > 0
+    ? ((mediaSemanaAtual / mediaDiariaNecessaria) * 100) - 100
+    : (mediaSemanaAtual > 0 ? 100 : 0);
+
+  const indicadoresVolume = [3, 7, 14].map(dias => {
+    const vendas = (event.dailySales || []).slice(-dias);
+    const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
+    const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
+    const potencial = media * event.dMinus;
+    const atingimento = event.currentSales + potencial;
+    const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
+    return {
+      periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : '14 dias',
+      media: Math.round(media * 10) / 10,
+      dMinus: event.dMinus,
+      potencial: Math.round(potencial),
+      vendasAcumuladas: event.currentSales,
+      atingimento: Math.round(atingimento),
+      meta: event.salesGoal,
+      alvo: Math.round(alvo * 1000) / 10,
+    };
+  });
 
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
@@ -667,7 +694,31 @@ const EventDetail: React.FC = () => {
         <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
       ) : (
       <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl px-4 py-2 shadow-sm border border-gray-200 dark:border-gray-700 flex items-center gap-3">
+        <Clock className="w-4 h-4 text-gray-400" />
+        <span className="text-sm text-gray-500 dark:text-gray-400">Dias para o Evento</span>
+        <span className={`text-xl font-bold ${
+          event.dMinus < 40 
+            ? 'text-orange-600 dark:text-orange-400' 
+            : 'text-gray-900 dark:text-white'
+        }`}>
+          D-{event.dMinus}
+        </span>
+        {event.dMinus < 40 && (
+          <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" />
+            Fora da janela de promoção
+          </span>
+        )}
+        {isInCriticalWindow(event.dMinus) && (
+          <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+            <Target className="w-3 h-3" />
+            Janela crítica D-45 a D-40
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">ISC Atual</p>
@@ -704,29 +755,117 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Dias para o Evento</p>
-          <p className={`text-4xl font-bold mt-2 ${
-            event.dMinus < 40 
-              ? 'text-orange-600 dark:text-orange-400' 
-              : 'text-gray-900 dark:text-white'
-          }`}>
-            D-{event.dMinus}
-          </p>
-          {event.dMinus < 40 && (
-            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              Fora da janela de promoção
-            </p>
-          )}
-          {isInCriticalWindow(event.dMinus) && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
-              <Target className="w-3 h-3" />
-              Janela crítica D-45 a D-40
-            </p>
-          )}
-        </div>
+        <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Componentes do ISC</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500 dark:text-gray-400">IA 7/30</span>
+                <div className="group relative">
+                  <Info className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+                  <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-5">
+                    Índice de Aceleração: Vendas 7 dias / Vendas 30 dias × (30/7). {'>'} 1 = acelerando
+                  </div>
+                </div>
+              </div>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {event.iscComponents.ia730.toFixed(2)}
+              </p>
+              <div className="flex items-center gap-1 mt-1 text-xs">
+                {event.iscComponents.ia730 > 1 ? (
+                  <>
+                    <TrendingUp className="w-3.5 h-3.5 text-green-500" />
+                    <span className="text-green-600 dark:text-green-400">Acelerando</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                    <span className="text-red-600 dark:text-red-400">Desacelerando</span>
+                  </>
+                )}
+              </div>
+            </div>
 
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Curva D-%</span>
+                <div className="group relative">
+                  <Info className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+                  <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-5">
+                    Vendas reais / Vendas esperadas para este D-. {'>'} 1 = adiantado
+                  </div>
+                </div>
+              </div>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {event.iscComponents.curvaDPercent.toFixed(2)}
+              </p>
+              <div className="flex items-center gap-1 mt-1 text-xs">
+                {event.iscComponents.curvaDPercent > 1 ? (
+                  <>
+                    <TrendingUp className="w-3.5 h-3.5 text-green-500" />
+                    <span className="text-green-600 dark:text-green-400">Adiantado</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                    <span className="text-red-600 dark:text-red-400">Atrasado</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Rolling 14d</span>
+                <div className="group relative">
+                  <Info className="w-3.5 h-3.5 text-gray-400 cursor-help" />
+                  <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-5">
+                    Média de vendas 14 dias (normalizada). {'>'} 1 = momentum quente
+                  </div>
+                </div>
+              </div>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {event.iscComponents.rolling14d.toFixed(2)}
+              </p>
+              <div className="flex items-center gap-1 mt-1 text-xs">
+                {event.iscComponents.rolling14d > 1 ? (
+                  <>
+                    <Activity className="w-3.5 h-3.5 text-green-500" />
+                    <span className="text-green-600 dark:text-green-400">Momentum Quente</span>
+                  </>
+                ) : (
+                  <>
+                    <Activity className="w-3.5 h-3.5 text-blue-500" />
+                    <span className="text-blue-600 dark:text-blue-400">Momentum Frio</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className={`rounded-xl p-4 border ${getRecommendationStyle()}`}>
+        <div className="flex items-start gap-3">
+          {event.iscStatus === 'accelerating' ? (
+            <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400 mt-0.5" />
+          ) : event.iscStatus === 'stable' ? (
+            <Activity className="w-6 h-6 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+          ) : (
+            <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400 mt-0.5" />
+          )}
+          <div>
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Recomendação Automática
+            </h3>
+            <p className="text-gray-700 dark:text-gray-300 mt-1">
+              {event.suggestedAction}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white mt-2">
@@ -767,221 +906,6 @@ const EventDetail: React.FC = () => {
           <div className="flex items-center gap-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
             <DollarSign className="w-4 h-4" />
             Receita estimada: {formatCurrency(event.currentSales * event.averageTicket)}
-          </div>
-        </div>
-      </div>
-
-      {((event.margemOrcadaPct ?? 0) !== 0 || (event.margemRealizadaPct ?? 0) !== 0 || (event.kitCostPerUnit ?? 0) > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Margem Orçada</p>
-            <p className={`text-2xl font-bold mt-2 ${
-              (event.margemOrcadaPct ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'
-            }`}>
-              {(event.margemOrcadaPct ?? 0).toFixed(1)}%
-            </p>
-            <div className="mt-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">Por inscrição</span>
-                <span className={`font-medium ${(event.margemOrcadaUnit ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
-                  {formatCurrency(event.margemOrcadaUnit ?? 0)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">Total projetado</span>
-                <span className={`font-medium ${(event.margemOrcadaTotal ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
-                  {formatCurrency(event.margemOrcadaTotal ?? 0)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">Custo kit</span>
-                <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.kitCostPerUnit ?? 0)}</span>
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mt-2">
-                <div
-                  className={`h-2 rounded-full transition-all ${(event.margemOrcadaPct ?? 0) >= 0 ? 'bg-blue-500' : 'bg-red-500'}`}
-                  style={{ width: `${Math.min(Math.max(event.margemOrcadaPct ?? 0, 0), 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500 dark:text-gray-400">Margem Prevista / Realizada</p>
-              {event.currentSales > 0 && (event.margemOrcadaPct ?? 0) !== 0 && (
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) 
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                    : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) * 0.9
-                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                }`}>
-                  {(event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) ? 'Acima' : 'Abaixo'} do orçado
-                </span>
-              )}
-            </div>
-            <p className={`text-2xl font-bold mt-2 ${
-              event.currentSales === 0
-                ? 'text-gray-400 dark:text-gray-500'
-                : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0)
-                  ? 'text-green-600 dark:text-green-400'
-                  : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) * 0.9
-                    ? 'text-yellow-600 dark:text-yellow-400'
-                    : 'text-red-600 dark:text-red-400'
-            }`}>
-              {event.currentSales > 0 ? `${(event.margemRealizadaPct ?? 0).toFixed(1)}%` : '—'}
-            </p>
-            <div className="mt-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">Por inscrição</span>
-                <span className={`font-medium ${(event.margemRealizadaUnit ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
-                  {event.currentSales > 0 ? formatCurrency(event.margemRealizadaUnit ?? 0) : '—'}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">Total realizado</span>
-                <span className={`font-medium ${(event.margemRealizadaTotal ?? 0) >= 0 ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}`}>
-                  {event.currentSales > 0 ? formatCurrency(event.margemRealizadaTotal ?? 0) : '—'}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500 dark:text-gray-400">vs Orçada</span>
-                <span className={`font-medium ${
-                  (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0)
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {event.currentSales > 0 && (event.margemOrcadaPct ?? 0) !== 0
-                    ? `${((event.margemRealizadaPct ?? 0) - (event.margemOrcadaPct ?? 0)).toFixed(1)} p.p.`
-                    : '—'}
-                </span>
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2 mt-2">
-                <div
-                  className={`h-2 rounded-full transition-all ${
-                    event.currentSales === 0 ? 'bg-gray-400' :
-                    (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0)
-                      ? 'bg-green-500'
-                      : (event.margemRealizadaPct ?? 0) >= (event.margemOrcadaPct ?? 0) * 0.9
-                        ? 'bg-yellow-500'
-                        : 'bg-red-500'
-                  }`}
-                  style={{ width: `${Math.min(Math.max(event.margemRealizadaPct ?? 0, 0), 100)}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className={`rounded-xl p-4 border ${getRecommendationStyle()}`}>
-        <div className="flex items-start gap-3">
-          {event.iscStatus === 'accelerating' ? (
-            <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400 mt-0.5" />
-          ) : event.iscStatus === 'stable' ? (
-            <Activity className="w-6 h-6 text-yellow-600 dark:text-yellow-400 mt-0.5" />
-          ) : (
-            <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400 mt-0.5" />
-          )}
-          <div>
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Recomendação Automática
-            </h3>
-            <p className="text-gray-700 dark:text-gray-300 mt-1">
-              {event.suggestedAction}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-          Componentes do ISC
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-500 dark:text-gray-400">IA 7/30</span>
-              <div className="group relative">
-                <Info className="w-4 h-4 text-gray-400 cursor-help" />
-                <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-6">
-                  Índice de Aceleração: Vendas 7 dias / Vendas 30 dias × (30/7). {'>'} 1 = acelerando
-                </div>
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {event.iscComponents.ia730.toFixed(2)}
-            </p>
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              {event.iscComponents.ia730 > 1 ? (
-                <>
-                  <TrendingUp className="w-4 h-4 text-green-500" />
-                  <span className="text-green-600 dark:text-green-400">Acelerando</span>
-                </>
-              ) : (
-                <>
-                  <TrendingDown className="w-4 h-4 text-red-500" />
-                  <span className="text-red-600 dark:text-red-400">Desacelerando</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-500 dark:text-gray-400">Curva D-%</span>
-              <div className="group relative">
-                <Info className="w-4 h-4 text-gray-400 cursor-help" />
-                <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-6">
-                  Vendas reais / Vendas esperadas para este D-. {'>'} 1 = adiantado
-                </div>
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {event.iscComponents.curvaDPercent.toFixed(2)}
-            </p>
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              {event.iscComponents.curvaDPercent > 1 ? (
-                <>
-                  <TrendingUp className="w-4 h-4 text-green-500" />
-                  <span className="text-green-600 dark:text-green-400">Adiantado</span>
-                </>
-              ) : (
-                <>
-                  <TrendingDown className="w-4 h-4 text-red-500" />
-                  <span className="text-red-600 dark:text-red-400">Atrasado</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-gray-500 dark:text-gray-400">Rolling 14d</span>
-              <div className="group relative">
-                <Info className="w-4 h-4 text-gray-400 cursor-help" />
-                <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-6">
-                  Média de vendas 14 dias (normalizada). {'>'} 1 = momentum quente
-                </div>
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">
-              {event.iscComponents.rolling14d.toFixed(2)}
-            </p>
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              {event.iscComponents.rolling14d > 1 ? (
-                <>
-                  <Activity className="w-4 h-4 text-green-500" />
-                  <span className="text-green-600 dark:text-green-400">Momentum Quente</span>
-                </>
-              ) : (
-                <>
-                  <Activity className="w-4 h-4 text-blue-500" />
-                  <span className="text-blue-600 dark:text-blue-400">Momentum Frio</span>
-                </>
-              )}
-            </div>
           </div>
         </div>
       </div>
@@ -1233,40 +1157,125 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
-            Vendas Diárias (Últimos 30 dias)
-          </h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={last30Days}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                <XAxis 
-                  dataKey="date" 
-                  tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}
-                  stroke="#6B7280"
-                  fontSize={12}
-                />
-                <YAxis stroke="#6B7280" fontSize={12} />
-                <Tooltip 
-                  labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
-                  formatter={(value: any) => formatNumber(Math.round(Number(value ?? 0)))}
-                  contentStyle={{ 
-                    backgroundColor: '#1F2937', 
-                    border: 'none', 
-                    borderRadius: '8px',
-                    color: '#fff'
-                  }}
-                />
-                <Bar 
-                  dataKey="sales" 
-                  name="Vendas"
-                  fill="#3B82F6" 
-                  radius={[4, 4, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Activity className="w-5 h-5 text-blue-500" />
+          Curva no Tempo
+        </h3>
+        <div className="mb-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">
+            {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <p className="text-xs text-gray-500 dark:text-gray-400">D-</p>
+              <p className={`text-xl font-bold ${event.dMinus < 40 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
+                {event.dMinus}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Volume p/ Meta</p>
+              <p className={`text-xl font-bold ${volumeParaMeta <= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                {formatNumber(Math.max(volumeParaMeta, 0))}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Média Diária Necessária</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {mediaDiariaNecessaria.toFixed(1)}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Média Semana Atual</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-white">
+                {mediaSemanaAtual.toFixed(1)}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg col-span-2 sm:col-span-2">
+              <p className="text-xs text-gray-500 dark:text-gray-400">% Média Atual vs Necessária</p>
+              <p className={`text-xl font-bold ${pctMedias >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                {pctMedias > 0 ? '+' : ''}{pctMedias.toFixed(1)}%
+              </p>
+            </div>
           </div>
+
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Vendas Diárias (Últimos 30 dias)</p>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={last30Days}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}
+                    stroke="#6B7280"
+                    fontSize={11}
+                  />
+                  <YAxis stroke="#6B7280" fontSize={11} />
+                  <Tooltip 
+                    labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
+                    formatter={(value: any) => formatNumber(Math.round(Number(value ?? 0)))}
+                    contentStyle={{ 
+                      backgroundColor: '#1F2937', 
+                      border: 'none', 
+                      borderRadius: '8px',
+                      color: '#fff'
+                    }}
+                  />
+                  <Bar 
+                    dataKey="sales" 
+                    name="Vendas"
+                    fill="#3B82F6" 
+                    radius={[4, 4, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+          <Target className="w-5 h-5 text-indigo-500" />
+          Indicadores de Volume
+        </h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Período</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Média de Vendas</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">D-</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Potencial</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vendas Acum.</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Atingimento</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Alvo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {indicadoresVolume.map((row) => (
+                <tr key={row.periodo} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                  <td className="py-2.5 px-3 font-medium text-gray-900 dark:text-white">{row.periodo}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{row.media.toFixed(1)}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{row.dMinus}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(row.potencial)}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(row.vendasAcumuladas)}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(row.atingimento)}</td>
+                  <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(row.meta)}</td>
+                  <td className={`py-2.5 px-3 text-right font-bold ${row.alvo >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {row.alvo > 0 ? '+' : ''}{row.alvo.toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
