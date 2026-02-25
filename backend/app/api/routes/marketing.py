@@ -100,7 +100,7 @@ def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date
         return {}
     
     try:
-        query = f"""
+        query = """
         SELECT 
             DATE(so.created_at) AS data_venda,
             COUNT(soi.item_id) AS quantidade
@@ -108,11 +108,11 @@ def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date
         LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
         LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
         WHERE 
-            wl.location_id = '{location_id}'
+            wl.location_id = :location_id
             AND so.status IN ('Processing', 'Complete', 'approved')
             AND soi.product_type = 'Bundle'
-            AND DATE(so.created_at) >= '{start_date.isoformat()}'
-            AND DATE(so.created_at) <= '{end_date.isoformat()}'
+            AND DATE(so.created_at) >= :start_date
+            AND DATE(so.created_at) <= :end_date
             AND so.increment_id NOT LIKE '%-1%'
             AND so.increment_id NOT LIKE '%-2%'
             AND so.increment_id NOT LIKE '%-3%'
@@ -133,9 +133,14 @@ def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date
         GROUP BY DATE(so.created_at)
         ORDER BY data_venda
         """
+        params = {
+            "location_id": location_id,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+        }
         
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(text(query), params)
             rows = result.fetchall()
             
         daily_sales = {}
