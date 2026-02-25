@@ -1725,7 +1725,7 @@ def get_marketing_events(
             p_kc = kit_costs_batch.get(p.id, 50.0)
             grupo_kit_weighted_num += p_kc * p_cap
             grupo_kit_weighted_den += p_cap
-        grupo_kit_cost_avg = round(grupo_kit_weighted_num / grupo_kit_weighted_den, 2) if grupo_kit_weighted_den > 0 else 50.0
+        grupo_kit_cost_avg = (grupo_kit_weighted_num / grupo_kit_weighted_den) if grupo_kit_weighted_den > 0 else 50.0
         grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
                                             avg_ticket, current_sales, current_receita)
         
@@ -3920,7 +3920,7 @@ def get_marketing_event_by_id(
             p_kc_d = detail_kit_costs.get(p.id, 50.0)
             detail_kit_w_num += p_kc_d * p_cap_d
             detail_kit_w_den += p_cap_d
-        detail_kit_cost_avg = round(detail_kit_w_num / detail_kit_w_den, 2) if detail_kit_w_den > 0 else 50.0
+        detail_kit_cost_avg = (detail_kit_w_num / detail_kit_w_den) if detail_kit_w_den > 0 else 50.0
         detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
                                              avg_ticket, current_sales, current_receita)
         
