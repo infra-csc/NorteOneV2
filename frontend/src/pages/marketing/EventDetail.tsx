@@ -616,11 +616,6 @@ const EventDetail: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {event.name}
               </h1>
-              {isConsolidated && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded-full">
-                  Consolidado
-                </span>
-              )}
               {isInCriticalWindow(event.dMinus) && (
                 <span className="px-3 py-1 text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded-full flex items-center gap-1">
                   <Target className="w-4 h-4" />

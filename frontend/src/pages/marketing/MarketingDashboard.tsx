@@ -425,11 +425,6 @@ const MarketingDashboard: React.FC = () => {
                           <p className="font-medium text-gray-900 dark:text-white">
                             {event.name}
                           </p>
-                          {event.id.startsWith('grp_') && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 rounded">
-                              Grupo
-                            </span>
-                          )}
                         </div>
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {event.location}
