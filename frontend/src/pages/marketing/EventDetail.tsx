@@ -518,8 +518,8 @@ const EventDetail: React.FC = () => {
 
   const last30Days = (event.dailySales || []).slice(-30);
 
-  const volumeParaMeta = event.salesGoal - event.currentSales;
-  const mediaDiariaNecessaria = event.dMinus > 0 ? volumeParaMeta / event.dMinus : 0;
+  const volumeParaMeta = metaAcumulada - inscritosTotal;
+  const mediaDiariaNecessaria = event.dMinus > 0 ? Math.max(volumeParaMeta, 0) / event.dMinus : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
     ? last7DaysSales.reduce((sum, d) => sum + d.sales, 0) / last7DaysSales.length
@@ -1156,9 +1156,9 @@ const EventDetail: React.FC = () => {
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta Acumulada</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
+            {formatNumber(inscritosTotal)} / {formatNumber(metaAcumulada)}
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
