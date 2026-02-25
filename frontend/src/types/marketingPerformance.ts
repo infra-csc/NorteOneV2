@@ -30,6 +30,7 @@ export interface Event {
   currentSales: number;
   salesGoal: number;
   averageTicket: number;
+  budgetTicket: number;
   dMinus: number;
   isc: number;
   iscComponents: ISCComponents;
@@ -39,6 +40,14 @@ export interface Event {
   dailySales: DailySales[];
   commercialActions: CommercialAction[];
   isActive: boolean;
+  sku?: string;
+  kitCostPerUnit: number;
+  margemOrcadaUnit: number;
+  margemOrcadaTotal: number;
+  margemOrcadaPct: number;
+  margemRealizadaUnit: number;
+  margemRealizadaTotal: number;
+  margemRealizadaPct: number;
 }
 
 export interface DashboardSummary {

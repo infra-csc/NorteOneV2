@@ -1349,22 +1349,20 @@ const EventDetail: React.FC = () => {
           </h3>
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
-            const receitaAcumulada = event.averageTicket * inscritosTotal;
-            const custoAcumulado = kitCost * inscritosTotal;
-            const margemAcumulada = receitaAcumulada - custoAcumulado;
-            const margemMeta = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-            const faltaParaMeta = margemMeta - margemAcumulada;
+            const margemOrcadaTotal = event.margemOrcadaTotal || 0;
+            const margemRealizadaTotal = event.margemRealizadaTotal || 0;
+            const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
               <div className="space-y-3">
                 <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Margem Acumulada</span>
-                  <span className={`text-lg font-bold ${margemAcumulada >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {formatCurrency(margemAcumulada)}
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Margem Realizada</span>
+                  <span className={`text-lg font-bold ${margemRealizadaTotal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {formatCurrency(margemRealizadaTotal)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                  <span className="text-xs text-gray-500 dark:text-gray-400">Margem Meta</span>
-                  <span className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatCurrency(margemMeta)}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Margem Orçada</span>
+                  <span className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatCurrency(margemOrcadaTotal)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <span className="text-xs text-gray-500 dark:text-gray-400">Falta p/ Meta</span>
@@ -1378,14 +1376,12 @@ const EventDetail: React.FC = () => {
                     {formatNumber(Math.max(volumeParaMeta, 0))}
                   </span>
                 </div>
-                {kitCost > 0 && (
-                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">Custo Kit Unitário</span>
-                      <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(kitCost)}</span>
-                    </div>
+                <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Custo Kit Básico</span>
+                    <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(kitCost)}</span>
                   </div>
-                )}
+                </div>
               </div>
             );
           })()}
