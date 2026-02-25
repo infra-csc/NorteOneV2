@@ -643,7 +643,7 @@ const EventDetail: React.FC = () => {
               </span>
               <span className="flex items-center gap-1">
                 <Users className="w-4 h-4" />
-                Capacidade: {formatNumber(event.totalCapacity)}
+                Meta total: {formatNumber(event.totalCapacity)}
               </span>
             </div>
           </div>
