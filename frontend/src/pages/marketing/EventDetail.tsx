@@ -533,16 +533,16 @@ const EventDetail: React.FC = () => {
     const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
     const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
     const potencial = media * event.dMinus;
-    const atingimento = event.currentSales + potencial;
-    const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
+    const atingimento = inscritosTotal + potencial;
+    const alvo = metaAcumulada > 0 ? (atingimento / metaAcumulada) - 1 : 0;
     return {
       periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : '14 dias',
       media: Math.round(media * 10) / 10,
       dMinus: event.dMinus,
       potencial: Math.round(potencial),
-      vendasAcumuladas: event.currentSales,
+      vendasAcumuladas: inscritosTotal,
       atingimento: Math.round(atingimento),
-      meta: event.salesGoal,
+      meta: metaAcumulada,
       alvo: Math.round(alvo * 1000) / 10,
     };
   });
@@ -1246,7 +1246,7 @@ const EventDetail: React.FC = () => {
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Potencial</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vendas Acum.</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Atingimento</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Acum.</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Alvo</th>
               </tr>
             </thead>
