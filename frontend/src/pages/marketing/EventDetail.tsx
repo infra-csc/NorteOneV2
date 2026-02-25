@@ -1043,7 +1043,7 @@ const EventDetail: React.FC = () => {
                   </div>
                   <div className="mt-3 flex items-center justify-center gap-2">
                     <span className="text-xs text-gray-500 dark:text-gray-400">Gap vs Meta</span>
-                    <span className={`text-2xl font-bold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : acumuladoGap >= -15 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                    <span className={`text-2xl font-bold ${acumuladoGap >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                       {acumuladoGap > 0 ? '+' : ''}{acumuladoGap}%
                     </span>
                   </div>
