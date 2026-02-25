@@ -5,6 +5,7 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from app.core.database import get_db
+from ...core.security import get_current_user
 from app.models.cadastro_evento import (
     CadastroEvento, CadastroCortesia, CadastroTaxa,
     CadastroKitProduto, CadastroKitProdutoItem,
@@ -19,7 +20,7 @@ from app.schemas.cadastro_evento import (
     FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema
 )
 
-router = APIRouter(prefix="/cadastros", tags=["Cadastros"])
+router = APIRouter(prefix="/cadastros", tags=["Cadastros"], dependencies=[Depends(get_current_user)])
 
 
 def _sync_dim_projeto(db: Session, cadastro: CadastroEvento):

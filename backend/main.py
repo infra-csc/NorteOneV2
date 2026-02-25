@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from contextlib import asynccontextmanager
@@ -71,57 +71,63 @@ app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importaç
 async def health_check():
     return {"status": "healthy"}
 
+from app.core.security import get_current_user
+
 @app.get("/api/mysql/ativo/test")
-async def test_mysql_ativo():
+async def test_mysql_ativo(current_user=Depends(get_current_user)):
     from app.core.database import engine_ativo
     if engine_ativo is None:
-        return {"status": "error", "message": "MySQL Ativo connection not configured"}
+        return {"status": "error", "message": "Conexão MySQL Ativo não configurada"}
     try:
         with engine_ativo.connect() as conn:
             result = conn.execute(text("SELECT 1 as test"))
             row = result.fetchone()
             return {"status": "success", "message": "Connected to MySQL Ativo", "test_result": row[0]}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Erro ao testar MySQL Ativo: {str(e)}")
+        return {"status": "error", "message": "Erro interno ao conectar no banco de dados"}
 
 @app.get("/api/mysql/ativo/tables")
-async def list_mysql_ativo_tables():
+async def list_mysql_ativo_tables(current_user=Depends(get_current_user)):
     from app.core.database import engine_ativo
     if engine_ativo is None:
-        return {"status": "error", "message": "MySQL Ativo connection not configured"}
+        return {"status": "error", "message": "Conexão MySQL Ativo não configurada"}
     try:
         with engine_ativo.connect() as conn:
             result = conn.execute(text("SHOW TABLES"))
             tables = [row[0] for row in result.fetchall()]
             return {"status": "success", "tables": tables, "count": len(tables)}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Erro ao listar tabelas MySQL Ativo: {str(e)}")
+        return {"status": "error", "message": "Erro interno ao listar tabelas"}
 
 @app.get("/api/ssh/test")
-async def test_ssh_connection():
+async def test_ssh_connection(current_user=Depends(get_current_user)):
     from app.core.database import engine_ssh
     if engine_ssh is None:
-        return {"status": "error", "message": "SSH tunnel database connection not configured. Check SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, DB_HOST, DB_USER, DB_PASSWORD, DB_NAME."}
+        return {"status": "error", "message": "Conexão SSH não configurada"}
     try:
         with engine_ssh.connect() as conn:
             result = conn.execute(text("SELECT 1 as test"))
             row = result.fetchone()
             return {"status": "success", "message": "Connected to database via SSH tunnel", "test_result": row[0]}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Erro ao testar conexão SSH: {str(e)}")
+        return {"status": "error", "message": "Erro interno ao conectar via SSH"}
 
 @app.get("/api/ssh/tables")
-async def list_ssh_tables():
+async def list_ssh_tables(current_user=Depends(get_current_user)):
     from app.core.database import engine_ssh
     if engine_ssh is None:
-        return {"status": "error", "message": "SSH tunnel database connection not configured"}
+        return {"status": "error", "message": "Conexão SSH não configurada"}
     try:
         with engine_ssh.connect() as conn:
             result = conn.execute(text("SHOW TABLES"))
             tables = [row[0] for row in result.fetchall()]
             return {"status": "success", "tables": tables, "count": len(tables)}
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        logger.error(f"Erro ao listar tabelas SSH: {str(e)}")
+        return {"status": "error", "message": "Erro interno ao listar tabelas"}
 
 if __name__ == "__main__":
     import uvicorn

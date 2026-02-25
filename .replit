@@ -64,3 +64,8 @@ externalPort = 8000
 
 [deployment]
 deploymentTarget = "cloudrun"
+
+[userenv]
+
+[userenv.shared]
+CORS_ORIGINS = "http://localhost:5000,http://localhost:5173,https://0b827c34-60ec-4b06-8fcd-e09a89148a97-00-xu37byadrs7f.picard.replit.dev"

@@ -5,6 +5,7 @@ from typing import Optional, List, Dict
 from pydantic import BaseModel
 import app.core.database as db_module
 from app.core.database import get_db
+from ...core.security import get_current_user
 from app.models.dimensoes import SkuMapping
 from datetime import datetime, timedelta
 from functools import partial
@@ -13,7 +14,7 @@ import re
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 def get_sku_mappings_from_db(db: Session, ano: Optional[int] = None) -> Dict[str, Dict]:
@@ -790,7 +791,7 @@ def test_ativo_query(ano: int = 2026):
             }
     except Exception as e:
         logger.error(f"Erro query Ativo: {e}")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Erro interno ao consultar banco Ativo"}
 
 @router.get("/test-magento")
 def test_magento_query(ano: int = 2026):
@@ -824,7 +825,7 @@ def test_magento_query(ano: int = 2026):
             }
     except Exception as e:
         logger.error(f"Erro query Magento: {e}")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Erro interno ao consultar banco Magento"}
 
 
 class ComparacaoAnoEvento(BaseModel):

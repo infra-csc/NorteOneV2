@@ -7,8 +7,9 @@ from pydantic import BaseModel
 import re
 from ...core import database as db_module
 from ...core.database import get_db
+from ...core.security import get_current_user
 
-router = APIRouter(prefix="/atletas-externos", tags=["Atletas Externos (MySQL via SSH)"])
+router = APIRouter(prefix="/atletas-externos", tags=["Atletas Externos (MySQL via SSH)"], dependencies=[Depends(get_current_user)])
 
 cache_data = {}
 CACHE_TTL_SECONDS = 300
