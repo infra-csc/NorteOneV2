@@ -176,25 +176,14 @@ def get_atletas_por_evento(
     if cached:
         return {"status": "success", "cached": True, "data": cached}
     
-    where_clauses = ["c.id_pedido_status = 2"]
-    params = {}
-    
-    if id_evento:
-        where_clauses.append("b.id_evento = :id_evento")
-        params["id_evento"] = id_evento
-    if sku:
-        where_clauses.append("b.id_campanha_salesforce = :sku")
-        params["sku"] = sku
-    if data_inicio:
-        where_clauses.append("c.dt_pedido >= :data_inicio")
-        params["data_inicio"] = data_inicio
-    if data_fim:
-        where_clauses.append("c.dt_pedido <= :data_fim")
-        params["data_fim"] = data_fim
-    
-    where_sql = " AND ".join(where_clauses)
-    
-    query_eventos = f"""
+    params = {
+        "id_evento": id_evento,
+        "sku": sku,
+        "data_inicio": data_inicio,
+        "data_fim": data_fim,
+    }
+
+    query_eventos = text("""
     SELECT
         b.id_campanha_salesforce AS sku,
         b.ds_evento AS evento,
@@ -203,12 +192,17 @@ def get_atletas_por_evento(
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-    WHERE {where_sql}
+    WHERE
+        c.id_pedido_status = 2
+        AND (:id_evento IS NULL OR b.id_evento = :id_evento)
+        AND (:sku IS NULL OR b.id_campanha_salesforce = :sku)
+        AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+        AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY b.id_campanha_salesforce, b.ds_evento, DATE(b.dt_evento)
     ORDER BY b.ds_evento
-    """
-    
-    query_por_categoria = f"""
+    """)
+
+    query_por_categoria = text("""
     SELECT
         b.id_campanha_salesforce AS sku,
         h.ds_categoria AS categoria,
@@ -217,11 +211,16 @@ def get_atletas_por_evento(
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
     LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-    WHERE {where_sql}
+    WHERE
+        c.id_pedido_status = 2
+        AND (:id_evento IS NULL OR b.id_evento = :id_evento)
+        AND (:sku IS NULL OR b.id_campanha_salesforce = :sku)
+        AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+        AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY b.id_campanha_salesforce, h.ds_categoria
-    """
-    
-    query_por_local = f"""
+    """)
+
+    query_por_local = text("""
     SELECT
         b.id_campanha_salesforce AS sku,
         CASE
@@ -234,11 +233,16 @@ def get_atletas_por_evento(
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-    WHERE {where_sql}
+    WHERE
+        c.id_pedido_status = 2
+        AND (:id_evento IS NULL OR b.id_evento = :id_evento)
+        AND (:sku IS NULL OR b.id_campanha_salesforce = :sku)
+        AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+        AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY b.id_campanha_salesforce, local_inscricao
-    """
-    
-    query_por_periodo = f"""
+    """)
+
+    query_por_periodo = text("""
     SELECT
         b.id_campanha_salesforce AS sku,
         DATE(c.dt_pedido) AS data_pedido,
@@ -246,23 +250,28 @@ def get_atletas_por_evento(
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-    WHERE {where_sql}
+    WHERE
+        c.id_pedido_status = 2
+        AND (:id_evento IS NULL OR b.id_evento = :id_evento)
+        AND (:sku IS NULL OR b.id_campanha_salesforce = :sku)
+        AND (:data_inicio IS NULL OR c.dt_pedido >= :data_inicio)
+        AND (:data_fim IS NULL OR c.dt_pedido <= :data_fim)
     GROUP BY b.id_campanha_salesforce, DATE(c.dt_pedido)
     ORDER BY DATE(c.dt_pedido)
-    """
+    """)
     
     try:
         with db_module.engine_ssh.connect() as conn:
-            eventos_result = conn.execute(text(query_eventos), params)
+            eventos_result = conn.execute(query_eventos, params)
             eventos_rows = eventos_result.fetchall()
-            
-            categorias_result = conn.execute(text(query_por_categoria), params)
+
+            categorias_result = conn.execute(query_por_categoria, params)
             categorias_rows = categorias_result.fetchall()
-            
-            locais_result = conn.execute(text(query_por_local), params)
+
+            locais_result = conn.execute(query_por_local, params)
             locais_rows = locais_result.fetchall()
-            
-            periodos_result = conn.execute(text(query_por_periodo), params)
+
+            periodos_result = conn.execute(query_por_periodo, params)
             periodos_rows = periodos_result.fetchall()
             
             categorias_por_sku = {}
