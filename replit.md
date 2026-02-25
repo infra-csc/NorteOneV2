@@ -20,12 +20,13 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Frontend:** React, TypeScript, and Tailwind CSS.
 - **Databases:** PostgreSQL (primary application DB), MySQL (for external athlete data via SSH Tunnel).
 - **ORM:** SQLAlchemy.
-- **Authentication:** JWT for secure session management.
+- **Authentication:** JWT (PyJWT) for secure session management. All API routes require authentication via `get_current_user` dependency.
 - **Access Management:** Unified `PerfilAcesso` system with `is_admin` flag, granular CRUD permissions per module, and field-level permissions for event tabs via `PerfilPermissaoCampo`. Dynamic sidebar filtering based on user permissions.
 - **Dynamic Distance Management:** Distances are managed via `DistanciaOpcao` model, allowing admin users to create/delete options from the frontend.
 - **Charting:** Recharts library for interactive data visualization.
 - **SSH Tunneling:** Paramiko library manages secure SSH connections to external MySQL databases.
-- **Security:** CORS origins configured via environment variables; credentials stored securely; sanitized error messages.
+- **Security:** CORS origins configured via environment variables; credentials stored securely; sanitized error messages; SQL queries use parameterized bindings via SQLAlchemy `text()` and `bindparam()`.
+- **3D Login Background:** Uses `@react-three/fiber`, `@react-three/drei`, and `three` for animated 3D background on login page, with CSS fallback. `framer-motion` for UI animations.
 - **Virtual Assistant (Nori):** AI-powered assistant using OpenAI GPT-4o-mini for NLP, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese.
 - **Data Consolidation:** Endpoint consolidates inscription data from Ativo and Magento using SKU, with marketing dashboards sourcing from `cadastro_evento` and `atletas_site_pago`.
 - **Performance Optimizations:** FastAPI uses `def` for blocking DB operations; frontend employs AbortController and progressive loading; SQL queries optimize calculations.
