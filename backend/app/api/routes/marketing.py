@@ -2539,8 +2539,7 @@ def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
         safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
         if not safe_ids:
             return {}
-        placeholders = ",".join(safe_ids)
-        query = f"""
+        query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
     b.id_evento,
     DATE(c.dt_pedido) AS dia,
@@ -2557,12 +2556,12 @@ WHERE
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
-    AND b.id_evento IN ({placeholders})
+    AND b.id_evento IN :id_eventos
 GROUP BY b.id_evento, DATE(c.dt_pedido)
 ORDER BY b.id_evento, dia
-"""
+""").bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
+            result = conn.execute(query, {"id_eventos": [int(i) for i in safe_ids]})
             grouped = {}
             for r in result.fetchall():
                 eid = str(r[0])
