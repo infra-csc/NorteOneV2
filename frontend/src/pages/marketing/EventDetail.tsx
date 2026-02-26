@@ -1341,8 +1341,8 @@ const EventDetail: React.FC = () => {
                   const margemReal = event.margemRealizadaTotal || 0;
                   const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
-                  const multipliers = [0.90, 1.00, 1.05, 1.10, 1.20, 1.30];
-                  const labels = ['Base -10%', 'Base (real)', 'Base +5%', 'Base +10%', 'Base +20%', 'Base +30%'];
+                  const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
+                  const labels = ['Base -10%', 'Base (real)', 'Base +5%', 'Base +10%', 'Base +15%', 'Base +20%'];
 
                   const rows = multipliers.map((mult, i) => {
                     const volFuturo = Math.round(volBase * mult);
