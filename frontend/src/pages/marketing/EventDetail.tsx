@@ -1260,11 +1260,11 @@ const EventDetail: React.FC = () => {
                                 <td className={`py-2.5 px-3 text-right ${margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                   {formatCurrency(margemGlobal)}
                                 </td>
-                                <td className={`py-2.5 px-3 text-right font-semibold ${margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {formatCurrency(margemNominal)}
+                                <td className={`py-2.5 px-3 text-right font-semibold ${row.label === 'Atual' ? 'text-gray-400 dark:text-gray-500' : margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {row.label === 'Atual' ? '-' : formatCurrency(margemNominal)}
                                 </td>
-                                <td className={`py-2.5 px-3 text-right font-semibold ${margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {margemPct >= 0 ? '+' : ''}{Math.round(margemPct * 10) / 10}%
+                                <td className={`py-2.5 px-3 text-right font-semibold ${row.label === 'Atual' ? 'text-purple-600 dark:text-purple-400' : margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {row.label === 'Atual' ? '100%' : `${margemPct >= 0 ? '+' : ''}${Math.round(margemPct * 10) / 10}%`}
                                 </td>
                               </tr>
                             );
@@ -1354,11 +1354,11 @@ const EventDetail: React.FC = () => {
                               <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                                 {formatCurrency(row.margemGlobal)}
                               </td>
-                              <td className={`py-2.5 px-3 text-right font-semibold ${row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {formatCurrency(row.margemNominal)}
+                              <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-gray-400 dark:text-gray-500' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {row.isBase ? '-' : formatCurrency(row.margemNominal)}
                               </td>
-                              <td className={`py-2.5 px-3 text-right font-semibold ${row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {row.margemPct >= 0 ? '+' : ''}{Math.round(row.margemPct * 10) / 10}%
+                              <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-purple-600 dark:text-purple-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {row.isBase ? '100%' : `${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
                               </td>
                             </tr>
                           ))}
