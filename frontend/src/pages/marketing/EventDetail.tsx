@@ -1172,7 +1172,7 @@ const EventDetail: React.FC = () => {
             const saldoMeta = Math.max(volumeParaMeta, 0);
             const projecaoVsSaldo = saldoMeta > 0 ? (projecaoLinear / saldoMeta) - 1 : (projecaoLinear > 0 ? 1 : 0);
             const volumeGlobal = projecaoLinear + inscritosTotal;
-            const volumeVsMeta = metaAcumulada > 0 ? volumeGlobal / metaAcumulada : 0;
+            const volumeVsMeta = event.salesGoal > 0 ? volumeGlobal / event.salesGoal : 0;
             return {
               label: `${dias} dias`,
               media: Math.round(media * 10) / 10,
