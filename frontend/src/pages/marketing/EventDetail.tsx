@@ -536,7 +536,7 @@ const EventDetail: React.FC = () => {
     const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
     const potencial = media * dMinusCalc;
     const atingimento = inscritosTotal + potencial;
-    const alvo = metaAcumulada > 0 ? (atingimento / metaAcumulada) - 1 : 0;
+    const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
     return {
       periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
       media: Math.round(media * 10) / 10,
@@ -544,7 +544,7 @@ const EventDetail: React.FC = () => {
       potencial: Math.round(potencial),
       vendasAcumuladas: inscritosTotal,
       atingimento: Math.round(atingimento),
-      meta: metaAcumulada,
+      meta: event.salesGoal,
       alvo: Math.round(alvo * 1000) / 10,
     };
   });
