@@ -711,8 +711,7 @@ const EventDetail: React.FC = () => {
         <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
       ) : activeTab === 'complementares' ? (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white">
                   Curva de Vendas Acumuladas vs Esperado
@@ -791,58 +790,6 @@ const EventDetail: React.FC = () => {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                <h3 className="font-semibold text-gray-900 dark:text-white">
-                  Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
-                </h3>
-                <div className="flex items-center gap-3">
-                  <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
-                    <button
-                      onClick={() => setAttainmentMode('acumulado')}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                        attainmentMode === 'acumulado'
-                          ? 'bg-indigo-600 text-white'
-                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      Acumulado
-                    </button>
-                    <button
-                      onClick={() => setAttainmentMode('diario')}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                        attainmentMode === 'diario'
-                          ? 'bg-indigo-600 text-white'
-                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      Diário
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={filteredAttainmentData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                    <XAxis dataKey="label" stroke="#6B7280" fontSize={11} />
-                    <YAxis stroke="#6B7280" fontSize={11} tickFormatter={(v) => `${v}%`} />
-                    <Tooltip 
-                      formatter={(value: any) => `${value}%`}
-                      contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#fff' }}
-                    />
-                    <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
-                    <Bar dataKey="percentual" name="Atingimento vs Esperado" radius={[4, 4, 0, 0]}>
-                      {filteredAttainmentData.map((entry: any, index: number) => (
-                        <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
           </div>
 
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -1681,6 +1628,79 @@ const EventDetail: React.FC = () => {
             </p>
           </div>
         )}
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white">
+            Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
+          </h3>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
+              <button
+                onClick={() => setAttainmentMode('acumulado')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  attainmentMode === 'acumulado'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                Acumulado
+              </button>
+              <button
+                onClick={() => setAttainmentMode('diario')}
+                className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                  attainmentMode === 'diario'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                Diário
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {[
+                { label: '7d', value: 7 },
+                { label: '14d', value: 14 },
+                { label: '30d', value: 30 },
+                { label: '60d', value: 60 },
+                { label: '90d', value: 90 },
+                { label: 'Todos', value: null as number | null },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setAttainmentPeriod(opt.value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    attainmentPeriod === opt.value
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={filteredAttainmentData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+              <XAxis dataKey="label" stroke="#6B7280" fontSize={11} />
+              <YAxis stroke="#6B7280" fontSize={11} tickFormatter={(v) => `${v}%`} />
+              <Tooltip 
+                formatter={(value: any) => `${value}%`}
+                contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#fff' }}
+              />
+              <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
+              <Bar dataKey="percentual" name="Atingimento vs Esperado" radius={[4, 4, 0, 0]}>
+                {filteredAttainmentData.map((entry: any, index: number) => (
+                  <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
