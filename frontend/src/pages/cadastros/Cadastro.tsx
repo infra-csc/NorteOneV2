@@ -531,7 +531,7 @@ const Cadastro: React.FC = () => {
       cortesias: item.cortesias?.length > 0 ? item.cortesias.map(c => ({ ...c })) : [],
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
       retirada_kit: { ...item.retirada_kit },
-      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: [...k.produtos] })) : [{ kit: '', produtos: [] }],
+      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: k.produtos.map(p => ({ ...p, valor_unitario: Number(p.valor_unitario) || 0 })) })) : [{ kit: '', produtos: [] }],
       faixas_preco_site: {
         kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
           ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
@@ -741,7 +741,7 @@ const Cadastro: React.FC = () => {
   const getKitCost = (kitName: string): number => {
     const kit = form.kit_produto.find(k => k.kit === kitName);
     if (!kit) return 0;
-    return kit.produtos.reduce((sum, p) => sum + (p.valor_unitario || 0), 0);
+    return kit.produtos.reduce((sum, p) => sum + (Number(p.valor_unitario) || 0), 0);
   };
 
   const renderFaixaKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
