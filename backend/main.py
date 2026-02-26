@@ -22,10 +22,64 @@ def _scheduled_isc_refresh():
     except Exception as e:
         logger.error(f"Scheduled ISC cache refresh failed: {e}")
 
+def seed_admin_user():
+    from app.core.database import SessionLocal
+    from app.models.user import Usuario
+    from app.models.perfil_acesso import PerfilAcesso, PerfilPermissao
+    from app.core.security import get_password_hash
+    try:
+        db = SessionLocal()
+        user_count = db.query(Usuario).count()
+        if user_count > 0:
+            db.close()
+            return
+        logger.info("No users found. Seeding admin user...")
+        admin_perfil = db.query(PerfilAcesso).filter(PerfilAcesso.is_admin == True).first()
+        if not admin_perfil:
+            admin_perfil = PerfilAcesso(
+                nome="Administrador",
+                descricao="Perfil de administrador com acesso total",
+                is_sistema=True,
+                is_admin=True,
+                ativo=True
+            )
+            db.add(admin_perfil)
+            db.flush()
+            modulos = [
+                "admin_usuarios", "centro_custo", "categorias_atletas",
+                "projetos", "dashboard", "tarefas", "cadastro_eventos",
+                "marketing", "sku_mappings", "perfil_acesso", "cotacoes"
+            ]
+            for modulo in modulos:
+                perm = PerfilPermissao(
+                    perfil_acesso_id=admin_perfil.id,
+                    modulo=modulo,
+                    pode_visualizar=True,
+                    pode_criar=True,
+                    pode_editar=True,
+                    pode_deletar=True
+                )
+                db.add(perm)
+            logger.info("Admin profile created with full permissions")
+        admin_user = Usuario(
+            email="leonardo.micheletti@cscdoesporte.com.br",
+            nome="Leonardo Micheletti",
+            senha_hash=get_password_hash("Norte@2024"),
+            perfil_acesso_id=admin_perfil.id,
+            ativo=True
+        )
+        db.add(admin_user)
+        db.commit()
+        logger.info(f"Admin user created: leonardo.micheletti@cscdoesporte.com.br")
+        db.close()
+    except Exception as e:
+        logger.error(f"Error seeding admin user: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if engine:
         Base.metadata.create_all(bind=engine)
+    seed_admin_user()
     init_mysql_connections()
     init_ssh_tunnel()
     
