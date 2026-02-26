@@ -1689,8 +1689,25 @@ const EventDetail: React.FC = () => {
               <XAxis dataKey="label" stroke="#6B7280" fontSize={11} />
               <YAxis stroke="#6B7280" fontSize={11} tickFormatter={(v) => `${v}%`} />
               <Tooltip 
-                formatter={(value: any) => `${value}%`}
-                contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#fff' }}
+                content={({ active, payload }: any) => {
+                  if (!active || !payload || !payload.length) return null;
+                  const d = payload[0]?.payload;
+                  if (!d) return null;
+                  const isAcum = attainmentMode === 'acumulado';
+                  const real = isAcum ? d.cumulative : d.sales;
+                  const esperado = isAcum ? d.cumulativeExpected : d.expected;
+                  const diff = real - esperado;
+                  return (
+                    <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
+                      <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{d.label} — {new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                      <p style={{ color: '#3B82F6' }}>{isAcum ? 'Acumulado Real' : 'Vendas Dia'}: {formatNumber(real)}</p>
+                      <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
+                      <p style={{ color: diff >= 0 ? '#22C55E' : '#EF4444', marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
+                        Variação: {d.percentual >= 0 ? '+' : ''}{d.percentual}% ({diff >= 0 ? '+' : ''}{formatNumber(diff)})
+                      </p>
+                    </div>
+                  );
+                }}
               />
               <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
               <Bar dataKey="percentual" name="Atingimento vs Esperado" radius={[4, 4, 0, 0]}>
