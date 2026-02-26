@@ -80,7 +80,7 @@ export function getISCColor(status: ISCStatus): string {
 
 export function getISCEmoji(status: ISCStatus): string {
   switch (status) {
-    case 'accelerating': return '😊';
+    case 'accelerating': return '😁';
     case 'stable': return '😐';
     case 'decelerating': return '😢';
   }
