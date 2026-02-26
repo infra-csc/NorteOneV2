@@ -32,6 +32,7 @@ export interface Event {
   averageTicket: number;
   budgetTicket: number;
   dMinus: number;
+  dMinusInscricoes: number;
   isc: number;
   iscComponents: ISCComponents;
   iscStatus: ISCStatus;
@@ -79,9 +80,9 @@ export function getISCColor(status: ISCStatus): string {
 
 export function getISCEmoji(status: ISCStatus): string {
   switch (status) {
-    case 'accelerating': return '🟢';
-    case 'stable': return '🟡';
-    case 'decelerating': return '🔴';
+    case 'accelerating': return '😊';
+    case 'stable': return '😐';
+    case 'decelerating': return '😢';
   }
 }
 

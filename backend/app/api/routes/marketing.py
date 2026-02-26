@@ -285,6 +285,7 @@ class MarketingEvent(BaseModel):
     averageTicket: float
     budgetTicket: float = 0.0
     dMinus: int
+    dMinusInscricoes: int
     isc: float
     iscComponents: ISCComponents
     iscStatus: str
@@ -1655,6 +1656,7 @@ def get_marketing_events(
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        d_minus_inscricoes = max(0, d_minus - 2)
         is_active = d_minus > 0
         
         if status == 'active' and not is_active:
@@ -1692,12 +1694,12 @@ def get_marketing_events(
         except Exception:
             pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=grupo_daily_sales_dict,
                                                    hist_pattern=grupo_hist_pattern)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
-        suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
+        suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
         if is_active:
             active_count += 1
@@ -1746,6 +1748,7 @@ def get_marketing_events(
             averageTicket=round(avg_ticket, 2),
             budgetTicket=budget_ticket,
             dMinus=d_minus,
+            dMinusInscricoes=d_minus_inscricoes,
             isc=isc,
             iscComponents=isc_components,
             iscStatus=isc_status,
@@ -1766,6 +1769,7 @@ def get_marketing_events(
         sku = projeto_codigo
         projeto_data_evento = projeto.data_evento
         d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        d_minus_inscricoes = max(0, d_minus - 2)
         is_active = d_minus > 0
         
         if status == 'active' and not is_active:
@@ -1793,12 +1797,12 @@ def get_marketing_events(
             except Exception:
                 pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=standalone_daily_dict,
                                                    hist_pattern=standalone_hist)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
-        suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
+        suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
         if is_active:
             active_count += 1
@@ -1834,6 +1838,7 @@ def get_marketing_events(
             averageTicket=round(avg_ticket, 2),
             budgetTicket=standalone_budget_ticket,
             dMinus=d_minus,
+            dMinusInscricoes=d_minus_inscricoes,
             isc=isc,
             iscComponents=isc_components,
             iscStatus=isc_status,
@@ -3822,6 +3827,7 @@ def get_marketing_event_by_id(
         total_capacity = get_meta_orcada_projetos(db, projetos)
         projeto_data_evento = latest_date
         d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
+        d_minus_inscricoes = max(0, d_minus - 2)
         is_active = d_minus > 0 if ano == datetime.now().year else True
         sales_goal = total_capacity
         
@@ -3896,12 +3902,12 @@ def get_marketing_event_by_id(
         except Exception:
             pass
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=daily_sales_dict,
                                                    hist_pattern=detail_hist_pattern)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
-        suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
+        suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
         projeto_modalidade = str(rep_projeto.modalidade) if rep_projeto and rep_projeto.modalidade else None
         projeto_cidade = str(rep_projeto.cidade) if rep_projeto and rep_projeto.cidade else None
@@ -3933,6 +3939,7 @@ def get_marketing_event_by_id(
             averageTicket=round(avg_ticket, 2),
             budgetTicket=detail_budget_ticket,
             dMinus=d_minus,
+            dMinusInscricoes=d_minus_inscricoes,
             isc=isc,
             iscComponents=isc_components,
             iscStatus=isc_status,
@@ -4080,6 +4087,7 @@ def get_marketing_event_by_id(
         ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
     
     d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
+    d_minus_inscricoes = max(0, d_minus - 2)
     is_active = d_minus > 0 if ano == datetime.now().year else True
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
@@ -4122,12 +4130,12 @@ def get_marketing_event_by_id(
         except Exception:
             pass
     
-    isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
+    isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                daily_sales_dict=daily_sales_dict,
                                                hist_pattern=standalone_detail_hist)
     isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
     isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
-    suggested_action = get_suggested_action(isc, d_minus, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
+    suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
     
     projeto_modalidade = str(projeto.modalidade) if projeto.modalidade else None
     projeto_cidade = str(projeto.cidade) if projeto.cidade else None
@@ -4151,6 +4159,7 @@ def get_marketing_event_by_id(
         averageTicket=round(avg_ticket, 2),
         budgetTicket=detail_standalone_bt,
         dMinus=d_minus,
+        dMinusInscricoes=d_minus_inscricoes,
         isc=isc,
         iscComponents=isc_components,
         iscStatus=isc_status,

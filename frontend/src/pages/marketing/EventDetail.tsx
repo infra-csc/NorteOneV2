@@ -88,7 +88,7 @@ const EventDetail: React.FC = () => {
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing' | 'projection'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing' | 'projection' | 'complementares'>('dashboard');
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
@@ -517,8 +517,9 @@ const EventDetail: React.FC = () => {
 
   const last30Days = (event.dailySales || []).slice(-30);
 
+  const dMinusCalc = event.dMinusInscricoes ?? Math.max(0, event.dMinus - 2);
   const volumeParaMeta = metaAcumulada - inscritosTotal;
-  const mediaDiariaNecessaria = event.dMinus > 0 ? Math.max(volumeParaMeta, 0) / event.dMinus : 0;
+  const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
     ? last7DaysSales.reduce((sum, d) => sum + d.sales, 0) / last7DaysSales.length
@@ -527,17 +528,17 @@ const EventDetail: React.FC = () => {
     ? ((mediaSemanaAtual / mediaDiariaNecessaria) * 100) - 100
     : (mediaSemanaAtual > 0 ? 100 : 0);
 
-  const indicadoresVolume = [3, 7, 14].map(dias => {
+  const indicadoresVolume = [3, 7, 14, 30].map(dias => {
     const vendas = (event.dailySales || []).slice(-dias);
     const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
     const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
-    const potencial = media * event.dMinus;
+    const potencial = media * dMinusCalc;
     const atingimento = inscritosTotal + potencial;
     const alvo = metaAcumulada > 0 ? (atingimento / metaAcumulada) - 1 : 0;
     return {
-      periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : '14 dias',
+      periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
       media: Math.round(media * 10) / 10,
-      dMinus: event.dMinus,
+      dMinus: dMinusCalc,
       potencial: Math.round(potencial),
       vendasAcumuladas: inscritosTotal,
       atingimento: Math.round(atingimento),
@@ -690,12 +691,474 @@ const EventDetail: React.FC = () => {
         >
           Projeção
         </button>
+        <button
+          onClick={() => setActiveTab('complementares')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'complementares'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          Complementares
+        </button>
       </div>
 
       {activeTab === 'pricing' ? (
         <EventPricing eventoId={id!} ano={anoParam} />
       ) : activeTab === 'simulator' ? (
         <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
+      ) : activeTab === 'complementares' ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  Curva de Vendas Acumuladas vs Esperado
+                </h3>
+                <div className="flex flex-wrap gap-1">
+                  {[
+                    { label: '7d', value: 7 },
+                    { label: '14d', value: 14 },
+                    { label: '30d', value: 30 },
+                    { label: '60d', value: 60 },
+                    { label: '90d', value: 90 },
+                    { label: 'Todos', value: null as number | null },
+                  ].map((opt) => (
+                    <button
+                      key={opt.label}
+                      onClick={() => setChartPeriod(opt.value)}
+                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                        chartPeriod === opt.value
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={filteredCumulativeData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      stroke="#6B7280"
+                      fontSize={12}
+                    />
+                    <YAxis stroke="#6B7280" fontSize={12} />
+                    <Tooltip 
+                      content={({ active, payload, label }: any) => {
+                        if (!active || !payload || !payload.length) return null;
+                        const real = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulative')?.value ?? 0));
+                        const esperado = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpected')?.value ?? 0));
+                        const diff = real - esperado;
+                        const diffColor = diff >= 0 ? '#22C55E' : '#EF4444';
+                        return (
+                          <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
+                            <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{new Date(label + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                            <p style={{ color: '#3B82F6' }}>Vendas Reais: {formatNumber(real)}</p>
+                            <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
+                            <p style={{ color: diffColor, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
+                              Diferença: {diff >= 0 ? '+' : ''}{formatNumber(diff)}
+                            </p>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="cumulative" 
+                      name="Vendas Reais"
+                      stroke="#3B82F6" 
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="cumulativeExpected" 
+                      name="Esperado"
+                      stroke="#9CA3AF" 
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h3 className="font-semibold text-gray-900 dark:text-white">
+                  Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
+                </h3>
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setAttainmentMode('acumulado')}
+                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                        attainmentMode === 'acumulado'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      Acumulado
+                    </button>
+                    <button
+                      onClick={() => setAttainmentMode('diario')}
+                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                        attainmentMode === 'diario'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      Diário
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="h-80">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={filteredAttainmentData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                    <XAxis dataKey="label" stroke="#6B7280" fontSize={11} />
+                    <YAxis stroke="#6B7280" fontSize={11} tickFormatter={(v) => `${v}%`} />
+                    <Tooltip 
+                      formatter={(value: any) => `${value}%`}
+                      contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#fff' }}
+                    />
+                    <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
+                    <Bar dataKey="percentual" name="Atingimento vs Esperado" radius={[4, 4, 0, 0]}>
+                      {filteredAttainmentData.map((entry: any, index: number) => (
+                        <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-blue-500" />
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Curva Comparativa: {curvaAnoAnterior} vs {curvaAnoAtual}
+                  </h3>
+                </div>
+                {curvaModo === 'dias_antes_evento' && (dataEventoAtual || dataEventoAnterior) && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 ml-7">
+                    Alinhado por dias antes do evento
+                    {dataEventoAtual && ` | ${curvaAnoAtual}: ${new Date(dataEventoAtual + 'T12:00:00').toLocaleDateString('pt-BR')}`}
+                    {dataEventoAnterior && ` | ${curvaAnoAnterior}: ${new Date(dataEventoAnterior + 'T12:00:00').toLocaleDateString('pt-BR')}`}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+                  <button
+                    onClick={() => setCurvaMode('vendas')}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      curvaMode === 'vendas' 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    Inscrições
+                  </button>
+                  <button
+                    onClick={() => setCurvaMode('receita')}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      curvaMode === 'receita' 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    Receita
+                  </button>
+                </div>
+                <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
+                  <button
+                    onClick={() => setCurvaView('semanal')}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      curvaView === 'semanal' 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    Semanal
+                  </button>
+                  <button
+                    onClick={() => setCurvaView('acumulado')}
+                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                      curvaView === 'acumulado' 
+                        ? 'bg-blue-500 text-white' 
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    Acumulado
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {curvaLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                <span className="ml-3 text-gray-500 dark:text-gray-400">Carregando curva comparativa...</span>
+              </div>
+            ) : curvaData.length === 0 ? (
+              <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
+                Sem dados disponíveis para a curva comparativa deste evento.
+              </div>
+            ) : curvaView === 'semanal' && curvaMode === 'vendas' ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                  <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+                  <Tooltip
+                    contentStyle={{ 
+                      backgroundColor: isDark ? '#1f2937' : '#fff',
+                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                      borderRadius: '8px',
+                      color: isDark ? '#fff' : '#111'
+                    }}
+                    formatter={(value: any) => [formatNumber(Number(value || 0)), '']}
+                    labelFormatter={(label: any) => `${label} (semana)`}
+                  />
+                  <Legend />
+                  <Bar dataKey={`vendas_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={`vendas_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : curvaView === 'semanal' && curvaMode === 'receita' ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                  <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
+                  <Tooltip
+                    contentStyle={{ 
+                      backgroundColor: isDark ? '#1f2937' : '#fff',
+                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                      borderRadius: '8px',
+                      color: isDark ? '#fff' : '#111'
+                    }}
+                    formatter={(value: any) => [formatCurrency(Number(value || 0)), '']}
+                    labelFormatter={(label: any) => `${label} (semana)`}
+                  />
+                  <Legend />
+                  <Bar dataKey={`receita_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (() => {
+              const hasProjecao = curvaData.some((d: any) => d[`projecao_acumulado_${curvaAnoAtual}`] !== undefined);
+              const pctKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAtual}` : `pct_meta_receita_${curvaAnoAtual}`;
+              const pctAntKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAnterior}` : `pct_meta_receita_${curvaAnoAnterior}`;
+              const pctProjKey = curvaMode === 'vendas' ? `pct_meta_projecao_vendas_${curvaAnoAtual}` : `pct_meta_projecao_receita_${curvaAnoAtual}`;
+              const acumKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`;
+              const acumAntKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`;
+
+              let chartData = curvaData.map((d: any) => {
+                const entry = { ...d };
+                const isProj = d.is_projecao === true;
+                if (hasProjecao) {
+                  if (isProj) {
+                    entry[`realizado_pct_${curvaAnoAtual}`] = undefined;
+                  } else {
+                    entry[`realizado_pct_${curvaAnoAtual}`] = d[pctKey];
+                  }
+                  if (d[pctProjKey] !== undefined) {
+                    entry[`projecao_pct_${curvaAnoAtual}`] = d[pctProjKey];
+                  }
+                }
+                return entry;
+              });
+
+              const strokeColor = curvaMode === 'vendas' ? '#3b82f6' : '#10b981';
+
+              return (
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                    <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                    <YAxis 
+                      stroke={isDark ? '#9ca3af' : '#6b7280'} 
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={(v: number) => `${v}%`}
+                      domain={[0, (dataMax: number) => Math.max(110, Math.ceil(dataMax / 10) * 10 + 10)]}
+                    />
+                    <Tooltip
+                      contentStyle={{ 
+                        backgroundColor: isDark ? '#1f2937' : '#fff',
+                        border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
+                        borderRadius: '8px',
+                        color: isDark ? '#fff' : '#111'
+                      }}
+                      formatter={(value: any, name?: string, props?: any) => {
+                        if (value === undefined || value === null) return [null, null];
+                        const pctFormatted = `${Number(value).toFixed(1)}%`;
+                        const d = props?.payload;
+                        let absVal = '';
+                        if (d) {
+                          if ((name || '').includes(String(curvaAnoAnterior))) {
+                            const abs = d[acumAntKey];
+                            absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
+                          } else {
+                            const abs = d[acumKey] || d[`projecao_acumulado_${curvaAnoAtual}`] || d[`projecao_acumulado_receita_${curvaAnoAtual}`];
+                            absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
+                          }
+                        }
+                        const suffix = (name || '').includes('Projeção') ? ' (projeção)' : '';
+                        return [`${pctFormatted}${absVal}${suffix}`, ''];
+                      }}
+                      labelFormatter={(label: any) => `${label}`}
+                    />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey={pctAntKey}
+                      name={`${curvaAnoAnterior} (% meta)`} 
+                      stroke="#94a3b8" 
+                      strokeWidth={2} 
+                      dot={{ r: 3, fill: '#94a3b8' }} 
+                      strokeDasharray="5 5"
+                    />
+                    {hasProjecao ? (
+                      <>
+                        <Line 
+                          type="monotone" 
+                          dataKey={`realizado_pct_${curvaAnoAtual}`}
+                          name={`${curvaAnoAtual} Realizado`}
+                          stroke={strokeColor}
+                          strokeWidth={2.5} 
+                          dot={{ r: 3, fill: strokeColor }}
+                          connectNulls={false}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey={`projecao_pct_${curvaAnoAtual}`}
+                          name={`${curvaAnoAtual} Projeção`}
+                          stroke="#8B5CF6"
+                          strokeWidth={2} 
+                          strokeDasharray="8 4"
+                          strokeOpacity={0.85}
+                          dot={{ r: 2, fill: '#8B5CF6', fillOpacity: 0.7 }}
+                        />
+                      </>
+                    ) : (
+                      <Line 
+                        type="monotone" 
+                        dataKey={pctKey}
+                        name={`${curvaAnoAtual} (% meta)`} 
+                        stroke={strokeColor}
+                        strokeWidth={2.5} 
+                        dot={{ r: 3, fill: strokeColor }} 
+                      />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              );
+            })()}
+
+            {!curvaLoading && curvaData.length > 0 && curvaMeta && (
+              <div className="mt-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {(() => {
+                    const m = curvaMeta;
+                    const isVendas = curvaMode === 'vendas';
+                    const acumAnteriorMesmoD = isVendas ? m.ultimo_acum_vendas_anterior_mesmo_d : m.ultimo_acum_receita_anterior_mesmo_d;
+                    const pctAnteriorMesmoD = isVendas ? m.pct_anterior_vendas_mesmo_d : m.pct_anterior_receita_mesmo_d;
+                    const varMesmoD = isVendas ? (m.variacao_mesmo_d_vendas ?? 0) : (m.variacao_mesmo_d_receita ?? 0);
+                    const ritmo = isVendas ? (m.ritmo_diario_necessario_vendas ?? 0) : (m.ritmo_diario_necessario_receita ?? 0);
+                    const diasAteEvento = m.dias_ate_evento ?? 0;
+                    const metaRef = isVendas ? (m.meta_orcada > 0 ? m.meta_orcada : m.total_vendas_anterior) : m.total_receita_anterior;
+                    const totalAtual = isVendas ? m.total_vendas_atual : m.total_receita_atual;
+                    const faltam = Math.max(0, metaRef - totalAtual);
+                    const fmt = (v: number) => isVendas ? formatNumber(Math.round(v)) : formatCurrency(v);
+                    const labelCurva = isVendas ? 'inscrições' : 'receita';
+
+                    const InfoTooltip = ({ text }: { text: string }) => (
+                      <div className="group relative inline-flex ml-1">
+                        <Info className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 cursor-help" />
+                        <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 text-xs text-white bg-gray-900 dark:bg-gray-700 rounded-lg shadow-lg z-50 leading-relaxed">
+                          {text}
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
+                        </div>
+                      </div>
+                    );
+
+                    return (
+                      <>
+                        <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
+                          <div className="flex items-center gap-1 mb-1">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">No mesmo D- em {curvaAnoAnterior}</p>
+                            <InfoTooltip text={`Quantas ${labelCurva} o evento de ${curvaAnoAnterior} tinha acumulado faltando o mesmo número de dias (D-${diasAteEvento}) para o evento. Permite comparar o ritmo de vendas no mesmo momento da jornada.`} />
+                          </div>
+                          {acumAnteriorMesmoD > 0 ? (
+                            <>
+                              <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{fmt(acumAnteriorMesmoD)}</p>
+                              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                                {pctAnteriorMesmoD}% do total final de {curvaAnoAnterior}
+                              </p>
+                            </>
+                          ) : (
+                            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Sem dados de {curvaAnoAnterior}</p>
+                          )}
+                        </div>
+
+                        <div className={`p-3 rounded-xl border-2 ${
+                          varMesmoD >= 0 
+                            ? 'border-green-400/50 bg-green-50 dark:bg-green-900/20 dark:border-green-500/30' 
+                            : 'border-red-400/50 bg-red-50 dark:bg-red-900/20 dark:border-red-500/30'
+                        }`}>
+                          <div className="flex items-center gap-1 mb-1">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Variação vs {curvaAnoAnterior} (mesmo D-)</p>
+                            <InfoTooltip text={`Variação percentual das ${labelCurva} de ${curvaAnoAtual} comparado com ${curvaAnoAnterior} no mesmo D-${diasAteEvento} (mesma distância do evento). Positivo = melhor que o ano anterior neste momento.`} />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {varMesmoD >= 0 ? (
+                              <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
+                            ) : (
+                              <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-400" />
+                            )}
+                            <span className={`text-lg font-bold ${varMesmoD >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                              {varMesmoD >= 0 ? '+' : ''}{varMesmoD.toFixed(1)}%
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            {curvaAnoAtual}: {fmt(totalAtual)} vs {curvaAnoAnterior}: {fmt(acumAnteriorMesmoD)}
+                          </p>
+                        </div>
+
+                        <div className={`p-3 rounded-xl ${isDark ? 'bg-amber-900/20 border border-amber-500/30' : 'bg-amber-50 border border-amber-200'}`}>
+                          <div className="flex items-center gap-1 mb-1">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">Ritmo Diário Necessário</p>
+                            <InfoTooltip text={`Quantidade de ${labelCurva} por dia necessária nos próximos ${diasAteEvento} dias restantes para atingir a meta${isVendas && m.meta_orcada > 0 ? ` orçada de ${formatNumber(m.meta_orcada)}` : ''}. Calculado como: (meta - acumulado atual) / dias restantes.`} />
+                          </div>
+                          <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{fmt(ritmo)}<span className="text-xs font-normal text-gray-400">/dia</span></p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            Faltam {fmt(faltam)} em {diasAteEvento} dias
+                          </p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <EventInsights eventoId={id!} ano={anoParam} isDark={isDark} />
+        </div>
       ) : activeTab === 'projection' ? (
         (() => {
           const periodos = [3, 7, 14];
@@ -703,7 +1166,7 @@ const EventDetail: React.FC = () => {
             const vendas = (event.dailySales || []).slice(-dias);
             const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
             const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
-            const projecaoLinear = media * event.dMinus;
+            const projecaoLinear = media * dMinusCalc;
             const saldoMeta = Math.max(volumeParaMeta, 0);
             const projecaoVsSaldo = saldoMeta > 0 ? (projecaoLinear / saldoMeta) - 1 : (projecaoLinear > 0 ? 1 : 0);
             const volumeGlobal = projecaoLinear + inscritosTotal;
@@ -726,8 +1189,8 @@ const EventDetail: React.FC = () => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
                   <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Dias Restantes</span>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{event.dMinus}</p>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Dias Restantes (Inscrições)</span>
+                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{dMinusCalc}</p>
                   </div>
                   {cenarios.map(c => (
                     <div key={c.label} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
@@ -778,11 +1241,11 @@ const EventDetail: React.FC = () => {
                   const kitCost = event.kitCostPerUnit || 0;
                   const ticketAtual = event.averageTicket || 0;
                   const volRestante = Math.max(volumeParaMeta, 0);
-                  const ticketConvergencia = volRestante > 0 && event.budgetTicket > 0
-                    ? Math.max(0, ((event.budgetTicket * event.salesGoal) - (ticketAtual * inscritosTotal)) / volRestante)
-                    : 0;
                   const margemRealizada = event.margemRealizadaTotal || 0;
-                  const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * metaAcumulada : 0;
+                  const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
+                  const ticketConvergencia = volRestante > 0 && metaMargem > 0
+                    ? Math.max(0, ((metaMargem - margemRealizada) / volRestante) - kitCost)
+                    : 0;
 
                   const rows = [
                     { label: 'Atual', ticket: ticketAtual, isSeparator: false },
@@ -871,7 +1334,7 @@ const EventDetail: React.FC = () => {
       <div className={`rounded-xl px-4 py-2 shadow-sm border flex flex-wrap items-center gap-3 ${getRecommendationStyle()}`}>
         <div className="flex items-center gap-3">
           <Clock className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-500 dark:text-gray-400">Dias para o Evento</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">Dias até o evento</span>
           <span className={`text-xl font-bold ${
             event.dMinus < 40 
               ? 'text-orange-600 dark:text-orange-400' 
@@ -879,13 +1342,22 @@ const EventDetail: React.FC = () => {
           }`}>
             D-{event.dMinus}
           </span>
-          {event.dMinus < 40 && (
+          <span className="text-gray-300 dark:text-gray-600">|</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">Término das inscrições</span>
+          <span className={`text-xl font-bold ${
+            dMinusCalc < 40 
+              ? 'text-orange-600 dark:text-orange-400' 
+              : 'text-blue-600 dark:text-blue-400'
+          }`}>
+            D-{dMinusCalc}
+          </span>
+          {dMinusCalc < 40 && (
             <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
               <AlertTriangle className="w-3 h-3" />
               Fora da janela de promoção
             </span>
           )}
-          {isInCriticalWindow(event.dMinus) && (
+          {isInCriticalWindow(dMinusCalc) && (
             <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
               <Target className="w-3 h-3" />
               Janela crítica D-45 a D-40
@@ -1116,205 +1588,25 @@ const EventDetail: React.FC = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Curva de Vendas Acumuladas vs Esperado
-            </h3>
-            <div className="flex flex-wrap gap-1">
-              {[
-                { label: '7d', value: 7 },
-                { label: '14d', value: 14 },
-                { label: '30d', value: 30 },
-                { label: '60d', value: 60 },
-                { label: '90d', value: 90 },
-                { label: 'Todos', value: null as number | null },
-              ].map((opt) => (
-                <button
-                  key={opt.label}
-                  onClick={() => setChartPeriod(opt.value)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    chartPeriod === opt.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={filteredCumulativeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                <XAxis 
-                  dataKey="date" 
-                  tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                  stroke="#6B7280"
-                  fontSize={12}
-                />
-                <YAxis stroke="#6B7280" fontSize={12} />
-                <Tooltip 
-                  content={({ active, payload, label }: any) => {
-                    if (!active || !payload || !payload.length) return null;
-                    const real = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulative')?.value ?? 0));
-                    const esperado = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpected')?.value ?? 0));
-                    const diff = real - esperado;
-                    const diffColor = diff >= 0 ? '#22C55E' : '#EF4444';
-                    return (
-                      <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
-                        <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{new Date(label + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
-                        <p style={{ color: '#3B82F6' }}>Vendas Reais: {formatNumber(real)}</p>
-                        <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
-                        <p style={{ color: diffColor, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
-                          Diferença: {diff >= 0 ? '+' : ''}{formatNumber(diff)}
-                        </p>
-                      </div>
-                    );
-                  }}
-                />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="cumulative" 
-                  name="Vendas Reais"
-                  stroke="#3B82F6" 
-                  strokeWidth={2}
-                  dot={false}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="cumulativeExpected" 
-                  name="Esperado"
-                  stroke="#9CA3AF" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-            <h3 className="font-semibold text-gray-900 dark:text-white">
-              Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
-            </h3>
-            <div className="flex items-center gap-3">
-              <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
-                <button
-                  onClick={() => setAttainmentMode('acumulado')}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    attainmentMode === 'acumulado'
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  Acumulado
-                </button>
-                <button
-                  onClick={() => setAttainmentMode('diario')}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    attainmentMode === 'diario'
-                      ? 'bg-indigo-600 text-white'
-                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  Diário
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {[
-                  { label: '7d', value: 7 },
-                  { label: '10d', value: 10 },
-                  { label: '14d', value: 14 },
-                  { label: '30d', value: 30 },
-                  { label: '60d', value: 60 },
-                  { label: '90d', value: 90 },
-                  { label: 'Todos', value: null as number | null },
-                ].map((opt) => (
-                  <button
-                    key={opt.label}
-                    onClick={() => setAttainmentPeriod(opt.value)}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                      attainmentPeriod === opt.value
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={filteredAttainmentData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                <XAxis
-                  dataKey="label"
-                  stroke="#6B7280"
-                  fontSize={11}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  stroke="#6B7280"
-                  fontSize={12}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip
-                  content={({ active, payload }: any) => {
-                    if (!active || !payload || !payload.length) return null;
-                    const d = payload[0].payload;
-                    const color = d.percentual >= 0 ? '#22C55E' : '#EF4444';
-                    const isAcumulado = attainmentMode === 'acumulado';
-                    return (
-                      <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff', minWidth: 200 }}>
-                        <p style={{ marginBottom: '4px', color: '#9CA3AF', fontWeight: 600 }}>{d.label} — {new Date(d.date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
-                        <p style={{ color: '#3B82F6' }}>{isAcumulado ? 'Inscrições' : 'Vendas do Dia'}: {formatNumber(isAcumulado ? d.cumulative : d.sales)}</p>
-                        <p style={{ color: '#9CA3AF' }}>{isAcumulado ? 'Meta Acumulada' : 'Esperado Diário'}: {formatNumber(isAcumulado ? d.cumulativeExpected : d.expected)}</p>
-                        <p style={{ color, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 700, fontSize: '14px' }}>
-                          {d.percentual >= 0 ? '+' : ''}{d.percentual}% da meta
-                        </p>
-                      </div>
-                    );
-                  }}
-                />
-                <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
-                <Bar dataKey="percentual" name="% Atingimento" radius={[4, 4, 0, 0]}>
-                  {filteredAttainmentData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-      </div>
-
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Activity className="w-5 h-5 text-blue-500" />
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta Acumulada</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta Global</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(inscritosTotal)} / {formatNumber(metaAcumulada)}
+            {formatNumber(inscritosTotal)} / {formatNumber(event.salesGoal)}
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-              <p className="text-xs text-gray-500 dark:text-gray-400">D-</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Dias até o evento</p>
               <p className={`text-xl font-bold ${event.dMinus < 40 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
                 {event.dMinus}
               </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Inscrições: <span className="font-semibold text-blue-600 dark:text-blue-400">{dMinusCalc}</span></p>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <p className="text-xs text-gray-500 dark:text-gray-400">Volume p/ Meta</p>
@@ -1417,64 +1709,6 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-indigo-500" />
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Análise de Médias de Vendas
-            </h3>
-            <div className="relative group">
-              <Info className="w-4 h-4 text-gray-400 dark:text-gray-500 cursor-help" />
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 dark:bg-gray-700 text-white text-xs rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-72 z-50">
-                <p className="mb-1"><strong>Período:</strong> Define a janela de dias analisada. Todas as médias são calculadas dividindo vendas por dias corridos (incluindo dias sem vendas).</p>
-                <p><strong>Cards:</strong> Mostram a média diária de vendas para sub-períodos relevantes dentro da janela selecionada.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {salesAvgLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-            <span className="ml-3 text-gray-500 dark:text-gray-400">Carregando médias...</span>
-          </div>
-        ) : salesAverages ? (
-          <>
-            <div className={`grid grid-cols-2 ${Array.isArray(salesAverages.medias) ? (salesAverages.medias.length >= 3 ? 'md:grid-cols-4' : 'md:grid-cols-3') : 'md:grid-cols-4'} gap-3`}>
-              <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-indigo-50'}`}>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Média Geral ({salesAverages.periodo_dias}d)</p>
-                <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                  {salesAverages.media_geral?.toFixed(1) || '0'}
-                </p>
-                <p className="text-[10px] text-gray-400 mt-1">{salesAverages.total_vendas || 0} vendas em {salesAverages.periodo_dias} dias</p>
-              </div>
-              {Array.isArray(salesAverages.medias) && salesAverages.medias.map((m: any, idx: number) => {
-                const colors = [
-                  { bg: 'bg-blue-50', text: 'text-blue-600 dark:text-blue-400', darkBg: 'bg-gray-700/50' },
-                  { bg: 'bg-cyan-50', text: 'text-cyan-600 dark:text-cyan-400', darkBg: 'bg-gray-700/50' },
-                  { bg: 'bg-emerald-50', text: 'text-emerald-600 dark:text-emerald-400', darkBg: 'bg-gray-700/50' },
-                ];
-                const c = colors[idx % colors.length];
-                return (
-                  <div key={m.periodo} className={`p-4 rounded-lg ${isDark ? c.darkBg : c.bg}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Média {m.label}</p>
-                    <p className={`text-2xl font-bold ${c.text}`}>
-                      {m.media?.toFixed(1) || '0'}
-                    </p>
-                    <p className="text-[10px] text-gray-400 mt-1">{m.total || 0} vendas em {m.dias}d</p>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-center h-40 text-gray-500 dark:text-gray-400">
-            Sem dados disponíveis para este evento.
-          </div>
-        )}
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -1509,7 +1743,13 @@ const EventDetail: React.FC = () => {
                 <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Necessário p/ Convergência</span>
                 <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
                   {formatCurrency(
-                    Math.max(0, ((event.budgetTicket * event.salesGoal) - (event.averageTicket * inscritosTotal)) / Math.max(volumeParaMeta, 1))
+                    (() => {
+                      const kc = event.kitCostPerUnit || 0;
+                      const metaM = (event.budgetTicket - kc) * event.salesGoal;
+                      const margAcum = event.margemRealizadaTotal || 0;
+                      const vr = Math.max(volumeParaMeta, 1);
+                      return Math.max(0, ((metaM - margAcum) / vr) - kc);
+                    })()
                   )}
                 </span>
               </div>
@@ -1524,7 +1764,7 @@ const EventDetail: React.FC = () => {
           </h3>
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
-            const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * metaAcumulada : 0;
+            const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
             const margemRealizadaTotal = event.margemRealizadaTotal || 0;
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
@@ -1570,14 +1810,20 @@ const EventDetail: React.FC = () => {
         </h3>
         {(() => {
           const base = Math.max(volumeParaMeta, 0);
-          const ticketBase = base > 0 && event.budgetTicket > 0
-            ? Math.max(0, ((event.budgetTicket * event.salesGoal) - (event.averageTicket * inscritosTotal)) / base)
+          const kitCostCaminho = event.kitCostPerUnit || 0;
+          const metaMargemTotal = event.budgetTicket > 0 && kitCostCaminho > 0 ? (event.budgetTicket - kitCostCaminho) * event.salesGoal : 0;
+          const margAcumCaminho = event.margemRealizadaTotal || 0;
+          const ticketBase = base > 0 && metaMargemTotal > 0
+            ? Math.max(0, ((metaMargemTotal - margAcumCaminho) / base) - kitCostCaminho)
             : 0;
           const inscMultipliers = [0.81, 0.90, 1.00, 1.10, 1.21];
           const ticketMultipliers = [1.21, 1.10, 1.00, 0.90, 0.81];
           const labels = ['Cenário 1', 'Cenário 2', 'Volume p/ Meta', 'Cenário 4', 'Cenário 5'];
           const ticketBase5 = ticketBase * 1.05;
           const ticketBase10 = ticketBase * 1.10;
+          const margemGlobalBase = metaMargemTotal > 0 ? metaMargemTotal : 0;
+          const margemGlobal5 = margemGlobalBase * 1.05;
+          const margemGlobal10 = margemGlobalBase * 1.10;
           const rows = labels.map((label, i) => ({
             label,
             inscritos: Math.round(base * inscMultipliers[i]),
@@ -1593,9 +1839,9 @@ const EventDetail: React.FC = () => {
                   <tr className="border-b border-gray-200 dark:border-gray-700">
                     <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
                     <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Inscrições Totais</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket Convergência</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket +5%</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket +10%</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Margem</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Margem +5%</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Margem +10%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1625,328 +1871,26 @@ const EventDetail: React.FC = () => {
                       </td>
                     </tr>
                   ))}
+                  <tr className="bg-gray-100 dark:bg-gray-700/60">
+                    <td colSpan={2} className="py-2 px-3 text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                      Margem Global
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-gray-700 dark:text-gray-300">
+                      {formatCurrency(margemGlobalBase)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-gray-700 dark:text-gray-300">
+                      {formatCurrency(margemGlobal5)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-gray-700 dark:text-gray-300">
+                      {formatCurrency(margemGlobal10)}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
           );
         })()}
       </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <Activity className="w-5 h-5 text-blue-500" />
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Curva Comparativa: {curvaAnoAnterior} vs {curvaAnoAtual}
-              </h3>
-            </div>
-            {curvaModo === 'dias_antes_evento' && (dataEventoAtual || dataEventoAnterior) && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 ml-7">
-                Alinhado por dias antes do evento
-                {dataEventoAtual && ` | ${curvaAnoAtual}: ${new Date(dataEventoAtual + 'T12:00:00').toLocaleDateString('pt-BR')}`}
-                {dataEventoAnterior && ` | ${curvaAnoAnterior}: ${new Date(dataEventoAnterior + 'T12:00:00').toLocaleDateString('pt-BR')}`}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
-              <button
-                onClick={() => setCurvaMode('vendas')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  curvaMode === 'vendas' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
-                }`}
-              >
-                Inscrições
-              </button>
-              <button
-                onClick={() => setCurvaMode('receita')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  curvaMode === 'receita' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
-                }`}
-              >
-                Receita
-              </button>
-            </div>
-            <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
-              <button
-                onClick={() => setCurvaView('semanal')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  curvaView === 'semanal' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
-                }`}
-              >
-                Semanal
-              </button>
-              <button
-                onClick={() => setCurvaView('acumulado')}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  curvaView === 'acumulado' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'
-                }`}
-              >
-                Acumulado
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {curvaLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-            <span className="ml-3 text-gray-500 dark:text-gray-400">Carregando curva comparativa...</span>
-          </div>
-        ) : curvaData.length === 0 ? (
-          <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
-            Sem dados disponíveis para a curva comparativa deste evento.
-          </div>
-        ) : curvaView === 'semanal' && curvaMode === 'vendas' ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
-              <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
-              <Tooltip
-                contentStyle={{ 
-                  backgroundColor: isDark ? '#1f2937' : '#fff',
-                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                  borderRadius: '8px',
-                  color: isDark ? '#fff' : '#111'
-                }}
-                formatter={(value: any) => [formatNumber(Number(value || 0)), '']}
-                labelFormatter={(label: any) => `${label} (semana)`}
-              />
-              <Legend />
-              <Bar dataKey={`vendas_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
-              <Bar dataKey={`vendas_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        ) : curvaView === 'semanal' && curvaMode === 'receita' ? (
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-              <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
-              <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
-              <Tooltip
-                contentStyle={{ 
-                  backgroundColor: isDark ? '#1f2937' : '#fff',
-                  border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                  borderRadius: '8px',
-                  color: isDark ? '#fff' : '#111'
-                }}
-                formatter={(value: any) => [formatCurrency(Number(value || 0)), '']}
-                labelFormatter={(label: any) => `${label} (semana)`}
-              />
-              <Legend />
-              <Bar dataKey={`receita_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
-              <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (() => {
-          const hasProjecao = curvaData.some((d: any) => d[`projecao_acumulado_${curvaAnoAtual}`] !== undefined);
-          const pctKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAtual}` : `pct_meta_receita_${curvaAnoAtual}`;
-          const pctAntKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAnterior}` : `pct_meta_receita_${curvaAnoAnterior}`;
-          const pctProjKey = curvaMode === 'vendas' ? `pct_meta_projecao_vendas_${curvaAnoAtual}` : `pct_meta_projecao_receita_${curvaAnoAtual}`;
-          const acumKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`;
-          const acumAntKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`;
-
-          let chartData = curvaData.map((d: any) => {
-            const entry = { ...d };
-            const isProj = d.is_projecao === true;
-            if (hasProjecao) {
-              if (isProj) {
-                entry[`realizado_pct_${curvaAnoAtual}`] = undefined;
-              } else {
-                entry[`realizado_pct_${curvaAnoAtual}`] = d[pctKey];
-              }
-              if (d[pctProjKey] !== undefined) {
-                entry[`projecao_pct_${curvaAnoAtual}`] = d[pctProjKey];
-              }
-            }
-            return entry;
-          });
-
-          const strokeColor = curvaMode === 'vendas' ? '#3b82f6' : '#10b981';
-
-          return (
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
-                <YAxis 
-                  stroke={isDark ? '#9ca3af' : '#6b7280'} 
-                  tick={{ fontSize: 12 }}
-                  tickFormatter={(v: number) => `${v}%`}
-                  domain={[0, (dataMax: number) => Math.max(110, Math.ceil(dataMax / 10) * 10 + 10)]}
-                />
-                <Tooltip
-                  contentStyle={{ 
-                    backgroundColor: isDark ? '#1f2937' : '#fff',
-                    border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                    borderRadius: '8px',
-                    color: isDark ? '#fff' : '#111'
-                  }}
-                  formatter={(value: any, name?: string, props?: any) => {
-                    if (value === undefined || value === null) return [null, null];
-                    const pctFormatted = `${Number(value).toFixed(1)}%`;
-                    const d = props?.payload;
-                    let absVal = '';
-                    if (d) {
-                      if ((name || '').includes(String(curvaAnoAnterior))) {
-                        const abs = d[acumAntKey];
-                        absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
-                      } else {
-                        const abs = d[acumKey] || d[`projecao_acumulado_${curvaAnoAtual}`] || d[`projecao_acumulado_receita_${curvaAnoAtual}`];
-                        absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
-                      }
-                    }
-                    const suffix = (name || '').includes('Projeção') ? ' (projeção)' : '';
-                    return [`${pctFormatted}${absVal}${suffix}`, ''];
-                  }}
-                  labelFormatter={(label: any) => `${label}`}
-                />
-                <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey={pctAntKey}
-                  name={`${curvaAnoAnterior} (% meta)`} 
-                  stroke="#94a3b8" 
-                  strokeWidth={2} 
-                  dot={{ r: 3, fill: '#94a3b8' }} 
-                  strokeDasharray="5 5"
-                />
-                {hasProjecao ? (
-                  <>
-                    <Line 
-                      type="monotone" 
-                      dataKey={`realizado_pct_${curvaAnoAtual}`}
-                      name={`${curvaAnoAtual} Realizado`}
-                      stroke={strokeColor}
-                      strokeWidth={2.5} 
-                      dot={{ r: 3, fill: strokeColor }}
-                      connectNulls={false}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey={`projecao_pct_${curvaAnoAtual}`}
-                      name={`${curvaAnoAtual} Projeção`}
-                      stroke="#8B5CF6"
-                      strokeWidth={2} 
-                      strokeDasharray="8 4"
-                      strokeOpacity={0.85}
-                      dot={{ r: 2, fill: '#8B5CF6', fillOpacity: 0.7 }}
-                    />
-                  </>
-                ) : (
-                  <Line 
-                    type="monotone" 
-                    dataKey={pctKey}
-                    name={`${curvaAnoAtual} (% meta)`} 
-                    stroke={strokeColor}
-                    strokeWidth={2.5} 
-                    dot={{ r: 3, fill: strokeColor }} 
-                  />
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-          );
-        })()}
-
-        {!curvaLoading && curvaData.length > 0 && curvaMeta && (
-          <div className="mt-4 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {(() => {
-                const m = curvaMeta;
-                const isVendas = curvaMode === 'vendas';
-                const acumAnteriorMesmoD = isVendas ? m.ultimo_acum_vendas_anterior_mesmo_d : m.ultimo_acum_receita_anterior_mesmo_d;
-                const pctAnteriorMesmoD = isVendas ? m.pct_anterior_vendas_mesmo_d : m.pct_anterior_receita_mesmo_d;
-                const varMesmoD = isVendas ? (m.variacao_mesmo_d_vendas ?? 0) : (m.variacao_mesmo_d_receita ?? 0);
-                const ritmo = isVendas ? (m.ritmo_diario_necessario_vendas ?? 0) : (m.ritmo_diario_necessario_receita ?? 0);
-                const diasAteEvento = m.dias_ate_evento ?? 0;
-                const metaRef = isVendas ? (m.meta_orcada > 0 ? m.meta_orcada : m.total_vendas_anterior) : m.total_receita_anterior;
-                const totalAtual = isVendas ? m.total_vendas_atual : m.total_receita_atual;
-                const faltam = Math.max(0, metaRef - totalAtual);
-                const fmt = (v: number) => isVendas ? formatNumber(Math.round(v)) : formatCurrency(v);
-                const label = isVendas ? 'inscrições' : 'receita';
-
-                const InfoTooltip = ({ text }: { text: string }) => (
-                  <div className="group relative inline-flex ml-1">
-                    <Info className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 cursor-help" />
-                    <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 text-xs text-white bg-gray-900 dark:bg-gray-700 rounded-lg shadow-lg z-50 leading-relaxed">
-                      {text}
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-gray-700" />
-                    </div>
-                  </div>
-                );
-
-                return (
-                  <>
-                    <div className={`p-3 rounded-xl ${isDark ? 'bg-gray-700/50 border border-gray-600' : 'bg-gray-50 border border-gray-200'}`}>
-                      <div className="flex items-center gap-1 mb-1">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">No mesmo D- em {curvaAnoAnterior}</p>
-                        <InfoTooltip text={`Quantas ${label} o evento de ${curvaAnoAnterior} tinha acumulado faltando o mesmo número de dias (D-${diasAteEvento}) para o evento. Permite comparar o ritmo de vendas no mesmo momento da jornada.`} />
-                      </div>
-                      {acumAnteriorMesmoD > 0 ? (
-                        <>
-                          <p className="text-lg font-bold text-gray-600 dark:text-gray-300">{fmt(acumAnteriorMesmoD)}</p>
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                            {pctAnteriorMesmoD}% do total final de {curvaAnoAnterior}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Sem dados de {curvaAnoAnterior}</p>
-                      )}
-                    </div>
-
-                    <div className={`p-3 rounded-xl border-2 ${
-                      varMesmoD >= 0 
-                        ? 'border-green-400/50 bg-green-50 dark:bg-green-900/20 dark:border-green-500/30' 
-                        : 'border-red-400/50 bg-red-50 dark:bg-red-900/20 dark:border-red-500/30'
-                    }`}>
-                      <div className="flex items-center gap-1 mb-1">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Variação vs {curvaAnoAnterior} (mesmo D-)</p>
-                        <InfoTooltip text={`Variação percentual das ${label} de ${curvaAnoAtual} comparado com ${curvaAnoAnterior} no mesmo D-${diasAteEvento} (mesma distância do evento). Positivo = melhor que o ano anterior neste momento.`} />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        {varMesmoD >= 0 ? (
-                          <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
-                        ) : (
-                          <TrendingDown className="w-5 h-5 text-red-600 dark:text-red-400" />
-                        )}
-                        <span className={`text-lg font-bold ${varMesmoD >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {varMesmoD >= 0 ? '+' : ''}{varMesmoD.toFixed(1)}%
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        {curvaAnoAtual}: {fmt(totalAtual)} vs {curvaAnoAnterior}: {fmt(acumAnteriorMesmoD)}
-                      </p>
-                    </div>
-
-                    <div className={`p-3 rounded-xl ${isDark ? 'bg-amber-900/20 border border-amber-500/30' : 'bg-amber-50 border border-amber-200'}`}>
-                      <div className="flex items-center gap-1 mb-1">
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Ritmo Diário Necessário</p>
-                        <InfoTooltip text={`Quantidade de ${label} por dia necessária nos próximos ${diasAteEvento} dias restantes para atingir a meta${isVendas && m.meta_orcada > 0 ? ` orçada de ${formatNumber(m.meta_orcada)}` : ''}. Calculado como: (meta - acumulado atual) / dias restantes.`} />
-                      </div>
-                      <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{fmt(ritmo)}<span className="text-xs font-normal text-gray-400">/dia</span></p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                        Faltam {fmt(faltam)} em {diasAteEvento} dias
-                      </p>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <EventInsights eventoId={id!} ano={anoParam} />
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-4">
