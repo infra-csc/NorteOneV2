@@ -130,6 +130,57 @@ app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importaç
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/api/init-admin-setup-temp")
+async def init_admin_setup():
+    from app.core.database import SessionLocal
+    from app.models.user import Usuario
+    from app.models.perfil_acesso import PerfilAcesso, PerfilPermissao
+    from app.core.security import get_password_hash
+    try:
+        db = SessionLocal()
+        existing = db.query(Usuario).filter(Usuario.email == "leonardo.micheletti@cscdoesporte.com.br").first()
+        if existing:
+            db.close()
+            return {"status": "already_exists", "message": "User already exists"}
+        admin_perfil = db.query(PerfilAcesso).filter(PerfilAcesso.is_admin == True).first()
+        if not admin_perfil:
+            admin_perfil = PerfilAcesso(
+                nome="Administrador",
+                descricao="Perfil de administrador com acesso total",
+                is_sistema=True,
+                is_admin=True,
+                ativo=True
+            )
+            db.add(admin_perfil)
+            db.flush()
+            modulos = [
+                "admin_usuarios", "centro_custo", "categorias_atletas",
+                "projetos", "dashboard", "tarefas", "cadastro_eventos",
+                "marketing", "sku_mappings", "perfil_acesso", "cotacoes"
+            ]
+            for modulo in modulos:
+                db.add(PerfilPermissao(
+                    perfil_acesso_id=admin_perfil.id,
+                    modulo=modulo,
+                    pode_visualizar=True,
+                    pode_criar=True,
+                    pode_editar=True,
+                    pode_deletar=True
+                ))
+        admin_user = Usuario(
+            email="leonardo.micheletti@cscdoesporte.com.br",
+            nome="Leonardo Micheletti",
+            senha_hash=get_password_hash("Norte@2024"),
+            perfil_acesso_id=admin_perfil.id,
+            ativo=True
+        )
+        db.add(admin_user)
+        db.commit()
+        db.close()
+        return {"status": "success", "message": "Admin user created", "email": "leonardo.micheletti@cscdoesporte.com.br"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 from app.core.security import get_current_user
 
 @app.get("/api/mysql/ativo/test")
