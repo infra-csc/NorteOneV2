@@ -1328,6 +1328,99 @@ const EventDetail: React.FC = () => {
                   );
                 })()}
               </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700 mt-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+                  Por variação de volume (no ticket atual)
+                </h3>
+                {(() => {
+                  const kitCost = event.kitCostPerUnit || 0;
+                  const ticketAtual = event.averageTicket || 0;
+                  const volBase = Math.max(volumeParaMeta, 0);
+                  const volGlobalBase = inscritosTotal;
+                  const margemReal = event.margemRealizadaTotal || 0;
+                  const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
+
+                  const multipliers = [0.90, 1.00, 1.05, 1.10, 1.20, 1.30];
+                  const labels = ['Base -10%', 'Base (real)', 'Base +5%', 'Base +10%', 'Base +20%', 'Base +30%'];
+
+                  const rows = multipliers.map((mult, i) => {
+                    const volFuturo = Math.round(volBase * mult);
+                    const volGlobal = volGlobalBase - volBase + volFuturo;
+                    const margemAdicional = (volFuturo * ticketAtual) - (volFuturo * kitCost);
+                    const margemGlobal = margemAdicional + margemReal;
+                    const margemNominal = margemGlobal - metaMargemGlobal;
+                    const margemPct = metaMargemGlobal > 0 ? (margemNominal / metaMargemGlobal) * 100 : 0;
+                    return {
+                      label: labels[i],
+                      volFuturo,
+                      ticket: ticketAtual,
+                      volGlobal,
+                      margemAdicional,
+                      margemGlobal,
+                      margemNominal,
+                      margemPct,
+                      isBase: i === 1,
+                    };
+                  });
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-700">
+                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Volume vendas futuras</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Restante</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Volume Global</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Adicional</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Global</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Nominal</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => (
+                            <tr
+                              key={row.label}
+                              className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                                row.isBase
+                                  ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
+                                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                              }`}
+                            >
+                              <td className={`py-2.5 px-3 ${row.isBase ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
+                                {row.label}
+                              </td>
+                              <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                                {formatNumber(row.volFuturo)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
+                                {formatCurrency(row.ticket)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300 font-semibold">
+                                {formatNumber(row.volGlobal)}
+                              </td>
+                              <td className={`py-2.5 px-3 text-right ${row.margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {formatCurrency(row.margemAdicional)}
+                              </td>
+                              <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {formatCurrency(row.margemGlobal)}
+                              </td>
+                              <td className={`py-2.5 px-3 text-right font-semibold ${row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {formatCurrency(row.margemNominal)}
+                              </td>
+                              <td className={`py-2.5 px-3 text-right font-semibold ${row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {row.margemPct >= 0 ? '+' : ''}{Math.round(row.margemPct * 10) / 10}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
           );
         })()
