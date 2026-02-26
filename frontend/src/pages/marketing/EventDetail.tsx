@@ -469,12 +469,13 @@ const EventDetail: React.FC = () => {
       const eventDate = new Date(event.date + 'T12:00:00');
       const dayDate = new Date(d.date + 'T12:00:00');
       const diffMs = eventDate.getTime() - dayDate.getTime();
-      const dMinus = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const dMinusInsc = Math.max(0, dMinusEvento - 2);
       const pct = parseFloat((((d.cumulative / d.cumulativeExpected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
-        dMinus,
-        label: `D-${dMinus}`,
+        dMinus: dMinusInsc,
+        label: `D-${dMinusInsc}`,
         percentual: pct,
         cumulative: Math.round(d.cumulative),
         cumulativeExpected: Math.round(d.cumulativeExpected),
@@ -487,12 +488,13 @@ const EventDetail: React.FC = () => {
       const eventDate = new Date(event.date + 'T12:00:00');
       const dayDate = new Date(d.date + 'T12:00:00');
       const diffMs = eventDate.getTime() - dayDate.getTime();
-      const dMinus = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
+      const dMinusInsc = Math.max(0, dMinusEvento - 2);
       const pct = parseFloat((((d.sales / d.expected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
-        dMinus,
-        label: `D-${dMinus}`,
+        dMinus: dMinusInsc,
+        label: `D-${dMinusInsc}`,
         percentual: pct,
         sales: Math.round(d.sales),
         expected: Math.round(d.expected),
@@ -554,7 +556,7 @@ const EventDetail: React.FC = () => {
     if (event.iscStatus === 'stable') {
       return 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800';
     }
-    if (event.dMinus <= 40) {
+    if (dMinusCalc <= 40) {
       return 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800';
     }
     return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
@@ -617,7 +619,7 @@ const EventDetail: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {event.name}
               </h1>
-              {isInCriticalWindow(event.dMinus) && (
+              {isInCriticalWindow(dMinusCalc) && (
                 <span className="px-3 py-1 text-sm font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded-full flex items-center gap-1">
                   <Target className="w-4 h-4" />
                   JANELA CRÍTICA DE DECISÃO
@@ -1079,7 +1081,7 @@ const EventDetail: React.FC = () => {
                     const pctAnteriorMesmoD = isVendas ? m.pct_anterior_vendas_mesmo_d : m.pct_anterior_receita_mesmo_d;
                     const varMesmoD = isVendas ? (m.variacao_mesmo_d_vendas ?? 0) : (m.variacao_mesmo_d_receita ?? 0);
                     const ritmo = isVendas ? (m.ritmo_diario_necessario_vendas ?? 0) : (m.ritmo_diario_necessario_receita ?? 0);
-                    const diasAteEvento = m.dias_ate_evento ?? 0;
+                    const diasAteEvento = Math.max(0, (m.dias_ate_evento ?? 0) - 2);
                     const metaRef = isVendas ? (m.meta_orcada > 0 ? m.meta_orcada : m.total_vendas_anterior) : m.total_receita_anterior;
                     const totalAtual = isVendas ? m.total_vendas_atual : m.total_receita_atual;
                     const faltam = Math.max(0, metaRef - totalAtual);
@@ -1334,22 +1336,22 @@ const EventDetail: React.FC = () => {
       <div className={`rounded-xl px-4 py-2 shadow-sm border flex flex-wrap items-center gap-3 ${getRecommendationStyle()}`}>
         <div className="flex items-center gap-3">
           <Clock className="w-4 h-4 text-gray-400" />
-          <span className="text-sm text-gray-500 dark:text-gray-400">Dias até o evento</span>
-          <span className={`text-xl font-bold ${
-            event.dMinus < 40 
-              ? 'text-orange-600 dark:text-orange-400' 
-              : 'text-gray-900 dark:text-white'
-          }`}>
-            D-{event.dMinus}
-          </span>
-          <span className="text-gray-300 dark:text-gray-600">|</span>
-          <span className="text-sm text-gray-500 dark:text-gray-400">Término das inscrições</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">D- Inscrições</span>
           <span className={`text-xl font-bold ${
             dMinusCalc < 40 
               ? 'text-orange-600 dark:text-orange-400' 
               : 'text-blue-600 dark:text-blue-400'
           }`}>
             D-{dMinusCalc}
+          </span>
+          <span className="text-gray-300 dark:text-gray-600">|</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">Evento</span>
+          <span className={`text-sm font-medium ${
+            event.dMinus < 40 
+              ? 'text-orange-500 dark:text-orange-400' 
+              : 'text-gray-500 dark:text-gray-400'
+          }`}>
+            D-{event.dMinus}
           </span>
           {dMinusCalc < 40 && (
             <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
@@ -1602,11 +1604,11 @@ const EventDetail: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Dias até o evento</p>
-              <p className={`text-xl font-bold ${event.dMinus < 40 ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-white'}`}>
-                {event.dMinus}
+              <p className="text-xs text-gray-500 dark:text-gray-400">D- (Inscrições)</p>
+              <p className={`text-xl font-bold ${dMinusCalc < 40 ? 'text-orange-600 dark:text-orange-400' : 'text-blue-600 dark:text-blue-400'}`}>
+                {dMinusCalc}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Inscrições: <span className="font-semibold text-blue-600 dark:text-blue-400">{dMinusCalc}</span></p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Evento: <span className="font-semibold text-gray-600 dark:text-gray-300">{event.dMinus}</span></p>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <p className="text-xs text-gray-500 dark:text-gray-400">Volume p/ Meta</p>
