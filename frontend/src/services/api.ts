@@ -506,6 +506,7 @@ export interface MarketingEvent {
   averageTicket: number;
   budgetTicket: number;
   dMinus: number;
+  dMinusInscricoes: number;
   isc: number;
   iscComponents: MarketingISCComponents;
   iscStatus: 'accelerating' | 'stable' | 'decelerating';

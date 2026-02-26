@@ -447,7 +447,7 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
                     borderRadius: '8px',
                     color: isDark ? '#fff' : '#111',
                   }}
-                  formatter={(value: any, name: string) => {
+                  formatter={(value: any, name: any) => {
                     const labels: Record<string, string> = {
                       real: 'Vendas Reais',
                       projecao_otimista: 'Cenário Otimista',

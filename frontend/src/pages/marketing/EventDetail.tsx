@@ -191,7 +191,7 @@ const EventDetail: React.FC = () => {
           setCurvaModo(response.modo || 'mensal');
           setDataEventoAtual(response.data_evento_atual || null);
           setDataEventoAnterior(response.data_evento_anterior || null);
-          setCurvaMeta(response.meta || null);
+          setCurvaMeta((response as any).meta || null);
         }
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
@@ -708,7 +708,7 @@ const EventDetail: React.FC = () => {
       {activeTab === 'pricing' ? (
         <EventPricing eventoId={id!} ano={anoParam} />
       ) : activeTab === 'simulator' ? (
-        <EventSimulator eventoId={id!} ano={anoParam} isDark={isDark} />
+        <EventSimulator eventoId={id!} ano={anoParam ?? new Date().getFullYear()} isDark={isDark} />
       ) : activeTab === 'complementares' ? (
         <div className="space-y-6">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -1106,7 +1106,7 @@ const EventDetail: React.FC = () => {
             )}
           </div>
 
-          <EventInsights eventoId={id!} ano={anoParam} isDark={isDark} />
+          <EventInsights eventoId={id!} ano={anoParam} />
         </div>
       ) : activeTab === 'projection' ? (
         (() => {

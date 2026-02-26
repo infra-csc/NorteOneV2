@@ -262,7 +262,7 @@ const Projetos: React.FC = () => {
     setShowModal(true);
   };
 
-  const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const autoRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
 
   const loadConsolidadosData = useCallback(async (sku: string) => {
