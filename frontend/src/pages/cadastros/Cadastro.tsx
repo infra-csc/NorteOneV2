@@ -1501,14 +1501,16 @@ const Cadastro: React.FC = () => {
                       <option value="">Selecione...</option>
                       {circuitos.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
                     </select>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddCircuito(true)}
-                      className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
-                      title="Gerenciar opções"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCircuito(true)}
+                        className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                        title="Gerenciar opções"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="col-span-5">
@@ -1522,14 +1524,16 @@ const Cadastro: React.FC = () => {
                       <option value="">Selecione...</option>
                       {localizacoes.map(l => <option key={l.id} value={l.nome}>{l.nome}</option>)}
                     </select>
-                    <button
-                      type="button"
-                      onClick={() => setShowAddLocalizacao(true)}
-                      className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
-                      title="Gerenciar opções"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddLocalizacao(true)}
+                        className="p-1.5 rounded-lg bg-purple-500/20 text-purple-400 hover:bg-purple-500/30 transition-colors"
+                        title="Gerenciar opções"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="col-span-2">
