@@ -3831,7 +3831,8 @@ def get_marketing_event_by_id(
         is_active = d_minus > 0 if ano == datetime.now().year else True
         sales_goal = total_capacity
         
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=projeto_data_evento)
+        data_fim_inscricoes = projeto_data_evento - timedelta(days=2) if projeto_data_evento else None
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         current_year = datetime.now().year
@@ -4118,7 +4119,8 @@ def get_marketing_event_by_id(
         if standalone_mapping:
             standalone_evento_grupo = standalone_mapping.evento_grupo
 
-    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=projeto_data_evento)
+    data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=2) if projeto_data_evento else None
+    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_media_14d = sales_info.get('media_14d', 0.0)
