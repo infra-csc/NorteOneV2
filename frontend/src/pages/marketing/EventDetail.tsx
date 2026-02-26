@@ -1172,7 +1172,7 @@ const EventDetail: React.FC = () => {
             const saldoMeta = Math.max(volumeParaMeta, 0);
             const projecaoVsSaldo = saldoMeta > 0 ? (projecaoLinear / saldoMeta) - 1 : (projecaoLinear > 0 ? 1 : 0);
             const volumeGlobal = projecaoLinear + inscritosTotal;
-            const volumeVsMeta = event.salesGoal > 0 ? volumeGlobal / event.salesGoal : 0;
+            const volumeVsMeta = event.salesGoal > 0 ? (volumeGlobal / event.salesGoal) - 1 : 0;
             return {
               label: `${dias} dias`,
               media: Math.round(media * 10) / 10,
@@ -1225,8 +1225,8 @@ const EventDetail: React.FC = () => {
                             {c.projecaoVsSaldo >= 0 ? '+' : ''}{c.projecaoVsSaldo}%
                           </td>
                           <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300 font-semibold">{formatNumber(c.volumeGlobal)}</td>
-                          <td className={`py-2.5 px-3 text-right font-semibold ${c.volumeVsMeta >= 100 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {c.volumeVsMeta}%
+                          <td className={`py-2.5 px-3 text-right font-semibold ${c.volumeVsMeta >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                            {c.volumeVsMeta >= 0 ? '+' : ''}{c.volumeVsMeta}%
                           </td>
                         </tr>
                       ))}
