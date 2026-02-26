@@ -1008,7 +1008,8 @@ FROM (
     LEFT JOIN sa_cupom_desconto AS f
            ON f.id_cupom_desconto = e.id_cupom_desconto
     WHERE
-        YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+        b.dt_evento >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+        AND b.dt_evento < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
         AND c.fl_local_inscricao = '1'
         AND c.id_pedido_status IN (1, 2)
         AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
@@ -1147,24 +1148,9 @@ FROM (
     ) AS soiaa ON soiaa.parent_item_id = soi.item_id
     WHERE
          so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
-     AND YEAR(cped_date.value) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
-     AND so.increment_id NOT LIKE '%%-1%%'
-     AND so.increment_id NOT LIKE '%%-2%%'
-     AND so.increment_id NOT LIKE '%%-3%%'
-     AND so.increment_id NOT LIKE '%%-4%%'
-     AND so.increment_id NOT LIKE '%%-5%%'
-     AND so.increment_id NOT LIKE '%%-6%%'
-     AND so.increment_id NOT LIKE '%%-7%%'
-     AND so.increment_id NOT LIKE '%%-8%%'
-     AND so.increment_id NOT LIKE '%%-9%%'
-     AND so.increment_id NOT LIKE '%%-10%%'
-     AND so.increment_id NOT LIKE '%%-11%%'
-     AND so.increment_id NOT LIKE '%%-12%%'
-     AND so.increment_id NOT LIKE '%%-13%%'
-     AND so.increment_id NOT LIKE '%%-14%%'
-     AND so.increment_id NOT LIKE '%%-15%%'
-     AND so.increment_id NOT LIKE '%%-16%%'
-     AND so.increment_id NOT LIKE '%%-17%%'
+     AND cped_date.value >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
+     AND cped_date.value < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
+     AND so.increment_id NOT REGEXP '-[0-9]+$'
     GROUP BY
         cpev1.value,
         cpev2.value,
@@ -1193,34 +1179,37 @@ def _parse_isc_row(row) -> dict:
     }
 
 
-def fetch_isc_data_ativo():
-    if db_module.engine_ssh is None:
-        return {"error": "Conexão SSH não configurada"}
-    try:
-        query = build_query_isc_ativo()
-        with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            logger.info(f"ISC Ativo: {len(rows)} registros")
+def _fetch_with_retry(engine, query_builder, source_name, max_retries=1):
+    import time as _time
+    if engine is None:
+        return {"error": f"Conexão {source_name} não configurada"}
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            start = _time.time()
+            query = query_builder()
+            with engine.connect() as conn:
+                result = conn.execute(text(query))
+                rows = result.fetchall()
+            elapsed = round(_time.time() - start, 2)
+            logger.info(f"ISC {source_name}: {len(rows)} registros em {elapsed}s (tentativa {attempt + 1})")
             return [_parse_isc_row(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Erro ISC Ativo: {e}")
-        return {"error": f"Timeout ou erro de conexão ({type(e).__name__})"}
+        except Exception as e:
+            last_error = e
+            elapsed = round(_time.time() - start, 2)
+            logger.warning(f"ISC {source_name} falhou em {elapsed}s (tentativa {attempt + 1}/{max_retries + 1}): {type(e).__name__}: {e}")
+            if attempt < max_retries:
+                _time.sleep(2 * (attempt + 1))
+    logger.error(f"ISC {source_name} falhou após {max_retries + 1} tentativas: {last_error}")
+    return {"error": f"Timeout ou erro de conexão ({type(last_error).__name__})"}
+
+
+def fetch_isc_data_ativo():
+    return _fetch_with_retry(db_module.engine_ssh, build_query_isc_ativo, "Ativo")
 
 
 def fetch_isc_data_magento():
-    if db_module.engine_magento is None:
-        return {"error": "Conexão Magento não configurada"}
-    try:
-        query = build_query_isc_magento()
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            logger.info(f"ISC Magento: {len(rows)} registros")
-            return [_parse_isc_row(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Erro ISC Magento: {e}")
-        return {"error": f"Timeout ou erro de conexão ({type(e).__name__})"}
+    return _fetch_with_retry(db_module.engine_magento, build_query_isc_magento, "Magento")
 
 
 _isc_warnings = []
@@ -1235,7 +1224,13 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     if not force_refresh:
         cached = _smart_isc_cache.get(smart_cache_key)
         if cached is not None:
+            cache_info = _smart_isc_cache.get_info(smart_cache_key)
+            logger.info(f"ISC cache HIT: key={smart_cache_key}, age={cache_info.get('age_seconds', '?')}s")
             return cached
+        else:
+            logger.info(f"ISC cache MISS: key={smart_cache_key}")
+    else:
+        logger.info(f"ISC cache BYPASS (force_refresh): key={smart_cache_key}")
 
     current_time = time.time()
 
@@ -1630,6 +1625,15 @@ def get_marketing_events(
     all_projetos_flat.extend(standalone_projetos)
     sku_daily_prefetch = _prefetch_all_daily_sales(db, all_projetos_flat, ano)
     
+    all_grupo_names_for_hist = set(grupo_projetos.keys())
+    for projeto in standalone_projetos:
+        sku_n = normalize_sku(str(projeto.codigo)) if projeto.codigo else None
+        if sku_n:
+            eg = sku_to_grupo.get(sku_n)
+            if eg:
+                all_grupo_names_for_hist.add(eg)
+    hist_patterns_prefetch = _prefetch_all_historical_patterns(db, list(all_grupo_names_for_hist), ano)
+    
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -1688,11 +1692,7 @@ def get_marketing_events(
         
         grupo_daily_sales_dict = _build_grupo_daily_dict(sku_daily_prefetch, proj_list)
         
-        grupo_hist_pattern = None
-        try:
-            grupo_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
-        except Exception:
-            pass
+        grupo_hist_pattern = hist_patterns_prefetch.get(grupo_nome)
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=grupo_daily_sales_dict,
@@ -1790,12 +1790,7 @@ def get_marketing_events(
         
         standalone_daily_dict = _build_grupo_daily_dict(sku_daily_prefetch, [projeto])
         
-        standalone_hist = None
-        if standalone_eg:
-            try:
-                standalone_hist = _fetch_previous_year_cumulative_pattern(db, standalone_eg, ano)
-            except Exception:
-                pass
+        standalone_hist = hist_patterns_prefetch.get(standalone_eg) if standalone_eg else None
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=standalone_daily_dict,
@@ -2506,22 +2501,7 @@ LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.increment_id NOT LIKE '%%-1%%'
-    AND so.increment_id NOT LIKE '%%-2%%'
-    AND so.increment_id NOT LIKE '%%-3%%'
-    AND so.increment_id NOT LIKE '%%-4%%'
-    AND so.increment_id NOT LIKE '%%-5%%'
-    AND so.increment_id NOT LIKE '%%-6%%'
-    AND so.increment_id NOT LIKE '%%-7%%'
-    AND so.increment_id NOT LIKE '%%-8%%'
-    AND so.increment_id NOT LIKE '%%-9%%'
-    AND so.increment_id NOT LIKE '%%-10%%'
-    AND so.increment_id NOT LIKE '%%-11%%'
-    AND so.increment_id NOT LIKE '%%-12%%'
-    AND so.increment_id NOT LIKE '%%-13%%'
-    AND so.increment_id NOT LIKE '%%-14%%'
-    AND so.increment_id NOT LIKE '%%-15%%'
-    AND so.increment_id NOT LIKE '%%-16%%'
+    so.increment_id NOT REGEXP '-[0-9]+$'
     AND so.status IN ('Processing', 'Complete', 'approved')
     AND soi.product_type = 'Bundle'
     AND so.location_pickup_id IN :location_ids
@@ -2604,23 +2584,7 @@ LEFT JOIN catalog_product_entity_varchar cpev1
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
-    AND so.increment_id NOT LIKE '%%-1%%'
-    AND so.increment_id NOT LIKE '%%-2%%'
-    AND so.increment_id NOT LIKE '%%-3%%'
-    AND so.increment_id NOT LIKE '%%-4%%'
-    AND so.increment_id NOT LIKE '%%-5%%'
-    AND so.increment_id NOT LIKE '%%-6%%'
-    AND so.increment_id NOT LIKE '%%-7%%'
-    AND so.increment_id NOT LIKE '%%-8%%'
-    AND so.increment_id NOT LIKE '%%-9%%'
-    AND so.increment_id NOT LIKE '%%-10%%'
-    AND so.increment_id NOT LIKE '%%-11%%'
-    AND so.increment_id NOT LIKE '%%-12%%'
-    AND so.increment_id NOT LIKE '%%-13%%'
-    AND so.increment_id NOT LIKE '%%-14%%'
-    AND so.increment_id NOT LIKE '%%-15%%'
-    AND so.increment_id NOT LIKE '%%-16%%'
-    AND so.increment_id NOT LIKE '%%-17%%'
+    AND so.increment_id NOT REGEXP '-[0-9]+$'
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
 """).bindparams(bindparam("location_ids", expanding=True))
@@ -2810,23 +2774,7 @@ LEFT JOIN (
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
-    AND so.increment_id NOT LIKE '%%-1%%'
-    AND so.increment_id NOT LIKE '%%-2%%'
-    AND so.increment_id NOT LIKE '%%-3%%'
-    AND so.increment_id NOT LIKE '%%-4%%'
-    AND so.increment_id NOT LIKE '%%-5%%'
-    AND so.increment_id NOT LIKE '%%-6%%'
-    AND so.increment_id NOT LIKE '%%-7%%'
-    AND so.increment_id NOT LIKE '%%-8%%'
-    AND so.increment_id NOT LIKE '%%-9%%'
-    AND so.increment_id NOT LIKE '%%-10%%'
-    AND so.increment_id NOT LIKE '%%-11%%'
-    AND so.increment_id NOT LIKE '%%-12%%'
-    AND so.increment_id NOT LIKE '%%-13%%'
-    AND so.increment_id NOT LIKE '%%-14%%'
-    AND so.increment_id NOT LIKE '%%-15%%'
-    AND so.increment_id NOT LIKE '%%-16%%'
-    AND so.increment_id NOT LIKE '%%-17%%'
+    AND so.increment_id NOT REGEXP '-[0-9]+$'
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """).bindparams(bindparam("location_ids", expanding=True))
@@ -2929,6 +2877,132 @@ def _normalize_name_for_match(name: str) -> str:
     s = _re.sub(r'\s+\d+$', '', s.strip())
     s = _re.sub(r'\s+', ' ', s).strip().lower()
     return s
+
+def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) -> dict:
+    from ...models.dimensoes import SkuMapping
+    prev_ano = ano - 1
+    if not grupo_names:
+        return {}
+
+    grupo_data_evento = {}
+    grupo_mappings_map = {}
+    all_prev_ativo_ids = []
+    all_prev_magento_ids = []
+    grupo_id_map = {}
+
+    for grupo_nome in grupo_names:
+        prev_data_evento = _find_data_evento(db, grupo_nome, prev_ano)
+        if not prev_data_evento:
+            continue
+        grupo_data_evento[grupo_nome] = prev_data_evento
+
+        prev_mappings = db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == grupo_nome,
+            SkuMapping.ano == prev_ano,
+            SkuMapping.ativo == True
+        ).all()
+
+        if not prev_mappings:
+            prev_skus_from_current = db.query(SkuMapping.sku).filter(
+                SkuMapping.evento_grupo == grupo_nome,
+                SkuMapping.ano == ano,
+                SkuMapping.ativo == True
+            ).distinct().all()
+            prev_skus = [s[0] for s in prev_skus_from_current]
+            if prev_skus:
+                prev_mappings = db.query(SkuMapping).filter(
+                    SkuMapping.sku.in_(prev_skus),
+                    SkuMapping.ano == prev_ano,
+                    SkuMapping.ativo == True
+                ).all()
+
+        if not prev_mappings:
+            continue
+
+        ativo_ids = []
+        magento_ids = []
+        for m in prev_mappings:
+            if m.id_externo:
+                ext_id = str(m.id_externo)
+                if m.fonte == 'ATIVO':
+                    ativo_ids.append(ext_id)
+                    all_prev_ativo_ids.append(ext_id)
+                    if ext_id not in grupo_id_map:
+                        grupo_id_map[ext_id] = []
+                    grupo_id_map[ext_id].append(('ATIVO', grupo_nome))
+                elif m.fonte == 'MAGENTO':
+                    magento_ids.append(ext_id)
+                    all_prev_magento_ids.append(ext_id)
+                    if ext_id not in grupo_id_map:
+                        grupo_id_map[ext_id] = []
+                    grupo_id_map[ext_id].append(('MAGENTO', grupo_nome))
+
+        grupo_mappings_map[grupo_nome] = {'ativo': ativo_ids, 'magento': magento_ids}
+
+    ativo_grouped = {}
+    if all_prev_ativo_ids:
+        try:
+            ativo_grouped = _fetch_daily_sales_ativo_by_ids_grouped(list(set(all_prev_ativo_ids)))
+        except Exception as e:
+            logger.error(f"Batch historical Ativo fetch error: {e}")
+
+    magento_grouped = {}
+    if all_prev_magento_ids:
+        try:
+            magento_grouped = _fetch_daily_sales_magento_by_ids_grouped(list(set(all_prev_magento_ids)))
+        except Exception as e:
+            logger.error(f"Batch historical Magento fetch error: {e}")
+
+    result = {}
+    for grupo_nome in grupo_names:
+        if grupo_nome not in grupo_data_evento or grupo_nome not in grupo_mappings_map:
+            continue
+
+        prev_data_evento = grupo_data_evento[grupo_nome]
+        ids_info = grupo_mappings_map[grupo_nome]
+
+        prev_daily = {}
+        for eid in ids_info['ativo']:
+            if eid in ativo_grouped:
+                for d, qtd in ativo_grouped[eid].items():
+                    prev_daily[d] = prev_daily.get(d, 0) + qtd
+        for lid in ids_info['magento']:
+            if lid in magento_grouped:
+                for d, qtd in magento_grouped[lid].items():
+                    prev_daily[d] = prev_daily.get(d, 0) + qtd
+
+        if not prev_daily:
+            continue
+
+        total_prev_sales = sum(prev_daily.values())
+        if total_prev_sales == 0:
+            continue
+
+        d_minus_sales = {}
+        for sale_date, qty in prev_daily.items():
+            dm = (prev_data_evento - sale_date).days
+            d_minus_sales[dm] = d_minus_sales.get(dm, 0) + qty
+
+        max_dm = max(d_minus_sales.keys())
+        min_dm = min(d_minus_sales.keys())
+
+        cumulative = 0
+        pattern = {}
+        for dm in range(max_dm, min_dm - 1, -1):
+            cumulative += d_minus_sales.get(dm, 0)
+            pattern[dm] = cumulative / total_prev_sales
+
+        if 0 not in pattern:
+            pattern[0] = 1.0
+        if min_dm > 0:
+            for dm in range(min_dm - 1, -1, -1):
+                pattern[dm] = 1.0
+
+        logger.info(f"Batch: Built historical pattern for '{grupo_nome}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
+        result[grupo_nome] = pattern
+
+    return result
+
 
 def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
     normalized_grupo = _normalize_name_for_match(evento_grupo)

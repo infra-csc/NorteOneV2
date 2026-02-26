@@ -29,8 +29,8 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **3D Login Background:** Uses `@react-three/fiber`, `@react-three/drei`, and `three` for animated 3D background on login page, with CSS fallback. `framer-motion` for UI animations.
 - **Virtual Assistant (Nori):** AI-powered assistant using OpenAI GPT-4o-mini for NLP, Web Speech API for speech-to-text, and SpeechSynthesis API for text-to-speech in Brazilian Portuguese.
 - **Data Consolidation:** Endpoint consolidates inscription data from Ativo and Magento using SKU, with marketing dashboards sourcing from `cadastro_evento` and `atletas_site_pago`.
-- **Performance Optimizations:** FastAPI uses `def` for blocking DB operations; frontend employs AbortController and progressive loading; SQL queries optimize calculations.
-- **Smart Multi-Tier Cache:** `SmartCache` module manages year-aware TTL, permanently caching historical data and applying a 1-hour TTL with background refresh for current year data.
+- **Performance Optimizations:** FastAPI uses `def` for blocking DB operations; frontend employs AbortController and progressive loading; SQL queries use SARGable date range filters (instead of `YEAR()` functions) and `REGEXP '^[0-9]+$'` (instead of multiple `NOT LIKE` patterns) for better index utilization. N+1 query issues resolved via batch prefetching (`_prefetch_all_historical_patterns`). ISC queries use automatic retry with backoff (`_fetch_with_retry`). Connection pools explicitly configured with `pool_size=5`, `max_overflow=10`, `pool_timeout=30`, `read_timeout=90`.
+- **Smart Multi-Tier Cache:** `SmartCache` module manages year-aware TTL, permanently caching historical data and applying a 1-hour TTL with background refresh for current year data. Cache includes hit/miss logging for diagnostics.
 
 ### Feature Specifications
 - **Authentication:** Standard email/password login with JWT.
