@@ -42,10 +42,12 @@ app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0", lifespan=lifespa
 from app.core.config import settings as app_settings
 
 cors_origins = [origin.strip() for origin in app_settings.CORS_ORIGINS.split(",") if origin.strip()]
+cors_origins.append("https://*.replit.app")
+cors_origins.append("https://*.replit.dev")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -132,16 +134,23 @@ async def list_ssh_tables(current_user=Depends(get_current_user)):
         logger.error(f"Erro ao listar tabelas SSH: {str(e)}")
         return {"status": "error", "message": "Erro interno ao listar tabelas"}
 
-frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
 if os.path.isdir(frontend_dist):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="static-assets")
+    assets_dir = os.path.join(frontend_dist, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            return {"detail": "Not Found"}
         file_path = os.path.join(frontend_dist, full_path)
-        if os.path.isfile(file_path):
+        if full_path and os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_dist, "index.html"))
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path)
+        return {"detail": "Not Found"}
 
 if __name__ == "__main__":
     import uvicorn
