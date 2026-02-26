@@ -520,7 +520,7 @@ const EventDetail: React.FC = () => {
   const last30Days = (event.dailySales || []).slice(-30);
 
   const dMinusCalc = event.dMinusInscricoes ?? Math.max(0, event.dMinus - 2);
-  const volumeParaMeta = metaAcumulada - inscritosTotal;
+  const volumeParaMeta = event.salesGoal - inscritosTotal;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
