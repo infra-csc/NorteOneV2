@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ConnectionAlert from '../../components/common/ConnectionAlert';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -84,7 +85,17 @@ const MarketingDashboard: React.FC = () => {
         return;
       }
       console.error('Erro ao carregar dados:', err);
-      setError('Erro ao carregar dados. Tente novamente.');
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      if (status === 401 || status === 403) {
+        setError('Sessão expirada. Faça login novamente para continuar.');
+      } else if (status === 500) {
+        setError(`Erro interno do servidor${detail ? `: ${detail}` : ''}. O banco de dados pode estar temporariamente indisponível.`);
+      } else if (err?.code === 'ERR_NETWORK' || err?.message?.includes('Network')) {
+        setError('Erro de rede: não foi possível conectar ao servidor. Verifique sua conexão.');
+      } else {
+        setError(`Erro ao carregar dados${detail ? `: ${detail}` : ''}. Tente novamente.`);
+      }
     } finally {
       if (!controller.signal.aborted) {
         setLoading(false);
@@ -205,25 +216,12 @@ const MarketingDashboard: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-          <p className="text-red-600 dark:text-red-400">{error}</p>
-        </div>
-      )}
-
-      {avisos.length > 0 && (
-        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-          <div className="flex items-start gap-2">
-            <span className="text-yellow-500 text-lg">⚠️</span>
-            <div>
-              <p className="font-semibold text-yellow-500">Atenção: Dados Parciais</p>
-              {avisos.map((aviso, index) => (
-                <p key={index} className="text-sm text-yellow-400/80 mt-1">{aviso}</p>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <ConnectionAlert
+        avisos={avisos}
+        error={error}
+        onRetry={() => fetchData(true, true)}
+        retrying={refreshing}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">

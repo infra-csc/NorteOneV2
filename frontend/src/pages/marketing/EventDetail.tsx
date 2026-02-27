@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import ConnectionAlert from '../../components/common/ConnectionAlert';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -598,19 +599,11 @@ const EventDetail: React.FC = () => {
         </button>
       </div>
 
-      {avisos.length > 0 && (
-        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-4">
-          <div className="flex items-start gap-2">
-            <span className="text-yellow-500 text-lg">⚠️</span>
-            <div>
-              <p className="font-semibold text-yellow-500">Atenção: Dados Parciais</p>
-              {avisos.map((aviso, index) => (
-                <p key={index} className="text-sm text-yellow-400/80 mt-1">{aviso}</p>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <ConnectionAlert
+        avisos={avisos}
+        onRetry={handleForceRefresh}
+        retrying={refreshing}
+      />
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

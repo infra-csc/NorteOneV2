@@ -50,6 +50,9 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Event Detail Layout Redesign:** Restructured Dash ISC Event Detail page for improved readability and data presentation, including D- bar, ISC gauge, sales cards, and volume indicators.
 - **Cotação & Importação (Quote & Import):** Comprehensive system for managing product quotes and import costs, including trips, suppliers, quotes with real-time exchange rates, import costs, and event linking. Features a dashboard with charts and access control.
 
+### UI Components
+- **ConnectionAlert:** Reusable component (`frontend/src/components/common/ConnectionAlert.tsx`) providing smart error/warning display for database connection issues. Features: error classification (session expired, server error, network error, timeout), per-source diagnostic info with timestamps for partial data warnings (Ativo, Magento, SSH), and retry button. Integrated in MarketingDashboard, EventDetail, and PricingAnalysis pages.
+
 ## External Dependencies
 - **PostgreSQL:** Primary database.
 - **MySQL:** External database for athlete data.
