@@ -23,48 +23,42 @@ from app.schemas.cadastro_evento import (
 router = APIRouter(prefix="/cadastros", tags=["Cadastros"], dependencies=[Depends(get_current_user)])
 
 
+def _update_projeto_fields(projeto: DimProjeto, cadastro: CadastroEvento):
+    """Atualiza campos do dim_projeto a partir do cadastro."""
+    projeto.produto = cadastro.produto or projeto.produto
+    projeto.modalidade = cadastro.modalidade or projeto.modalidade
+    projeto.tipo_evento = cadastro.tipo_evento or projeto.tipo_evento
+    projeto.evento = cadastro.nome
+    projeto.lei = cadastro.lei or projeto.lei
+    projeto.status = cadastro.status or projeto.status
+    projeto.capacidade_maxima = cadastro.capacidade_maxima
+    projeto.imagem_kv = cadastro.imagem_kv
+    if cadastro.data_evento:
+        projeto.data_evento = cadastro.data_evento
+    if cadastro.local:
+        projeto.local_evento = cadastro.local
+
+
 def _sync_dim_projeto(db: Session, cadastro: CadastroEvento):
     """Sincroniza os dados do cadastro com a tabela dim_projeto para manter compatibilidade."""
     if not cadastro.sku or not cadastro.nome:
         return
-    
+
     if cadastro.projeto_id:
         projeto = db.query(DimProjeto).filter(DimProjeto.id == cadastro.projeto_id).first()
-        if projeto:
-            projeto.codigo = cadastro.sku or projeto.codigo
-            projeto.produto = cadastro.produto or projeto.produto
-            projeto.modalidade = cadastro.modalidade or projeto.modalidade
-            projeto.tipo_evento = cadastro.tipo_evento or projeto.tipo_evento
-            projeto.evento = cadastro.nome
-            projeto.lei = cadastro.lei or projeto.lei
-            projeto.status = cadastro.status or projeto.status
-            projeto.capacidade_maxima = cadastro.capacidade_maxima
-            projeto.imagem_kv = cadastro.imagem_kv
-            if cadastro.data_evento:
-                projeto.data_evento = cadastro.data_evento
-            if cadastro.local:
-                projeto.local_evento = cadastro.local
+        if projeto and projeto.codigo == cadastro.sku:
+            _update_projeto_fields(projeto, cadastro)
             db.flush()
             return
-    
+        cadastro.projeto_id = None
+
     existing = db.query(DimProjeto).filter(DimProjeto.codigo == cadastro.sku).first()
     if existing:
-        existing.produto = cadastro.produto or existing.produto
-        existing.modalidade = cadastro.modalidade or existing.modalidade
-        existing.tipo_evento = cadastro.tipo_evento or existing.tipo_evento
-        existing.evento = cadastro.nome
-        existing.lei = cadastro.lei or existing.lei
-        existing.status = cadastro.status or existing.status
-        existing.capacidade_maxima = cadastro.capacidade_maxima
-        existing.imagem_kv = cadastro.imagem_kv
-        if cadastro.data_evento:
-            existing.data_evento = cadastro.data_evento
-        if cadastro.local:
-            existing.local_evento = cadastro.local
+        _update_projeto_fields(existing, cadastro)
         cadastro.projeto_id = existing.id
         db.flush()
     else:
-        if cadastro.data_evento and cadastro.local:
+        if cadastro.data_evento:
             novo_projeto = DimProjeto(
                 codigo=cadastro.sku,
                 produto=cadastro.produto or '',
@@ -497,6 +491,49 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
     db.refresh(cadastro)
     
     return db_to_response(cadastro)
+
+
+@router.post("/resync-projetos")
+def resync_dim_projetos(db: Session = Depends(get_db)):
+    """Re-sincroniza todos os cadastro_evento com dim_projeto, corrigindo links incorretos."""
+    cadastros = db.query(CadastroEvento).all()
+    fixed = 0
+    created = 0
+    for cad in cadastros:
+        if not cad.sku or not cad.nome:
+            continue
+        old_pid = cad.projeto_id
+        if cad.projeto_id:
+            proj = db.query(DimProjeto).filter(DimProjeto.id == cad.projeto_id).first()
+            if proj and proj.codigo == cad.sku:
+                continue
+            cad.projeto_id = None
+        existing = db.query(DimProjeto).filter(DimProjeto.codigo == cad.sku).first()
+        if existing:
+            _update_projeto_fields(existing, cad)
+            cad.projeto_id = existing.id
+            if old_pid != existing.id:
+                fixed += 1
+        elif cad.data_evento:
+            novo = DimProjeto(
+                codigo=cad.sku,
+                produto=cad.produto or '',
+                modalidade=cad.modalidade or 'Corrida',
+                tipo_evento=cad.tipo_evento or 'Próprio',
+                evento=cad.nome,
+                lei=cad.lei or '',
+                status=cad.status or 'Em andamento',
+                data_evento=cad.data_evento,
+                local_evento=cad.local or '',
+                capacidade_maxima=cad.capacidade_maxima,
+                imagem_kv=cad.imagem_kv
+            )
+            db.add(novo)
+            db.flush()
+            cad.projeto_id = novo.id
+            created += 1
+    db.commit()
+    return {"message": f"Re-sync completo. {fixed} links corrigidos, {created} projetos criados."}
 
 
 @router.delete("/{cadastro_id}")
