@@ -6,7 +6,14 @@ import socket
 import threading
 from .config import settings
 
-engine = create_engine(settings.DATABASE_URL) if settings.DATABASE_URL else None
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=30
+) if settings.DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 Base = declarative_base()
 
