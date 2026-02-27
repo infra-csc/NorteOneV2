@@ -37,6 +37,12 @@ def _update_projeto_fields(projeto: DimProjeto, cadastro: CadastroEvento):
         projeto.data_evento = cadastro.data_evento
     if cadastro.local:
         projeto.local_evento = cadastro.local
+    if cadastro.cidade:
+        projeto.cidade = cadastro.cidade
+    elif cadastro.localizacao_evento and not projeto.cidade:
+        projeto.cidade = cadastro.localizacao_evento
+    if cadastro.estado:
+        projeto.estado = cadastro.estado
 
 
 def _sync_dim_projeto(db: Session, cadastro: CadastroEvento):
@@ -70,7 +76,9 @@ def _sync_dim_projeto(db: Session, cadastro: CadastroEvento):
                 data_evento=cadastro.data_evento,
                 local_evento=cadastro.local or '',
                 capacidade_maxima=cadastro.capacidade_maxima,
-                imagem_kv=cadastro.imagem_kv
+                imagem_kv=cadastro.imagem_kv,
+                cidade=cadastro.cidade or cadastro.localizacao_evento or '',
+                estado=cadastro.estado or ''
             )
             db.add(novo_projeto)
             db.flush()
@@ -159,6 +167,8 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "tipo_evento": cadastro.tipo_evento or None,
         "lei": cadastro.lei or None,
         "capacidade_maxima": cadastro.capacidade_maxima or None,
+        "cidade": cadastro.cidade or None,
+        "estado": cadastro.estado or None,
         "info_geral": info_geral,
         "atletas": atletas,
         "cortesias": cortesias,
@@ -205,6 +215,16 @@ def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
 def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     """Cria um novo cadastro de evento"""
     
+    if data.sku and data.sku.strip():
+        existing_sku = db.query(CadastroEvento).filter(
+            CadastroEvento.sku == data.sku.strip()
+        ).first()
+        if existing_sku:
+            raise HTTPException(
+                status_code=409,
+                detail=f"O SKU '{data.sku}' já está em uso pelo evento '{existing_sku.nome}'."
+            )
+    
     data_evento = None
     if data.info_geral.data:
         try:
@@ -228,11 +248,13 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         imagem_kv=data.imagem_kv,
         status=data.status,
         modalidade=data.modalidade,
-        sku=data.sku,
+        sku=data.sku.strip() if data.sku else data.sku,
         produto=data.produto,
         tipo_evento=data.tipo_evento,
         lei=data.lei,
         capacidade_maxima=data.capacidade_maxima,
+        cidade=data.cidade,
+        estado=data.estado,
         data_evento=data_evento,
         horario_largada=data.info_geral.horario_largada,
         local=data.info_geral.local,
@@ -343,6 +365,18 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
     if not cadastro:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado")
     
+    if data.sku is not None and data.sku.strip():
+        sku_trimmed = data.sku.strip()
+        existing_sku = db.query(CadastroEvento).filter(
+            CadastroEvento.sku == sku_trimmed,
+            CadastroEvento.id != cadastro_id
+        ).first()
+        if existing_sku:
+            raise HTTPException(
+                status_code=409,
+                detail=f"O SKU '{sku_trimmed}' já está em uso pelo evento '{existing_sku.nome}'."
+            )
+    
     if data.projeto_id is not None:
         cadastro.projeto_id = data.projeto_id
     if data.nome is not None:
@@ -360,7 +394,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
     if data.modalidade is not None:
         cadastro.modalidade = data.modalidade
     if data.sku is not None:
-        cadastro.sku = data.sku
+        cadastro.sku = data.sku.strip()
     if data.produto is not None:
         cadastro.produto = data.produto
     if data.tipo_evento is not None:
@@ -369,6 +403,10 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.lei = data.lei
     if data.capacidade_maxima is not None:
         cadastro.capacidade_maxima = data.capacidade_maxima
+    if data.cidade is not None:
+        cadastro.cidade = data.cidade
+    if data.estado is not None:
+        cadastro.estado = data.estado
     
     if data.info_geral is not None:
         if data.info_geral.data:

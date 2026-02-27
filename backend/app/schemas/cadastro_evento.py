@@ -144,6 +144,8 @@ class CadastroEventoBase(BaseModel):
     tipo_evento: Optional[str] = None
     lei: Optional[str] = None
     capacidade_maxima: Optional[int] = None
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
     info_geral: InfoGeral = InfoGeral()
     atletas: AtletasData = AtletasData()
     cortesias: List[CortesiaItemCreate] = []
@@ -172,6 +174,8 @@ class CadastroEventoUpdate(BaseModel):
     tipo_evento: Optional[str] = None
     lei: Optional[str] = None
     capacidade_maxima: Optional[int] = None
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
     info_geral: Optional[InfoGeral] = None
     atletas: Optional[AtletasData] = None
     cortesias: Optional[List[CortesiaItemCreate]] = None
@@ -197,6 +201,8 @@ class CadastroEventoResponse(BaseModel):
     tipo_evento: Optional[str] = None
     lei: Optional[str] = None
     capacidade_maxima: Optional[int] = None
+    cidade: Optional[str] = None
+    estado: Optional[str] = None
     info_geral: InfoGeral = InfoGeral()
     atletas: AtletasData = AtletasData()
     cortesias: List[CortesiaItemResponse] = []

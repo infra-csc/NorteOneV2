@@ -53,6 +53,8 @@ interface CadastroEvento {
   tipo_evento: string;
   lei: string;
   capacidade_maxima: number | null;
+  cidade: string;
+  estado: string;
   info_geral: {
     data: string;
     horario_largada: string;
@@ -90,6 +92,8 @@ interface FormData {
   tipo_evento: string;
   lei: string;
   capacidade_maxima: number | null;
+  cidade: string;
+  estado: string;
   info_geral: {
     data: string;
     horario_largada: string;
@@ -156,6 +160,8 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   tipo_evento: 'Próprio',
   lei: '',
   capacidade_maxima: null,
+  cidade: '',
+  estado: '',
   info_geral: { data: '', horario_largada: '', local: '', distancias: [] },
   atletas: {
     site: { pago: 0, tkt_medio: 0 },
@@ -323,6 +329,8 @@ const Cadastro: React.FC = () => {
     tipo_evento: 'Próprio',
     lei: '',
     capacidade_maxima: null,
+    cidade: '',
+    estado: '',
     info_geral: {
       data: '',
       horario_largada: '',
@@ -521,6 +529,8 @@ const Cadastro: React.FC = () => {
       tipo_evento: item.tipo_evento || 'Próprio',
       lei: item.lei || '',
       capacidade_maxima: item.capacidade_maxima || null,
+      cidade: item.cidade || '',
+      estado: item.estado || '',
       info_geral: { ...item.info_geral },
       atletas: { 
         site: { ...item.atletas.site },
@@ -555,6 +565,7 @@ const Cadastro: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     try {
       setLoading(true);
 
@@ -596,6 +607,8 @@ const Cadastro: React.FC = () => {
         tipo_evento: form.tipo_evento,
         lei: form.lei,
         capacidade_maxima: form.capacidade_maxima,
+        cidade: form.cidade,
+        estado: form.estado,
         info_geral: form.info_geral,
         atletas: form.atletas,
         cortesias: form.cortesias,
@@ -1544,6 +1557,38 @@ const Cadastro: React.FC = () => {
                     onChange={(e) => setForm(prev => ({ ...prev, ano_evento: Number(e.target.value) }))}
                     className={`w-full px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 gap-3 mt-3">
+                <div className="col-span-6">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cidade</label>
+                  <input
+                    type="text"
+                    value={form.cidade}
+                    onChange={(e) => setForm(prev => ({ ...prev, cidade: e.target.value }))}
+                    placeholder="Ex: São Paulo"
+                    className={`w-full px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
+                </div>
+                <div className="col-span-6">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Estado</label>
+                  <select
+                    value={form.estado}
+                    onChange={(e) => setForm(prev => ({ ...prev, estado: e.target.value }))}
+                    className={`w-full px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Selecione...</option>
+                    <option value="AC">AC</option><option value="AL">AL</option><option value="AP">AP</option>
+                    <option value="AM">AM</option><option value="BA">BA</option><option value="CE">CE</option>
+                    <option value="DF">DF</option><option value="ES">ES</option><option value="GO">GO</option>
+                    <option value="MA">MA</option><option value="MT">MT</option><option value="MS">MS</option>
+                    <option value="MG">MG</option><option value="PA">PA</option><option value="PB">PB</option>
+                    <option value="PR">PR</option><option value="PE">PE</option><option value="PI">PI</option>
+                    <option value="RJ">RJ</option><option value="RN">RN</option><option value="RS">RS</option>
+                    <option value="RO">RO</option><option value="RR">RR</option><option value="SC">SC</option>
+                    <option value="SP">SP</option><option value="SE">SE</option><option value="TO">TO</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -3215,16 +3260,20 @@ const Cadastro: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={excedeCortesias}
+                  disabled={excedeCortesias || loading}
                   className={`px-8 py-3 rounded-xl font-semibold transition-all flex items-center gap-2 ${
-                    excedeCortesias 
+                    excedeCortesias || loading
                       ? 'bg-gray-500 text-gray-300 cursor-not-allowed opacity-60' 
                       : 'bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40'
                   }`}
                   title={excedeCortesias ? 'Quantidade de cortesias excede o limite orçado na aba Atletas' : ''}
                 >
-                  <Check className="w-5 h-5" />
-                  {editItem ? 'Salvar Alterações' : 'Criar Cadastro'}
+                  {loading ? (
+                    <RotateCcw className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Check className="w-5 h-5" />
+                  )}
+                  {loading ? 'Salvando...' : (editItem ? 'Salvar Alterações' : 'Criar Cadastro')}
                 </button>
               </div>
             </form>

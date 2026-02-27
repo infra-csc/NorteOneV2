@@ -22,6 +22,26 @@ def _scheduled_isc_refresh():
     except Exception as e:
         logger.error(f"Scheduled ISC cache refresh failed: {e}")
 
+def _startup_resync_projetos():
+    from app.core.database import SessionLocal
+    from app.models.cadastro_evento import CadastroEvento
+    from app.api.routes.cadastros import _sync_dim_projeto
+    try:
+        db = SessionLocal()
+        cadastros = db.query(CadastroEvento).all()
+        synced = 0
+        for c in cadastros:
+            try:
+                _sync_dim_projeto(db, c)
+                synced += 1
+            except Exception as e:
+                logger.warning(f"Resync failed for cadastro {c.id} ({c.nome}): {e}")
+        db.commit()
+        logger.info(f"Startup resync: {synced}/{len(cadastros)} cadastros synced to dim_projeto")
+        db.close()
+    except Exception as e:
+        logger.error(f"Startup resync failed: {e}")
+
 def seed_admin_user():
     from app.core.database import SessionLocal
     from app.models.user import Usuario
@@ -80,6 +100,7 @@ async def lifespan(app: FastAPI):
     if engine:
         Base.metadata.create_all(bind=engine)
     seed_admin_user()
+    _startup_resync_projetos()
     init_mysql_connections()
     init_ssh_tunnel()
     

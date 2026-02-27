@@ -49,6 +49,8 @@ class CadastroEvento(Base):
     tipo_evento = Column(String(50))
     lei = Column(String(50))
     capacidade_maxima = Column(Integer)
+    cidade = Column(String(100))
+    estado = Column(String(50))
     
     data_evento = Column(Date)
     horario_largada = Column(String(10))
