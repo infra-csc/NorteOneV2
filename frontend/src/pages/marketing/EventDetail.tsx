@@ -1422,7 +1422,7 @@ const EventDetail: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400">ISC Atual</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">ISC Atual (ref. ontem)</p>
             <div className="group relative">
               <Info className="w-4 h-4 text-gray-400 cursor-help" />
               <div className="hidden group-hover:block absolute z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg right-0 top-6">
@@ -1457,7 +1457,7 @@ const EventDetail: React.FC = () => {
         </div>
 
         <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Componentes do ISC</h3>
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-3 text-sm">Componentes do ISC (ref. ontem)</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <div className="flex items-center justify-between mb-1">

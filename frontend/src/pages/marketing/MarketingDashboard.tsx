@@ -505,7 +505,7 @@ const MarketingDashboard: React.FC = () => {
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg -left-28 top-5">
-                        Índice de Saúde Comercial: indica se o evento está acelerando (🟢), estável (🟡) ou desacelerando (🔴)
+                        Índice de Saúde Comercial (ref. ontem): indica se o evento está acelerando (🟢), estável (🟡) ou desacelerando (🔴)
                       </div>
                     </div>
                   </div>
