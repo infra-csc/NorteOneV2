@@ -14,13 +14,16 @@ logger = logging.getLogger(__name__)
 
 def _scheduled_isc_refresh():
     from app.core.database import SessionLocal
+    db = None
     try:
         db = SessionLocal()
         marketing.fetch_isc_pricing_data(db=db, force_refresh=True)
         logger.info("Scheduled ISC cache refresh completed successfully")
-        db.close()
     except Exception as e:
         logger.error(f"Scheduled ISC cache refresh failed: {e}")
+    finally:
+        if db:
+            db.close()
 
 def _startup_resync_projetos():
     from app.core.database import SessionLocal
@@ -105,8 +108,16 @@ async def lifespan(app: FastAPI):
     init_ssh_tunnel()
     
     cache_scheduler.register(_scheduled_isc_refresh)
-    cache_scheduler.start(interval=3600)
-    logger.info("Cache auto-refresh scheduler started (1 hour interval)")
+    cache_scheduler.start(interval=1800)
+    logger.info("Cache auto-refresh scheduler started (30 minute interval)")
+    
+    import threading
+    def _warm_isc_cache():
+        logger.info("Warming ISC cache on startup (background)...")
+        _scheduled_isc_refresh()
+    warm_thread = threading.Thread(target=_warm_isc_cache, daemon=True)
+    warm_thread.start()
+    logger.info("ISC cache warm-up thread launched")
     
     yield
     cache_scheduler.stop()

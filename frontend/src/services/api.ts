@@ -617,6 +617,55 @@ export const pricingService = {
   }
 };
 
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  key: string;
+}
+
+const dashboardCache: Map<string, CacheEntry<MarketingEventsResponse>> = new Map();
+const CACHE_MAX_AGE = 5 * 60 * 1000;
+
+function getCacheKey(params?: {
+  ano?: number;
+  status?: string;
+  categoria?: string;
+  busca?: string;
+  force_refresh?: boolean;
+}): string {
+  return `mkt_${params?.ano || ''}_${params?.status || ''}_${params?.categoria || ''}_${params?.busca || ''}`;
+}
+
+const MAX_CACHE_ENTRIES = 20;
+
+export function getMarketingDashboardCache(params?: {
+  ano?: number;
+  status?: string;
+  categoria?: string;
+  busca?: string;
+}): { data: MarketingEventsResponse; age: number } | null {
+  const key = getCacheKey(params);
+  const entry = dashboardCache.get(key);
+  if (!entry) return null;
+  const age = Date.now() - entry.timestamp;
+  if (age > CACHE_MAX_AGE) {
+    dashboardCache.delete(key);
+    return null;
+  }
+  return { data: entry.data, age };
+}
+
+export function isMarketingCacheStale(params?: {
+  ano?: number;
+  status?: string;
+  categoria?: string;
+  busca?: string;
+}): boolean {
+  const cached = getMarketingDashboardCache(params);
+  if (!cached) return true;
+  return cached.age > CACHE_MAX_AGE;
+}
+
 export const marketingService = {
   getEventos: async (params?: {
     ano?: number;
@@ -633,7 +682,14 @@ export const marketingService = {
     if (params?.force_refresh) queryParams.append('force_refresh', 'true');
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const response = await api.get(`/marketing/eventos${queryString}`, { signal });
-    return response.data;
+    const data = response.data;
+    const key = getCacheKey(params);
+    if (dashboardCache.size >= MAX_CACHE_ENTRIES) {
+      const oldestKey = dashboardCache.keys().next().value;
+      if (oldestKey) dashboardCache.delete(oldestKey);
+    }
+    dashboardCache.set(key, { data, timestamp: Date.now(), key });
+    return data;
   },
   getResumo: async (ano?: number, signal?: AbortSignal): Promise<{ status: string; resumo: MarketingDashboardSummary; ultima_atualizacao: string }> => {
     const queryString = ano ? `?ano=${ano}` : '';

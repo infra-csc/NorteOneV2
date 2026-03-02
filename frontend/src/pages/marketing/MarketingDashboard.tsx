@@ -14,15 +14,71 @@ import {
   Info,
   RefreshCw,
   Loader2,
-  Clock
+  Clock,
+  Database
 } from 'lucide-react';
 import { 
   getISCColor, 
   getISCEmoji, 
   isInCriticalWindow 
 } from '../../types/marketingPerformance';
-import { marketingService, MarketingEvent, MarketingDashboardSummary } from '../../services/api';
+import { marketingService, MarketingEvent, MarketingDashboardSummary, getMarketingDashboardCache } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
+
+const SkeletonPulse: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <div className={`animate-pulse bg-gray-200 dark:bg-gray-700 rounded ${className}`} />
+);
+
+const SkeletonCard: React.FC = () => (
+  <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+    <div className="flex items-center justify-between">
+      <div className="space-y-3 flex-1">
+        <SkeletonPulse className="h-4 w-24" />
+        <SkeletonPulse className="h-8 w-16" />
+        <SkeletonPulse className="h-3 w-32" />
+      </div>
+      <SkeletonPulse className="h-12 w-12 rounded-lg" />
+    </div>
+  </div>
+);
+
+const SkeletonTableRow: React.FC = () => (
+  <tr className="border-b border-gray-200 dark:border-gray-700">
+    <td className="px-4 py-4">
+      <div className="space-y-2">
+        <SkeletonPulse className="h-4 w-36" />
+        <SkeletonPulse className="h-3 w-24" />
+      </div>
+    </td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-20" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
+    <td className="px-4 py-4">
+      <div className="flex flex-col items-center gap-1">
+        <SkeletonPulse className="h-4 w-24" />
+        <SkeletonPulse className="h-2 w-24 rounded-full" />
+        <SkeletonPulse className="h-3 w-10" />
+      </div>
+    </td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-5 w-16 mx-auto" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-6 w-24 mx-auto rounded-full" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-8 mx-auto" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-5 w-5 mx-auto" /></td>
+  </tr>
+);
+
+const SkeletonFilters: React.FC = () => (
+  <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+    <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+      <SkeletonPulse className="h-10 flex-1 rounded-lg" />
+      <div className="flex items-center gap-3">
+        <SkeletonPulse className="h-10 w-40 rounded-lg" />
+        <SkeletonPulse className="h-10 w-28 rounded-lg" />
+      </div>
+    </div>
+  </div>
+);
 
 const MarketingDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -42,13 +98,26 @@ const MarketingDashboard: React.FC = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [revalidating, setRevalidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
+  const [fromCache, setFromCache] = useState(false);
+  
+  const [dataAge, setDataAge] = useState<string>('');
   
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const dataAgeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const AUTO_REFRESH_INTERVAL = 60 * 60 * 1000;
+
+  const applyResponse = useCallback((response: any) => {
+    setEventos(response.eventos);
+    setSummary(response.resumo);
+    setCategories(response.categorias);
+    setLastUpdate(new Date(response.ultima_atualizacao));
+    setAvisos((response as any).avisos || []);
+  }, []);
 
   const fetchData = useCallback(async (isRefresh = false, forceRefresh = false) => {
     if (abortControllerRef.current) {
@@ -57,31 +126,49 @@ const MarketingDashboard: React.FC = () => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    const requestParams = {
+      ano: new Date().getFullYear(),
+      status: statusFilter === 'all' ? undefined : statusFilter,
+      categoria: categoryFilter === 'all' ? undefined : categoryFilter,
+      busca: debouncedSearch || undefined,
+    };
+
+    const cached = getMarketingDashboardCache(requestParams);
+    const hasCachedData = cached !== null;
+
+    if (hasCachedData && !isRefresh && !forceRefresh) {
+      applyResponse(cached.data);
+      setLoading(false);
+      setFromCache(true);
+      setRevalidating(true);
+    } else if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
       setError(null);
       
       const response = await marketingService.getEventos({
-        ano: new Date().getFullYear(),
-        status: statusFilter === 'all' ? undefined : statusFilter,
-        categoria: categoryFilter === 'all' ? undefined : categoryFilter,
-        busca: debouncedSearch || undefined,
+        ...requestParams,
         force_refresh: forceRefresh || undefined
       }, controller.signal);
       
       if (!controller.signal.aborted) {
-        setEventos(response.eventos);
-        setSummary(response.resumo);
-        setCategories(response.categorias);
-        setLastUpdate(new Date(response.ultima_atualizacao));
-        setAvisos((response as any).avisos || []);
+        applyResponse(response);
+        setFromCache(false);
       }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
+        return;
+      }
+      if (hasCachedData) {
+        console.warn('Falha ao revalidar dados, mantendo cache:', err?.message);
+        setFromCache(true);
+        setRevalidating(false);
+        setRefreshing(false);
+        setLoading(false);
         return;
       }
       console.error('Erro ao carregar dados:', err);
@@ -100,9 +187,10 @@ const MarketingDashboard: React.FC = () => {
       if (!controller.signal.aborted) {
         setLoading(false);
         setRefreshing(false);
+        setRevalidating(false);
       }
     }
-  }, [statusFilter, categoryFilter, debouncedSearch]);
+  }, [statusFilter, categoryFilter, debouncedSearch, applyResponse]);
 
   useEffect(() => {
     fetchData();
@@ -119,6 +207,33 @@ const MarketingDashboard: React.FC = () => {
     }, 500);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    const updateAge = () => {
+      if (!lastUpdate) {
+        setDataAge('');
+        return;
+      }
+      const diffMs = Date.now() - lastUpdate.getTime();
+      const diffSec = Math.floor(diffMs / 1000);
+      if (diffSec < 60) {
+        setDataAge('agora');
+      } else if (diffSec < 3600) {
+        const mins = Math.floor(diffSec / 60);
+        setDataAge(`há ${mins} min`);
+      } else {
+        const hrs = Math.floor(diffSec / 3600);
+        setDataAge(`há ${hrs}h`);
+      }
+    };
+    updateAge();
+    dataAgeIntervalRef.current = setInterval(updateAge, 30000);
+    return () => {
+      if (dataAgeIntervalRef.current) {
+        clearInterval(dataAgeIntervalRef.current);
+      }
+    };
+  }, [lastUpdate]);
 
   useEffect(() => {
     autoRefreshRef.current = setInterval(() => {
@@ -187,6 +302,13 @@ const MarketingDashboard: React.FC = () => {
         <div className={`absolute top-1/2 left-1/2 w-64 h-64 ${isDark ? 'bg-indigo-500/5' : 'bg-indigo-400/15'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '2s' }} />
       </div>
 
+      {revalidating && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-200 dark:bg-gray-700 overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 animate-[shimmer_1.5s_ease-in-out_infinite]" style={{ width: '40%', animation: 'shimmer 1.5s ease-in-out infinite' }} />
+          <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }`}</style>
+        </div>
+      )}
+
       <div className="relative z-10 p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -199,10 +321,22 @@ const MarketingDashboard: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-3">
-          {lastUpdate && (
-            <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          {revalidating && (
+            <div className="flex items-center gap-2 text-xs text-blue-500 dark:text-blue-400 animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Atualizando...</span>
+            </div>
+          )}
+          {fromCache && !loading && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+              <Database className="w-3 h-3" />
+              <span className="text-xs font-medium">Dados em cache</span>
+            </div>
+          )}
+          {lastUpdate && !loading && dataAge && (
+            <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
               <Clock className="w-4 h-4" />
-              <span>Atualizado às {formatLastUpdate(lastUpdate)}</span>
+              <span>Dados de {dataAge}</span>
             </div>
           )}
           <button
@@ -224,67 +358,81 @@ const MarketingDashboard: React.FC = () => {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Eventos Ativos</p>
-              <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
-                {loading ? '-' : summary.totalActiveEvents}
-              </p>
+        {loading ? (
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
+        ) : (
+          <>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Eventos Ativos</p>
+                  <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">
+                    {summary.totalActiveEvents}
+                  </p>
+                </div>
+                <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                  <Calendar className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
             </div>
-            <div className="p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-              <Calendar className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            </div>
-          </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Zona Verde 🟢</p>
-              <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-1">
-                {loading ? '-' : summary.eventsGreen}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">ISC {'>'} 1.10 - Acelerando</p>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Zona Verde 🟢</p>
+                  <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-1">
+                    {summary.eventsGreen}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">ISC {'>'} 1.10 - Acelerando</p>
+                </div>
+                <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                  <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400" />
+                </div>
+              </div>
             </div>
-            <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400" />
-            </div>
-          </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Zona Amarela 🟡</p>
-              <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
-                {loading ? '-' : summary.eventsYellow}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">ISC 0.90-1.10 - Estável</p>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Zona Amarela 🟡</p>
+                  <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
+                    {summary.eventsYellow}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">ISC 0.90-1.10 - Estável</p>
+                </div>
+                <div className="p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
+                  <Activity className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
+                </div>
+              </div>
             </div>
-            <div className="p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
-              <Activity className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
-            </div>
-          </div>
-        </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Zona Vermelha 🔴</p>
-              <p className="text-3xl font-bold text-red-600 dark:text-red-400 mt-1">
-                {summary.eventsRed}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">ISC {'<'} 0.90 - Desacelerando</p>
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Zona Vermelha 🔴</p>
+                  <p className="text-3xl font-bold text-red-600 dark:text-red-400 mt-1">
+                    {summary.eventsRed}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">ISC {'<'} 0.90 - Desacelerando</p>
+                </div>
+                <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                  <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />
+                </div>
+              </div>
             </div>
-            <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
-              <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />
-            </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+        {loading ? (
+          <SkeletonFilters />
+        ) : (
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex flex-col lg:flex-row lg:items-center gap-4">
             <div className="relative flex-1">
@@ -325,6 +473,7 @@ const MarketingDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -394,12 +543,14 @@ const MarketingDashboard: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-500" />
-                    <p className="mt-3 text-gray-500 dark:text-gray-400">Carregando eventos...</p>
-                  </td>
-                </tr>
+                <>
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                  <SkeletonTableRow />
+                </>
               ) : eventos.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
