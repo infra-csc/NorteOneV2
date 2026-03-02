@@ -59,7 +59,7 @@ interface CadastroEvento {
     data: string;
     horario_largada: string;
     local: string;
-    distancias: string[];
+    distancias: any[];
   };
   atletas: {
     site: { pago: number; tkt_medio: number };
@@ -98,7 +98,7 @@ interface FormData {
     data: string;
     horario_largada: string;
     local: string;
-    distancias: string[];
+    distancias: any[];
   };
   atletas: {
     site: { pago: number; tkt_medio: number };
@@ -129,7 +129,7 @@ const statusOptions = ['Em andamento', 'Concluído', 'Cancelado'];
 
 const produtosDisponiveis = [
   'Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola',
-  'Moletom', 'Jaqueta', 'Boné', 'Viseira', 'Toalha', 'Squeeze', 'Munhequeira'
+  'Moletom', 'Jaqueta', 'Boné', 'Viseira', 'Toalha', 'Touca', 'Squeeze', 'Munhequeira'
 ];
 
 const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario: number }>> = {
@@ -1874,6 +1874,30 @@ const Cadastro: React.FC = () => {
                 <Ruler className="w-4 h-4 inline mr-2 text-purple-500" />
                 Distâncias
               </label>
+              {form.modalidade === 'Triathlon' ? (
+              <div className="grid grid-cols-3 gap-3">
+                {(['nado', 'ciclismo', 'corrida'] as const).map((campo) => {
+                  const triObj = (form.info_geral.distancias.length > 0 && typeof form.info_geral.distancias[0] === 'object') ? form.info_geral.distancias[0] : { nado: '', ciclismo: '', corrida: '' };
+                  const labelMap: Record<string, string> = { nado: 'Nado', ciclismo: 'Ciclismo', corrida: 'Corrida' };
+                  const placeholderMap: Record<string, string> = { nado: 'Ex: 750m', ciclismo: 'Ex: 20k', corrida: 'Ex: 5k' };
+                  return (
+                    <div key={campo}>
+                      <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{labelMap[campo]}</label>
+                      <input
+                        type="text"
+                        value={triObj[campo] || ''}
+                        onChange={(e) => {
+                          const newObj = { ...triObj, [campo]: e.target.value };
+                          setForm(prev => ({ ...prev, info_geral: { ...prev.info_geral, distancias: [newObj] } }));
+                        }}
+                        placeholder={placeholderMap[campo]}
+                        className={`w-full px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              ) : (
               <div className="flex flex-wrap gap-2 items-center">
                 {distanciasOptions.map(d => (
                   <button
@@ -1881,7 +1905,7 @@ const Cadastro: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const distancias = form.info_geral.distancias.includes(d)
-                        ? form.info_geral.distancias.filter(dist => dist !== d)
+                        ? form.info_geral.distancias.filter((dist: any) => dist !== d)
                         : [...form.info_geral.distancias, d];
                       setForm(prev => ({ ...prev, info_geral: { ...prev.info_geral, distancias } }));
                     }}
@@ -1923,6 +1947,7 @@ const Cadastro: React.FC = () => {
                   </div>
                 )}
               </div>
+              )}
             </div>
           </div>
         );
@@ -2663,14 +2688,27 @@ const Cadastro: React.FC = () => {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {cadastro.info_geral.distancias.map(d => (
-                      <span 
-                        key={d}
-                        className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-400 text-xs font-bold"
-                      >
-                        {d}
-                      </span>
-                    ))}
+                    {cadastro.info_geral.distancias.length > 0 && typeof cadastro.info_geral.distancias[0] === 'object' ? (
+                      (() => {
+                        const tri = cadastro.info_geral.distancias[0] as { nado?: string; ciclismo?: string; corrida?: string };
+                        return (
+                          <>
+                            {tri.nado && <span className="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-blue-400 text-xs font-bold">Nado: {tri.nado}</span>}
+                            {tri.ciclismo && <span className="px-3 py-1 rounded-full bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 text-xs font-bold">Ciclismo: {tri.ciclismo}</span>}
+                            {tri.corrida && <span className="px-3 py-1 rounded-full bg-gradient-to-r from-orange-500/20 to-red-500/20 text-orange-400 text-xs font-bold">Corrida: {tri.corrida}</span>}
+                          </>
+                        );
+                      })()
+                    ) : (
+                      cadastro.info_geral.distancias.map((d: any) => (
+                        <span 
+                          key={d}
+                          className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-400 text-xs font-bold"
+                        >
+                          {d}
+                        </span>
+                      ))
+                    )}
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 py-3 border-t border-gray-700/50">
@@ -2828,9 +2866,22 @@ const Cadastro: React.FC = () => {
                     <div className="col-span-full">
                       <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Distâncias</p>
                       <div className="flex flex-wrap gap-2">
-                        {selectedCadastro.info_geral.distancias.map((d: string) => (
-                          <span key={d} className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold">{d}</span>
-                        ))}
+                        {typeof selectedCadastro.info_geral.distancias[0] === 'object' ? (
+                          (() => {
+                            const tri = selectedCadastro.info_geral.distancias[0] as { nado?: string; ciclismo?: string; corrida?: string };
+                            return (
+                              <>
+                                {tri.nado && <span className="px-3 py-1 rounded-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs font-bold">Nado: {tri.nado}</span>}
+                                {tri.ciclismo && <span className="px-3 py-1 rounded-full bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs font-bold">Ciclismo: {tri.ciclismo}</span>}
+                                {tri.corrida && <span className="px-3 py-1 rounded-full bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs font-bold">Corrida: {tri.corrida}</span>}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          selectedCadastro.info_geral.distancias.map((d: any) => (
+                            <span key={d} className="px-3 py-1 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-bold">{d}</span>
+                          ))
+                        )}
                       </div>
                     </div>
                   )}

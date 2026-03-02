@@ -96,17 +96,22 @@ class FaixasPrecoByKit(BaseModel):
     kit_participacao: List[FaixaPrecoItemBase] = []
 
 
+class AppaiData(BaseModel):
+    pago: int = 0
+    tkt_medio: float = 0
+
 class AtletasData(BaseModel):
     site: dict = {"pago": 0, "tkt_medio": 0}
     grupos: dict = {"pago": 0, "tkt_medio": 0}
     cortesia: int = 0
+    appai: Optional[AppaiData] = AppaiData()
 
 
 class InfoGeral(BaseModel):
     data: str = ""
     horario_largada: str = ""
     local: str = ""
-    distancias: List[str] = []
+    distancias: list = []
 
 
 class RetiradaKit(BaseModel):

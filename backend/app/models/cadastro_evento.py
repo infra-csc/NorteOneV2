@@ -62,6 +62,8 @@ class CadastroEvento(Base):
     atletas_grupos_pago = Column(Integer, default=0)
     atletas_grupos_tkt_medio = Column(Numeric(10, 2), default=0)
     atletas_cortesia = Column(Integer, default=0)
+    atletas_appai_pago = Column(Integer, default=0)
+    atletas_appai_tkt_medio = Column(Numeric(10, 2), default=0)
     
     retirada_kit_local = Column(String(300))
     retirada_kit_data_horario = Column(DateTime)

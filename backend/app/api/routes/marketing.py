@@ -488,15 +488,17 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
         curva_d_percent = progress_percent / expected_progress
 
     from datetime import timedelta
-    today = date.today()
+    yesterday = date.today() - timedelta(days=1)
 
     real_7d = None
     real_14d = None
     real_30d = None
+    sum_14d_raw = None
     if daily_sales_dict and len(daily_sales_dict) > 0:
-        s7 = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(7))
-        s14 = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(14))
-        s30 = sum(daily_sales_dict.get(today - timedelta(days=i), 0) for i in range(30))
+        s7 = sum(daily_sales_dict.get(yesterday - timedelta(days=i), 0) for i in range(7))
+        s14 = sum(daily_sales_dict.get(yesterday - timedelta(days=i), 0) for i in range(14))
+        s30 = sum(daily_sales_dict.get(yesterday - timedelta(days=i), 0) for i in range(30))
+        sum_14d_raw = s14
         real_7d = s7 / 7.0
         real_14d = s14 / 14.0
         real_30d = s30 / 30.0
@@ -517,13 +519,20 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     if not ia730_calculated:
         ia730 = curva_d_percent
 
-    remaining_sales = max(0, sales_goal - current_sales)
-    if d_minus > 0:
-        expected_daily = remaining_sales / d_minus
-    else:
-        expected_daily = remaining_sales if remaining_sales > 0 else 1.0
-
-    if effective_14d is not None and effective_14d > 0:
+    expected_14d_sales = None
+    if hist_pattern and len(hist_pattern) > 0 and sales_goal > 0:
+        expected_now = _interpolate_hist_pattern(hist_pattern, d_minus)
+        expected_14d_ago = _interpolate_hist_pattern(hist_pattern, d_minus + 14)
+        expected_14d_sales = (expected_now - expected_14d_ago) * sales_goal
+    elif sales_goal > 0:
+        total_days = 90
+        expected_14d_sales = (14 / total_days) * sales_goal
+    
+    if expected_14d_sales is not None and expected_14d_sales > 0 and sum_14d_raw is not None:
+        rolling14d = sum_14d_raw / expected_14d_sales
+    elif effective_14d is not None and effective_14d > 0:
+        remaining_sales = max(0, sales_goal - current_sales)
+        expected_daily = remaining_sales / d_minus if d_minus > 0 else (remaining_sales if remaining_sales > 0 else 1.0)
         rolling14d = effective_14d / expected_daily if expected_daily > 0 else 1.5
     else:
         rolling14d = (curva_d_percent + ia730) / 2

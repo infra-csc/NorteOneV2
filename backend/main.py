@@ -98,10 +98,32 @@ def seed_admin_user():
     except Exception as e:
         logger.error(f"Error seeding admin user: {e}")
 
+def _run_column_migrations():
+    from app.core.database import SessionLocal
+    try:
+        db = SessionLocal()
+        migrations = [
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS atletas_appai_pago INTEGER DEFAULT 0",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS atletas_appai_tkt_medio NUMERIC(10,2) DEFAULT 0",
+            "ALTER TABLE evento_grupos ALTER COLUMN nome TYPE VARCHAR(200)",
+            "ALTER TABLE sku_mappings ALTER COLUMN evento_grupo TYPE VARCHAR(200)",
+        ]
+        for sql in migrations:
+            try:
+                db.execute(text(sql))
+            except Exception as e:
+                logger.warning(f"Migration skipped: {e}")
+        db.commit()
+        db.close()
+        logger.info("Column migrations completed")
+    except Exception as e:
+        logger.error(f"Column migrations failed: {e}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if engine:
         Base.metadata.create_all(bind=engine)
+    _run_column_migrations()
     seed_admin_user()
     _startup_resync_projetos()
     init_mysql_connections()

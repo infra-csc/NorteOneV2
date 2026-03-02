@@ -963,8 +963,8 @@ const SkuMappings: React.FC = () => {
               )}
               <div>
                 <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Nome do Grupo *</label>
-                <input type="text" required value={grupoFormData.nome} onChange={(e) => setGrupoFormData({ ...grupoFormData, nome: e.target.value })}
-                  placeholder="Ex: CORRIDA_ESPORTE_PLANALTO"
+                <input type="text" required maxLength={200} value={grupoFormData.nome} onChange={(e) => setGrupoFormData({ ...grupoFormData, nome: e.target.value })}
+                  placeholder="Ex: Circuito das Estações - Outono - São José dos Campos"
                   className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-emerald-500`} />
               </div>
               <div>

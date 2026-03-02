@@ -95,10 +95,12 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         distancias=cadastro.distancias or []
     )
     
+    from ..schemas.cadastro_evento import AppaiData
     atletas = AtletasData(
         site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
         grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
-        cortesia=cadastro.atletas_cortesia or 0
+        cortesia=cadastro.atletas_cortesia or 0,
+        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0))
     )
     
     retirada_kit = RetiradaKit(
@@ -264,6 +266,8 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         atletas_grupos_pago=data.atletas.grupos.get("pago", 0),
         atletas_grupos_tkt_medio=Decimal(str(data.atletas.grupos.get("tkt_medio", 0))),
         atletas_cortesia=data.atletas.cortesia,
+        atletas_appai_pago=data.atletas.appai.pago if data.atletas.appai else 0,
+        atletas_appai_tkt_medio=Decimal(str(data.atletas.appai.tkt_medio)) if data.atletas.appai else Decimal("0"),
         retirada_kit_local=data.retirada_kit.local,
         retirada_kit_data_horario=retirada_dt
     )
@@ -424,6 +428,9 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.atletas_grupos_pago = data.atletas.grupos.get("pago", 0)
         cadastro.atletas_grupos_tkt_medio = Decimal(str(data.atletas.grupos.get("tkt_medio", 0)))
         cadastro.atletas_cortesia = data.atletas.cortesia
+        if data.atletas.appai:
+            cadastro.atletas_appai_pago = data.atletas.appai.pago
+            cadastro.atletas_appai_tkt_medio = Decimal(str(data.atletas.appai.tkt_medio))
     
     if data.retirada_kit is not None:
         cadastro.retirada_kit_local = data.retirada_kit.local

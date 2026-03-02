@@ -107,7 +107,7 @@ class EventoGrupo(Base):
     __tablename__ = "evento_grupos"
     
     id = Column(Integer, primary_key=True, index=True)
-    nome = Column(String(100), nullable=False, unique=True)
+    nome = Column(String(200), nullable=False, unique=True)
     descricao = Column(Text, nullable=True)
     ativo = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
@@ -121,7 +121,7 @@ class SkuMapping(Base):
     fonte = Column(String(20), nullable=False)
     id_externo = Column(Integer, nullable=False)
     sku = Column(String(50), nullable=False)
-    evento_grupo = Column(String(50), nullable=True)
+    evento_grupo = Column(String(200), nullable=True)
     ano = Column(Integer, nullable=False)
     nome_evento = Column(String(255), nullable=False)
     ativo = Column(Boolean, default=True)
