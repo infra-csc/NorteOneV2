@@ -537,9 +537,9 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
-    ia730 = max(0.0, min(3.0, ia730))
-    curva_d_percent = max(0.0, min(3.0, curva_d_percent))
-    rolling14d = max(0.0, min(3.0, rolling14d))
+    ia730 = max(0.0, ia730)
+    curva_d_percent = max(0.0, curva_d_percent)
+    rolling14d = max(0.0, rolling14d)
     
     return ISCComponents(
         ia730=round(ia730, 2),
