@@ -571,7 +571,7 @@ const MarketingDashboard: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900 dark:text-white max-w-[280px] truncate" title={event.name}>
+                          <p className="font-medium text-gray-900 dark:text-white" title={event.name}>
                             {event.name}
                           </p>
                         </div>
