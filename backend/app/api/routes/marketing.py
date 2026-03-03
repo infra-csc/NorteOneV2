@@ -519,27 +519,27 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     if not ia730_calculated:
         ia730 = curva_d_percent
 
-    expected_14d_sales = None
+    d_minus_yesterday = d_minus + 1
+
+    expected_cumulative = None
     if hist_pattern and len(hist_pattern) > 0 and sales_goal > 0:
-        expected_now = _interpolate_hist_pattern(hist_pattern, d_minus)
-        expected_14d_ago = _interpolate_hist_pattern(hist_pattern, d_minus + 14)
-        expected_14d_sales = (expected_now - expected_14d_ago) * sales_goal
+        expected_now = _interpolate_hist_pattern(hist_pattern, d_minus_yesterday)
+        expected_cumulative = expected_now * sales_goal
     elif sales_goal > 0:
         total_days = 90
-        expected_14d_sales = (14 / total_days) * sales_goal
-    
-    if expected_14d_sales is not None and expected_14d_sales > 0 and sum_14d_raw is not None:
-        rolling14d = sum_14d_raw / expected_14d_sales
-    elif effective_14d is not None and effective_14d > 0:
-        remaining_sales = max(0, sales_goal - current_sales)
-        expected_daily = remaining_sales / d_minus if d_minus > 0 else (remaining_sales if remaining_sales > 0 else 1.0)
-        rolling14d = effective_14d / expected_daily if expected_daily > 0 else 1.5
+        elapsed_days = max(1, total_days - d_minus_yesterday)
+        expected_cumulative = (elapsed_days / total_days) * sales_goal
+
+    if expected_cumulative is not None and expected_cumulative > 0 and sum_14d_raw is not None:
+        rolling14d = sum_14d_raw / expected_cumulative
+    elif effective_14d is not None and effective_14d > 0 and expected_cumulative is not None and expected_cumulative > 0:
+        rolling14d = (effective_14d * 14) / expected_cumulative
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
     ia730 = max(0.5, min(1.5, ia730))
     curva_d_percent = max(0.5, min(1.5, curva_d_percent))
-    rolling14d = max(0.5, min(1.5, rolling14d))
+    rolling14d = max(0.0, min(2.0, rolling14d))
     
     return ISCComponents(
         ia730=round(ia730, 2),
