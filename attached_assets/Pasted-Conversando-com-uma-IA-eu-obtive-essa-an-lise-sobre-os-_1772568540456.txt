@@ -1,0 +1,101 @@
+Conversando com uma IA, eu obtive essa análise sobre os números estarem explodindo. Veja, interprete e reformule os dados conforme essa análise.
+
+“Isso acontece porque, do jeito que está, cada componente é um “ratio” (real/esperado) e você provavelmente está somando ratios direto. Aí qualquer dia em que um ratio dá 1,6 ou 2,2 (bem comum quando o “esperado” é baixo), o ISC “explode”.
+A correção é: converter ratio em “desvio” centrado em zero, aplicar travas (cap) e só então ponderar.
+Abaixo vai o modelo completo, bem explicado.
+1) O problema: por que o ISC fica muito alto?
+Se você faz algo como:
+ISC=0,40⋅CurvaD+0,40⋅Rolling14+0,20⋅IAISC = 0{,}40\cdot CurvaD + 0{,}40\cdot Rolling14 + 0{,}20\cdot IAISC=0,40⋅CurvaD+0,40⋅Rolling14+0,20⋅IA
+e depois multiplica por 100, veja:
+•	Se os três estiverem “em linha”, cada um ≈ 1
+→ ISC ≈ 1 (ou 100) dependendo da sua escala
+•	Se um deles subir para 2,0 (200% do esperado), ele sozinho já joga o score lá pra cima.
+E isso ocorre muito quando:
+•	o Esperado 14d está baixo (começo de campanha, curva muito suave)
+•	o Acumulado esperado ainda é pequeno
+•	você tem picos (lançamento de lote, mídia, e-mail, virada de preço)
+Conclusão: ratio é ótimo para medir, mas ruim para somar direto.
+2) Solução: transformar ratio em “desvio” (centrar em 1 → 0)
+Todo componente hoje é um ratio:
+•	Rolling14_ratio = Vendas14d / Esperado14d
+•	CurvaD_ratio = Acum / EsperadoHoje
+•	IA_ratio = (7d / base)
+O passo certo é:
+desvio=ratio−1desvio = ratio - 1desvio=ratio−1
+Assim:
+•	ratio = 1,00 → desvio = 0 (neutro)
+•	ratio = 1,20 → desvio = +0,20 (20% acima)
+•	ratio = 0,85 → desvio = -0,15 (15% abaixo)
+Isso evita o “viés” de sempre ficar acima de 1 e te dá uma métrica simétrica.
+________________________________________
+3) Trava (cap): impedir “explosões”
+Mesmo com desvio, pode ter dia com ratio 3,0 → desvio 2,0 (200% acima).
+Pra não dominar o ISC, você trava:
+desvio_cap=max⁡(−cap, min⁡(cap, desvio))desvio\_cap = \max(-cap,\ \min(cap,\ desvio))desvio_cap=max(−cap, min(cap, desvio))
+Cap típico: 0,30 (±30%) ou 0,40 (±40%), depende do seu apetite.
+4) Montando os 3 componentes do jeito certo
+Vou escrever exatamente no seu padrão da imagem.
+(A) Rolling 14 (momento)
+Você já tem:
+Rolling14_ratio=Vendas uˊltimos 14dVendas esperadas uˊltimos 14dRolling14\_{ratio}=\frac{Vendas\ últimos\ 14d}{Vendas\ esperadas\ últimos\ 14d}Rolling14_ratio=Vendas esperadas uˊltimos 14dVendas uˊltimos 14d
+Converta:
+R=clamp(Rolling14_ratio−1, −cap, +cap)R = clamp(Rolling14\_{ratio}-1,\ -cap,\ +cap)R=clamp(Rolling14_ratio−1, −cap, +cap)
+(B) Curva D-% (posição)
+Você já tem:
+CurvaD_ratio=Acumulado atualAcumulado esperado hojeCurvaD\_{ratio}=\frac{Acumulado\ atual}{Acumulado\ esperado\ hoje}CurvaD_ratio=Acumulado esperado hojeAcumulado atual
+Converta:
+D=clamp(CurvaD_ratio−1, −cap, +cap)D = clamp(CurvaD\_{ratio}-1,\ -cap,\ +cap)D=clamp(CurvaD_ratio−1, −cap, +cap)
+(C) Aceleração (IA)
+Você tem 2 opções. As duas são válidas.
+Opção 1 (7d / média diária 30d)
+Você escreveu:
+IA_ratio=Vendas uˊltimos 7dMeˊdia diaˊria uˊltimos 30dIA\_{ratio}=\frac{Vendas\ últimos\ 7d}{Média\ diária\ últimos\ 30d}IA_ratio=Meˊdia diaˊria uˊltimos 30dVendas uˊltimos 7d
+Aqui tem um detalhe: unidades diferentes (7 dias vs 1 dia).
+Para virar ratio “comparável”, o certo é comparar médias diárias:
+•	média 7d = V7/7
+•	média 30d = V30/30
+IA_ratio=V7/7V30/30IA\_{ratio}=\frac{V7/7}{V30/30}IA_ratio=V30/30V7/7
+Aí sim:
+IA=clamp(IA_ratio−1, −cap, +cap)IA = clamp(IA\_{ratio}-1,\ -cap,\ +cap)IA=clamp(IA_ratio−1, −cap, +cap)
+5) Fórmula final do ISC com seus pesos (40/40/20)
+Agora sim, você soma desvios travados:
+•	40% CurvaD (D)
+•	40% Rolling14 (R)
+•	20% IA (IA)
+ISC em escala 0–100
+ISC=50+100×(0,40⋅D+0,40⋅R+0,20⋅IA)ISC = 50 + 100 \times (0{,}40\cdot D + 0{,}40\cdot R + 0{,}20\cdot IA)ISC=50+100×(0,40⋅D+0,40⋅R+0,20⋅IA)
+6) Interpretação (pra ficar cristalino)
+Com cap = 0,30:
+•	Se tudo “em linha”: D=0, R=0, IA=0 → ISC = 50
+•	Se você está 20% acima na curva, 10% acima no rolling, 5% acelerando: 
+o	D=+0,20; R=+0,10; IA=+0,05
+o	ISC = 50 + 100*(0,400,20 + 0,400,10 + 0,20*0,05)
+o	ISC = 50 + 100*(0,08 + 0,04 + 0,01) = 63
+Ou seja: um score que faz sentido e não explode.
+________________________________________
+7) Onde normalmente está o “bug” que gera ISC absurdo
+1.	Somar ratio direto (1,8 vira “+0,8”, mas você está tratando como “+1,8”)
+2.	Não travar (cap)
+3.	No IA 7/30: comparar V7 com “média diária 30” sem ajustar por 7 dias
+
+Só tem 2 ajustes importantes pra isso funcionar bem no ISC (pra não virar “número que explode”):
+1) Transformar as razões em “desvio” (centrar em 1)
+Hoje, cada componente dá:
+•	1,00 = em linha
+•	>1 = melhor que o esperado
+•	<1 = pior que o esperado
+Para somar com pesos, normalmente você usa o desvio:
+•	Rolling14_desvio = Rolling14 - 1
+•	CurvaD_desvio = CurvaD - 1
+•	IA_desvio = Aceleracao - 1
+Isso deixa tudo com centro em 0 (0 = em linha), facilitando o score.
+2) Travar (cap) pra um componente não dominar
+Ex.: limitar cada desvio a ±0,30 (±30%):
+Desvio_travado = MAX(-0,30; MIN(0,30; desvio))
+________________________________________
+Do jeito “ISC” com seus pesos (40/40/20)
+Se você quer 40% D-, 40% Rolling14, 20% IA, a fórmula fica assim:
+ISC (escala 0–100)
+ISC=50+100×(0,40⋅D+0,40⋅R+0,20⋅IA)ISC = 50 + 100 \times (0{,}40 \cdot D + 0{,}40 \cdot R + 0{,}20 \cdot IA)ISC=50+100×(0,40⋅D+0,40⋅R+0,20⋅IA)
+onde D, R, IA são os desvios travados.
+
