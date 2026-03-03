@@ -7,8 +7,8 @@ const defaultISCParameters: ISCParameters = {
   ia730Weight: 20.0,
   curvaDWeight: 40.0,
   rolling14dWeight: 40.0,
-  greenThreshold: 60,
-  yellowThreshold: 40,
+  greenThreshold: 1.10,
+  yellowThreshold: 0.90,
   criticalWindowStart: 45,
   criticalWindowEnd: 40,
   promotionDeadline: 40
@@ -204,7 +204,7 @@ const ISCParametersSettings: React.FC = () => {
                   <span className="text-green-600">ISC &gt;</span>
                   <input
                     type="number"
-                    step="1"
+                    step="0.01"
                     value={parameters.greenThreshold}
                     onChange={(e) => handleChange('greenThreshold', Number(e.target.value))}
                     className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -224,7 +224,7 @@ const ISCParametersSettings: React.FC = () => {
                   <span className="text-yellow-600">ISC &ge;</span>
                   <input
                     type="number"
-                    step="1"
+                    step="0.01"
                     value={parameters.yellowThreshold}
                     onChange={(e) => handleChange('yellowThreshold', Number(e.target.value))}
                     className="w-24 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -302,7 +302,7 @@ const ISCParametersSettings: React.FC = () => {
           Fórmula do ISC
         </h4>
         <div className="bg-white dark:bg-gray-800 rounded-lg p-4 font-mono text-sm text-gray-800 dark:text-gray-200">
-          ISC = 50 + 100 × ({parameters.curvaDWeight.toFixed(0)}% × D + {parameters.rolling14dWeight.toFixed(0)}% × R + {parameters.ia730Weight.toFixed(0)}% × IA)
+          ISC = 1.0 + ({parameters.curvaDWeight.toFixed(0)}% × D + {parameters.rolling14dWeight.toFixed(0)}% × R + {parameters.ia730Weight.toFixed(0)}% × IA)
           <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
             D = clamp(CurvaD - 1, ±0.30) | R = clamp(Rolling14 - 1, ±0.30) | IA = clamp(IA7/30 - 1, ±0.30)
           </div>

@@ -275,10 +275,10 @@ const MarketingDashboard: React.FC = () => {
   };
 
   const getActionChipStyle = (isc: number, dMinus: number) => {
-    if (isc > 60) {
+    if (isc > 1.10) {
       return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
     }
-    if (isc >= 40) {
+    if (isc >= 0.90) {
       return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
     }
     if (dMinus < 40) {
@@ -288,8 +288,8 @@ const MarketingDashboard: React.FC = () => {
   };
 
   const getActionText = (isc: number, dMinus: number) => {
-    if (isc > 60) return 'Subir Preço';
-    if (isc >= 40) return 'Monitorar';
+    if (isc > 1.10) return 'Subir Preço';
+    if (isc >= 0.90) return 'Monitorar';
     if (dMinus < 40) return 'Só Comunicação';
     return 'Ação Promocional';
   };
@@ -388,7 +388,7 @@ const MarketingDashboard: React.FC = () => {
                   <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-1">
                     {summary.eventsGreen}
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">ISC {'>'} 60 - Acelerando</p>
+                  <p className="text-xs text-gray-400 mt-1">ISC {'>'} 1.10 - Acelerando</p>
                 </div>
                 <div className="p-3 bg-green-100 dark:bg-green-900/30 rounded-lg">
                   <TrendingUp className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -403,7 +403,7 @@ const MarketingDashboard: React.FC = () => {
                   <p className="text-3xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">
                     {summary.eventsYellow}
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">ISC 40-60 - Estável</p>
+                  <p className="text-xs text-gray-400 mt-1">ISC 0.90-1.10 - Estável</p>
                 </div>
                 <div className="p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-lg">
                   <Activity className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
@@ -418,7 +418,7 @@ const MarketingDashboard: React.FC = () => {
                   <p className="text-3xl font-bold text-red-600 dark:text-red-400 mt-1">
                     {summary.eventsRed}
                   </p>
-                  <p className="text-xs text-gray-400 mt-1">ISC {'<'} 40 - Desacelerando</p>
+                  <p className="text-xs text-gray-400 mt-1">ISC {'<'} 0.90 - Desacelerando</p>
                 </div>
                 <div className="p-3 bg-red-100 dark:bg-red-900/30 rounded-lg">
                   <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />
@@ -621,7 +621,7 @@ const MarketingDashboard: React.FC = () => {
                         className="text-lg font-bold"
                         style={{ color: getISCColor(event.iscStatus) }}
                       >
-                        {getISCEmoji(event.iscStatus)} {event.isc.toFixed(1)}
+                        {getISCEmoji(event.iscStatus)} {event.isc.toFixed(2)}
                       </span>
                     </div>
                   </td>

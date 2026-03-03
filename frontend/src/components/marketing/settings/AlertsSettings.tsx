@@ -11,7 +11,7 @@ const AlertsSettings: React.FC = () => {
   const [newAlert, setNewAlert] = useState<Partial<AlertConfig>>({
     name: '',
     description: '',
-    condition: { type: 'isc_below', value: 35, comparison: 'less_than' },
+    condition: { type: 'isc_below', value: 0.85, comparison: 'less_than' },
     channels: [{ type: 'email', target: '', isEnabled: true }],
     isActive: true
   });
@@ -98,7 +98,7 @@ const AlertsSettings: React.FC = () => {
       setNewAlert({
         name: '',
         description: '',
-        condition: { type: 'isc_below', value: 35, comparison: 'less_than' },
+        condition: { type: 'isc_below', value: 0.85, comparison: 'less_than' },
         channels: [{ type: 'email', target: '', isEnabled: true }],
         isActive: true
       });

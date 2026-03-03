@@ -568,7 +568,7 @@ const EventDetail: React.FC = () => {
     return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
   };
 
-  const gaugeRotation = Math.min(Math.max((event.isc / 100) * 180, 0), 180);
+  const gaugeRotation = Math.min(Math.max((event.isc - 0.5) * 180, 0), 180);
 
   return (
     <div className="min-h-screen">
@@ -1447,7 +1447,7 @@ const EventDetail: React.FC = () => {
               className="text-3xl font-bold mt-2"
               style={{ color: getISCColor(event.iscStatus) }}
             >
-              {getISCEmoji(event.iscStatus)} {event.isc.toFixed(1)}
+              {getISCEmoji(event.iscStatus)} {event.isc.toFixed(2)}
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {event.iscStatus === 'accelerating' ? 'Acelerando' : 
