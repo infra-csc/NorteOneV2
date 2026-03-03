@@ -521,19 +521,19 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
 
     d_minus_yesterday = d_minus + 1
 
-    expected_cumulative = None
+    expected_14d_sales = None
     if hist_pattern and len(hist_pattern) > 0 and sales_goal > 0:
-        expected_now = _interpolate_hist_pattern(hist_pattern, d_minus_yesterday)
-        expected_cumulative = expected_now * sales_goal
+        expected_at_yesterday = _interpolate_hist_pattern(hist_pattern, d_minus_yesterday)
+        expected_14d_ago = _interpolate_hist_pattern(hist_pattern, d_minus_yesterday + 14)
+        expected_14d_sales = (expected_at_yesterday - expected_14d_ago) * sales_goal
     elif sales_goal > 0:
         total_days = 90
-        elapsed_days = max(1, total_days - d_minus_yesterday)
-        expected_cumulative = (elapsed_days / total_days) * sales_goal
+        expected_14d_sales = (14 / total_days) * sales_goal
 
-    if expected_cumulative is not None and expected_cumulative > 0 and sum_14d_raw is not None:
-        rolling14d = sum_14d_raw / expected_cumulative
-    elif effective_14d is not None and effective_14d > 0 and expected_cumulative is not None and expected_cumulative > 0:
-        rolling14d = (effective_14d * 14) / expected_cumulative
+    if expected_14d_sales is not None and expected_14d_sales > 0 and sum_14d_raw is not None:
+        rolling14d = sum_14d_raw / expected_14d_sales
+    elif effective_14d is not None and effective_14d > 0 and expected_14d_sales is not None and expected_14d_sales > 0:
+        rolling14d = (effective_14d * 14) / expected_14d_sales
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
