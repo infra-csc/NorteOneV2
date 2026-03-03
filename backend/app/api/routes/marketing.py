@@ -917,33 +917,7 @@ SELECT
     base.inscricao_liquida / NULLIF(base.qtd_site, 0)                       AS "Ticket Médio Site",
     ROUND(base.qtd_30d / 30.0, 2)                                           AS "Média Diária 30d",
     ROUND(base.qtd_14d / 14.0, 2)                                           AS "Média Diária 14d",
-    ROUND(base.qtd_7d  /  7.0, 2)                                           AS "Média Diária 7d",
-    GREATEST(DATEDIFF(base.dt_evento, CURDATE()), 0)                        AS "Dias até Evento",
-
-    ROUND(base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0), 2)                AS "Fator Aceleração",
-
-    ROUND(
-        base.qtd_site
-        + (base.qtd_14d / 14.0)
-          * GREATEST(DATEDIFF(base.dt_evento, CURDATE()), 0)
-    , 0)                                                                     AS "Projeção Linear",
-
-    ROUND(
-        base.qtd_site
-        + (base.qtd_14d / 14.0)
-          * LEAST(GREATEST(
-                base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0),
-                0.3
-            ), 2.5)
-          * GREATEST(DATEDIFF(base.dt_evento, CURDATE()), 0)
-    , 0)                                                                     AS "Projeção Ajustada",
-
-    CASE
-        WHEN base.qtd_7d_anterior = 0                                        THEN 'Sem histórico comparativo'
-        WHEN (base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0)) >= 1.15        THEN 'Acelerando'
-        WHEN (base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0)) >= 0.85        THEN 'Estável'
-        ELSE 'Desacelerando'
-    END                                                                      AS "Tendência"
+    ROUND(base.qtd_7d  /  7.0, 2)                                           AS "Média Diária 7d"
 
 FROM (
     SELECT
@@ -951,7 +925,6 @@ FROM (
         b.ds_evento,
         b.dt_evento,
 
-        -- Qtd total
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
              AND h.ds_categoria NOT LIKE '%%Grup%%'
@@ -959,7 +932,6 @@ FROM (
             ELSE 0
         END)                                                                 AS qtd_site,
 
-        -- Qtd últimos 30 dias
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
              AND h.ds_categoria NOT LIKE '%%Grup%%'
@@ -968,7 +940,6 @@ FROM (
             THEN 1 ELSE 0
         END)                                                                 AS qtd_30d,
 
-        -- Qtd últimos 14 dias
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
              AND h.ds_categoria NOT LIKE '%%Grup%%'
@@ -977,7 +948,6 @@ FROM (
             THEN 1 ELSE 0
         END)                                                                 AS qtd_14d,
 
-        -- Qtd últimos 7 dias
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
              AND h.ds_categoria NOT LIKE '%%Grup%%'
@@ -986,187 +956,145 @@ FROM (
             THEN 1 ELSE 0
         END)                                                                 AS qtd_7d,
 
-        -- Qtd dias 8 a 14 atrás
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
              AND h.ds_categoria NOT LIKE '%%Grup%%'
              AND c.nr_total > 0
-             AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
-             AND c.dt_pedido <  DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-            THEN 1 ELSE 0
-        END)                                                                 AS qtd_7d_anterior,
-
-        -- Inscrição líquida
-        SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND h.ds_categoria NOT LIKE '%%Grup%%' THEN
+            THEN
                 IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
                    a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
             ELSE 0
         END)                                                                 AS inscricao_liquida
 
     FROM sa_pedido_evento AS a
-    INNER JOIN sa_evento AS b
-            ON b.id_evento = a.id_evento
-    INNER JOIN sa_pedido AS c
-            ON c.id_pedido = a.id_pedido
-    LEFT JOIN sa_modalidade_categoria AS h
-           ON a.id_categoria = h.id_categoria
-    LEFT JOIN sa_cupom_desconto_item AS e
-           ON e.id_cupom_desconto_item = a.id_cupom_individual
-    LEFT JOIN sa_cupom_desconto AS f
-           ON f.id_cupom_desconto = e.id_cupom_desconto
+    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+    INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+    LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+    LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+    LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+
     WHERE
-        b.dt_evento >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
-        AND b.dt_evento < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
+        YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
         AND c.fl_local_inscricao = '1'
-        AND c.id_pedido_status IN (1, 2)
+        AND (c.id_pedido_status = 2 OR c.id_pedido_status = 1)
         AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+
     GROUP BY
         b.id_evento,
         b.ds_evento,
         b.dt_evento
 ) AS base
-ORDER BY
-    base.id_evento;
+
+ORDER BY base.id_evento;
 """
 
 
 def build_query_isc_magento() -> str:
     return """
 SELECT
-    base.id_evento                                                           AS "ID Evento",
-    base.evento                                                              AS "Evento",
-    base.qtd_site                                                            AS "Qtd Site",
-    base.inscricao_liquida                                                   AS "Inscrição Líquida Site",
-    base.inscricao_liquida / NULLIF(base.qtd_site, 0)                       AS "Ticket Médio Site",
-    ROUND(base.qtd_30d / 30.0, 2)                                           AS "Média Diária 30d",
-    ROUND(base.qtd_14d / 14.0, 2)                                           AS "Média Diária 14d",
-    ROUND(base.qtd_7d  /  7.0, 2)                                           AS "Média Diária 7d",
-    GREATEST(DATEDIFF(base.data_evento, CURDATE()), 0)                      AS "Dias até Evento",
+    cpev1.value                                                              AS "ID Evento",
+    cpev2.value                                                              AS "Evento",
 
-    ROUND(base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0), 2)                AS "Fator Aceleração",
+    COUNT(DISTINCT soi.item_id)                                              AS "Qtd Site",
 
-    ROUND(
-        base.qtd_site
-        + (base.qtd_14d / 14.0)
-          * GREATEST(DATEDIFF(base.data_evento, CURDATE()), 0)
-    , 0)                                                                     AS "Projeção Linear",
+    ROUND(SUM(
+        CASE
+            WHEN soi.price = 0 THEN 0
+            ELSE CASE
+                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
+                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
+                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
+                ELSE soi.price
+            END
+            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+            - CASE
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN soiaa.price = 14.90
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0
+              END
+        END
+    ), 2)                                                                    AS "Inscrição Líquida",
 
-    ROUND(
-        base.qtd_site
-        + (base.qtd_14d / 14.0)
-          * LEAST(GREATEST(
-                base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0),
-                0.3
-            ), 2.5)
-          * GREATEST(DATEDIFF(base.data_evento, CURDATE()), 0)
-    , 0)                                                                     AS "Projeção Ajustada",
+    ROUND(SUM(
+        CASE
+            WHEN soi.price = 0 THEN 0
+            ELSE CASE
+                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
+                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
+                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
+                ELSE soi.price
+            END
+            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+            - CASE
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN soiaa.price = 14.90
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0
+              END
+        END
+    ) / NULLIF(COUNT(DISTINCT soi.item_id), 0), 2)                          AS "Ticket Médio",
 
-    CASE
-        WHEN base.qtd_7d_anterior = 0                                        THEN 'Sem histórico comparativo'
-        WHEN (base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0)) >= 1.15        THEN 'Acelerando'
-        WHEN (base.qtd_7d / NULLIF(base.qtd_7d_anterior, 0)) >= 0.85        THEN 'Estável'
-        ELSE 'Desacelerando'
-    END                                                                      AS "Tendência"
+    ROUND(COUNT(DISTINCT CASE
+        WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        THEN soi.item_id END) / 30.0, 2)                                    AS "Média Diária 30d",
 
-FROM (
-    SELECT
-        cpev1.value                                                          AS id_evento,
-        cpev2.value                                                          AS evento,
-        cped_date.value                                                      AS data_evento,
+    ROUND(COUNT(DISTINCT CASE
+        WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+        THEN soi.item_id END) / 14.0, 2)                                    AS "Média Diária 14d",
 
-        -- Qtd total
-        SUM(CASE
-            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-             AND so.base_grand_total > 0 THEN 1
-            ELSE 0
-        END)                                                                 AS qtd_site,
+    ROUND(COUNT(DISTINCT CASE
+        WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        THEN soi.item_id END) / 7.0, 2)                                     AS "Média Diária 7d"
 
-        -- Qtd últimos 30 dias
-        SUM(CASE
-            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-             AND so.base_grand_total > 0
-             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            THEN 1 ELSE 0
-        END)                                                                 AS qtd_30d,
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id
+      AND cpev1.attribute_id = 321
+LEFT JOIN catalog_product_entity_varchar cpev2
+       ON cpev2.entity_id = cpev1.value
+      AND cpev2.attribute_id = 73
+LEFT JOIN catalog_product_entity_datetime cped
+       ON cped.entity_id = cpev1.value
+      AND cped.attribute_id = 195
+LEFT JOIN (
+    SELECT * FROM sales_order_item WHERE name LIKE '%%persona%%'
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
+LEFT JOIN customer_group AS cg
+       ON cg.customer_group_id = so.customer_group_id
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND soi.price > 0
+AND so.base_grand_total > 0
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND so.increment_id NOT LIKE '%%-1%%'
+AND so.increment_id NOT LIKE '%%-2%%'
+AND so.increment_id NOT LIKE '%%-3%%'
+AND so.increment_id NOT LIKE '%%-4%%'
+AND so.increment_id NOT LIKE '%%-5%%'
+AND so.increment_id NOT LIKE '%%-6%%'
+AND so.increment_id NOT LIKE '%%-7%%'
+AND so.increment_id NOT LIKE '%%-8%%'
+AND so.increment_id NOT LIKE '%%-9%%'
+AND so.increment_id NOT LIKE '%%-10%%'
+AND so.increment_id NOT LIKE '%%-11%%'
+AND so.increment_id NOT LIKE '%%-12%%'
+AND so.increment_id NOT LIKE '%%-13%%'
+AND so.increment_id NOT LIKE '%%-14%%'
+AND so.increment_id NOT LIKE '%%-15%%'
+AND so.increment_id NOT LIKE '%%-16%%'
+AND so.increment_id NOT LIKE '%%-17%%'
+AND YEAR(cped.value) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
 
-        -- Qtd últimos 14 dias
-        SUM(CASE
-            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-             AND so.base_grand_total > 0
-             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
-            THEN 1 ELSE 0
-        END)                                                                 AS qtd_14d,
+GROUP BY
+    cpev1.value,
+    cpev2.value
 
-        -- Qtd últimos 7 dias
-        SUM(CASE
-            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-             AND so.base_grand_total > 0
-             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-            THEN 1 ELSE 0
-        END)                                                                 AS qtd_7d,
-
-        -- Qtd dias 8 a 14 atrás
-        SUM(CASE
-            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-             AND so.base_grand_total > 0
-             AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
-             AND so.created_at <  DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-            THEN 1 ELSE 0
-        END)                                                                 AS qtd_7d_anterior,
-
-        -- Inscrição líquida
-        SUM(CASE
-            WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
-                soi.price
-                - CASE
-                    WHEN soi.price = 0           THEN 0
-                    WHEN soi.name LIKE '%%plus%%'  THEN 69.00
-                    WHEN soi.name LIKE '%%super%%' THEN 269.00
-                    WHEN soi.name LIKE '%%vip%%'   THEN 199.99
-                    ELSE 0
-                  END
-                + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-                - CASE
-                    WHEN cg.customer_group_id = 4 THEN 0
-                    WHEN COALESCE(soiaa.price, 0) = 14.90
-                     AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-                    ELSE 0
-                  END
-            ELSE 0
-        END)                                                                 AS inscricao_liquida
-
-    FROM sales_order so
-    LEFT JOIN sales_order_item soi
-           ON soi.order_id = so.entity_id
-          AND soi.product_type = 'bundle'
-    LEFT JOIN catalog_product_entity_varchar cpev1
-           ON cpev1.entity_id = soi.product_id
-          AND cpev1.attribute_id = 321
-    LEFT JOIN catalog_product_entity_varchar cpev2
-           ON cpev2.entity_id = cpev1.value
-          AND cpev2.attribute_id = 73
-    LEFT JOIN catalog_product_entity_datetime cped_date
-           ON cped_date.entity_id = cpev1.value
-          AND cped_date.attribute_id = 195
-    LEFT JOIN customer_group cg
-           ON cg.customer_group_id = so.customer_group_id
-    LEFT JOIN (
-        SELECT * FROM sales_order_item WHERE name LIKE '%%persona%%'
-    ) AS soiaa ON soiaa.parent_item_id = soi.item_id
-    WHERE
-         so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
-     AND cped_date.value >= CONCAT(YEAR(CURDATE()) - 1, '-01-01')
-     AND cped_date.value < CONCAT(YEAR(CURDATE()) + 1, '-01-01')
-     AND so.increment_id NOT REGEXP '-[0-9]+$'
-    GROUP BY
-        cpev1.value,
-        cpev2.value,
-        cped_date.value
-) AS base
 ORDER BY
-    base.id_evento;
+    cpev1.value;
 """
 
 
@@ -1180,11 +1108,11 @@ def _parse_isc_row(row) -> dict:
         "media_30d": float(row[5]) if row[5] else 0.0,
         "media_14d": float(row[6]) if row[6] else 0.0,
         "media_7d": float(row[7]) if row[7] else 0.0,
-        "dias_ate_evento": int(row[8]) if row[8] is not None else 0,
-        "fator_aceleracao": float(row[9]) if row[9] else 0.0,
-        "projecao_linear": float(row[10]) if row[10] else 0.0,
-        "projecao_ajustada": float(row[11]) if row[11] else 0.0,
-        "tendencia": str(row[12]) if row[12] else "Sem histórico comparativo",
+        "dias_ate_evento": 0,
+        "fator_aceleracao": 0.0,
+        "projecao_linear": 0.0,
+        "projecao_ajustada": 0.0,
+        "tendencia": "Sem histórico comparativo",
     }
 
 
