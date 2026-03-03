@@ -20,7 +20,7 @@ import noriAvatar from '@assets/Nori.png';
 
 const MiniISCGauge: React.FC<{ value: number; status: string }> = ({ value, status }) => {
   const color = status === 'accelerating' ? '#22c55e' : status === 'stable' ? '#eab308' : '#ef4444';
-  const percentage = Math.min(Math.max((value / 2) * 100, 0), 100);
+  const percentage = Math.min(Math.max(value, 0), 100);
   
   return (
     <div className="inline-flex items-center gap-2 bg-gray-50 dark:bg-gray-600 rounded-lg px-3 py-1.5">
@@ -43,7 +43,7 @@ const MiniISCGauge: React.FC<{ value: number; status: string }> = ({ value, stat
           />
         </svg>
       </div>
-      <span className="font-bold text-sm" style={{ color }}>{value.toFixed(2)}</span>
+      <span className="font-bold text-sm" style={{ color }}>{value.toFixed(1)}</span>
     </div>
   );
 };

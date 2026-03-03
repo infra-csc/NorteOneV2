@@ -65,8 +65,8 @@ export interface FilterOptions {
 }
 
 export function getISCStatus(isc: number): ISCStatus {
-  if (isc > 1.10) return 'accelerating';
-  if (isc >= 0.90) return 'stable';
+  if (isc > 60) return 'accelerating';
+  if (isc >= 40) return 'stable';
   return 'decelerating';
 }
 

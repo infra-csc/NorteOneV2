@@ -320,11 +320,11 @@ _isc_settings_cache: dict = {"value": None, "ts": 0}
 _ISC_SETTINGS_TTL = 60
 
 _DEFAULT_ISC_SETTINGS = {
-    "ia730Weight": 33.33,
-    "curvaDWeight": 33.33,
-    "rolling14dWeight": 33.34,
-    "greenThreshold": 1.10,
-    "yellowThreshold": 0.90,
+    "ia730Weight": 20.0,
+    "curvaDWeight": 40.0,
+    "rolling14dWeight": 40.0,
+    "greenThreshold": 60,
+    "yellowThreshold": 40,
     "criticalWindowStart": 45,
     "criticalWindowEnd": 40,
     "promotionDeadline": 40,
@@ -348,14 +348,14 @@ def _get_isc_settings(db: Session) -> dict:
     _isc_settings_cache["ts"] = now
     return _DEFAULT_ISC_SETTINGS
 
-def get_isc_status(isc: float, green_threshold: float = 1.10, yellow_threshold: float = 0.90) -> str:
+def get_isc_status(isc: float, green_threshold: float = 60, yellow_threshold: float = 40) -> str:
     if isc > green_threshold:
         return "accelerating"
     if isc >= yellow_threshold:
         return "stable"
     return "decelerating"
 
-def get_suggested_action(isc: float, d_minus: int, green_threshold: float = 1.10, yellow_threshold: float = 0.90, promotion_deadline: int = 40) -> str:
+def get_suggested_action(isc: float, d_minus: int, green_threshold: float = 60, yellow_threshold: float = 40, promotion_deadline: int = 40) -> str:
     status = get_isc_status(isc, green_threshold, yellow_threshold)
     
     if status == "accelerating":
@@ -537,23 +537,23 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
-    ia730 = max(0.0, ia730)
-    curva_d_percent = max(0.0, curva_d_percent)
-    rolling14d = max(0.0, rolling14d)
-    
     return ISCComponents(
-        ia730=round(ia730, 2),
-        curvaDPercent=round(curva_d_percent, 2),
-        rolling14d=round(rolling14d, 2)
+        ia730=round(ia730, 4),
+        curvaDPercent=round(curva_d_percent, 4),
+        rolling14d=round(rolling14d, 4)
     )
 
-def calculate_isc(components: ISCComponents, ia_weight: float = 33.33, curva_weight: float = 33.33, rolling_weight: float = 33.34) -> float:
-    return round(
-        (components.ia730 * ia_weight / 100) +
-        (components.curvaDPercent * curva_weight / 100) +
-        (components.rolling14d * rolling_weight / 100),
-        2
-    )
+_ISC_DESVIO_CAP = 0.30
+
+def calculate_isc(components: ISCComponents, ia_weight: float = 20.0, curva_weight: float = 40.0, rolling_weight: float = 40.0) -> float:
+    cap = _ISC_DESVIO_CAP
+    d_ia = max(-cap, min(cap, components.ia730 - 1))
+    d_curva = max(-cap, min(cap, components.curvaDPercent - 1))
+    d_rolling = max(-cap, min(cap, components.rolling14d - 1))
+
+    weighted = (curva_weight / 100) * d_curva + (rolling_weight / 100) * d_rolling + (ia_weight / 100) * d_ia
+    isc = 50 + 100 * weighted
+    return round(isc, 1)
 
 
 def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:

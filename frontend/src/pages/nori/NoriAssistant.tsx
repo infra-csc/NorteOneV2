@@ -637,7 +637,7 @@ const NoriAssistant: React.FC = () => {
                             <StatusIcon className="w-4 h-4" />
                             <span className="font-semibold text-gray-900 dark:text-white">{event.name}</span>
                           </div>
-                          <span className="font-bold">ISC: {event.isc.toFixed(2)}</span>
+                          <span className="font-bold">ISC: {event.isc.toFixed(1)}</span>
                         </div>
                         <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                           {event.location} - {event.category}

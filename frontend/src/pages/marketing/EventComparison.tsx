@@ -242,7 +242,7 @@ const EventComparison: React.FC = () => {
                         className="font-bold"
                         style={{ color: getISCColor(event.iscStatus) }}
                       >
-                        {getISCEmoji(event.iscStatus)} {event.isc.toFixed(2)}
+                        {getISCEmoji(event.iscStatus)} {event.isc.toFixed(1)}
                       </span>
                     </td>
                   ))}
