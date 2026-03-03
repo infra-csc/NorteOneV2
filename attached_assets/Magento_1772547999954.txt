@@ -1,0 +1,105 @@
+SELECT
+    cpev1.value                                                              AS "ID Evento",
+    cpev2.value                                                              AS "Evento",
+
+    COUNT(DISTINCT soi.item_id)                                              AS "Qtd Site",
+
+    ROUND(SUM(
+        CASE
+            WHEN soi.price = 0 THEN 0
+            ELSE CASE
+                WHEN soi.name LIKE '%plus%'  THEN soi.price - 69.00
+                WHEN soi.name LIKE '%vip%'   THEN soi.price - 199.99
+                WHEN soi.name LIKE '%super%' THEN soi.price - 269.00
+                ELSE soi.price
+            END
+            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+            - CASE
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN soiaa.price = 14.90
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0
+              END
+        END
+    ), 2)                                                                    AS "Inscrição Líquida",
+
+    ROUND(SUM(
+        CASE
+            WHEN soi.price = 0 THEN 0
+            ELSE CASE
+                WHEN soi.name LIKE '%plus%'  THEN soi.price - 69.00
+                WHEN soi.name LIKE '%vip%'   THEN soi.price - 199.99
+                WHEN soi.name LIKE '%super%' THEN soi.price - 269.00
+                ELSE soi.price
+            END
+            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+            - CASE
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN soiaa.price = 14.90
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0
+              END
+        END
+    ) / NULLIF(COUNT(DISTINCT soi.item_id), 0), 2)                          AS "Ticket Médio",
+
+    ROUND(COUNT(DISTINCT CASE
+        WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        THEN soi.item_id END) / 30.0, 2)                                    AS "Média Diária 30d",
+
+    ROUND(COUNT(DISTINCT CASE
+        WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
+        THEN soi.item_id END) / 14.0, 2)                                    AS "Média Diária 14d",
+
+    ROUND(COUNT(DISTINCT CASE
+        WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        THEN soi.item_id END) / 7.0, 2)                                     AS "Média Diária 7d"
+
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id
+      AND cpev1.attribute_id = 321
+LEFT JOIN catalog_product_entity_varchar cpev2
+       ON cpev2.entity_id = cpev1.value
+      AND cpev2.attribute_id = 73
+LEFT JOIN catalog_product_entity_datetime cped
+       ON cped.entity_id = cpev1.value
+      AND cped.attribute_id = 195
+LEFT JOIN (
+    SELECT * FROM sales_order_item WHERE name LIKE '%persona%'
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
+LEFT JOIN customer_group AS cg
+       ON cg.customer_group_id = so.customer_group_id
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND cpev1.value IN (48132, 50366)  -- Filtro de evento, remover parar o relatório final
+AND soi.price > 0
+AND so.base_grand_total > 0
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+AND so.increment_id NOT LIKE '%-1%'
+AND so.increment_id NOT LIKE '%-2%'
+AND so.increment_id NOT LIKE '%-3%'
+AND so.increment_id NOT LIKE '%-4%'
+AND so.increment_id NOT LIKE '%-5%'
+AND so.increment_id NOT LIKE '%-6%'
+AND so.increment_id NOT LIKE '%-7%'
+AND so.increment_id NOT LIKE '%-8%'
+AND so.increment_id NOT LIKE '%-9%'
+AND so.increment_id NOT LIKE '%-10%'
+AND so.increment_id NOT LIKE '%-11%'
+AND so.increment_id NOT LIKE '%-12%'
+AND so.increment_id NOT LIKE '%-13%'
+AND so.increment_id NOT LIKE '%-14%'
+AND so.increment_id NOT LIKE '%-15%'
+AND so.increment_id NOT LIKE '%-16%'
+AND so.increment_id NOT LIKE '%-17%'
+AND YEAR(cped.value) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+
+GROUP BY
+    cpev1.value,
+    cpev2.value
+
+ORDER BY
+    cpev1.value;
