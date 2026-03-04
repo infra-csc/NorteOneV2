@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import os
 import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
-from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
@@ -341,6 +341,7 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS atletas_appai_tkt_medio NUMERIC(10,2) DEFAULT 0",
             "ALTER TABLE evento_grupos ALTER COLUMN nome TYPE VARCHAR(200)",
             "ALTER TABLE sku_mappings ALTER COLUMN evento_grupo TYPE VARCHAR(200)",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP",
         ]
         for sql in migrations:
             try:
@@ -434,6 +435,7 @@ app.include_router(sku_mappings.grupo_router, tags=["Evento Grupos"])
 app.include_router(perfil_acesso.router, prefix="/api", tags=["Perfis de Acesso"])
 app.include_router(distancias.router, prefix="/api", tags=["Distâncias"])
 app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importação"])
+app.include_router(admin.router, tags=["Admin"])
 
 @app.get("/api/health")
 async def health_check():

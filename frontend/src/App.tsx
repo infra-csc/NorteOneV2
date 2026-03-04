@@ -19,6 +19,7 @@ const DadosConsolidados = lazy(() => import('./pages/admin/DadosConsolidados'));
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'));
 const SkuMappings = lazy(() => import('./pages/admin/SkuMappings'));
 const PerfisAcesso = lazy(() => import('./pages/admin/PerfisAcesso'));
+const MonitoramentoUsuarios = lazy(() => import('./pages/admin/MonitoramentoUsuarios'));
 const CotacoesImportacao = lazy(() => import('./pages/cotacoes/CotacoesImportacao'));
 
 
@@ -65,6 +66,7 @@ function App() {
 
               <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
               <Route path="/admin/perfis-acesso" element={<PrivateRoute><Layout><PerfisAcesso /></Layout></PrivateRoute>} />
+              <Route path="/admin/monitoramento" element={<PrivateRoute><Layout><MonitoramentoUsuarios /></Layout></PrivateRoute>} />
               <Route path="/cotacoes" element={<PrivateRoute><Layout><CotacoesImportacao /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>

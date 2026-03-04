@@ -14,6 +14,7 @@ class Usuario(Base):
     centro_custo_id = Column(Integer, ForeignKey("dim_centro_custo.id"))
     ativo = Column(Boolean, default=True)
     created_at = Column(DateTime, default=func.now())
+    last_activity = Column(DateTime, nullable=True)
     
     centro_custo = relationship("DimCentroCusto")
     perfil_acesso_rel = relationship("PerfilAcesso", back_populates="usuarios")

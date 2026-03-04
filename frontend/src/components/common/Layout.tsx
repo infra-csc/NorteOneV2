@@ -24,7 +24,8 @@ import {
   Database,
   ShieldCheck,
   Package,
-  Plane
+  Plane,
+  Monitor
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -54,6 +55,7 @@ const adminItems = [
   { path: '/admin/usuarios', icon: UserCog, label: 'Usuários', modulo: 'admin_usuarios' },
   { path: '/admin/perfis-acesso', icon: ShieldCheck, label: 'Perfis de Acesso', modulo: 'admin_perfis_acesso' },
   { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo', modulo: 'admin_centros_custo' },
+  { path: '/admin/monitoramento', icon: Monitor, label: 'Monitoramento', modulo: 'admin_monitoramento' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {

@@ -413,6 +413,13 @@ export const atletasExternosService = {
   }
 };
 
+export const adminService = {
+  getUserActivity: async () => {
+    const response = await api.get('/admin/user-activity');
+    return response.data;
+  },
+};
+
 export interface FonteDisponivel {
   disponivel: boolean;
   erro: string | null;

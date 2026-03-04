@@ -38,6 +38,8 @@ def decode_token(token: str) -> dict:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+_ACTIVITY_THROTTLE_SECONDS = 60
+
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     from ..models.user import Usuario
     from sqlalchemy.orm import joinedload
@@ -60,6 +62,13 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario inativo",
         )
+    now = datetime.utcnow()
+    if user.last_activity is None or (now - user.last_activity).total_seconds() > _ACTIVITY_THROTTLE_SECONDS:
+        try:
+            user.last_activity = now
+            db.commit()
+        except Exception:
+            db.rollback()
     return user
 
 def is_user_admin(user) -> bool:
