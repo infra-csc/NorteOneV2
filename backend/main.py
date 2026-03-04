@@ -37,6 +37,7 @@ def _scheduled_isc_refresh():
 
 def _full_cache_warmup():
     from app.core.database import SessionLocal
+    from app.core.cache import set_warmup_progress
     from datetime import datetime
     from app.models.cadastro_evento import CadastroEvento
     from app.models.dimensoes import DimProjeto, SkuMapping
@@ -47,7 +48,7 @@ def _full_cache_warmup():
 
     with _full_refresh_lock:
         if _cache_module._full_refresh_in_progress:
-            logger.info("Full cache warmup already triggered, proceeding with flag already set")
+            logger.info("Full cache warmup flag already set, proceeding")
         else:
             _cache_module._full_refresh_in_progress = True
     start = time.time()
@@ -58,6 +59,7 @@ def _full_cache_warmup():
         db = SessionLocal()
         ano = datetime.now().year
 
+        set_warmup_progress(1, "Atualizando dados de inscrições")
         logger.info("[Warmup 1/5] Refreshing ISC pricing data...")
         fetch_isc_pricing_data(db=db, force_refresh=True)
         logger.info("[Warmup 1/5] ISC pricing data refreshed")
@@ -97,6 +99,7 @@ def _full_cache_warmup():
             get_evento_insights
         )
 
+        set_warmup_progress(2, "Detalhes dos eventos")
         logger.info("[Warmup 2/5] Warming event details...")
         warmed_details = 0
         for evento_id in active_evento_ids:
@@ -110,6 +113,7 @@ def _full_cache_warmup():
                 logger.warning(f"[Warmup] Failed to warm event detail for {evento_id}: {e}")
         logger.info(f"[Warmup 2/5] Warmed {warmed_details}/{len(active_evento_ids)} event details")
 
+        set_warmup_progress(3, "Curvas comparativas")
         logger.info("[Warmup 3/5] Warming curva comparativa...")
         warmed_curvas = 0
         for evento_id in active_evento_ids:
@@ -123,6 +127,7 @@ def _full_cache_warmup():
                 logger.warning(f"[Warmup] Failed to warm curva for {evento_id}: {e}")
         logger.info(f"[Warmup 3/5] Warmed {warmed_curvas}/{len(active_evento_ids)} curvas")
 
+        set_warmup_progress(4, "Médias de vendas")
         logger.info("[Warmup 4/5] Warming medias de vendas...")
         warmed_medias = 0
         for evento_id in active_evento_ids:
@@ -136,6 +141,7 @@ def _full_cache_warmup():
                 logger.warning(f"[Warmup] Failed to warm medias for {evento_id}: {e}")
         logger.info(f"[Warmup 4/5] Warmed {warmed_medias}/{len(active_evento_ids)} medias")
 
+        set_warmup_progress(5, "Gerando insights")
         logger.info("[Warmup 5/5] Warming insights...")
         warmed_insights = 0
         for evento_id in active_evento_ids:

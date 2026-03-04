@@ -97,6 +97,7 @@ const MarketingDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null} | null>(null);
   const [revalidating, setRevalidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverLastUpdate, setServerLastUpdate] = useState<string | null>(null);
@@ -218,8 +219,9 @@ const MarketingDashboard: React.FC = () => {
 
   const handleFullRefresh = async () => {
     setFullRefreshing(true);
+    setRefreshProgress(null);
     const MAX_POLL_TIME = 5 * 60 * 1000;
-    const POLL_INTERVAL = 5000;
+    const POLL_INTERVAL = 3000;
 
     const startPolling = () => {
       const pollStart = Date.now();
@@ -228,6 +230,7 @@ const MarketingDashboard: React.FC = () => {
           if (Date.now() - pollStart > MAX_POLL_TIME) {
             clearInterval(pollStatus);
             setFullRefreshing(false);
+            setRefreshProgress(null);
             fetchData(true, true);
             return;
           }
@@ -235,14 +238,18 @@ const MarketingDashboard: React.FC = () => {
           if (!status.refresh_in_progress) {
             clearInterval(pollStatus);
             setFullRefreshing(false);
+            setRefreshProgress(null);
             if (status.ultima_atualizacao_completa) {
               setServerLastUpdate(status.ultima_atualizacao_completa);
             }
             fetchData(true, true);
+          } else if (status.progress) {
+            setRefreshProgress(status.progress);
           }
         } catch {
           clearInterval(pollStatus);
           setFullRefreshing(false);
+          setRefreshProgress(null);
         }
       }, POLL_INTERVAL);
     };
@@ -257,6 +264,7 @@ const MarketingDashboard: React.FC = () => {
     } catch (err) {
       console.error('Erro ao atualizar todos os caches:', err);
       setFullRefreshing(false);
+      setRefreshProgress(null);
     }
   };
 
@@ -268,6 +276,11 @@ const MarketingDashboard: React.FC = () => {
           setServerLastUpdate(status.ultima_atualizacao_completa);
         }
         setFullRefreshing(status.refresh_in_progress);
+        if (status.refresh_in_progress && status.progress) {
+          setRefreshProgress(status.progress);
+        } else if (!status.refresh_in_progress) {
+          setRefreshProgress(null);
+        }
       } catch {}
     };
     fetchCacheStatus();
@@ -362,8 +375,20 @@ const MarketingDashboard: React.FC = () => {
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors text-sm ${(fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-spin' : ''}`} />
-            <span className="font-medium">{fullRefreshing ? 'Atualizando...' : 'Atualizar'}</span>
+            <span className="font-medium">
+              {fullRefreshing
+                ? refreshProgress
+                  ? `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
+                  : 'Iniciando...'
+                : 'Atualizar'}
+            </span>
           </button>
+          {fullRefreshing && refreshProgress?.label && (
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {refreshProgress.label}
+              {refreshProgress.elapsed_seconds != null && ` (${Math.round(refreshProgress.elapsed_seconds)}s)`}
+            </span>
+          )}
         </div>
       </div>
 

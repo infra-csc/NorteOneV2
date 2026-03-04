@@ -4306,7 +4306,7 @@ def refresh_all_caches(
 def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
 ):
-    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress
+    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress
 
     current_year = datetime.now().year
     last_refresh = get_last_full_refresh()
@@ -4314,9 +4314,13 @@ def get_cache_status(
     if last_refresh:
         last_refresh_str = datetime.fromtimestamp(last_refresh, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
 
+    in_progress = is_full_refresh_in_progress()
+    progress = get_warmup_progress() if in_progress else None
+
     return {
         "status": "success",
-        "refresh_in_progress": is_full_refresh_in_progress(),
+        "refresh_in_progress": in_progress,
+        "progress": progress,
         "ultima_atualizacao_completa": last_refresh_str,
         "caches": {
             "isc_pricing": _smart_isc_cache.get_info(f"{current_year}_isc"),
@@ -4751,7 +4755,7 @@ def fetch_consolidated_rolling_averages() -> dict:
         ativo_data = {}
     
     try:
-        magento_data = future_magento.result(timeout=30)
+        magento_data = future_magento.result(timeout=60)
     except Exception as e:
         logger.error(f"Timeout ou erro ao buscar rolling avg Magento: {e}")
         magento_data = {}

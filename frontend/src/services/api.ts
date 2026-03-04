@@ -814,6 +814,7 @@ export const marketingService = {
   getCacheStatus: async (): Promise<{
     status: string;
     refresh_in_progress: boolean;
+    progress: { step: number; total_steps: number; label: string; elapsed_seconds: number | null } | null;
     ultima_atualizacao_completa: string | null;
     caches: Record<string, any>;
     config: Record<string, any>;
