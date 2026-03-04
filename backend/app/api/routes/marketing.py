@@ -647,7 +647,7 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
     return pattern
 
 
-def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None) -> list:
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET") -> list:
     from datetime import timedelta
     from ...models.dimensoes import SkuMapping
     
@@ -725,7 +725,9 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     total_days = len(all_dates)
 
     hist_pattern = None
-    if evento_grupo and data_evento:
+    if preloaded_hist_pattern != "NOT_SET":
+        hist_pattern = preloaded_hist_pattern
+    elif evento_grupo and data_evento:
         try:
             hist_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano)
         except Exception as e:
@@ -3859,7 +3861,14 @@ def get_marketing_event_by_id(
         sales_goal = total_capacity
         
         data_fim_inscricoes = projeto_data_evento - timedelta(days=2) if projeto_data_evento else None
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes)
+        
+        detail_hist_pattern = None
+        try:
+            detail_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
+        except Exception:
+            pass
+        
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         current_year = datetime.now().year
@@ -3923,12 +3932,6 @@ def get_marketing_event_by_id(
                 detail_bt_total_receita += float(detail_cad.atletas_site_tkt_medio) * int(detail_cad.atletas_site_pago)
                 detail_bt_total_qtd += int(detail_cad.atletas_site_pago)
         detail_budget_ticket = round(detail_bt_total_receita / detail_bt_total_qtd, 2) if detail_bt_total_qtd > 0 else 0.0
-        
-        detail_hist_pattern = None
-        try:
-            detail_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
-        except Exception:
-            pass
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=daily_sales_dict,
