@@ -13,9 +13,7 @@ import {
   ChevronRight,
   Info,
   RefreshCw,
-  Loader2,
-  Clock,
-  Database
+  Clock
 } from 'lucide-react';
 import { 
   getISCColor, 
@@ -101,16 +99,12 @@ const MarketingDashboard: React.FC = () => {
   const [fullRefreshing, setFullRefreshing] = useState(false);
   const [revalidating, setRevalidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [serverLastUpdate, setServerLastUpdate] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [fromCache, setFromCache] = useState(false);
   
-  const [dataAge, setDataAge] = useState<string>('');
-  
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const dataAgeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cacheStatusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const AUTO_REFRESH_INTERVAL = 60 * 60 * 1000;
 
@@ -118,7 +112,6 @@ const MarketingDashboard: React.FC = () => {
     setEventos(response.eventos);
     setSummary(response.resumo);
     setCategories(response.categorias);
-    setLastUpdate(new Date(response.ultima_atualizacao));
     setAvisos((response as any).avisos || []);
   }, []);
 
@@ -212,33 +205,6 @@ const MarketingDashboard: React.FC = () => {
   }, [searchInput]);
 
   useEffect(() => {
-    const updateAge = () => {
-      if (!lastUpdate) {
-        setDataAge('');
-        return;
-      }
-      const diffMs = Date.now() - lastUpdate.getTime();
-      const diffSec = Math.floor(diffMs / 1000);
-      if (diffSec < 60) {
-        setDataAge('agora');
-      } else if (diffSec < 3600) {
-        const mins = Math.floor(diffSec / 60);
-        setDataAge(`há ${mins} min`);
-      } else {
-        const hrs = Math.floor(diffSec / 3600);
-        setDataAge(`há ${hrs}h`);
-      }
-    };
-    updateAge();
-    dataAgeIntervalRef.current = setInterval(updateAge, 30000);
-    return () => {
-      if (dataAgeIntervalRef.current) {
-        clearInterval(dataAgeIntervalRef.current);
-      }
-    };
-  }, [lastUpdate]);
-
-  useEffect(() => {
     autoRefreshRef.current = setInterval(() => {
       fetchData(true);
     }, AUTO_REFRESH_INTERVAL);
@@ -249,10 +215,6 @@ const MarketingDashboard: React.FC = () => {
       }
     };
   }, [fetchData]);
-
-  const handleManualRefresh = () => {
-    fetchData(true, true);
-  };
 
   const handleFullRefresh = async () => {
     setFullRefreshing(true);
@@ -390,46 +352,20 @@ const MarketingDashboard: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap">
-          {fullRefreshing && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 animate-pulse">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span className="text-xs font-medium">Atualizando todos os dados...</span>
-            </div>
-          )}
-          {revalidating && !fullRefreshing && (
-            <div className="flex items-center gap-2 text-xs text-blue-500 dark:text-blue-400 animate-pulse">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Revalidando...</span>
-            </div>
-          )}
           {serverLastUpdate && !loading && (
-            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full">
-              <Database className="w-3 h-3" />
-              <span>Base: {new Date(serverLastUpdate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
-          )}
-          {lastUpdate && !loading && dataAge && (
             <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-              <Clock className="w-3.5 h-3.5" />
-              <span>{dataAge}</span>
+              <Clock className="w-3 h-3" />
+              <span>Última atualização: {new Date(serverLastUpdate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           )}
-          <button
-            onClick={handleManualRefresh}
-            disabled={refreshing || loading}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors text-sm ${(refreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${(refreshing || loading) ? 'animate-spin' : ''}`} />
-            <span className="font-medium">{refreshing ? 'Atualizando...' : 'Atualizar'}</span>
-          </button>
           <button
             onClick={handleFullRefresh}
             disabled={fullRefreshing || loading}
-            title="Atualiza todos os dados do servidor (ISC, detalhes, curvas, insights)"
+            title="Atualiza todos os dados do servidor"
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors text-sm ${(fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <Database className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-pulse' : ''}`} />
-            <span className="font-medium">{fullRefreshing ? 'Atualizando Tudo...' : 'Atualizar Tudo'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-spin' : ''}`} />
+            <span className="font-medium">{fullRefreshing ? 'Atualizando...' : 'Atualizar'}</span>
           </button>
         </div>
       </div>
