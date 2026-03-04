@@ -21,6 +21,43 @@ logger = logging.getLogger(__name__)
 
 _cadastro_cache: dict = {}
 
+import threading as _threading
+_warmup_daily_cache: dict = {}
+_warmup_daily_cache_lock = _threading.Lock()
+_warmup_thread_ids: set = set()
+_warmup_thread_ids_lock = _threading.Lock()
+
+def register_warmup_thread(thread_id: int):
+    with _warmup_thread_ids_lock:
+        _warmup_thread_ids.add(thread_id)
+
+def unregister_warmup_thread(thread_id: int):
+    with _warmup_thread_ids_lock:
+        _warmup_thread_ids.discard(thread_id)
+
+def _is_warmup_thread() -> bool:
+    with _warmup_thread_ids_lock:
+        return _threading.current_thread().ident in _warmup_thread_ids
+
+def set_warmup_daily_cache(ativo_grouped: dict, magento_grouped: dict,
+                           cat_ativo_grouped: dict = None, cat_magento_grouped: dict = None):
+    with _warmup_daily_cache_lock:
+        _warmup_daily_cache.clear()
+        if ativo_grouped:
+            _warmup_daily_cache["ativo"] = ativo_grouped
+        if magento_grouped:
+            _warmup_daily_cache["magento"] = magento_grouped
+        if cat_ativo_grouped:
+            _warmup_daily_cache["cat_ativo"] = cat_ativo_grouped
+        if cat_magento_grouped:
+            _warmup_daily_cache["cat_magento"] = cat_magento_grouped
+
+def clear_warmup_daily_cache():
+    with _warmup_daily_cache_lock:
+        _warmup_daily_cache.clear()
+    with _warmup_thread_ids_lock:
+        _warmup_thread_ids.clear()
+
 def get_meta_orcada(db: Session, projeto_id: int) -> int:
     if projeto_id in _cadastro_cache:
         return _cadastro_cache[projeto_id]
@@ -2471,7 +2508,20 @@ ORDER BY mes
 
 
 def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
-    if db_module.engine_ssh is None or not id_eventos:
+    if not id_eventos:
+        return {}
+    if _is_warmup_thread():
+        with _warmup_daily_cache_lock:
+            ativo_cache = _warmup_daily_cache.get("ativo")
+        if ativo_cache is not None:
+            safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+            result = {}
+            for eid in safe_ids:
+                if eid in ativo_cache:
+                    result[eid] = dict(ativo_cache[eid])
+            if result:
+                return result
+    if db_module.engine_ssh is None:
         return {}
     try:
         safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
@@ -2516,7 +2566,20 @@ ORDER BY b.id_evento, dia
 
 
 def _fetch_daily_sales_magento_by_ids_grouped(location_ids: list) -> dict:
-    if db_module.engine_magento is None or not location_ids:
+    if not location_ids:
+        return {}
+    if _is_warmup_thread():
+        with _warmup_daily_cache_lock:
+            magento_cache = _warmup_daily_cache.get("magento")
+        if magento_cache is not None:
+            safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+            result = {}
+            for lid in safe_ids:
+                if lid in magento_cache:
+                    result[lid] = dict(magento_cache[lid])
+            if result:
+                return result
+    if db_module.engine_magento is None:
         return {}
     try:
         safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
@@ -2651,7 +2714,21 @@ def _build_grupo_daily_dict(sku_daily: dict, proj_list: list) -> dict:
 
 
 def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
-    if db_module.engine_ssh is None or not id_eventos:
+    if not id_eventos:
+        return []
+    if _is_warmup_thread():
+        with _warmup_daily_cache_lock:
+            ativo_cache = _warmup_daily_cache.get("ativo")
+        if ativo_cache is not None:
+            safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+            combined = {}
+            for eid in safe_ids:
+                if eid in ativo_cache:
+                    for d, qtd in ativo_cache[eid].items():
+                        combined[d] = combined.get(d, 0) + qtd
+            if combined:
+                return [{"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": qtd, "receita": 0} for d, qtd in sorted(combined.items())]
+    if db_module.engine_ssh is None:
         return []
     try:
         safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
@@ -2691,7 +2768,21 @@ ORDER BY dia
 
 
 def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
-    if db_module.engine_magento is None or not location_ids:
+    if not location_ids:
+        return []
+    if _is_warmup_thread():
+        with _warmup_daily_cache_lock:
+            magento_cache = _warmup_daily_cache.get("magento")
+        if magento_cache is not None:
+            safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+            combined = {}
+            for lid in safe_ids:
+                if lid in magento_cache:
+                    for d, qtd in magento_cache[lid].items():
+                        combined[d] = combined.get(d, 0) + qtd
+            if combined:
+                return [{"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": qtd, "receita": 0} for d, qtd in sorted(combined.items())]
+    if db_module.engine_magento is None:
         return []
     try:
         safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
@@ -2742,7 +2833,21 @@ ORDER BY dia
 
 
 def _fetch_category_sales_ativo_by_ids(id_eventos: list) -> list:
-    if db_module.engine_ssh is None or not id_eventos:
+    if not id_eventos:
+        return []
+    if _is_warmup_thread():
+        with _warmup_daily_cache_lock:
+            cat_cache = _warmup_daily_cache.get("cat_ativo")
+        if cat_cache is not None:
+            safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+            combined = {}
+            for eid in safe_ids:
+                if eid in cat_cache:
+                    for cat, qtd in cat_cache[eid].items():
+                        combined[cat] = combined.get(cat, 0) + qtd
+            if combined:
+                return [{"categoria": cat, "qtd": qtd} for cat, qtd in sorted(combined.items(), key=lambda x: -x[1])]
+    if db_module.engine_ssh is None:
         return []
     try:
         safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
@@ -2776,8 +2881,106 @@ ORDER BY qtd DESC
         return []
 
 
-def _fetch_category_sales_magento_by_ids(location_ids: list) -> list:
+def _fetch_category_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
+    if db_module.engine_ssh is None or not id_eventos:
+        return {}
+    try:
+        safe_ids = [str(int(i)) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
+    b.id_evento,
+    h.ds_categoria AS categoria,
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND c.nr_total > 0 THEN 1 END) AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE 
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND b.id_evento IN :id_eventos
+GROUP BY b.id_evento, h.ds_categoria
+ORDER BY b.id_evento, qtd DESC
+""").bindparams(bindparam("id_eventos", expanding=True))
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(query, {"id_eventos": [int(i) for i in safe_ids]})
+            grouped = {}
+            for r in result.fetchall():
+                eid = str(r[0])
+                cat = str(r[1] or "Sem categoria")
+                qtd = int(r[2] or 0)
+                if eid not in grouped:
+                    grouped[eid] = {}
+                grouped[eid][cat] = grouped[eid].get(cat, 0) + qtd
+            return grouped
+    except Exception as e:
+        logger.error(f"Erro category sales Ativo grouped: {e}")
+        return {}
+
+
+def _fetch_category_sales_magento_by_ids_grouped(location_ids: list) -> dict:
     if db_module.engine_magento is None or not location_ids:
+        return {}
+    try:
+        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        query = text("""
+SELECT
+    cpev1.value AS location_id,
+    soi.name AS categoria,
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+FROM sales_order AS so
+LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+WHERE
+    so.increment_id NOT REGEXP '-[0-9]+$'
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND cpev1.value IN :location_ids
+GROUP BY cpev1.value, soi.name
+ORDER BY cpev1.value, qtd DESC
+""").bindparams(bindparam("location_ids", expanding=True))
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(query, {"location_ids": safe_ids})
+            grouped = {}
+            for r in result.fetchall():
+                lid = str(r[0])
+                cat = str(r[1] or "Sem categoria")
+                qtd = int(r[2] or 0)
+                if lid not in grouped:
+                    grouped[lid] = {}
+                grouped[lid][cat] = grouped[lid].get(cat, 0) + qtd
+            return grouped
+    except Exception as e:
+        logger.error(f"Erro category sales Magento grouped: {e}")
+        return {}
+
+
+def _fetch_category_sales_magento_by_ids(location_ids: list) -> list:
+    if not location_ids:
+        return []
+    if _is_warmup_thread():
+        with _warmup_daily_cache_lock:
+            cat_cache = _warmup_daily_cache.get("cat_magento")
+        if cat_cache is not None:
+            safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+            combined = {}
+            for lid in safe_ids:
+                if lid in cat_cache:
+                    for cat, qtd in cat_cache[lid].items():
+                        combined[cat] = combined.get(cat, 0) + qtd
+            if combined:
+                return [{"categoria": cat, "qtd": qtd} for cat, qtd in sorted(combined.items(), key=lambda x: -x[1])]
+    if db_module.engine_magento is None:
         return []
     try:
         safe_ids = [int(i) for i in location_ids if str(i).isdigit()]

@@ -127,6 +127,8 @@ def init_ssh_tunnel():
         )
         
         transport = ssh_client.get_transport()
+        if transport:
+            transport.set_keepalive(30)
         
         local_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         local_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -149,7 +151,7 @@ def init_ssh_tunnel():
                     
                     def forward(source, dest):
                         while True:
-                            data = source.recv(4096)
+                            data = source.recv(32768)
                             if len(data) == 0:
                                 break
                             dest.sendall(data)

@@ -448,7 +448,7 @@ const MarketingDashboard: React.FC = () => {
                   <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-500 ease-out"
-                      style={{ width: `${Math.round((refreshProgress.step / refreshProgress.total_steps) * 100)}%` }}
+                      style={{ width: `${Math.round(((refreshProgress.step - 1 + (refreshProgress.sub_total && refreshProgress.sub_total > 0 ? (refreshProgress.sub_current || 0) / refreshProgress.sub_total : 0)) / refreshProgress.total_steps) * 100)}%` }}
                     />
                   </div>
                   <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
