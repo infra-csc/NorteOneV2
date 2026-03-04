@@ -151,6 +151,34 @@ def _persist_to_db(cache_name: str, cache_key: str, data: Any):
                 pass
 
 
+def _delete_from_db(cache_name: str, cache_key: str):
+    db = None
+    try:
+        db = _get_db_session()
+        if db is None:
+            return
+        from app.models.cache_entry import CacheEntry
+        db.query(CacheEntry).filter(
+            CacheEntry.cache_name == cache_name,
+            CacheEntry.cache_key == cache_key
+        ).delete()
+        db.commit()
+        logger.info(f"Deleted persisted cache {cache_name}/{cache_key} from DB")
+    except Exception as e:
+        logger.warning(f"Failed to delete cache {cache_name}/{cache_key} from DB: {e}")
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+    finally:
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def _load_from_db(cache_name: str, cache_key: str) -> Optional[dict]:
     db = None
     try:
@@ -298,6 +326,8 @@ class SmartCache:
                 for k in keys_to_remove:
                     self._data.pop(k, None)
                     self._timestamps.pop(k, None)
+        if cache_key:
+            _delete_from_db(self.name, cache_key)
 
     def invalidate_all(self):
         with self._lock:

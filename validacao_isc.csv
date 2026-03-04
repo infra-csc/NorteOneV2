@@ -1,0 +1,7 @@
+﻿SKU;Nome;Data Evento;D-;D- Inscricoes;Vendas Atuais;Meta;% Preenchido;ISC;Status ISC;IA 7/30;Curva D-%;Rolling 14d;Ticket Medio;Budget Ticket;Kit Cost;Margem Orcada %;Margem Realizada %;Sugestao
+CDE26RJ1;Circuito das Estações - Outono - Rio de Janeiro;2026-03-08;4;2;5881;6042;97.3%;1.17;accelerating;2.0638;0.9734;3.2837;161.8;179.99;50.0;72.2;69.1;Evento forte. Considere ajuste de preço para cima.
+CDE26SP1;Circuito das Estações - Outono - São Paulo;2026-03-15;11;9;8101;8700;93.1%;1.15;accelerating;1.4792;0.9342;1.3371;188.38;189.99;54.47;71.3;71.1;Evento forte. Considere ajuste de preço para cima.
+LGV26SP1;Longevidade;2026-03-01;0;0;0;3200;0.0%;0.7;decelerating;0.0;0.0;0.0;0.0;70.0;39.85;43.1;0.0;⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação.
+GPW26SP11;Girl Power 11 - São Paulo;2026-03-01;0;0;6755;7000;96.5%;0.81;decelerating;0.6214;0.965;0.5884;79.79;74.99;35.04;53.3;56.1;⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação.
+SOL26SP1;Circuito do Sol - São Paulo 2026;2026-02-01;0;0;0;4820;0.0%;0.7;decelerating;0.0;0.0;0.0;0.0;114.99;37.78;67.1;0.0;⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação.
+SOL26RJ1;Circuito do Sol - Rio de Janeiro 2026;2026-02-01;0;0;0;2712;0.0%;0.7;decelerating;0.0;0.0;0.0;0.0;109.99;37.78;65.7;0.0;⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação.

@@ -60,6 +60,10 @@ def _full_cache_warmup():
         db = SessionLocal()
         ano = datetime.now().year
 
+        from app.api.routes.marketing import daily_sales_cache
+        daily_sales_cache.invalidate(f"{ano}_prefetch_daily")
+        logger.info(f"[Warmup] Invalidated daily_sales cache for {ano}")
+
         set_warmup_progress(1, "Atualizando dados de inscrições")
         logger.info("[Warmup 1/5] Refreshing ISC pricing data...")
         fetch_isc_pricing_data(db=db, force_refresh=True)

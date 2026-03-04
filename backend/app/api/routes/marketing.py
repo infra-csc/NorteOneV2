@@ -472,6 +472,9 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     if sales_goal == 0:
         return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0)
     
+    if daily_sales_dict:
+        daily_sales_dict = {(date.fromisoformat(k) if isinstance(k, str) else k): v for k, v in daily_sales_dict.items()}
+    
     progress_percent = current_sales / sales_goal
 
     if hist_pattern and len(hist_pattern) > 0:
@@ -2640,7 +2643,8 @@ def _build_grupo_daily_dict(sku_daily: dict, proj_list: list) -> dict:
                 continue
             seen.add(sku)
             for d, qtd in sku_daily.get(sku, {}).items():
-                combined[d] = combined.get(d, 0) + qtd
+                d_key = date.fromisoformat(d) if isinstance(d, str) else d
+                combined[d_key] = combined.get(d_key, 0) + qtd
     return combined
 
 
