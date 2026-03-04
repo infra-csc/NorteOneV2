@@ -905,7 +905,7 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
 _isc_cache = {}
 _isc_cache_timestamp = None
 
-from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, cache_scheduler
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, cache_scheduler, CURRENT_YEAR_TTL
 
 def build_query_isc_ativo() -> str:
     return """
@@ -4246,17 +4246,17 @@ def refresh_cache(
     daily_sales_cache.invalidate()
     curva_cache.invalidate()
     medias_cache.invalidate()
-    
+
     global _isc_cache, _isc_cache_timestamp, _sales_cache, _cache_timestamp
     _isc_cache = {}
     _isc_cache_timestamp = None
     _sales_cache = {}
     _cache_timestamp = None
-    
+
     fetch_isc_pricing_data(db=db, force_refresh=True)
-    
+
     cache_info = _smart_isc_cache.get_info(f"{datetime.now().year}_isc")
-    
+
     return {
         "status": "success",
         "message": "Cache do ano atual atualizado com sucesso. Dados históricos preservados.",
@@ -4265,31 +4265,68 @@ def refresh_cache(
     }
 
 
+@router.post("/cache/refresh-all")
+def refresh_all_caches(
+    current_user: Usuario = Depends(get_current_user)
+):
+    from app.core.cache import is_full_refresh_in_progress, trigger_full_warmup_async
+
+    if is_full_refresh_in_progress():
+        return {
+            "status": "in_progress",
+            "message": "Uma atualização completa já está em andamento. Aguarde.",
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        }
+
+    started = trigger_full_warmup_async()
+    if not started:
+        return {
+            "status": "error",
+            "message": "Não foi possível iniciar a atualização."
+        }
+
+    return {
+        "status": "started",
+        "message": "Atualização completa de todos os caches iniciada em background. Os dados serão atualizados em alguns minutos.",
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    }
+
+
 @router.get("/cache/status")
 def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
 ):
+    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress
+
     current_year = datetime.now().year
+    last_refresh = get_last_full_refresh()
+    last_refresh_str = None
+    if last_refresh:
+        last_refresh_str = datetime.fromtimestamp(last_refresh, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+
     return {
         "status": "success",
+        "refresh_in_progress": is_full_refresh_in_progress(),
+        "ultima_atualizacao_completa": last_refresh_str,
         "caches": {
             "isc_pricing": _smart_isc_cache.get_info(f"{current_year}_isc"),
             "event_detail": {
-                "entries": len(event_detail_cache._data),
-                "historical": sum(1 for k in event_detail_cache._data if event_detail_cache._is_historical(k)),
-                "current_year": sum(1 for k in event_detail_cache._data if not event_detail_cache._is_historical(k))
+                "entries": event_detail_cache.entry_count(),
+                "historical": sum(1 for k in event_detail_cache.get_all_keys() if event_detail_cache._is_historical(k)),
+                "current_year": sum(1 for k in event_detail_cache.get_all_keys() if not event_detail_cache._is_historical(k))
             },
             "curva_comparativa": {
-                "entries": len(curva_cache._data),
+                "entries": curva_cache.entry_count(),
             },
             "medias_vendas": {
-                "entries": len(medias_cache._data),
+                "entries": medias_cache.entry_count(),
             }
         },
         "config": {
             "historical_ttl": "permanent",
-            "current_year_ttl_seconds": 3600,
-            "auto_refresh_interval_seconds": 3600
+            "current_year_ttl_seconds": CURRENT_YEAR_TTL,
+            "auto_refresh_interval_seconds": 1800,
+            "daily_refresh_time": "07:00 BRT"
         }
     }
 

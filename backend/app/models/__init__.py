@@ -11,3 +11,4 @@ from app.models.cadastro_evento import (
 from app.models.cotacao import (
     ViagemCotacao, Fornecedor, Cotacao, CustoImportacao, CotacaoEvento
 )
+from app.models.cache_entry import CacheEntry

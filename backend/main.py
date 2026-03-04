@@ -5,11 +5,20 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from contextlib import asynccontextmanager
 import os
+import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
 from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes
-from app.core.cache import cache_scheduler
+from app.core.cache import (
+    cache_scheduler, warm_all_caches_from_db,
+    set_last_full_refresh, set_full_refresh_in_progress, 
+    register_full_warmup_fn,
+    isc_cache, event_detail_cache, curva_cache, medias_cache,
+    _full_refresh_lock
+)
+import app.core.cache as _cache_module
 import logging
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def _scheduled_isc_refresh():
@@ -24,6 +33,136 @@ def _scheduled_isc_refresh():
     finally:
         if db:
             db.close()
+
+
+def _full_cache_warmup():
+    from app.core.database import SessionLocal
+    from datetime import datetime
+    from app.models.cadastro_evento import CadastroEvento
+    from app.models.dimensoes import DimProjeto, SkuMapping
+    from app.api.routes.marketing import (
+        fetch_isc_pricing_data, normalize_sku, calculate_d_minus,
+        _build_sku_to_grupo_map
+    )
+
+    with _full_refresh_lock:
+        if _cache_module._full_refresh_in_progress:
+            logger.warning("Full cache warmup already in progress, skipping")
+            return
+        _cache_module._full_refresh_in_progress = True
+    start = time.time()
+    logger.info("=== FULL CACHE WARMUP STARTED ===")
+
+    db = None
+    try:
+        db = SessionLocal()
+        ano = datetime.now().year
+
+        logger.info("[Warmup 1/5] Refreshing ISC pricing data...")
+        fetch_isc_pricing_data(db=db, force_refresh=True)
+        logger.info("[Warmup 1/5] ISC pricing data refreshed")
+
+        cadastros_list = db.query(CadastroEvento).all()
+        sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+
+        active_evento_ids = []
+        grupo_names_seen = set()
+
+        for cad in cadastros_list:
+            if not cad.projeto_id:
+                continue
+            projeto = db.query(DimProjeto).filter(DimProjeto.id == cad.projeto_id).first()
+            if not projeto or not projeto.data_evento:
+                continue
+
+            d_minus = calculate_d_minus(projeto.data_evento)
+            if d_minus <= 0:
+                continue
+
+            sku_norm = normalize_sku(str(projeto.codigo)) if projeto.codigo else None
+            grupo_nome = sku_to_grupo.get(sku_norm) if sku_norm else None
+
+            if grupo_nome and grupo_nome not in grupo_names_seen:
+                grupo_names_seen.add(grupo_nome)
+                active_evento_ids.append(f"grp_{grupo_nome}")
+            elif not grupo_nome:
+                active_evento_ids.append(str(projeto.id))
+
+        logger.info(f"[Warmup] Found {len(active_evento_ids)} active events to warm up")
+
+        from app.api.routes.marketing import (
+            get_marketing_event_by_id,
+            get_curva_comparativa_evento,
+            get_sales_averages,
+            get_evento_insights
+        )
+
+        logger.info("[Warmup 2/5] Warming event details...")
+        warmed_details = 0
+        for evento_id in active_evento_ids:
+            try:
+                get_marketing_event_by_id(
+                    evento_id=evento_id, ano=ano, force_refresh=True, db=db,
+                    current_user=None
+                )
+                warmed_details += 1
+            except Exception as e:
+                logger.warning(f"[Warmup] Failed to warm event detail for {evento_id}: {e}")
+        logger.info(f"[Warmup 2/5] Warmed {warmed_details}/{len(active_evento_ids)} event details")
+
+        logger.info("[Warmup 3/5] Warming curva comparativa...")
+        warmed_curvas = 0
+        for evento_id in active_evento_ids:
+            try:
+                get_curva_comparativa_evento(
+                    evento_id=evento_id, ano=ano, force_refresh=True, db=db,
+                    current_user=None
+                )
+                warmed_curvas += 1
+            except Exception as e:
+                logger.warning(f"[Warmup] Failed to warm curva for {evento_id}: {e}")
+        logger.info(f"[Warmup 3/5] Warmed {warmed_curvas}/{len(active_evento_ids)} curvas")
+
+        logger.info("[Warmup 4/5] Warming medias de vendas...")
+        warmed_medias = 0
+        for evento_id in active_evento_ids:
+            try:
+                get_sales_averages(
+                    evento_id=evento_id, periodo=30, ano=ano, force_refresh=True, db=db,
+                    current_user=None
+                )
+                warmed_medias += 1
+            except Exception as e:
+                logger.warning(f"[Warmup] Failed to warm medias for {evento_id}: {e}")
+        logger.info(f"[Warmup 4/5] Warmed {warmed_medias}/{len(active_evento_ids)} medias")
+
+        logger.info("[Warmup 5/5] Warming insights...")
+        warmed_insights = 0
+        for evento_id in active_evento_ids:
+            try:
+                get_evento_insights(
+                    evento_id=evento_id, ano=ano, force_refresh=True, db=db,
+                    current_user=None
+                )
+                warmed_insights += 1
+            except Exception as e:
+                logger.warning(f"[Warmup] Failed to warm insights for {evento_id}: {e}")
+        logger.info(f"[Warmup 5/5] Warmed {warmed_insights}/{len(active_evento_ids)} insights")
+
+        set_last_full_refresh(time.time())
+        elapsed = time.time() - start
+        logger.info(f"=== FULL CACHE WARMUP COMPLETED in {elapsed:.1f}s ===")
+        logger.info(f"    Details: {warmed_details}, Curvas: {warmed_curvas}, Médias: {warmed_medias}, Insights: {warmed_insights}")
+
+    except Exception as e:
+        logger.error(f"Full cache warmup failed: {e}", exc_info=True)
+    finally:
+        set_full_refresh_in_progress(False)
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 def _startup_resync_projetos():
     from app.core.database import SessionLocal
@@ -114,6 +253,20 @@ def _run_column_migrations():
             except Exception as e:
                 logger.warning(f"Migration skipped: {e}")
         db.commit()
+
+        cache_dedup_migrations = [
+            """DELETE FROM cache_entries a USING cache_entries b
+               WHERE a.id < b.id
+               AND a.cache_name = b.cache_name
+               AND a.cache_key = b.cache_key""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_cache_name_key ON cache_entries (cache_name, cache_key)",
+        ]
+        for sql in cache_dedup_migrations:
+            try:
+                db.execute(text(sql))
+            except Exception as e:
+                logger.warning(f"Cache migration skipped: {e}")
+        db.commit()
         db.close()
         logger.info("Column migrations completed")
     except Exception as e:
@@ -128,19 +281,26 @@ async def lifespan(app: FastAPI):
     _startup_resync_projetos()
     init_mysql_connections()
     init_ssh_tunnel()
-    
+
+    logger.info("Loading persistent cache from PostgreSQL...")
+    warm_all_caches_from_db()
+    logger.info("Persistent cache loaded - users will see cached data immediately")
+
+    register_full_warmup_fn(_full_cache_warmup)
+
     cache_scheduler.register(_scheduled_isc_refresh)
+    cache_scheduler.register_full_refresh(_full_cache_warmup)
     cache_scheduler.start(interval=1800)
-    logger.info("Cache auto-refresh scheduler started (30 minute interval)")
-    
+    logger.info("Cache auto-refresh scheduler started (30 min interval + daily 07:00 BRT)")
+
     import threading
-    def _warm_isc_cache():
-        logger.info("Warming ISC cache on startup (background)...")
-        _scheduled_isc_refresh()
-    warm_thread = threading.Thread(target=_warm_isc_cache, daemon=True)
+    def _startup_full_warmup():
+        logger.info("Starting full cache warmup in background...")
+        _full_cache_warmup()
+    warm_thread = threading.Thread(target=_startup_full_warmup, daemon=True)
     warm_thread.start()
-    logger.info("ISC cache warm-up thread launched")
-    
+    logger.info("Full cache warmup thread launched")
+
     yield
     cache_scheduler.stop()
     close_ssh_tunnel()

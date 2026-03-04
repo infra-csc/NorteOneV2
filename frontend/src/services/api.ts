@@ -624,7 +624,7 @@ interface CacheEntry<T> {
 }
 
 const dashboardCache: Map<string, CacheEntry<MarketingEventsResponse>> = new Map();
-const CACHE_MAX_AGE = 5 * 60 * 1000;
+const CACHE_MAX_AGE = 30 * 60 * 1000;
 
 function getCacheKey(params?: {
   ano?: number;
@@ -803,8 +803,18 @@ export const marketingService = {
     const response = await api.post('/marketing/cache/refresh');
     return response.data;
   },
+  refreshAllCaches: async (): Promise<{
+    status: string;
+    message: string;
+    ultima_atualizacao: string;
+  }> => {
+    const response = await api.post('/marketing/cache/refresh-all');
+    return response.data;
+  },
   getCacheStatus: async (): Promise<{
     status: string;
+    refresh_in_progress: boolean;
+    ultima_atualizacao_completa: string | null;
     caches: Record<string, any>;
     config: Record<string, any>;
   }> => {
