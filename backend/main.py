@@ -47,9 +47,9 @@ def _full_cache_warmup():
 
     with _full_refresh_lock:
         if _cache_module._full_refresh_in_progress:
-            logger.warning("Full cache warmup already in progress, skipping")
-            return
-        _cache_module._full_refresh_in_progress = True
+            logger.info("Full cache warmup already triggered, proceeding with flag already set")
+        else:
+            _cache_module._full_refresh_in_progress = True
     start = time.time()
     logger.info("=== FULL CACHE WARMUP STARTED ===")
 

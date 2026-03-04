@@ -218,42 +218,39 @@ const MarketingDashboard: React.FC = () => {
 
   const handleFullRefresh = async () => {
     setFullRefreshing(true);
+    const MAX_POLL_TIME = 5 * 60 * 1000;
+    const POLL_INTERVAL = 5000;
+
+    const startPolling = () => {
+      const pollStart = Date.now();
+      const pollStatus = setInterval(async () => {
+        try {
+          if (Date.now() - pollStart > MAX_POLL_TIME) {
+            clearInterval(pollStatus);
+            setFullRefreshing(false);
+            fetchData(true, true);
+            return;
+          }
+          const status = await marketingService.getCacheStatus();
+          if (!status.refresh_in_progress) {
+            clearInterval(pollStatus);
+            setFullRefreshing(false);
+            if (status.ultima_atualizacao_completa) {
+              setServerLastUpdate(status.ultima_atualizacao_completa);
+            }
+            fetchData(true, true);
+          }
+        } catch {
+          clearInterval(pollStatus);
+          setFullRefreshing(false);
+        }
+      }, POLL_INTERVAL);
+    };
+
     try {
       const result = await marketingService.refreshAllCaches();
-      if (result.status === 'started') {
-        const pollStatus = setInterval(async () => {
-          try {
-            const status = await marketingService.getCacheStatus();
-            if (!status.refresh_in_progress) {
-              clearInterval(pollStatus);
-              setFullRefreshing(false);
-              if (status.ultima_atualizacao_completa) {
-                setServerLastUpdate(status.ultima_atualizacao_completa);
-              }
-              fetchData(true, true);
-            }
-          } catch {
-            clearInterval(pollStatus);
-            setFullRefreshing(false);
-          }
-        }, 5000);
-      } else if (result.status === 'in_progress') {
-        const pollStatus = setInterval(async () => {
-          try {
-            const status = await marketingService.getCacheStatus();
-            if (!status.refresh_in_progress) {
-              clearInterval(pollStatus);
-              setFullRefreshing(false);
-              if (status.ultima_atualizacao_completa) {
-                setServerLastUpdate(status.ultima_atualizacao_completa);
-              }
-              fetchData(true, true);
-            }
-          } catch {
-            clearInterval(pollStatus);
-            setFullRefreshing(false);
-          }
-        }, 5000);
+      if (result.status === 'started' || result.status === 'in_progress') {
+        startPolling();
       } else {
         setFullRefreshing(false);
       }
