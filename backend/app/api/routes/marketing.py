@@ -986,6 +986,7 @@ FROM (
     WHERE
         b.dt_evento >= MAKEDATE(YEAR(CURDATE()) - 1, 1)
         AND b.dt_evento <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
+        AND c.dt_pedido < CURDATE()
 
         AND (b.id_campanha_salesforce IS NULL
              OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
@@ -1079,6 +1080,7 @@ WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND soi.price > 0
 AND so.base_grand_total > 0
+AND so.created_at < CURDATE()
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND so.increment_id NOT LIKE '%%-1%%'
 AND so.increment_id NOT LIKE '%%-2%%'
