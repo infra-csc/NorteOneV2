@@ -17,7 +17,7 @@ from app.schemas.cadastro_evento import (
     CadastroEventoCreate, CadastroEventoUpdate, CadastroEventoResponse,
     InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
     CortesiaItemResponse, TaxaItemResponse, KitProdutoResponse, ProdutoItemResponse,
-    FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema
+    FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema, AppaiData
 )
 
 router = APIRouter(prefix="/cadastros", tags=["Cadastros"], dependencies=[Depends(get_current_user)])
@@ -95,7 +95,6 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         distancias=cadastro.distancias or []
     )
     
-    from ..schemas.cadastro_evento import AppaiData
     atletas = AtletasData(
         site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
         grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
