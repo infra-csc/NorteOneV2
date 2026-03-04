@@ -815,6 +815,7 @@ export const marketingService = {
     status: string;
     refresh_in_progress: boolean;
     progress: { step: number; total_steps: number; label: string; elapsed_seconds: number | null } | null;
+    last_error: string | null;
     ultima_atualizacao_completa: string | null;
     caches: Record<string, any>;
     config: Record<string, any>;

@@ -17,6 +17,7 @@ _full_refresh_in_progress = False
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None
 _warmup_progress = {"step": 0, "total_steps": 5, "label": "", "started_at": None}
+_last_refresh_error = None
 
 _db_persist_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cache_persist")
 
@@ -63,6 +64,16 @@ def set_full_refresh_in_progress(val: bool):
             _warmup_progress["step"] = 0
             _warmup_progress["label"] = ""
             _warmup_progress["started_at"] = None
+
+
+def get_last_refresh_error():
+    global _last_refresh_error
+    return _last_refresh_error
+
+
+def set_last_refresh_error(error_msg: Optional[str]):
+    global _last_refresh_error
+    _last_refresh_error = error_msg
 
 
 def set_warmup_progress(step: int, label: str):

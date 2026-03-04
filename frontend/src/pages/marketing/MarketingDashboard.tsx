@@ -13,7 +13,10 @@ import {
   ChevronRight,
   Info,
   RefreshCw,
-  Clock
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle
 } from 'lucide-react';
 import { 
   getISCColor, 
@@ -98,6 +101,7 @@ const MarketingDashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null} | null>(null);
+  const [refreshResult, setRefreshResult] = useState<'success' | 'error' | 'timeout' | null>(null);
   const [revalidating, setRevalidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverLastUpdate, setServerLastUpdate] = useState<string | null>(null);
@@ -107,6 +111,7 @@ const MarketingDashboard: React.FC = () => {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const cacheStatusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const refreshResultRef = useRef<'success' | 'error' | 'timeout' | null>(null);
   const AUTO_REFRESH_INTERVAL = 60 * 60 * 1000;
 
   const applyResponse = useCallback((response: any) => {
@@ -145,7 +150,9 @@ const MarketingDashboard: React.FC = () => {
     }
 
     try {
-      setError(null);
+      if (!refreshResultRef.current) {
+        setError(null);
+      }
       
       const response = await marketingService.getEventos({
         ...requestParams,
@@ -217,9 +224,19 @@ const MarketingDashboard: React.FC = () => {
     };
   }, [fetchData]);
 
+  const showRefreshResult = (result: 'success' | 'error' | 'timeout') => {
+    setRefreshResult(result);
+    refreshResultRef.current = result;
+    setTimeout(() => {
+      setRefreshResult(null);
+      refreshResultRef.current = null;
+    }, 5000);
+  };
+
   const handleFullRefresh = async () => {
     setFullRefreshing(true);
     setRefreshProgress(null);
+    setRefreshResult(null);
     const MAX_POLL_TIME = 5 * 60 * 1000;
     const POLL_INTERVAL = 3000;
 
@@ -231,6 +248,8 @@ const MarketingDashboard: React.FC = () => {
             clearInterval(pollStatus);
             setFullRefreshing(false);
             setRefreshProgress(null);
+            showRefreshResult('timeout');
+            setError('A atualização excedeu o tempo limite de 5 minutos. Os dados exibidos podem estar desatualizados.');
             fetchData(true, true);
             return;
           }
@@ -239,6 +258,12 @@ const MarketingDashboard: React.FC = () => {
             clearInterval(pollStatus);
             setFullRefreshing(false);
             setRefreshProgress(null);
+            if (status.last_error) {
+              showRefreshResult('error');
+              setError(status.last_error);
+            } else {
+              showRefreshResult('success');
+            }
             if (status.ultima_atualizacao_completa) {
               setServerLastUpdate(status.ultima_atualizacao_completa);
             }
@@ -250,6 +275,8 @@ const MarketingDashboard: React.FC = () => {
           clearInterval(pollStatus);
           setFullRefreshing(false);
           setRefreshProgress(null);
+          showRefreshResult('error');
+          setError('Erro de conexão ao verificar o status da atualização. Tente novamente.');
         }
       }, POLL_INTERVAL);
     };
@@ -260,11 +287,15 @@ const MarketingDashboard: React.FC = () => {
         startPolling();
       } else {
         setFullRefreshing(false);
+        showRefreshResult('error');
+        setError('Não foi possível iniciar a atualização. Tente novamente.');
       }
     } catch (err) {
       console.error('Erro ao atualizar todos os caches:', err);
       setFullRefreshing(false);
       setRefreshProgress(null);
+      showRefreshResult('error');
+      setError('Erro ao conectar com o servidor para iniciar a atualização.');
     }
   };
 
@@ -372,15 +403,37 @@ const MarketingDashboard: React.FC = () => {
             onClick={handleFullRefresh}
             disabled={fullRefreshing || loading}
             title="Atualiza todos os dados do servidor"
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors text-sm ${(fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+              refreshResult === 'success'
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                : refreshResult === 'error'
+                  ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                  : refreshResult === 'timeout'
+                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
+                    : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50'
+            } ${(fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-spin' : ''}`} />
+            {refreshResult === 'success' ? (
+              <CheckCircle className="w-3.5 h-3.5" />
+            ) : refreshResult === 'error' ? (
+              <XCircle className="w-3.5 h-3.5" />
+            ) : refreshResult === 'timeout' ? (
+              <AlertCircle className="w-3.5 h-3.5" />
+            ) : (
+              <RefreshCw className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-spin' : ''}`} />
+            )}
             <span className="font-medium">
-              {fullRefreshing
-                ? refreshProgress
-                  ? `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
-                  : 'Iniciando...'
-                : 'Atualizar'}
+              {refreshResult === 'success'
+                ? 'Atualizado!'
+                : refreshResult === 'error'
+                  ? 'Falha na atualização'
+                  : refreshResult === 'timeout'
+                    ? 'Tempo esgotado'
+                    : fullRefreshing
+                      ? refreshProgress
+                        ? `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
+                        : 'Iniciando...'
+                      : 'Atualizar'}
             </span>
           </button>
           {fullRefreshing && refreshProgress?.label && (

@@ -37,7 +37,7 @@ def _scheduled_isc_refresh():
 
 def _full_cache_warmup():
     from app.core.database import SessionLocal
-    from app.core.cache import set_warmup_progress
+    from app.core.cache import set_warmup_progress, set_last_refresh_error
     from datetime import datetime
     from app.models.cadastro_evento import CadastroEvento
     from app.models.dimensoes import DimProjeto, SkuMapping
@@ -51,6 +51,7 @@ def _full_cache_warmup():
             logger.info("Full cache warmup flag already set, proceeding")
         else:
             _cache_module._full_refresh_in_progress = True
+    set_last_refresh_error(None)
     start = time.time()
     logger.info("=== FULL CACHE WARMUP STARTED ===")
 
@@ -162,6 +163,7 @@ def _full_cache_warmup():
 
     except Exception as e:
         logger.error(f"Full cache warmup failed: {e}", exc_info=True)
+        set_last_refresh_error(f"Falha na atualização dos dados: {str(e)}")
     finally:
         set_full_refresh_in_progress(False)
         if db:
