@@ -1287,7 +1287,7 @@ const EventDetail: React.FC = () => {
                   const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
                   const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
-                  const labels = ['Base -10%', 'Base (real)', 'Base +5%', 'Base +10%', 'Base +15%', 'Base +20%'];
+                  const labels = ['Vendas futuras -10%', 'Vendas futuras (real)', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
 
                   const rows = multipliers.map((mult, i) => {
                     const volFuturo = Math.round(volBase * mult);
@@ -1724,7 +1724,7 @@ const EventDetail: React.FC = () => {
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta Global</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas (até ontem) / Meta Global</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {formatNumber(inscritosTotal)} / {formatNumber(event.salesGoal)}
           </p>
@@ -1858,7 +1858,7 @@ const EventDetail: React.FC = () => {
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <span className="text-xs text-gray-500 dark:text-gray-400">% do Orçado</span>
                 <span className={`text-lg font-bold ${(event.averageTicket / event.budgetTicket) >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {Math.round((event.averageTicket / event.budgetTicket) * 100)}%
+                  {((event.averageTicket / event.budgetTicket) - 1) >= 0 ? '+' : ''}{Math.round(((event.averageTicket / event.budgetTicket) - 1) * 100)}%
                 </span>
               </div>
             )}
