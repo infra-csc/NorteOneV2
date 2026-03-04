@@ -100,7 +100,7 @@ const MarketingDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
-  const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null} | null>(null);
+  const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null; sub_current?: number; sub_total?: number} | null>(null);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | 'timeout' | null>(null);
   const [revalidating, setRevalidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +237,7 @@ const MarketingDashboard: React.FC = () => {
     setFullRefreshing(true);
     setRefreshProgress(null);
     setRefreshResult(null);
-    const MAX_POLL_TIME = 5 * 60 * 1000;
+    const MAX_POLL_TIME = 3 * 60 * 1000;
     const POLL_INTERVAL = 3000;
 
     const startPolling = () => {
@@ -249,7 +249,7 @@ const MarketingDashboard: React.FC = () => {
             setFullRefreshing(false);
             setRefreshProgress(null);
             showRefreshResult('timeout');
-            setError('A atualização excedeu o tempo limite de 5 minutos. Os dados exibidos podem estar desatualizados.');
+            setAvisos(prev => [...prev, 'A atualização está demorando mais que o esperado. Ela continua em andamento no servidor e será concluída em breve.']);
             fetchData(true, true);
             return;
           }
@@ -259,8 +259,13 @@ const MarketingDashboard: React.FC = () => {
             setFullRefreshing(false);
             setRefreshProgress(null);
             if (status.last_error) {
-              showRefreshResult('error');
-              setError(status.last_error);
+              if (status.last_error.includes('avisos')) {
+                showRefreshResult('success');
+                setAvisos(prev => [...prev, status.last_error]);
+              } else {
+                showRefreshResult('error');
+                setError(status.last_error);
+              }
             } else {
               showRefreshResult('success');
             }
@@ -399,49 +404,68 @@ const MarketingDashboard: React.FC = () => {
               <span>Última atualização: {new Date(serverLastUpdate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           )}
-          <button
-            onClick={handleFullRefresh}
-            disabled={fullRefreshing || loading}
-            title="Atualiza todos os dados do servidor"
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
-              refreshResult === 'success'
-                ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                : refreshResult === 'error'
-                  ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                  : refreshResult === 'timeout'
-                    ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
-                    : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50'
-            } ${(fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {refreshResult === 'success' ? (
-              <CheckCircle className="w-3.5 h-3.5" />
-            ) : refreshResult === 'error' ? (
-              <XCircle className="w-3.5 h-3.5" />
-            ) : refreshResult === 'timeout' ? (
-              <AlertCircle className="w-3.5 h-3.5" />
-            ) : (
-              <RefreshCw className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-spin' : ''}`} />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleFullRefresh}
+              disabled={fullRefreshing || loading}
+              title="Atualiza todos os dados do servidor"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                refreshResult === 'success'
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                  : refreshResult === 'error'
+                    ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                    : refreshResult === 'timeout'
+                      ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400'
+                      : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50'
+              } ${(fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              {refreshResult === 'success' ? (
+                <CheckCircle className="w-3.5 h-3.5" />
+              ) : refreshResult === 'error' ? (
+                <XCircle className="w-3.5 h-3.5" />
+              ) : refreshResult === 'timeout' ? (
+                <AlertCircle className="w-3.5 h-3.5" />
+              ) : (
+                <RefreshCw className={`w-3.5 h-3.5 ${fullRefreshing ? 'animate-spin' : ''}`} />
+              )}
+              <span className="font-medium">
+                {refreshResult === 'success'
+                  ? 'Atualizado!'
+                  : refreshResult === 'error'
+                    ? 'Falha na atualização'
+                    : refreshResult === 'timeout'
+                      ? 'Tempo esgotado'
+                      : fullRefreshing
+                        ? refreshProgress
+                          ? `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
+                          : 'Iniciando...'
+                        : 'Atualizar'}
+              </span>
+            </button>
+            {fullRefreshing && refreshProgress && (
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 dark:bg-emerald-400 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${Math.round((refreshProgress.step / refreshProgress.total_steps) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                    {refreshProgress.label}
+                    {refreshProgress.sub_total && refreshProgress.sub_total > 0
+                      ? ` (${refreshProgress.sub_current || 0}/${refreshProgress.sub_total})`
+                      : ''}
+                  </span>
+                </div>
+                {refreshProgress.elapsed_seconds != null && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                    {Math.round(refreshProgress.elapsed_seconds)}s decorridos
+                  </span>
+                )}
+              </div>
             )}
-            <span className="font-medium">
-              {refreshResult === 'success'
-                ? 'Atualizado!'
-                : refreshResult === 'error'
-                  ? 'Falha na atualização'
-                  : refreshResult === 'timeout'
-                    ? 'Tempo esgotado'
-                    : fullRefreshing
-                      ? refreshProgress
-                        ? `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
-                        : 'Iniciando...'
-                      : 'Atualizar'}
-            </span>
-          </button>
-          {fullRefreshing && refreshProgress?.label && (
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {refreshProgress.label}
-              {refreshProgress.elapsed_seconds != null && ` (${Math.round(refreshProgress.elapsed_seconds)}s)`}
-            </span>
-          )}
+          </div>
         </div>
       </div>
 

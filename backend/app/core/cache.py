@@ -16,7 +16,7 @@ _last_full_refresh_timestamp = None
 _full_refresh_in_progress = False
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None
-_warmup_progress = {"step": 0, "total_steps": 5, "label": "", "started_at": None}
+_warmup_progress = {"step": 0, "total_steps": 5, "label": "", "started_at": None, "sub_current": 0, "sub_total": 0}
 _last_refresh_error = None
 
 _db_persist_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cache_persist")
@@ -64,6 +64,8 @@ def set_full_refresh_in_progress(val: bool):
             _warmup_progress["step"] = 0
             _warmup_progress["label"] = ""
             _warmup_progress["started_at"] = None
+            _warmup_progress["sub_current"] = 0
+            _warmup_progress["sub_total"] = 0
 
 
 def get_last_refresh_error():
@@ -76,24 +78,35 @@ def set_last_refresh_error(error_msg: Optional[str]):
     _last_refresh_error = error_msg
 
 
-def set_warmup_progress(step: int, label: str):
+def set_warmup_progress(step: int, label: str, sub_current: int = 0, sub_total: int = 0):
     global _warmup_progress
-    _warmup_progress["step"] = step
-    _warmup_progress["label"] = label
-    if step == 1 and _warmup_progress["started_at"] is None:
-        _warmup_progress["started_at"] = time.time()
+    with _full_refresh_lock:
+        _warmup_progress["step"] = step
+        _warmup_progress["label"] = label
+        _warmup_progress["sub_current"] = sub_current
+        _warmup_progress["sub_total"] = sub_total
+        if step == 1 and _warmup_progress["started_at"] is None:
+            _warmup_progress["started_at"] = time.time()
 
 
 def get_warmup_progress() -> dict:
-    elapsed = None
-    if _warmup_progress["started_at"]:
-        elapsed = round(time.time() - _warmup_progress["started_at"], 1)
-    return {
-        "step": _warmup_progress["step"],
-        "total_steps": _warmup_progress["total_steps"],
-        "label": _warmup_progress["label"],
-        "elapsed_seconds": elapsed,
-    }
+    with _full_refresh_lock:
+        elapsed = None
+        if _warmup_progress["started_at"]:
+            elapsed = round(time.time() - _warmup_progress["started_at"], 1)
+        return {
+            "step": _warmup_progress["step"],
+            "total_steps": _warmup_progress["total_steps"],
+            "label": _warmup_progress["label"],
+            "elapsed_seconds": elapsed,
+            "sub_current": _warmup_progress.get("sub_current", 0),
+            "sub_total": _warmup_progress.get("sub_total", 0),
+        }
+
+
+def update_warmup_sub_progress(sub_current: int):
+    with _full_refresh_lock:
+        _warmup_progress["sub_current"] = sub_current
 
 
 def _get_db_session():

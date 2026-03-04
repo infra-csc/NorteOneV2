@@ -2201,7 +2201,7 @@ def _fetch_monthly_sales_ativo(ano_atual: int, ano_anterior: int) -> list:
         return []
     try:
         query = """
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     YEAR(c.dt_pedido) AS ano,
     MONTH(c.dt_pedido) AS mes,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
@@ -2395,7 +2395,7 @@ def _fetch_monthly_sales_ativo_by_ids(id_eventos: list) -> list:
         if not safe_ids:
             return []
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     MONTH(c.dt_pedido) AS mes,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
         AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
@@ -2478,7 +2478,7 @@ def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
         if not safe_ids:
             return {}
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     b.id_evento,
     DATE(c.dt_pedido) AS dia,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
@@ -2523,7 +2523,7 @@ def _fetch_daily_sales_magento_by_ids_grouped(location_ids: list) -> dict:
         if not safe_ids:
             return {}
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     cpev1.value AS location_id,
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
@@ -2658,7 +2658,7 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
         if not safe_ids:
             return []
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(c.dt_pedido) AS dia,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
         AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
@@ -2698,7 +2698,7 @@ def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
         if not safe_ids:
             return []
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
         AND so.base_grand_total > 0 THEN 1 END) AS qtd,
@@ -2749,7 +2749,7 @@ def _fetch_category_sales_ativo_by_ids(id_eventos: list) -> list:
         if not safe_ids:
             return []
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     h.ds_categoria AS categoria,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
         AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
@@ -4583,7 +4583,7 @@ def fetch_rolling_avg_ativo() -> dict:
     
     try:
         query = """
-        SELECT /*+ MAX_EXECUTION_TIME(25000) */
+        SELECT /*+ MAX_EXECUTION_TIME(45000) */
             b.id_evento,
             b.id_campanha_salesforce,
             COUNT(DISTINCT CASE 
@@ -4664,7 +4664,7 @@ def fetch_rolling_avg_magento() -> dict:
     
     try:
         query = """
-        SELECT /*+ MAX_EXECUTION_TIME(25000) */
+        SELECT /*+ MAX_EXECUTION_TIME(45000) */
             wl.location_id,
             d.sku AS product_sku,
             COUNT(DISTINCT CASE 

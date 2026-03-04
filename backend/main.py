@@ -37,7 +37,7 @@ def _scheduled_isc_refresh():
 
 def _full_cache_warmup():
     from app.core.database import SessionLocal
-    from app.core.cache import set_warmup_progress, set_last_refresh_error
+    from app.core.cache import set_warmup_progress, set_last_refresh_error, update_warmup_sub_progress
     from datetime import datetime
     from app.models.cadastro_evento import CadastroEvento
     from app.models.dimensoes import DimProjeto, SkuMapping
@@ -45,6 +45,10 @@ def _full_cache_warmup():
         fetch_isc_pricing_data, normalize_sku, calculate_d_minus,
         _build_sku_to_grupo_map
     )
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
+    WARMUP_WORKERS = 3
 
     with _full_refresh_lock:
         if _cache_module._full_refresh_in_progress:
@@ -55,6 +59,7 @@ def _full_cache_warmup():
     start = time.time()
     logger.info("=== FULL CACHE WARMUP STARTED ===")
 
+    partial_warnings = []
     db = None
     try:
         db = SessionLocal()
@@ -64,10 +69,15 @@ def _full_cache_warmup():
         daily_sales_cache.invalidate(f"{ano}_prefetch_daily")
         logger.info(f"[Warmup] Invalidated daily_sales cache for {ano}")
 
-        set_warmup_progress(1, "Atualizando dados de inscrições")
+        set_warmup_progress(1, "Atualizando dados de inscrições", 0, 1)
         logger.info("[Warmup 1/5] Refreshing ISC pricing data...")
-        fetch_isc_pricing_data(db=db, force_refresh=True)
-        logger.info("[Warmup 1/5] ISC pricing data refreshed")
+        try:
+            fetch_isc_pricing_data(db=db, force_refresh=True)
+            logger.info("[Warmup 1/5] ISC pricing data refreshed")
+            update_warmup_sub_progress(1)
+        except Exception as e:
+            logger.error(f"[Warmup 1/5] ISC pricing data FAILED: {e}")
+            partial_warnings.append(f"Dados de inscrições parciais: {str(e)[:100]}")
 
         cadastros_list = db.query(CadastroEvento).all()
         sku_to_grupo = _build_sku_to_grupo_map(db, ano)
@@ -95,7 +105,8 @@ def _full_cache_warmup():
             elif not grupo_nome:
                 active_evento_ids.append(str(projeto.id))
 
-        logger.info(f"[Warmup] Found {len(active_evento_ids)} active events to warm up")
+        total_events = len(active_evento_ids)
+        logger.info(f"[Warmup] Found {total_events} active events to warm up")
 
         from app.api.routes.marketing import (
             get_marketing_event_by_id,
@@ -104,66 +115,70 @@ def _full_cache_warmup():
             get_evento_insights
         )
 
-        set_warmup_progress(2, "Detalhes dos eventos")
-        logger.info("[Warmup 2/5] Warming event details...")
-        warmed_details = 0
-        for evento_id in active_evento_ids:
-            try:
-                get_marketing_event_by_id(
-                    evento_id=evento_id, ano=ano, force_refresh=True, db=db,
-                    current_user=None
-                )
-                warmed_details += 1
-            except Exception as e:
-                logger.warning(f"[Warmup] Failed to warm event detail for {evento_id}: {e}")
-        logger.info(f"[Warmup 2/5] Warmed {warmed_details}/{len(active_evento_ids)} event details")
+        def _warm_step_parallel(step_num, step_label, warm_fn, evento_ids):
+            set_warmup_progress(step_num, step_label, 0, len(evento_ids))
+            logger.info(f"[Warmup {step_num}/5] {step_label}...")
+            warmed = 0
+            counter_lock = threading.Lock()
 
-        set_warmup_progress(3, "Curvas comparativas")
-        logger.info("[Warmup 3/5] Warming curva comparativa...")
-        warmed_curvas = 0
-        for evento_id in active_evento_ids:
-            try:
-                get_curva_comparativa_evento(
-                    evento_id=evento_id, ano=ano, force_refresh=True, db=db,
-                    current_user=None
-                )
-                warmed_curvas += 1
-            except Exception as e:
-                logger.warning(f"[Warmup] Failed to warm curva for {evento_id}: {e}")
-        logger.info(f"[Warmup 3/5] Warmed {warmed_curvas}/{len(active_evento_ids)} curvas")
+            def _do_warm(eid):
+                nonlocal warmed
+                local_db = SessionLocal()
+                try:
+                    warm_fn(eid, ano, local_db)
+                    with counter_lock:
+                        warmed += 1
+                        update_warmup_sub_progress(warmed)
+                except Exception as e:
+                    logger.warning(f"[Warmup] Failed {step_label} for {eid}: {e}")
+                finally:
+                    try:
+                        local_db.close()
+                    except Exception:
+                        pass
 
-        set_warmup_progress(4, "Médias de vendas")
-        logger.info("[Warmup 4/5] Warming medias de vendas...")
-        warmed_medias = 0
-        for evento_id in active_evento_ids:
-            try:
-                get_sales_averages(
-                    evento_id=evento_id, periodo=30, ano=ano, force_refresh=True, db=db,
-                    current_user=None
-                )
-                warmed_medias += 1
-            except Exception as e:
-                logger.warning(f"[Warmup] Failed to warm medias for {evento_id}: {e}")
-        logger.info(f"[Warmup 4/5] Warmed {warmed_medias}/{len(active_evento_ids)} medias")
+            with ThreadPoolExecutor(max_workers=WARMUP_WORKERS, thread_name_prefix=f"warmup_s{step_num}") as executor:
+                futures = [executor.submit(_do_warm, eid) for eid in evento_ids]
+                for f in as_completed(futures):
+                    try:
+                        f.result()
+                    except Exception:
+                        pass
 
-        set_warmup_progress(5, "Gerando insights")
-        logger.info("[Warmup 5/5] Warming insights...")
-        warmed_insights = 0
-        for evento_id in active_evento_ids:
-            try:
-                get_evento_insights(
-                    evento_id=evento_id, ano=ano, force_refresh=True, db=db,
-                    current_user=None
-                )
-                warmed_insights += 1
-            except Exception as e:
-                logger.warning(f"[Warmup] Failed to warm insights for {evento_id}: {e}")
-        logger.info(f"[Warmup 5/5] Warmed {warmed_insights}/{len(active_evento_ids)} insights")
+            logger.info(f"[Warmup {step_num}/5] Warmed {warmed}/{len(evento_ids)} {step_label}")
+            return warmed
+
+        warmed_details = _warm_step_parallel(
+            2, "Detalhes dos eventos", 
+            lambda eid, a, d: get_marketing_event_by_id(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None),
+            active_evento_ids
+        )
+
+        warmed_curvas = _warm_step_parallel(
+            3, "Curvas comparativas",
+            lambda eid, a, d: get_curva_comparativa_evento(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None),
+            active_evento_ids
+        )
+
+        warmed_medias = _warm_step_parallel(
+            4, "Médias de vendas",
+            lambda eid, a, d: get_sales_averages(evento_id=eid, periodo=30, ano=a, force_refresh=True, db=d, current_user=None),
+            active_evento_ids
+        )
+
+        warmed_insights = _warm_step_parallel(
+            5, "Gerando insights",
+            lambda eid, a, d: get_evento_insights(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None),
+            active_evento_ids
+        )
 
         set_last_full_refresh(time.time())
         elapsed = time.time() - start
         logger.info(f"=== FULL CACHE WARMUP COMPLETED in {elapsed:.1f}s ===")
         logger.info(f"    Details: {warmed_details}, Curvas: {warmed_curvas}, Médias: {warmed_medias}, Insights: {warmed_insights}")
+
+        if partial_warnings:
+            set_last_refresh_error("Atualização concluída com avisos: " + "; ".join(partial_warnings))
 
     except Exception as e:
         logger.error(f"Full cache warmup failed: {e}", exc_info=True)
