@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConnectionAlert from '../../components/common/ConnectionAlert';
 import { 
@@ -90,6 +90,8 @@ const MarketingDashboard: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('active');
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [dMinusFilter, setDMinusFilter] = useState('all');
   
   const [eventos, setEventos] = useState<MarketingEvent[]>([]);
   const [summary, setSummary] = useState<MarketingDashboardSummary>({
@@ -329,6 +331,29 @@ const MarketingDashboard: React.FC = () => {
       }
     };
   }, []);
+
+  const filteredEventos = useMemo(() => {
+    let filtered = eventos;
+
+    if (zoneFilter !== 'all') {
+      filtered = filtered.filter(e => e.iscStatus === zoneFilter);
+    }
+
+    if (dMinusFilter !== 'all') {
+      filtered = filtered.filter(e => {
+        switch (dMinusFilter) {
+          case 'critical': return e.dMinus <= 40;
+          case '41-60': return e.dMinus >= 41 && e.dMinus <= 60;
+          case '61-90': return e.dMinus >= 61 && e.dMinus <= 90;
+          case '91-120': return e.dMinus >= 91 && e.dMinus <= 120;
+          case '120+': return e.dMinus > 120;
+          default: return true;
+        }
+      });
+    }
+
+    return filtered;
+  }, [eventos, zoneFilter, dMinusFilter]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -591,9 +616,47 @@ const MarketingDashboard: React.FC = () => {
                 <option value="active">Ativos</option>
                 <option value="closed">Encerrados</option>
               </select>
+
+              <select
+                value={zoneFilter}
+                onChange={(e) => setZoneFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              >
+                <option value="all">Todas Zonas</option>
+                <option value="accelerating">🟢 Verde</option>
+                <option value="stable">🟡 Amarela</option>
+                <option value="decelerating">🔴 Vermelha</option>
+              </select>
+
+              <select
+                value={dMinusFilter}
+                onChange={(e) => setDMinusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              >
+                <option value="all">Todos D-</option>
+                <option value="critical">⚠️ D- ≤ 40 (Crítico)</option>
+                <option value="41-60">D- 41–60</option>
+                <option value="61-90">D- 61–90</option>
+                <option value="91-120">D- 91–120</option>
+                <option value="120+">D- {'>'} 120</option>
+              </select>
             </div>
           </div>
         </div>
+        )}
+
+        {!loading && (zoneFilter !== 'all' || dMinusFilter !== 'all') && (
+          <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <span className="text-sm text-blue-700 dark:text-blue-300">
+              Exibindo {filteredEventos.length} de {eventos.length} eventos
+            </span>
+            <button
+              onClick={() => { setZoneFilter('all'); setDMinusFilter('all'); }}
+              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              Limpar filtros
+            </button>
+          </div>
         )}
 
         <div className="overflow-x-auto">
@@ -694,13 +757,13 @@ const MarketingDashboard: React.FC = () => {
                   <SkeletonTableRow />
                   <SkeletonTableRow />
                 </>
-              ) : eventos.length === 0 ? (
+              ) : filteredEventos.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
-                    Nenhum evento encontrado.
+                    {eventos.length > 0 ? 'Nenhum evento encontrado com os filtros selecionados.' : 'Nenhum evento encontrado.'}
                   </td>
                 </tr>
-              ) : eventos.map((event) => (
+              ) : filteredEventos.map((event) => (
                 <tr 
                   key={event.id}
                   onClick={() => navigate(`/marketing/evento/${event.id}${event.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : ''}`)}
