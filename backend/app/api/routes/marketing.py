@@ -663,6 +663,11 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     if daily_sales_dict:
         daily_sales_dict = {(date.fromisoformat(k) if isinstance(k, str) else k): v for k, v in daily_sales_dict.items()}
     
+    from datetime import timedelta
+    yesterday = date.today() - timedelta(days=1)
+    if daily_sales_dict and len(daily_sales_dict) > 0:
+        current_sales = sum(v for k, v in daily_sales_dict.items() if k <= yesterday)
+    
     progress_percent = current_sales / sales_goal
 
     if hist_pattern and len(hist_pattern) > 0:
@@ -677,9 +682,6 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
         if expected_progress == 0:
             expected_progress = 0.01
         curva_d_percent = progress_percent / expected_progress
-
-    from datetime import timedelta
-    yesterday = date.today() - timedelta(days=1)
 
     real_7d = None
     real_14d = None
@@ -1832,6 +1834,12 @@ def get_marketing_events(
         
         grupo_daily_sales_dict = _build_grupo_daily_dict(sku_daily_prefetch, proj_list)
         
+        from datetime import timedelta
+        _yesterday = date.today() - timedelta(days=1)
+        if grupo_daily_sales_dict and len(grupo_daily_sales_dict) > 0:
+            current_sales = sum(v for k, v in grupo_daily_sales_dict.items() if k <= _yesterday)
+            avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
+        
         grupo_hist_pattern = hist_patterns_prefetch.get(grupo_nome)
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
@@ -1929,6 +1937,10 @@ def get_marketing_events(
         standalone_eg = sku_to_grupo.get(normalize_sku(sku))
         
         standalone_daily_dict = _build_grupo_daily_dict(sku_daily_prefetch, [projeto])
+        
+        if standalone_daily_dict and len(standalone_daily_dict) > 0:
+            current_sales = sum(v for k, v in standalone_daily_dict.items() if k <= _yesterday)
+            avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         standalone_hist = hist_patterns_prefetch.get(standalone_eg) if standalone_eg else None
         
@@ -2700,6 +2712,7 @@ WHERE
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN :id_eventos
+    AND c.dt_pedido < CURDATE()
 GROUP BY b.id_evento, DATE(c.dt_pedido)
 ORDER BY b.id_evento, dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -2757,6 +2770,7 @@ WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
+    AND so.created_at < CURDATE()
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
 """).bindparams(bindparam("location_ids", expanding=True))
@@ -4255,10 +4269,14 @@ def get_marketing_event_by_id(
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
+        _yesterday_detail = date.today() - timedelta(days=1)
+        current_sales = 0
+        if daily_sales_dict and len(daily_sales_dict) > 0:
+            current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _yesterday_detail)
+        
         current_year = datetime.now().year
         if ano == current_year:
             isc_data = fetch_isc_pricing_data(db=db)
-            current_sales = 0
             current_receita = 0.0
             seen_norms = set()
             for s_sku in skus:
@@ -4267,7 +4285,6 @@ def get_marketing_event_by_id(
                     continue
                 seen_norms.add(s_norm)
                 info = isc_data.get(s_norm, {})
-                current_sales += info.get('qtd_site', 0)
                 current_receita += info.get('receita_liquida_site', 0.0)
             
             grupo_media_14d = 0.0
@@ -4287,19 +4304,16 @@ def get_marketing_event_by_id(
             ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
             magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
             
-            current_sales = 0
             current_receita = 0.0
             
             if ativo_ids:
                 ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
                 for row in ativo_rows:
-                    current_sales += row.get('qtd', 0)
                     current_receita += row.get('receita', 0.0)
             
             if magento_ids:
                 magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
                 for row in magento_rows:
-                    current_sales += row.get('qtd', 0)
                     current_receita += row.get('receita', 0.0)
             
             grupo_media_14d = 0.0
@@ -5682,6 +5696,11 @@ def get_pricing_analysis(
             standalone_pricing_eg = standalone_pricing_eg_mapping.evento_grupo
         
         standalone_pricing_daily_dict = _build_grupo_daily_dict(pricing_sku_daily, [projeto])
+        
+        _yesterday_pricing = date.today() - timedelta(days=1)
+        if standalone_pricing_daily_dict and len(standalone_pricing_daily_dict) > 0:
+            current_sales = sum(v for k, v in standalone_pricing_daily_dict.items() if k <= _yesterday_pricing)
+            average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         standalone_pricing_hist = None
         if standalone_pricing_eg:

@@ -46,6 +46,7 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Sales Averages Analysis:** Provides daily sales averages from Ativo + Magento.
 - **Year-over-Year Comparison:** Compares cumulative inscriptions and revenue by "days before event."
 - **Historical Benchmark Curve:** Uses previous year's sales distribution for expected curve generation.
+- **ISC Data Consistency:** All 3 ISC components (Curva D-%, IA 7/30, Rolling 14d) derive `current_sales` from `daily_sales_dict` (sum up to yesterday), not from the ISC pricing query. Daily sales prefetch queries filter `< CURDATE()` to exclude today's partial data. This ensures all components use the same data source and cutoff date.
 - **SKU Mapping & Event Groups:** Unified administration for SKU mappings and event groups.
 - **Strategic Insights Dashboard:** Calculates insights from Ativo+Magento data, including Acceleration Index, Daily Pace, Closing Projection, and Category Mix.
 - **Marketing Settings Persistence:** API for persisting marketing settings (key-value JSON), actively used in ISC calculations.
