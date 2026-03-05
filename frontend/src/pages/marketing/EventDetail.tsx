@@ -775,7 +775,7 @@ const EventDetail: React.FC = () => {
           <DailySalesTable
             dailySales={event.dailySales || []}
             isDark={isDark}
-            eventName={event.eventName}
+            eventName={event.name}
           />
         </div>
       ) : activeTab === 'complementares' ? (
