@@ -19,7 +19,8 @@ import {
   Plus,
   X,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  TableProperties
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -46,6 +47,7 @@ import { useTheme } from '../../context/ThemeContext';
 import EventInsights from './EventInsights';
 import EventSimulator from './EventSimulator';
 import EventPricing from './EventPricing';
+import DailySalesTable from './DailySalesTable';
 
 interface CommercialAction {
   id: string;
@@ -60,7 +62,7 @@ interface CommercialAction {
 }
 
 interface ExtendedEvent extends MarketingEvent {
-  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number }[];
+  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number }[];
   commercialActions?: CommercialAction[];
 }
 
@@ -91,7 +93,7 @@ const EventDetail: React.FC = () => {
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing' | 'projection' | 'complementares'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing' | 'projection' | 'complementares' | 'controle'>('dashboard');
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
@@ -132,7 +134,12 @@ const EventDetail: React.FC = () => {
             sales: d.sales,
             expected: d.expected,
             cumulativeSales: d.cumulativeSales,
-            cumulativeExpected: d.cumulativeExpected
+            cumulativeExpected: d.cumulativeExpected,
+            dMinus: d.dMinus,
+            curvaAnoAnterior: d.curvaAnoAnterior,
+            dif: d.dif,
+            atingimentoAcumulado: d.atingimentoAcumulado,
+            atingimentoDiario: d.atingimentoDiario
           })),
           commercialActions: response.commercialActions?.map((a: any) => ({
             id: a.id,
@@ -249,7 +256,12 @@ const EventDetail: React.FC = () => {
           sales: d.sales,
           expected: d.expected,
           cumulativeSales: d.cumulativeSales,
-          cumulativeExpected: d.cumulativeExpected
+          cumulativeExpected: d.cumulativeExpected,
+          dMinus: d.dMinus,
+          curvaAnoAnterior: d.curvaAnoAnterior,
+          dif: d.dif,
+          atingimentoAcumulado: d.atingimentoAcumulado,
+          atingimentoDiario: d.atingimentoDiario
         })),
         commercialActions: (response as any).commercialActions?.map((a: any) => ({
           id: a.id,
@@ -397,7 +409,12 @@ const EventDetail: React.FC = () => {
           sales: d.sales,
           expected: d.expected,
           cumulativeSales: d.cumulativeSales,
-          cumulativeExpected: d.cumulativeExpected
+          cumulativeExpected: d.cumulativeExpected,
+          dMinus: d.dMinus,
+          curvaAnoAnterior: d.curvaAnoAnterior,
+          dif: d.dif,
+          atingimentoAcumulado: d.atingimentoAcumulado,
+          atingimentoDiario: d.atingimentoDiario
         })),
         commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
@@ -440,7 +457,12 @@ const EventDetail: React.FC = () => {
           sales: d.sales,
           expected: d.expected,
           cumulativeSales: d.cumulativeSales,
-          cumulativeExpected: d.cumulativeExpected
+          cumulativeExpected: d.cumulativeExpected,
+          dMinus: d.dMinus,
+          curvaAnoAnterior: d.curvaAnoAnterior,
+          dif: d.dif,
+          atingimentoAcumulado: d.atingimentoAcumulado,
+          atingimentoDiario: d.atingimentoDiario
         })),
         commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
@@ -730,12 +752,32 @@ const EventDetail: React.FC = () => {
         >
           Complementares
         </button>
+        <button
+          onClick={() => setActiveTab('controle')}
+          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors flex items-center gap-1.5 ${
+            activeTab === 'controle'
+              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+          }`}
+        >
+          <TableProperties className="w-4 h-4" />
+          Controle Diário
+        </button>
       </div>
 
       {activeTab === 'pricing' ? (
         <EventPricing eventoId={id!} ano={anoParam} />
       ) : activeTab === 'simulator' ? (
         <EventSimulator eventoId={id!} ano={anoParam ?? new Date().getFullYear()} isDark={isDark} />
+      ) : activeTab === 'controle' ? (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Controle Diário de Vendas</h3>
+          <DailySalesTable
+            dailySales={event.dailySales || []}
+            isDark={isDark}
+            eventName={event.eventName}
+          />
+        </div>
       ) : activeTab === 'complementares' ? (
         <div className="space-y-6">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">

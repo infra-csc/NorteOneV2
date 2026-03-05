@@ -53,7 +53,7 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **SKU Mapping & Event Groups:** Unified administration for SKU mappings and event groups.
 - **Strategic Insights Dashboard:** Calculates insights from Ativo+Magento data, including Acceleration Index, Daily Pace, Closing Projection, and Category Mix.
 - **Marketing Settings Persistence:** API for persisting marketing settings (key-value JSON), actively used in ISC calculations.
-- **Event Detail Layout:** Redesigned layout for improved readability, including D- bar, ISC gauge, and sales indicators, with instant header rendering during data loading.
+- **Event Detail Layout:** Redesigned layout for improved readability, including D- bar, ISC gauge, and sales indicators, with instant header rendering during data loading. Includes a "Controle Diário" tab with a spreadsheet-style table (`DailySalesTable.tsx`) showing all daily sales columns matching the external control spreadsheet (Data, D-, Vendas, Acumulado, % Curva Ant., Meta Dia, Meta Acum., Dif, Ating. Acum., Ating. Dia), with sort toggle and CSV export.
 - **Cotação & Importação (Quote & Import):** System for managing product quotes and import costs, including suppliers, exchange rates, and event linking, with a dashboard and access control.
 
 ## External Dependencies
