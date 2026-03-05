@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import ConnectionAlert from '../../components/common/ConnectionAlert';
 import { 
   ArrowLeft, 
@@ -67,10 +67,12 @@ interface ExtendedEvent extends MarketingEvent {
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { isDark } = useTheme();
   const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
-  const [event, setEvent] = useState<ExtendedEvent | null>(null);
+  const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
+  const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
@@ -279,7 +281,7 @@ const EventDetail: React.FC = () => {
     }
   };
 
-  if (loading || !event) {
+  if (!event && (loading || error)) {
     return (
       <div className="p-6">
         <div className="flex items-center gap-2 mb-6">
@@ -307,6 +309,26 @@ const EventDetail: React.FC = () => {
             <p className="mt-4 text-gray-500 dark:text-gray-400">Carregando dados do evento...</p>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (!event) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => navigate('/marketing')}
+            className="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            Voltar ao Dashboard
+          </button>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-12 flex flex-col items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <p className="mt-4 text-gray-500 dark:text-gray-400">Carregando dados do evento...</p>
+        </div>
       </div>
     );
   }
@@ -609,6 +631,13 @@ const EventDetail: React.FC = () => {
         onRetry={handleForceRefresh}
         retrying={refreshing}
       />
+
+      {loading && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400 flex-shrink-0" />
+          <span className="text-sm text-blue-700 dark:text-blue-300">Carregando dados completos do evento...</span>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

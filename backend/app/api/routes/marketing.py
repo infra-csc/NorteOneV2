@@ -1546,6 +1546,12 @@ def get_marketing_events(
     if ano is None:
         ano = datetime.now().year
     
+    cache_key = f"{ano}_{status or 'all'}_{categoria or 'all'}_{busca or ''}"
+    if not force_refresh:
+        cached = eventos_list_cache.get(cache_key)
+        if cached is not None:
+            return cached
+    
     isc_cfg = _get_isc_settings(db)
     
     cadastro_query = db.query(CadastroEvento)
@@ -1845,7 +1851,7 @@ def get_marketing_events(
         eventsRed=events_red
     )
     
-    return MarketingEventsResponse(
+    result = MarketingEventsResponse(
         status="success",
         eventos=eventos,
         resumo=resumo,
@@ -1853,6 +1859,8 @@ def get_marketing_events(
         ultima_atualizacao=datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
         avisos=get_isc_warnings()
     )
+    eventos_list_cache.set(cache_key, result.model_dump(mode="json"))
+    return result
 
 
 @router.get("/resumo")
@@ -3296,34 +3304,54 @@ def get_curva_comparativa_evento(
         data_evento_atual = date(ano, ref_day_month[0], min(ref_day_month[1], 28))
         logger.info(f"No data_evento for {ano}, estimated from {ano_anterior}: {data_evento_atual}")
 
-    future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
-    future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
-    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
-    future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
+    is_warmup = _is_warmup_thread()
+    if is_warmup:
+        try:
+            dados_ativo_atual = _fetch_daily_sales_ativo_by_ids(ids_ativo_atual)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Ativo atual error: {e}")
+            dados_ativo_atual = []
+        try:
+            dados_magento_atual = _fetch_daily_sales_magento_by_ids(ids_magento_atual)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Magento atual error: {e}")
+            dados_magento_atual = []
+        try:
+            dados_ativo_anterior = _fetch_daily_sales_ativo_by_ids(ids_ativo_anterior)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Ativo anterior error: {e}")
+            dados_ativo_anterior = []
+        try:
+            dados_magento_anterior = _fetch_daily_sales_magento_by_ids(ids_magento_anterior)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Magento anterior error: {e}")
+            dados_magento_anterior = []
+    else:
+        future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
+        future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
+        future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
+        future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
 
-    try:
-        dados_ativo_atual = future_ativo_atual.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Curva comparativa daily Ativo atual timeout: {e}")
-        dados_ativo_atual = []
-
-    try:
-        dados_magento_atual = future_magento_atual.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Curva comparativa daily Magento atual timeout: {e}")
-        dados_magento_atual = []
-
-    try:
-        dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Curva comparativa daily Ativo anterior timeout: {e}")
-        dados_ativo_anterior = []
-
-    try:
-        dados_magento_anterior = future_magento_anterior.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Curva comparativa daily Magento anterior timeout: {e}")
-        dados_magento_anterior = []
+        try:
+            dados_ativo_atual = future_ativo_atual.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Ativo atual timeout: {e}")
+            dados_ativo_atual = []
+        try:
+            dados_magento_atual = future_magento_atual.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Magento atual timeout: {e}")
+            dados_magento_atual = []
+        try:
+            dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Ativo anterior timeout: {e}")
+            dados_ativo_anterior = []
+        try:
+            dados_magento_anterior = future_magento_anterior.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Curva comparativa daily Magento anterior timeout: {e}")
+            dados_magento_anterior = []
 
     BUCKET_SIZE = 7
 
@@ -3660,51 +3688,90 @@ def get_evento_insights(
         ref_day_month = (data_evento_anterior.month, data_evento_anterior.day)
         data_evento_atual = date(ano, ref_day_month[0], min(ref_day_month[1], 28))
 
-    future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
-    future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
-    future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
-    future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
-    future_cat_ativo_atual = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_atual)
-    future_cat_magento_atual = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_atual)
-    future_cat_ativo_anterior = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_anterior)
-    future_cat_magento_anterior = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_anterior)
+    is_warmup = _is_warmup_thread()
+    if is_warmup:
+        try:
+            dados_ativo_atual = _fetch_daily_sales_ativo_by_ids(ids_ativo_atual)
+        except Exception as e:
+            logger.error(f"Insights daily Ativo atual error: {e}")
+            dados_ativo_atual = []
+        try:
+            dados_magento_atual = _fetch_daily_sales_magento_by_ids(ids_magento_atual)
+        except Exception as e:
+            logger.error(f"Insights daily Magento atual error: {e}")
+            dados_magento_atual = []
+        try:
+            dados_ativo_anterior = _fetch_daily_sales_ativo_by_ids(ids_ativo_anterior)
+        except Exception as e:
+            logger.error(f"Insights daily Ativo anterior error: {e}")
+            dados_ativo_anterior = []
+        try:
+            dados_magento_anterior = _fetch_daily_sales_magento_by_ids(ids_magento_anterior)
+        except Exception as e:
+            logger.error(f"Insights daily Magento anterior error: {e}")
+            dados_magento_anterior = []
+        try:
+            cat_ativo_atual = _fetch_category_sales_ativo_by_ids(ids_ativo_atual)
+        except Exception:
+            cat_ativo_atual = []
+        try:
+            cat_magento_atual = _fetch_category_sales_magento_by_ids(ids_magento_atual)
+        except Exception:
+            cat_magento_atual = []
+        try:
+            cat_ativo_anterior = _fetch_category_sales_ativo_by_ids(ids_ativo_anterior)
+        except Exception:
+            cat_ativo_anterior = []
+        try:
+            cat_magento_anterior = _fetch_category_sales_magento_by_ids(ids_magento_anterior)
+        except Exception:
+            cat_magento_anterior = []
+    else:
+        future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
+        future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
+        future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
+        future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
+        future_cat_ativo_atual = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_atual)
+        future_cat_magento_atual = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_atual)
+        future_cat_ativo_anterior = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_anterior)
+        future_cat_magento_anterior = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_anterior)
 
-    try:
-        dados_ativo_atual = future_ativo_atual.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Insights daily Ativo atual timeout: {e}")
-        dados_ativo_atual = []
-    try:
-        dados_magento_atual = future_magento_atual.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Insights daily Magento atual timeout: {e}")
-        dados_magento_atual = []
-    try:
-        dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Insights daily Ativo anterior timeout: {e}")
-        dados_ativo_anterior = []
-    try:
-        dados_magento_anterior = future_magento_anterior.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Insights daily Magento anterior timeout: {e}")
-        dados_magento_anterior = []
-    try:
-        cat_ativo_atual = future_cat_ativo_atual.result(timeout=60)
-    except Exception:
-        cat_ativo_atual = []
-    try:
-        cat_magento_atual = future_cat_magento_atual.result(timeout=60)
-    except Exception:
-        cat_magento_atual = []
-    try:
-        cat_ativo_anterior = future_cat_ativo_anterior.result(timeout=60)
-    except Exception:
-        cat_ativo_anterior = []
-    try:
-        cat_magento_anterior = future_cat_magento_anterior.result(timeout=60)
-    except Exception:
-        cat_magento_anterior = []
+        try:
+            dados_ativo_atual = future_ativo_atual.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Insights daily Ativo atual timeout: {e}")
+            dados_ativo_atual = []
+        try:
+            dados_magento_atual = future_magento_atual.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Insights daily Magento atual timeout: {e}")
+            dados_magento_atual = []
+        try:
+            dados_ativo_anterior = future_ativo_anterior.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Insights daily Ativo anterior timeout: {e}")
+            dados_ativo_anterior = []
+        try:
+            dados_magento_anterior = future_magento_anterior.result(timeout=60)
+        except Exception as e:
+            logger.error(f"Insights daily Magento anterior timeout: {e}")
+            dados_magento_anterior = []
+        try:
+            cat_ativo_atual = future_cat_ativo_atual.result(timeout=60)
+        except Exception:
+            cat_ativo_atual = []
+        try:
+            cat_magento_atual = future_cat_magento_atual.result(timeout=60)
+        except Exception:
+            cat_magento_atual = []
+        try:
+            cat_ativo_anterior = future_cat_ativo_anterior.result(timeout=60)
+        except Exception:
+            cat_ativo_anterior = []
+        try:
+            cat_magento_anterior = future_cat_magento_anterior.result(timeout=60)
+        except Exception:
+            cat_magento_anterior = []
 
     BUCKET_SIZE = 7
 

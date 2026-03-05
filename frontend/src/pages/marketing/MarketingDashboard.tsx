@@ -766,7 +766,10 @@ const MarketingDashboard: React.FC = () => {
               ) : filteredEventos.map((event) => (
                 <tr 
                   key={event.id}
-                  onClick={() => navigate(`/marketing/evento/${event.id}${event.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : ''}`)}
+                  onClick={() => navigate(
+                    `/marketing/evento/${event.id}${event.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : ''}`,
+                    { state: { previewEvent: event } }
+                  )}
                   className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors ${
                     isInCriticalWindow(event.dMinus) 
                       ? 'bg-amber-50 dark:bg-amber-900/10 border-l-4 border-l-amber-500' 

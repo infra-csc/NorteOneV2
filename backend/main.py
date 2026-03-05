@@ -52,7 +52,7 @@ def _full_cache_warmup():
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import threading
 
-    WARMUP_WORKERS = 4
+    WARMUP_WORKERS = 8
 
     with _full_refresh_lock:
         if _cache_module._full_refresh_in_progress:
@@ -184,16 +184,19 @@ def _full_cache_warmup():
             get_evento_insights
         )
 
-        step_fns = [
+        priority_fns = [
             ("detalhes", lambda eid, a, d: get_marketing_event_by_id(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
+        ]
+        secondary_fns = [
             ("curvas", lambda eid, a, d: get_curva_comparativa_evento(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
             ("medias", lambda eid, a, d: get_sales_averages(evento_id=eid, periodo=30, ano=a, force_refresh=True, db=d, current_user=None)),
             ("insights", lambda eid, a, d: get_evento_insights(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
         ]
+        all_step_fns = priority_fns + secondary_fns
 
-        total_tasks = total_events * len(step_fns)
+        total_tasks = total_events * len(all_step_fns)
         set_warmup_progress(2, "Processando eventos", 0, total_tasks)
-        logger.info(f"[Warmup 2/3] Processing {total_tasks} tasks ({total_events} events x {len(step_fns)} steps) in parallel...")
+        logger.info(f"[Warmup 2/3] Processing {total_tasks} tasks ({total_events} events x {len(all_step_fns)} steps) — detalhes first...")
 
         completed_tasks = 0
         task_counter_lock = threading.Lock()
@@ -223,11 +226,22 @@ def _full_cache_warmup():
                     pass
 
         with ThreadPoolExecutor(max_workers=WARMUP_WORKERS, thread_name_prefix="warmup") as executor:
-            futures = []
+            priority_futures = []
             for eid in active_evento_ids:
-                for step_name, step_fn in step_fns:
-                    futures.append(executor.submit(_do_task, eid, step_name, step_fn))
-            for f in as_completed(futures):
+                for step_name, step_fn in priority_fns:
+                    priority_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
+            for f in as_completed(priority_futures):
+                try:
+                    f.result()
+                except Exception:
+                    pass
+            logger.info(f"[Warmup 2/3] Priority phase done (detalhes: {step_counts['detalhes']}), starting secondary steps...")
+
+            secondary_futures = []
+            for eid in active_evento_ids:
+                for step_name, step_fn in secondary_fns:
+                    secondary_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
+            for f in as_completed(secondary_futures):
                 try:
                     f.result()
                 except Exception:
@@ -237,6 +251,10 @@ def _full_cache_warmup():
 
         set_warmup_progress(3, "Finalizando", 0, 1)
         clear_warmup_daily_cache()
+
+        from app.api.routes.marketing import eventos_list_cache as _evt_list_cache
+        _evt_list_cache.invalidate_all()
+        logger.info("[Warmup 3/3] eventos_list_cache invalidated")
 
         set_last_full_refresh(time.time())
         elapsed = time.time() - start
