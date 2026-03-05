@@ -112,6 +112,7 @@ class InfoGeral(BaseModel):
     horario_largada: str = ""
     local: str = ""
     distancias: list = []
+    dias_encerramento_inscricao: int = 2
 
 
 class RetiradaKit(BaseModel):

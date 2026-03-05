@@ -624,16 +624,32 @@ def check_duplicate_action(db: Session, projeto_id: int, tipo: str) -> dict:
     return None
 
 
-def calculate_d_minus(event_date: date, reference_year: int = None) -> int:
+def get_dias_encerramento(db: Session, projeto_id: int = None, cadastro: object = None) -> int:
+    if cadastro is not None:
+        val = getattr(cadastro, 'dias_encerramento_inscricao', None)
+        if val is not None:
+            return val
+        return 2
+    if projeto_id is not None:
+        try:
+            cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto_id).first()
+            if cad and cad.dias_encerramento_inscricao is not None:
+                return cad.dias_encerramento_inscricao
+        except Exception:
+            pass
+    return 2
+
+def calculate_d_minus(event_date: date, reference_year: int = None, dias_encerramento: int = 2) -> int:
     if not event_date:
         return 0
+    registration_close = event_date - timedelta(days=dias_encerramento)
     today = date.today()
     if reference_year is not None and reference_year != today.year:
         try:
             today = today.replace(year=reference_year)
         except ValueError:
             today = today.replace(year=reference_year, day=28)
-    delta = (event_date - today).days
+    delta = (registration_close - today).days
     return max(0, delta)
 
 def _interpolate_hist_pattern(hist_pattern: dict, d_minus: int) -> float:
@@ -765,6 +781,17 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
         logger.info(f"No previous year event date found for '{evento_grupo}' ano={prev_ano}")
         return None
 
+    prev_dias_enc = 2
+    try:
+        prev_proj = db.query(DimProjeto).filter(
+            DimProjeto.data_evento == prev_data_evento
+        ).first()
+        if prev_proj:
+            prev_dias_enc = get_dias_encerramento(db, projeto_id=prev_proj.id)
+    except Exception:
+        pass
+    prev_data_inscricao = prev_data_evento - timedelta(days=prev_dias_enc)
+
     prev_mappings = _wq_sku_mappings_by_grupo_single_year(db, evento_grupo, prev_ano)
 
     if not prev_mappings:
@@ -810,8 +837,13 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 
     d_minus_sales = {}
     for sale_date, qty in prev_daily.items():
-        dm = (prev_data_evento - sale_date).days
+        dm = (prev_data_inscricao - sale_date).days
         d_minus_sales[dm] = d_minus_sales.get(dm, 0) + qty
+
+    d_minus_sales = {dm: qty for dm, qty in d_minus_sales.items() if dm >= 0}
+    if not d_minus_sales:
+        logger.info(f"No sales data with positive D- for '{evento_grupo}' ano={prev_ano}")
+        return None
 
     max_dm = max(d_minus_sales.keys())
     min_dm = min(d_minus_sales.keys())
@@ -828,7 +860,7 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
         for dm in range(min_dm - 1, -1, -1):
             pattern[dm] = 1.0
 
-    logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
+    logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano} (inscricao D-): {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
 
     try:
         save_curva_historica_snapshot(db, evento_grupo, prev_ano, pattern, total_prev_sales)
@@ -993,12 +1025,42 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
             expected = sales_goal / total_days if total_days > 0 else 0
             cumulative_expected += expected
 
+        dm = (data_evento - d).days if data_evento else None
+        cum_exp_rounded = round(cumulative_expected, 1)
+        dif = cumulative_sales - cum_exp_rounded
+        ating_acum = round((cumulative_sales - cum_exp_rounded) / cum_exp_rounded * 100, 1) if cum_exp_rounded > 0 else 0.0
+        expected_rounded = round(expected, 1)
+        ating_diario = round((sales - expected_rounded) / expected_rounded * 100, 1) if expected_rounded > 0 else 0.0
+
+        curva_pct = None
+        if hist_pattern and data_evento and hist_known_dms:
+            lookup_dm = (data_evento - d).days
+            if lookup_dm in hist_pattern:
+                curva_pct = round(hist_pattern[lookup_dm] * 100, 1)
+            elif lookup_dm > hist_max_known:
+                curva_pct = 0.0
+            elif lookup_dm <= hist_min_known:
+                curva_pct = round(hist_pattern[hist_min_known] * 100, 1)
+            else:
+                for i in range(len(hist_known_dms) - 1):
+                    if hist_known_dms[i] >= lookup_dm >= hist_known_dms[i + 1]:
+                        upper_dm = hist_known_dms[i]
+                        lower_dm = hist_known_dms[i + 1]
+                        ratio = (upper_dm - lookup_dm) / (upper_dm - lower_dm) if upper_dm != lower_dm else 0
+                        curva_pct = round((hist_pattern[upper_dm] + ratio * (hist_pattern[lower_dm] - hist_pattern[upper_dm])) * 100, 1)
+                        break
+
         result.append({
             "date": d.isoformat(),
             "sales": sales,
-            "expected": round(expected, 1),
+            "expected": expected_rounded,
             "cumulativeSales": cumulative_sales,
-            "cumulativeExpected": round(cumulative_expected, 1)
+            "cumulativeExpected": cum_exp_rounded,
+            "dMinus": dm,
+            "curvaAnoAnterior": curva_pct,
+            "dif": round(dif, 1),
+            "atingimentoAcumulado": ating_acum,
+            "atingimentoDiario": ating_diario
         })
     
     return result
@@ -1838,8 +1900,9 @@ def get_marketing_events(
                     rep_cadastro = cadastro_by_projeto_id.get(p.id)
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
-        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
-        d_minus_inscricoes = max(0, d_minus - 2)
+        dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus_inscricoes = d_minus
         is_active = d_minus > 0
         
         if status == 'active' and not is_active:
@@ -1953,8 +2016,9 @@ def get_marketing_events(
         cad = cadastro_by_projeto_id.get(projeto.id)
         sku = projeto_codigo
         projeto_data_evento = projeto.data_evento
-        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
-        d_minus_inscricoes = max(0, d_minus - 2)
+        dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=cad)
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus_inscricoes = d_minus
         is_active = d_minus > 0
         
         if status == 'active' and not is_active:
@@ -3406,6 +3470,17 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
         prev_data_evento = grupo_data_evento[grupo_nome]
         ids_info = grupo_mappings_map[grupo_nome]
 
+        prev_dias_enc = 2
+        try:
+            prev_proj = db.query(DimProjeto).filter(
+                DimProjeto.data_evento == prev_data_evento
+            ).first()
+            if prev_proj:
+                prev_dias_enc = get_dias_encerramento(db, projeto_id=prev_proj.id)
+        except Exception:
+            pass
+        prev_data_inscricao = prev_data_evento - timedelta(days=prev_dias_enc)
+
         prev_daily = {}
         for eid in ids_info['ativo']:
             if eid in ativo_grouped:
@@ -3425,8 +3500,12 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
 
         d_minus_sales = {}
         for sale_date, qty in prev_daily.items():
-            dm = (prev_data_evento - sale_date).days
+            dm = (prev_data_inscricao - sale_date).days
             d_minus_sales[dm] = d_minus_sales.get(dm, 0) + qty
+
+        d_minus_sales = {dm: qty for dm, qty in d_minus_sales.items() if dm >= 0}
+        if not d_minus_sales:
+            continue
 
         max_dm = max(d_minus_sales.keys())
         min_dm = min(d_minus_sales.keys())
@@ -3636,8 +3715,27 @@ def get_curva_comparativa_evento(
             daily[dias_antes]["receita"] += row["receita"]
         return daily
 
-    daily_atual = _build_daily_map(dados_ativo_atual + dados_magento_atual, data_evento_atual)
-    daily_anterior = _build_daily_map(dados_ativo_anterior + dados_magento_anterior, data_evento_anterior)
+    dias_enc_atual = 2
+    if data_evento_atual:
+        try:
+            proj_atual = db.query(DimProjeto).filter(DimProjeto.data_evento == data_evento_atual).first()
+            if proj_atual:
+                dias_enc_atual = get_dias_encerramento(db, projeto_id=proj_atual.id)
+        except Exception:
+            pass
+    dias_enc_anterior = 2
+    if data_evento_anterior:
+        try:
+            proj_anterior = db.query(DimProjeto).filter(DimProjeto.data_evento == data_evento_anterior).first()
+            if proj_anterior:
+                dias_enc_anterior = get_dias_encerramento(db, projeto_id=proj_anterior.id)
+        except Exception:
+            pass
+    data_insc_atual = data_evento_atual - timedelta(days=dias_enc_atual) if data_evento_atual else None
+    data_insc_anterior = data_evento_anterior - timedelta(days=dias_enc_anterior) if data_evento_anterior else None
+
+    daily_atual = _build_daily_map(dados_ativo_atual + dados_magento_atual, data_insc_atual)
+    daily_anterior = _build_daily_map(dados_ativo_anterior + dados_magento_anterior, data_insc_anterior)
 
     all_dias = set(daily_atual.keys()) | set(daily_anterior.keys())
     if not all_dias:
@@ -4043,8 +4141,27 @@ def get_evento_insights(
             daily[dias_antes]["receita"] += row["receita"]
         return daily
 
-    daily_atual = _build_daily_map_insights(dados_ativo_atual + dados_magento_atual, data_evento_atual)
-    daily_anterior = _build_daily_map_insights(dados_ativo_anterior + dados_magento_anterior, data_evento_anterior)
+    dias_enc_atual_ins = 2
+    if data_evento_atual:
+        try:
+            proj_atual_ins = db.query(DimProjeto).filter(DimProjeto.data_evento == data_evento_atual).first()
+            if proj_atual_ins:
+                dias_enc_atual_ins = get_dias_encerramento(db, projeto_id=proj_atual_ins.id)
+        except Exception:
+            pass
+    dias_enc_anterior_ins = 2
+    if data_evento_anterior:
+        try:
+            proj_anterior_ins = db.query(DimProjeto).filter(DimProjeto.data_evento == data_evento_anterior).first()
+            if proj_anterior_ins:
+                dias_enc_anterior_ins = get_dias_encerramento(db, projeto_id=proj_anterior_ins.id)
+        except Exception:
+            pass
+    data_insc_atual_ins = data_evento_atual - timedelta(days=dias_enc_atual_ins) if data_evento_atual else None
+    data_insc_anterior_ins = data_evento_anterior - timedelta(days=dias_enc_anterior_ins) if data_evento_anterior else None
+
+    daily_atual = _build_daily_map_insights(dados_ativo_atual + dados_magento_atual, data_insc_atual_ins)
+    daily_anterior = _build_daily_map_insights(dados_ativo_anterior + dados_magento_anterior, data_insc_anterior_ins)
 
     all_dias = set(daily_atual.keys()) | set(daily_anterior.keys())
     if not all_dias:
@@ -4377,12 +4494,13 @@ def get_marketing_event_by_id(
         
         total_capacity = get_meta_orcada_projetos(db, projetos)
         projeto_data_evento = latest_date
-        d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
-        d_minus_inscricoes = max(0, d_minus - 2)
+        dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id) if rep_projeto else 2
+        d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus_inscricoes = d_minus
         is_active = d_minus > 0 if ano == datetime.now().year else True
         sales_goal = total_capacity
         
-        data_fim_inscricoes = projeto_data_evento - timedelta(days=2) if projeto_data_evento else None
+        data_fim_inscricoes = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
         
         detail_hist_pattern = None
         try:
@@ -4638,8 +4756,10 @@ def get_marketing_event_by_id(
     if ano is None:
         ano = projeto_data_evento.year if projeto_data_evento else datetime.now().year
     
-    d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano) if projeto_data_evento else 0
-    d_minus_inscricoes = max(0, d_minus - 2)
+    detail_standalone_cad = _wq_cadastro_by_projeto_id(db, projeto.id)
+    dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=detail_standalone_cad)
+    d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
+    d_minus_inscricoes = d_minus
     is_active = d_minus > 0 if ano == datetime.now().year else True
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
@@ -4656,7 +4776,6 @@ def get_marketing_event_by_id(
     
     sales_goal = get_meta_orcada(db, projeto.id)
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-    detail_standalone_cad = _wq_cadastro_by_projeto_id(db, projeto.id)
     detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
     
     standalone_evento_grupo = None
@@ -4667,7 +4786,7 @@ def get_marketing_event_by_id(
                 standalone_evento_grupo = sm.evento_grupo
                 break
 
-    data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=2) if projeto_data_evento else None
+    data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
@@ -5652,7 +5771,8 @@ def get_pricing_analysis(
             total_capacity = 1000
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
-        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         is_active = d_minus > 0
         
         if status == 'active' and not is_active:
@@ -5759,7 +5879,8 @@ def get_pricing_analysis(
         sku = projeto_codigo
         sku_normalized = normalize_sku(sku)
         projeto_data_evento = projeto.data_evento
-        d_minus = calculate_d_minus(projeto_data_evento) if projeto_data_evento else 0
+        dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=cad)
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         is_active = d_minus > 0
         
         if status == 'active' and not is_active:

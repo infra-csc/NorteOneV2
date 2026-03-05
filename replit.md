@@ -48,6 +48,8 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Year-over-Year Comparison:** Compares cumulative inscriptions and revenue by "days before event."
 - **Historical Benchmark Curve:** Uses previous year's sales distribution for expected curve generation.
 - **ISC Data Consistency:** All 3 ISC components (Curva D-%, IA 7/30, Rolling 14d) derive `current_sales` from `daily_sales_dict` (sum up to yesterday), not from the ISC pricing query. Daily sales prefetch queries filter `< CURDATE()` to exclude today's partial data. This ensures all components use the same data source and cutoff date.
+- **Configurable Registration Close Date:** `dias_encerramento_inscricao` field on `CadastroEvento` (default=2) defines how many days before the event registrations close. All D- calculations use `data_evento - dias_encerramento` as the reference point instead of `data_evento` directly. The field is editable in the "Info Geral" tab of the Cadastro form.
+- **Enriched Daily Sales API:** Each daily entry in the sales response includes: `dMinus` (D- at that date), `curvaAnoAnterior` (% from previous year curve), `dif` (difference vs expected), `atingimentoAcumulado` (cumulative % deviation), `atingimentoDiario` (daily % deviation). These map directly to the external spreadsheet columns for validation.
 - **SKU Mapping & Event Groups:** Unified administration for SKU mappings and event groups.
 - **Strategic Insights Dashboard:** Calculates insights from Ativo+Magento data, including Acceleration Index, Daily Pace, Closing Projection, and Category Mix.
 - **Marketing Settings Persistence:** API for persisting marketing settings (key-value JSON), actively used in ISC calculations.

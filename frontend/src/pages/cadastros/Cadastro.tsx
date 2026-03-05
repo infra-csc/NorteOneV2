@@ -60,6 +60,7 @@ interface CadastroEvento {
     horario_largada: string;
     local: string;
     distancias: any[];
+    dias_encerramento_inscricao: number;
   };
   atletas: {
     site: { pago: number; tkt_medio: number };
@@ -99,6 +100,7 @@ interface FormData {
     horario_largada: string;
     local: string;
     distancias: any[];
+    dias_encerramento_inscricao: number;
   };
   atletas: {
     site: { pago: number; tkt_medio: number };
@@ -162,7 +164,7 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   capacidade_maxima: null,
   cidade: '',
   estado: '',
-  info_geral: { data: '', horario_largada: '', local: '', distancias: [] },
+  info_geral: { data: '', horario_largada: '', local: '', distancias: [], dias_encerramento_inscricao: 2 },
   atletas: {
     site: { pago: 0, tkt_medio: 0 },
     grupos: { pago: 0, tkt_medio: 0 },
@@ -335,7 +337,8 @@ const Cadastro: React.FC = () => {
       data: '',
       horario_largada: '',
       local: '',
-      distancias: []
+      distancias: [],
+      dias_encerramento_inscricao: 2
     },
     atletas: {
       site: { pago: 0, tkt_medio: 0 },
@@ -1830,7 +1833,7 @@ const Cadastro: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                   <Calendar className="w-4 h-4 inline mr-2 text-purple-500" />
@@ -1852,6 +1855,19 @@ const Cadastro: React.FC = () => {
                   type="time"
                   value={form.info_geral.horario_largada}
                   onChange={(e) => setForm(prev => ({ ...prev, info_geral: { ...prev.info_geral, horario_largada: e.target.value } }))}
+                  className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                />
+              </div>
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  <Timer className="w-4 h-4 inline mr-2 text-purple-500" />
+                  Dias p/ encerrar inscrições
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.info_geral.dias_encerramento_inscricao ?? 2}
+                  onChange={(e) => setForm(prev => ({ ...prev, info_geral: { ...prev.info_geral, dias_encerramento_inscricao: parseInt(e.target.value) || 0 } }))}
                   className={`w-full px-4 py-3 rounded-xl border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                 />
               </div>
@@ -2861,6 +2877,10 @@ const Cadastro: React.FC = () => {
                   <div>
                     <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Local</p>
                     <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.info_geral.local || '-'}</p>
+                  </div>
+                  <div>
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Dias p/ encerrar inscrições</p>
+                    <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedCadastro.info_geral.dias_encerramento_inscricao ?? 2}</p>
                   </div>
                   {selectedCadastro.info_geral.distancias && selectedCadastro.info_geral.distancias.length > 0 && (
                     <div className="col-span-full">

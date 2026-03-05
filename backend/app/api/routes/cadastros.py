@@ -92,7 +92,8 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         data=cadastro.data_evento.isoformat() if cadastro.data_evento else "",
         horario_largada=cadastro.horario_largada or "",
         local=cadastro.local or "",
-        distancias=cadastro.distancias or []
+        distancias=cadastro.distancias or [],
+        dias_encerramento_inscricao=cadastro.dias_encerramento_inscricao if cadastro.dias_encerramento_inscricao is not None else 2
     )
     
     atletas = AtletasData(
@@ -260,6 +261,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         horario_largada=data.info_geral.horario_largada,
         local=data.info_geral.local,
         distancias=data.info_geral.distancias,
+        dias_encerramento_inscricao=data.info_geral.dias_encerramento_inscricao,
         atletas_site_pago=data.atletas.site.get("pago", 0),
         atletas_site_tkt_medio=Decimal(str(data.atletas.site.get("tkt_medio", 0))),
         atletas_grupos_pago=data.atletas.grupos.get("pago", 0),
@@ -420,6 +422,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.horario_largada = data.info_geral.horario_largada
         cadastro.local = data.info_geral.local
         cadastro.distancias = data.info_geral.distancias
+        if data.info_geral.dias_encerramento_inscricao is not None:
+            cadastro.dias_encerramento_inscricao = data.info_geral.dias_encerramento_inscricao
     
     if data.atletas is not None:
         cadastro.atletas_site_pago = data.atletas.site.get("pago", 0)

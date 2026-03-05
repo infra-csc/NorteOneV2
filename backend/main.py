@@ -122,7 +122,8 @@ def _full_cache_warmup():
                 atletas_grupos_tkt_medio=c.atletas_grupos_tkt_medio,
                 atletas_cortesia=c.atletas_cortesia,
                 atletas_appai_pago=c.atletas_appai_pago,
-                atletas_appai_tkt_medio=c.atletas_appai_tkt_medio
+                atletas_appai_tkt_medio=c.atletas_appai_tkt_medio,
+                dias_encerramento_inscricao=c.dias_encerramento_inscricao
             )
 
         sku_by_grupo = {}
@@ -442,6 +443,7 @@ def _run_column_migrations():
             "ALTER TABLE evento_grupos ALTER COLUMN nome TYPE VARCHAR(200)",
             "ALTER TABLE sku_mappings ALTER COLUMN evento_grupo TYPE VARCHAR(200)",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS dias_encerramento_inscricao INTEGER DEFAULT 2",
         ]
         for sql in migrations:
             try:

@@ -65,6 +65,8 @@ class CadastroEvento(Base):
     atletas_appai_pago = Column(Integer, default=0)
     atletas_appai_tkt_medio = Column(Numeric(10, 2), default=0)
     
+    dias_encerramento_inscricao = Column(Integer, default=2)
+    
     retirada_kit_local = Column(String(300))
     retirada_kit_data_horario = Column(DateTime)
     
