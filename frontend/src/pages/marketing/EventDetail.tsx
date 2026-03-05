@@ -1262,7 +1262,7 @@ const EventDetail: React.FC = () => {
                   const margemRealizada = event.margemRealizadaTotal || 0;
                   const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
                   const ticketConvergencia = volRestante > 0 && metaMargem > 0
-                    ? Math.max(0, ((metaMargem - margemRealizada) / volRestante) - kitCost)
+                    ? Math.max(0, ((metaMargem - margemRealizada) / volRestante) + kitCost)
                     : 0;
 
                   const rows = [
@@ -1949,7 +1949,7 @@ const EventDetail: React.FC = () => {
                       const metaM = (event.budgetTicket - kc) * event.salesGoal;
                       const margAcum = event.margemRealizadaTotal || 0;
                       const vr = Math.max(volumeParaMeta, 1);
-                      return Math.max(0, ((metaM - margAcum) / vr) - kc);
+                      return Math.max(0, ((metaM - margAcum) / vr) + kc);
                     })()
                   )}
                 </span>
