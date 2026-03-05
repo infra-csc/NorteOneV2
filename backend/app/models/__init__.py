@@ -12,3 +12,4 @@ from app.models.cotacao import (
     ViagemCotacao, Fornecedor, Cotacao, CustoImportacao, CotacaoEvento
 )
 from app.models.cache_entry import CacheEntry
+from app.models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot

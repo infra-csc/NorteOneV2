@@ -490,9 +490,30 @@ async def lifespan(app: FastAPI):
     logger.info("Cache auto-refresh scheduler started (30 min interval + daily 07:00 BRT)")
 
     import threading
+
+    def _startup_snapshot_consolidation():
+        logger.info("Starting snapshot consolidation in background...")
+        try:
+            from app.core.database import SessionLocal
+            from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
+            db = SessionLocal()
+            try:
+                snapshot_diario_batch(db)
+                consolidar_curvas_historicas_batch(db)
+                logger.info("Startup snapshot consolidation completed")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Startup snapshot consolidation failed: {e}")
+
     def _startup_full_warmup():
         logger.info("Starting full cache warmup in background...")
         _full_cache_warmup()
+
+    snapshot_thread = threading.Thread(target=_startup_snapshot_consolidation, daemon=True)
+    snapshot_thread.start()
+    logger.info("Snapshot consolidation thread launched")
+
     warm_thread = threading.Thread(target=_startup_full_warmup, daemon=True)
     warm_thread.start()
     logger.info("Full cache warmup thread launched")

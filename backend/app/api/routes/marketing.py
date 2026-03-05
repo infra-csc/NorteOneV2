@@ -752,7 +752,13 @@ def calculate_isc(components: ISCComponents, ia_weight: float = 20.0, curva_weig
 def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:
     from datetime import timedelta
     from ...models.dimensoes import SkuMapping
+    from ...services.snapshot_service import get_curva_historica_snapshot, save_curva_historica_snapshot
     prev_ano = ano - 1
+
+    snapshot_pattern = get_curva_historica_snapshot(db, evento_grupo, prev_ano)
+    if snapshot_pattern:
+        logger.info(f"Using curva histórica snapshot for '{evento_grupo}' ano_ref={prev_ano}: {len(snapshot_pattern)} pontos D-minus")
+        return snapshot_pattern
 
     prev_data_evento = _find_data_evento(db, evento_grupo, prev_ano)
     if not prev_data_evento:
@@ -824,14 +830,21 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 
     logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
 
+    try:
+        save_curva_historica_snapshot(db, evento_grupo, prev_ano, pattern, total_prev_sales)
+    except Exception as e:
+        logger.warning(f"Failed to save curva histórica snapshot for '{evento_grupo}': {e}")
+
     return pattern
 
 
 def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET") -> list:
     from datetime import timedelta
     from ...models.dimensoes import SkuMapping
+    from ...services.snapshot_service import get_snapshot_vendas, get_latest_snapshot_date
     
     today = date.today()
+    yesterday = today - timedelta(days=1)
     if ano is None:
         ano = today.year
     
@@ -873,17 +886,43 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     
     all_daily = {}
     
-    if ativo_ids:
-        ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
-        for row in ativo_rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            all_daily[d] = all_daily.get(d, 0) + row['qtd']
-    
-    if magento_ids:
-        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
-        for row in magento_rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            all_daily[d] = all_daily.get(d, 0) + row['qtd']
+    snapshot_used = False
+    if evento_grupo:
+        snapshot_data = get_snapshot_vendas(db, evento_grupo, data_fim=yesterday)
+        if snapshot_data:
+            all_daily.update(snapshot_data)
+            snapshot_used = True
+            logger.debug(f"Snapshot loaded for '{evento_grupo}': {len(snapshot_data)} days up to {yesterday}")
+
+    if not snapshot_used:
+        if ativo_ids:
+            ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+            for row in ativo_rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                all_daily[d] = all_daily.get(d, 0) + row['qtd']
+        
+        if magento_ids:
+            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+            for row in magento_rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                all_daily[d] = all_daily.get(d, 0) + row['qtd']
+    else:
+        if ativo_ids:
+            for eid in list(set(ativo_ids)):
+                try:
+                    today_sales = fetch_daily_sales_ativo(eid, today, today)
+                    for d, qty in today_sales.items():
+                        all_daily[d] = all_daily.get(d, 0) + qty
+                except Exception as e:
+                    logger.warning(f"Failed to fetch today's Ativo sales for {eid}: {e}")
+        if magento_ids:
+            for lid in list(set(magento_ids)):
+                try:
+                    today_sales = fetch_daily_sales_magento(lid, today, today)
+                    for d, qty in today_sales.items():
+                        all_daily[d] = all_daily.get(d, 0) + qty
+                except Exception as e:
+                    logger.warning(f"Failed to fetch today's Magento sales for {lid}: {e}")
     
     if not all_daily:
         if days_history:

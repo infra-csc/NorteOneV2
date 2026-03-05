@@ -475,6 +475,7 @@ class CacheRefreshScheduler:
     def __init__(self):
         self._timer = None
         self._daily_timer = None
+        self._snapshot_timer = None
         self._refresh_callbacks = []
         self._full_refresh_callback = None
         self._running = False
@@ -493,7 +494,8 @@ class CacheRefreshScheduler:
             self._running = True
         self._schedule(interval)
         self._schedule_daily_refresh()
-        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily at 07:00 BRT)")
+        self._schedule_snapshot_consolidation()
+        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 06:00 BRT, daily refresh at 07:00 BRT)")
 
     def _schedule(self, interval: int):
         with self._lock:
@@ -519,6 +521,44 @@ class CacheRefreshScheduler:
         self._daily_timer = threading.Timer(delay, self._run_daily_refresh)
         self._daily_timer.daemon = True
         self._daily_timer.start()
+
+    def _schedule_snapshot_consolidation(self):
+        with self._lock:
+            if not self._running:
+                return
+
+        now = datetime.now(ZoneInfo('America/Sao_Paulo'))
+        target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+
+        delay = (target - now).total_seconds()
+        logger.info(f"Next snapshot consolidation scheduled in {delay:.0f}s ({target.isoformat()})")
+
+        self._snapshot_timer = threading.Timer(delay, self._run_snapshot_consolidation)
+        self._snapshot_timer.daemon = True
+        self._snapshot_timer.start()
+
+    def _run_snapshot_consolidation(self):
+        with self._lock:
+            if not self._running:
+                return
+
+        logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (06:00 BRT) ===")
+        try:
+            from app.core.database import SessionLocal
+            from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
+            db = SessionLocal()
+            try:
+                snapshot_diario_batch(db)
+                consolidar_curvas_historicas_batch(db)
+                logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Daily snapshot consolidation error: {e}")
+
+        self._schedule_snapshot_consolidation()
 
     def _run_daily_refresh(self):
         with self._lock:
@@ -560,6 +600,8 @@ class CacheRefreshScheduler:
             self._timer.cancel()
         if self._daily_timer:
             self._daily_timer.cancel()
+        if self._snapshot_timer:
+            self._snapshot_timer.cancel()
 
 
 cache_scheduler = CacheRefreshScheduler()
