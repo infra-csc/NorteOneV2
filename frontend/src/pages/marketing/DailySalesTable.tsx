@@ -41,8 +41,8 @@ const fmtDate = (dateStr: string): string => {
   return dateStr;
 };
 
-const colorClass = (v: number | undefined | null): string => {
-  if (v == null || isNaN(v) || v === 0) return '';
+const colorClass = (v: number | undefined | null, isDark: boolean): string => {
+  if (v == null || isNaN(v) || v === 0) return isDark ? 'text-gray-300' : 'text-gray-700';
   return v > 0 ? 'text-emerald-400' : 'text-red-400';
 };
 
@@ -103,14 +103,11 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
 
   if (!dailySales.length) {
     return (
-      <div className="text-center py-12 text-gray-400">
+      <div className={`text-center py-12 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
         Nenhum dado de vendas diárias disponível.
       </div>
     );
   }
-
-  const thClass = 'px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-gray-300 bg-gray-800 border-b border-gray-600 sticky top-0 z-10 whitespace-nowrap';
-  const tdClass = 'px-3 py-2 text-sm text-right whitespace-nowrap';
 
   return (
     <div className="space-y-3">
@@ -118,73 +115,135 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSortAsc(!sortAsc)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+              isDark
+                ? 'bg-gray-600 text-gray-100 hover:bg-gray-500'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
           >
             {sortAsc ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
             {sortAsc ? 'Mais antigo primeiro' : 'Mais recente primeiro'}
           </button>
-          <span className="text-xs text-gray-500">{dailySales.length} dias</span>
+          <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{dailySales.length} dias</span>
         </div>
         <button
           onClick={handleExportCSV}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            isDark
+              ? 'bg-blue-600 text-white hover:bg-blue-500'
+              : 'bg-blue-500 text-white hover:bg-blue-600'
+          }`}
         >
           <Download className="w-3.5 h-3.5" />
           Exportar CSV
         </button>
       </div>
 
-      <div className="rounded-lg border border-gray-700 overflow-hidden">
+      <div className={`rounded-lg overflow-hidden border ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
         <div className="overflow-auto max-h-[600px]">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-collapse">
             <thead>
               <tr>
-                <th className={`${thClass} text-left cursor-pointer`} onClick={() => setSortAsc(!sortAsc)}>
-                  <span className="flex items-center gap-1">Data <ArrowUpDown className="w-3 h-3" /></span>
-                </th>
-                <th className={`${thClass} text-right`}>D-</th>
-                <th className={`${thClass} text-right`}>Vendas Dia</th>
-                <th className={`${thClass} text-right`}>Vendas Acum.</th>
-                <th className={`${thClass} text-right`}>% Curva Ant.</th>
-                <th className={`${thClass} text-right`}>Meta Dia</th>
-                <th className={`${thClass} text-right`}>Meta Acum.</th>
-                <th className={`${thClass} text-right`}>Dif</th>
-                <th className={`${thClass} text-right`}>Ating. Acum.</th>
-                <th className={`${thClass} text-right`}>Ating. Dia</th>
+                {[
+                  { label: 'Data', align: 'left', sortable: true },
+                  { label: 'D-', align: 'right' },
+                  { label: 'Vendas Dia', align: 'right' },
+                  { label: 'Vendas Acum.', align: 'right' },
+                  { label: '% Curva Ant.', align: 'right' },
+                  { label: 'Meta Dia', align: 'right' },
+                  { label: 'Meta Acum.', align: 'right' },
+                  { label: 'Dif', align: 'right' },
+                  { label: 'Ating. Acum.', align: 'right' },
+                  { label: 'Ating. Dia', align: 'right' },
+                ].map((col, idx) => (
+                  <th
+                    key={idx}
+                    onClick={col.sortable ? () => setSortAsc(!sortAsc) : undefined}
+                    className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
+                      col.align === 'left' ? 'text-left' : 'text-right'
+                    } ${col.sortable ? 'cursor-pointer' : ''} ${
+                      isDark
+                        ? 'bg-slate-700 text-blue-300 border-blue-500/50'
+                        : 'bg-slate-100 text-slate-700 border-slate-300'
+                    }`}
+                  >
+                    {col.sortable ? (
+                      <span className="flex items-center gap-1">{col.label} <ArrowUpDown className="w-3 h-3" /></span>
+                    ) : col.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {sortedData.map((row, i) => (
-                <tr
-                  key={row.date}
-                  className={`${i % 2 === 0 ? 'bg-gray-900/50' : 'bg-gray-800/30'} hover:bg-gray-700/50 transition-colors border-b border-gray-800/50`}
-                >
-                  <td className={`${tdClass} text-left font-mono text-gray-300`}>{fmtDate(row.date)}</td>
-                  <td className={`${tdClass} text-gray-300 font-medium`}>{row.dMinus ?? '—'}</td>
-                  <td className={`${tdClass} text-gray-200 font-medium`}>{fmtInt(row.sales)}</td>
-                  <td className={`${tdClass} text-gray-200`}>{fmtInt(row.cumulativeSales)}</td>
-                  <td className={`${tdClass} text-gray-400`}>{fmtPct(row.curvaAnoAnterior)}</td>
-                  <td className={`${tdClass} text-gray-400`}>{fmt(row.expected)}</td>
-                  <td className={`${tdClass} text-gray-400`}>{fmt(row.cumulativeExpected)}</td>
-                  <td className={`${tdClass} font-medium ${colorClass(row.dif)}`}>{fmt(row.dif)}</td>
-                  <td className={`${tdClass} font-medium ${colorClass(row.atingimentoAcumulado)}`}>{fmtPct(row.atingimentoAcumulado)}</td>
-                  <td className={`${tdClass} font-medium ${colorClass(row.atingimentoDiario)}`}>{fmtPct(row.atingimentoDiario)}</td>
-                </tr>
-              ))}
+              {sortedData.map((row, i) => {
+                const evenRow = i % 2 === 0;
+                const rowBg = isDark
+                  ? (evenRow ? 'bg-gray-800' : 'bg-gray-750 bg-[#2d3748]')
+                  : (evenRow ? 'bg-white' : 'bg-slate-50');
+                const hoverBg = isDark ? 'hover:bg-slate-600' : 'hover:bg-blue-50';
+                const borderColor = isDark ? 'border-gray-700' : 'border-gray-200';
+                const textPrimary = isDark ? 'text-white' : 'text-gray-900';
+                const textSecondary = isDark ? 'text-gray-200' : 'text-gray-700';
+                const textMuted = isDark ? 'text-blue-200' : 'text-slate-600';
+
+                return (
+                  <tr
+                    key={row.date}
+                    className={`${rowBg} ${hoverBg} transition-colors border-b ${borderColor}`}
+                  >
+                    <td className={`px-3 py-2.5 text-left font-mono text-sm ${textPrimary} font-medium whitespace-nowrap`}>
+                      {fmtDate(row.date)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${
+                      isDark ? 'text-cyan-300' : 'text-cyan-700'
+                    }`}>
+                      {row.dMinus ?? '—'}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm font-bold whitespace-nowrap ${textPrimary}`}>
+                      {fmtInt(row.sales)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textSecondary}`}>
+                      {fmtInt(row.cumulativeSales)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
+                      {fmtPct(row.curvaAnoAnterior)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
+                      {fmt(row.expected)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
+                      {fmt(row.cumulativeExpected)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.dif, isDark)}`}>
+                      {fmt(row.dif)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.atingimentoAcumulado, isDark)}`}>
+                      {fmtPct(row.atingimentoAcumulado)}
+                    </td>
+                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.atingimentoDiario, isDark)}`}>
+                      {fmtPct(row.atingimentoDiario)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             {totals && (
               <tfoot>
-                <tr className="bg-gray-800 border-t-2 border-gray-600 font-semibold text-gray-200">
-                  <td className={`${tdClass} text-left`}>Total / Resumo</td>
-                  <td className={tdClass}>—</td>
-                  <td className={tdClass}>{fmtInt(totals.totalSales)}</td>
-                  <td className={tdClass}>{fmtInt(totals.finalCumSales)}</td>
-                  <td className={tdClass}>—</td>
-                  <td className={tdClass}>—</td>
-                  <td className={tdClass}>{fmt(totals.finalCumExpected)}</td>
-                  <td className={`${tdClass} ${colorClass(totals.finalDif)}`}>{fmt(totals.finalDif)}</td>
-                  <td className={`${tdClass} ${colorClass(totals.finalAtingAcum)}`}>{fmtPct(totals.finalAtingAcum)}</td>
-                  <td className={`${tdClass} ${colorClass(totals.avgAtingDia)}`}>
+                <tr className={`font-bold text-sm sticky bottom-0 ${
+                  isDark
+                    ? 'bg-slate-700 text-white border-t-2 border-blue-500/50'
+                    : 'bg-slate-100 text-slate-900 border-t-2 border-slate-400'
+                }`}>
+                  <td className="px-3 py-3 text-left whitespace-nowrap">Total / Resumo</td>
+                  <td className="px-3 py-3 text-right">—</td>
+                  <td className="px-3 py-3 text-right">{fmtInt(totals.totalSales)}</td>
+                  <td className="px-3 py-3 text-right">{fmtInt(totals.finalCumSales)}</td>
+                  <td className="px-3 py-3 text-right">—</td>
+                  <td className="px-3 py-3 text-right">—</td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.finalCumExpected)}</td>
+                  <td className={`px-3 py-3 text-right ${colorClass(totals.finalDif, isDark)}`}>{fmt(totals.finalDif)}</td>
+                  <td className={`px-3 py-3 text-right ${colorClass(totals.finalAtingAcum, isDark)}`}>{fmtPct(totals.finalAtingAcum)}</td>
+                  <td className={`px-3 py-3 text-right ${colorClass(totals.avgAtingDia, isDark)}`}>
                     {totals.avgAtingDia != null ? `μ ${fmtPct(totals.avgAtingDia)}` : '—'}
                   </td>
                 </tr>
