@@ -375,8 +375,9 @@ event_detail_cache = SmartCache("event_detail")
 daily_sales_cache = SmartCache("daily_sales")
 curva_cache = SmartCache("curva_comparativa")
 medias_cache = SmartCache("medias_vendas")
+eventos_list_cache = SmartCache("eventos_list")
 
-ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache]
+ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache]
 
 
 def warm_all_caches_from_db():

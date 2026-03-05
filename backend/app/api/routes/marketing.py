@@ -947,7 +947,7 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
 _isc_cache = {}
 _isc_cache_timestamp = None
 
-from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, cache_scheduler, CURRENT_YEAR_TTL
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, cache_scheduler, CURRENT_YEAR_TTL
 
 def build_query_isc_ativo() -> str:
     return """

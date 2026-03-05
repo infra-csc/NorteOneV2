@@ -1,0 +1,1 @@
+function t(e){switch(e){case"accelerating":return"#22c55e";case"stable":return"#eab308";case"decelerating":return"#ef4444"}}function r(e){switch(e){case"accelerating":return"😁";case"stable":return"😐";case"decelerating":return"😢"}}function a(e){return e>=40&&e<=45}export{t as a,r as g,a as i};
