@@ -3557,6 +3557,38 @@ def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date
         logger.info(f"Matched evento_grupo '{evento_grupo}' ano={ano} -> projeto '{best_match.evento}' data_evento={best_match.data_evento} (score={best_score:.2f})")
         return best_match.data_evento
     
+    adj_best_match = None
+    adj_best_score = 0
+    adj_year_diff = None
+    for p in projetos:
+        p_year = p.data_evento.year
+        if p_year == ano:
+            continue
+        normalized_proj = _normalize_name_for_match(p.evento or "")
+        grupo_words = set(normalized_grupo.split())
+        proj_words = set(normalized_proj.split())
+        if not grupo_words or not proj_words:
+            continue
+        common = grupo_words & proj_words
+        score = len(common) / max(len(grupo_words), len(proj_words))
+        year_distance = abs(p_year - ano)
+        if score > adj_best_score or (score == adj_best_score and adj_year_diff is not None and year_distance < adj_year_diff):
+            adj_best_score = score
+            adj_best_match = p
+            adj_year_diff = year_distance
+
+    if adj_best_match and adj_best_score >= 0.5:
+        try:
+            adjusted_date = adj_best_match.data_evento.replace(year=ano)
+            logger.info(f"Estimated data_evento for '{evento_grupo}' ano={ano} from year {adj_best_match.data_evento.year} event '{adj_best_match.evento}': {adjusted_date}")
+            return adjusted_date
+        except ValueError:
+            month = adj_best_match.data_evento.month
+            day = 28 if adj_best_match.data_evento.month == 2 else adj_best_match.data_evento.day
+            adjusted_date = date(ano, month, day)
+            logger.info(f"Estimated data_evento for '{evento_grupo}' ano={ano} (adjusted for leap year): {adjusted_date}")
+            return adjusted_date
+
     logger.warning(f"Could not match evento_grupo '{evento_grupo}' ano={ano} to any dim_projeto (best_score={best_score:.2f})")
     return None
 
