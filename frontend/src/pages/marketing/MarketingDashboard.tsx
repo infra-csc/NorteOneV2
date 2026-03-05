@@ -53,6 +53,7 @@ const SkeletonTableRow: React.FC = () => (
     </td>
     <td className="px-4 py-4"><SkeletonPulse className="h-4 w-20" /></td>
     <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
     <td className="px-4 py-4">
       <div className="flex flex-col items-center gap-1">
         <SkeletonPulse className="h-4 w-24" />
@@ -61,6 +62,7 @@ const SkeletonTableRow: React.FC = () => (
       </div>
     </td>
     <td className="px-4 py-4"><SkeletonPulse className="h-5 w-16 mx-auto" /></td>
+    <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
     <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
     <td className="px-4 py-4"><SkeletonPulse className="h-4 w-12 mx-auto" /></td>
     <td className="px-4 py-4"><SkeletonPulse className="h-6 w-24 mx-auto rounded-full" /></td>
@@ -616,6 +618,17 @@ const MarketingDashboard: React.FC = () => {
                   </div>
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  <div className="flex items-center justify-center gap-1">
+                    D- Inscr.
+                    <div className="group relative">
+                      <Info className="w-3 h-3 cursor-help" />
+                      <div className="hidden group-hover:block absolute z-10 w-52 p-2 bg-gray-900 text-white text-xs rounded-lg -left-22 top-5">
+                        Dias restantes até o fechamento das inscrições (D- evento − 2 dias)
+                      </div>
+                    </div>
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Vendas / Meta
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -636,6 +649,17 @@ const MarketingDashboard: React.FC = () => {
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg -left-24 top-5">
                         Índice de Aceleração: compara vendas dos últimos 7 dias vs 30 dias
+                      </div>
+                    </div>
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  <div className="flex items-center justify-center gap-1">
+                    R14
+                    <div className="group relative">
+                      <Info className="w-3 h-3 cursor-help" />
+                      <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg -left-24 top-5">
+                        Rolling 14 dias: velocidade de vendas dos últimos 14 dias vs esperado
                       </div>
                     </div>
                   </div>
@@ -672,7 +696,7 @@ const MarketingDashboard: React.FC = () => {
                 </>
               ) : eventos.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                     Nenhum evento encontrado.
                   </td>
                 </tr>
@@ -718,6 +742,15 @@ const MarketingDashboard: React.FC = () => {
                       D-{event.dMinus}
                     </span>
                   </td>
+                  <td className="px-4 py-4 text-center">
+                    <span className={`font-bold ${
+                      event.dMinusInscricoes < 40 
+                        ? 'text-orange-600 dark:text-orange-400' 
+                        : 'text-gray-900 dark:text-white'
+                    }`}>
+                      D-{event.dMinusInscricoes}
+                    </span>
+                  </td>
                   <td className="px-4 py-4">
                     <div className="text-center">
                       <p className="text-sm font-medium text-gray-900 dark:text-white">
@@ -746,6 +779,9 @@ const MarketingDashboard: React.FC = () => {
                   </td>
                   <td className="px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
                     {event.iscComponents.ia730.toFixed(2)}
+                  </td>
+                  <td className="px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
+                    {event.iscComponents.rolling14d.toFixed(2)}
                   </td>
                   <td className="px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
                     {event.iscComponents.curvaDPercent.toFixed(2)}
