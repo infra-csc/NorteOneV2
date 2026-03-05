@@ -908,21 +908,19 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
                 all_daily[d] = all_daily.get(d, 0) + row['qtd']
     else:
         if ativo_ids:
-            for eid in list(set(ativo_ids)):
-                try:
-                    today_sales = fetch_daily_sales_ativo(eid, today, today)
-                    for d, qty in today_sales.items():
-                        all_daily[d] = all_daily.get(d, 0) + qty
-                except Exception as e:
-                    logger.warning(f"Failed to fetch today's Ativo sales for {eid}: {e}")
+            try:
+                today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
+                for d, qty in today_sales.items():
+                    all_daily[d] = all_daily.get(d, 0) + qty
+            except Exception as e:
+                logger.warning(f"Failed to fetch today's Ativo sales: {e}")
         if magento_ids:
-            for lid in list(set(magento_ids)):
-                try:
-                    today_sales = fetch_daily_sales_magento(lid, today, today)
-                    for d, qty in today_sales.items():
-                        all_daily[d] = all_daily.get(d, 0) + qty
-                except Exception as e:
-                    logger.warning(f"Failed to fetch today's Magento sales for {lid}: {e}")
+            try:
+                today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
+                for d, qty in today_sales.items():
+                    all_daily[d] = all_daily.get(d, 0) + qty
+            except Exception as e:
+                logger.warning(f"Failed to fetch today's Magento sales: {e}")
     
     if not all_daily:
         if days_history:
@@ -2964,6 +2962,7 @@ WHERE
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN :id_eventos
+    AND c.dt_pedido < CURDATE()
 GROUP BY DATE(c.dt_pedido)
 ORDER BY dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -2973,6 +2972,85 @@ ORDER BY dia
     except Exception as e:
         logger.error(f"Erro daily sales Ativo by IDs: {e}")
         return []
+
+
+def _fetch_today_sales_ativo_by_ids(id_eventos: list) -> dict:
+    if not id_eventos or db_module.engine_ssh is None:
+        return {}
+    try:
+        safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    DATE(c.dt_pedido) AS dia,
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND c.nr_total > 0 THEN 1 END) AS qtd
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE 
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND b.id_evento IN :id_eventos
+    AND DATE(c.dt_pedido) = CURDATE()
+GROUP BY DATE(c.dt_pedido)
+""").bindparams(bindparam("id_eventos", expanding=True))
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(query, {"id_eventos": safe_ids})
+            rows = result.fetchall()
+            daily = {}
+            for r in rows:
+                d = date.fromisoformat(str(r[0])) if isinstance(r[0], str) else r[0]
+                daily[d] = daily.get(d, 0) + int(r[1] or 0)
+            return daily
+    except Exception as e:
+        logger.error(f"Erro today sales Ativo by IDs: {e}")
+        return {}
+
+
+def _fetch_today_sales_magento_by_ids(location_ids: list) -> dict:
+    if not location_ids or db_module.engine_magento is None:
+        return {}
+    try:
+        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    DATE(so.created_at) AS dia,
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+LEFT JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id
+      AND cpev1.attribute_id = 321
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND cpev1.value IN :location_ids
+    AND so.increment_id NOT REGEXP '-[0-9]+$'
+    AND DATE(so.created_at) = CURDATE()
+GROUP BY DATE(so.created_at)
+""").bindparams(bindparam("location_ids", expanding=True))
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(query, {"location_ids": safe_ids})
+            rows = result.fetchall()
+            daily = {}
+            for r in rows:
+                d = date.fromisoformat(str(r[0])) if isinstance(r[0], str) else r[0]
+                daily[d] = daily.get(d, 0) + int(r[1] or 0)
+            return daily
+    except Exception as e:
+        logger.error(f"Erro today sales Magento by IDs: {e}")
+        return {}
 
 
 def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
@@ -3029,6 +3107,7 @@ WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
+    AND so.created_at < CURDATE()
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """).bindparams(bindparam("location_ids", expanding=True))
@@ -4279,8 +4358,14 @@ def get_marketing_event_by_id(
         
         skus = [m.sku for m in mappings]
         
-        proj_skus = [m.sku for m in mappings]
-        projetos = _wq_dim_projetos_by_codigos(db, proj_skus)
+        proj_skus = list(set(m.sku for m in mappings))
+        projetos_raw = _wq_dim_projetos_by_codigos(db, proj_skus)
+        seen_proj_ids = set()
+        projetos = []
+        for p in projetos_raw:
+            if p.id not in seen_proj_ids:
+                seen_proj_ids.add(p.id)
+                projetos.append(p)
         
         latest_date = None
         rep_projeto = projetos[0] if projetos else None
