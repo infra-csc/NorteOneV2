@@ -58,14 +58,111 @@ def clear_warmup_daily_cache():
     with _warmup_thread_ids_lock:
         _warmup_thread_ids.clear()
 
+
+def _wq_sku_mappings_by_grupo(db: Session, grupo_nome: str, anos: list):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_sku_mappings_by_grupo
+        cached = get_warmup_sku_mappings_by_grupo(grupo_nome, anos)
+        if cached is not None:
+            return cached
+    return db.query(SkuMapping).filter(
+        SkuMapping.evento_grupo == grupo_nome,
+        SkuMapping.ano.in_(anos),
+        SkuMapping.ativo == True
+    ).all()
+
+
+def _wq_sku_mappings_by_grupo_single_year(db: Session, grupo_nome: str, ano: int):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_sku_mappings_by_grupo
+        cached = get_warmup_sku_mappings_by_grupo(grupo_nome, [ano])
+        if cached is not None:
+            return cached
+    return db.query(SkuMapping).filter(
+        SkuMapping.evento_grupo == grupo_nome,
+        SkuMapping.ano == ano,
+        SkuMapping.ativo == True
+    ).all()
+
+
+def _wq_sku_mappings_by_sku(db: Session, sku: str, anos: list = None):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_sku_mappings_by_sku
+        cached = get_warmup_sku_mappings_by_sku(sku, anos)
+        if cached is not None:
+            return cached
+    q = db.query(SkuMapping).filter(
+        SkuMapping.sku == sku.upper().strip(),
+        SkuMapping.ativo == True
+    )
+    if anos:
+        q = q.filter(SkuMapping.ano.in_(anos))
+    return q.all()
+
+
+def _wq_sku_mappings_by_skus(db: Session, skus: list, anos: list = None):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_sku_mappings_by_sku
+        result = []
+        for s in skus:
+            cached = get_warmup_sku_mappings_by_sku(s, anos)
+            if cached is not None:
+                result.extend(cached)
+            else:
+                return None
+        return result
+    q = db.query(SkuMapping).filter(
+        SkuMapping.sku.in_([s.upper().strip() for s in skus]),
+        SkuMapping.ativo == True
+    )
+    if anos:
+        q = q.filter(SkuMapping.ano.in_(anos))
+    return q.all()
+
+
+def _wq_dim_projeto_by_id(db: Session, projeto_id: int):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_dim_projeto_by_id
+        cached = get_warmup_dim_projeto_by_id(projeto_id)
+        if cached is not None:
+            return cached
+    return db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+
+
+def _wq_dim_projetos_by_codigos(db: Session, codigos: list):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_dim_projetos_by_codigos
+        cached = get_warmup_dim_projetos_by_codigos(codigos)
+        if cached is not None:
+            return cached
+    return db.query(DimProjeto).filter(DimProjeto.codigo.in_(codigos)).all() if codigos else []
+
+
+def _wq_cadastro_by_projeto_id(db: Session, projeto_id: int):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_cadastro_by_projeto_id
+        cached = get_warmup_cadastro_by_projeto_id(projeto_id)
+        if cached is not None:
+            return cached
+    return db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto_id).first()
+
+
+def _wq_all_dim_projetos(db: Session):
+    if _is_warmup_thread():
+        from app.core.cache import get_warmup_all_dim_projetos
+        cached = get_warmup_all_dim_projetos()
+        if cached is not None:
+            return cached
+    return db.query(DimProjeto).all()
+
 def get_meta_orcada(db: Session, projeto_id: int) -> int:
     if projeto_id in _cadastro_cache:
         return _cadastro_cache[projeto_id]
-    cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto_id).first()
+    cadastro = _wq_cadastro_by_projeto_id(db, projeto_id)
     if cadastro and cadastro.atletas_site_pago and cadastro.atletas_site_pago > 0:
         _cadastro_cache[projeto_id] = int(cadastro.atletas_site_pago)
         return int(cadastro.atletas_site_pago)
-    projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+    projeto = _wq_dim_projeto_by_id(db, projeto_id)
     fallback = int(projeto.capacidade_maxima) if projeto and projeto.capacidade_maxima else 1000
     _cadastro_cache[projeto_id] = fallback
     return fallback
@@ -195,50 +292,104 @@ def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date
 
 
 def get_location_id_from_sku(db: Session, sku: str) -> Optional[str]:
-    """
-    Obtém o location_id do Magento a partir do SKU.
-    Consulta dinâmica na tabela SkuMapping.
-    """
-    from ...models.dimensoes import SkuMapping
-    mapping = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'MAGENTO',
-        SkuMapping.sku == sku.upper().strip(),
-        SkuMapping.ativo == True
-    ).first()
-    return str(mapping.id_externo) if mapping else None
+    mappings = _wq_sku_mappings_by_sku(db, sku)
+    for m in mappings:
+        if m.fonte == 'MAGENTO' and m.id_externo:
+            return str(m.id_externo)
+    return None
 
 
 def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
-    """
-    Obtém o id_evento do Ativo a partir do projeto (via codigo/SKU).
-    Consulta dinâmica na tabela SkuMapping.
-    """
-    from ...models.dimensoes import SkuMapping
-    projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+    projeto = _wq_dim_projeto_by_id(db, projeto_id)
     if not projeto or not projeto.codigo:
         return None
     
     sku = projeto.codigo.upper().strip()
     
-    mapping = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'ATIVO',
-        SkuMapping.sku == sku,
-        SkuMapping.ativo == True
-    ).first()
-    return str(mapping.id_externo) if mapping else None
+    mappings = _wq_sku_mappings_by_sku(db, sku)
+    for m in mappings:
+        if m.fonte == 'ATIVO' and m.id_externo:
+            return str(m.id_externo)
+    return None
+
+
+def _calculate_action_impact_from_warmup_cache(acao, projeto) -> dict:
+    if not acao.data_acao or not projeto or not projeto.codigo:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+
+    data_acao = acao.data_acao
+    if isinstance(data_acao, datetime):
+        data_acao = data_acao.date()
+
+    start_before = data_acao - timedelta(days=7)
+    end_before = data_acao - timedelta(days=1)
+    start_after = data_acao + timedelta(days=1)
+    end_after = data_acao + timedelta(days=7)
+
+    today = date.today()
+    if end_after > today:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None,
+                "status": "aguardando_dados"}
+
+    sku = projeto.codigo.upper().strip()
+    from app.core.cache import get_warmup_sku_mappings_by_sku
+    all_sku_maps = get_warmup_sku_mappings_by_sku(sku)
+    if not all_sku_maps:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+
+    ano = data_acao.year if isinstance(data_acao, date) else acao.data_acao.year if acao.data_acao else date.today().year
+    sku_maps = [m for m in all_sku_maps if getattr(m, 'ano', None) == ano and getattr(m, 'ativo', False)]
+    if not sku_maps:
+        sku_maps = [m for m in all_sku_maps if getattr(m, 'ativo', False)]
+
+    ativo_ids = [str(m.id_externo) for m in sku_maps if getattr(m, 'fonte', '') == 'ATIVO' and m.id_externo]
+    magento_ids = [str(m.id_externo) for m in sku_maps if getattr(m, 'fonte', '') == 'MAGENTO' and m.id_externo]
+
+    if not ativo_ids and not magento_ids:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+
+    all_daily = []
+    if ativo_ids:
+        all_daily.extend(_fetch_daily_sales_ativo_by_ids(ativo_ids))
+    if magento_ids:
+        all_daily.extend(_fetch_daily_sales_magento_by_ids(magento_ids))
+
+    vendas_antes = 0
+    vendas_depois = 0
+    for row in all_daily:
+        try:
+            dia = date.fromisoformat(row["dia"]) if isinstance(row["dia"], str) else row["dia"]
+        except (ValueError, KeyError):
+            continue
+        if start_before <= dia <= end_before:
+            vendas_antes += row.get("qtd", 0)
+        elif start_after <= dia <= end_after:
+            vendas_depois += row.get("qtd", 0)
+
+    if vendas_antes > 0:
+        impacto_percentual = ((vendas_depois - vendas_antes) / vendas_antes) * 100
+    elif vendas_depois > 0:
+        impacto_percentual = 100.0
+    else:
+        impacto_percentual = 0.0
+
+    return {
+        "vendas_antes": vendas_antes,
+        "vendas_depois": vendas_depois,
+        "impacto_percentual": round(impacto_percentual, 1)
+    }
 
 
 def calculate_action_impact(db: Session, acao) -> dict:
-    """
-    Calcula o impacto de uma ação comercial comparando vendas consolidadas (Ativo + Magento)
-    7 dias antes vs 7 dias depois da ação.
-    """
     if not acao.data_acao:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
-    
-    projeto = db.query(DimProjeto).filter(DimProjeto.id == acao.projeto_id).first()
+
+    projeto = _wq_dim_projeto_by_id(db, acao.projeto_id)
     if not projeto or not projeto.codigo:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+
+    if _is_warmup_thread():
+        return _calculate_action_impact_from_warmup_cache(acao, projeto)
     
     sku = projeto.codigo.upper().strip()
     id_evento = get_id_evento_from_projeto(db, acao.projeto_id)
@@ -606,25 +757,15 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
         logger.info(f"No previous year event date found for '{evento_grupo}' ano={prev_ano}")
         return None
 
-    prev_mappings = db.query(SkuMapping).filter(
-        SkuMapping.evento_grupo == evento_grupo,
-        SkuMapping.ano == prev_ano,
-        SkuMapping.ativo == True
-    ).all()
+    prev_mappings = _wq_sku_mappings_by_grupo_single_year(db, evento_grupo, prev_ano)
 
     if not prev_mappings:
-        prev_skus_from_current = db.query(SkuMapping.sku).filter(
-            SkuMapping.evento_grupo == evento_grupo,
-            SkuMapping.ano == ano,
-            SkuMapping.ativo == True
-        ).distinct().all()
-        prev_skus = [s[0] for s in prev_skus_from_current]
+        current_mappings = _wq_sku_mappings_by_grupo_single_year(db, evento_grupo, ano)
+        prev_skus = list(set(m.sku for m in current_mappings if m.sku))
         if prev_skus:
-            prev_mappings = db.query(SkuMapping).filter(
-                SkuMapping.sku.in_(prev_skus),
-                SkuMapping.ano == prev_ano,
-                SkuMapping.ativo == True
-            ).all()
+            prev_mappings = _wq_sku_mappings_by_skus(db, prev_skus, [prev_ano])
+            if prev_mappings is None:
+                prev_mappings = []
 
     if not prev_mappings:
         logger.info(f"No SKU mappings found for '{evento_grupo}' ano={prev_ano}")
@@ -703,10 +844,12 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     ativo_ids = []
     magento_ids = []
     
-    all_active_mappings = db.query(SkuMapping).filter(
-        SkuMapping.sku.in_(all_skus),
-        SkuMapping.ativo == True
-    ).all()
+    all_active_mappings = _wq_sku_mappings_by_skus(db, all_skus)
+    if all_active_mappings is None:
+        all_active_mappings = db.query(SkuMapping).filter(
+            SkuMapping.sku.in_(all_skus),
+            SkuMapping.ativo == True
+        ).all()
     
     year_mappings = [m for m in all_active_mappings if m.ano == ano]
     if not year_mappings and all_active_mappings:
@@ -1907,24 +2050,26 @@ def get_sales_averages(
     
     if is_consolidated:
         grupo_nome = evento_id.replace('grp_', '')
-        mappings = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano == ano,
-            SkuMapping.ativo == True
-        ).all()
+        mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         if not mappings:
-            mappings = db.query(SkuMapping).filter(
-                SkuMapping.evento_grupo == grupo_nome,
-                SkuMapping.ativo == True
-            ).all()
-            if mappings:
-                best_year = max(m.ano for m in mappings if m.ano)
-                mappings = [m for m in mappings if m.ano == best_year]
+            mappings = _wq_sku_mappings_by_grupo(db, grupo_nome, [ano])
+            if not mappings:
+                from app.core.cache import get_warmup_sku_mappings_by_grupo
+                if _is_warmup_thread():
+                    all_grupo_mappings = get_warmup_sku_mappings_by_grupo(grupo_nome, list(range(2020, ano+1)))
+                else:
+                    all_grupo_mappings = db.query(SkuMapping).filter(
+                        SkuMapping.evento_grupo == grupo_nome,
+                        SkuMapping.ativo == True
+                    ).all()
+                if all_grupo_mappings:
+                    best_year = max(m.ano for m in all_grupo_mappings if m.ano)
+                    mappings = [m for m in all_grupo_mappings if m.ano == best_year]
         all_skus = list(set(m.sku.upper().strip() for m in mappings if m.sku))
     else:
         try:
             projeto_id = int(evento_id)
-            projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
+            projeto = _wq_dim_projeto_by_id(db, projeto_id)
             if projeto and projeto.codigo:
                 all_skus = [str(projeto.codigo).upper().strip()]
         except ValueError:
@@ -1936,10 +2081,12 @@ def get_sales_averages(
     ativo_ids = []
     magento_ids = []
     
-    all_active_mappings = db.query(SkuMapping).filter(
-        SkuMapping.sku.in_(all_skus),
-        SkuMapping.ativo == True
-    ).all()
+    all_active_mappings = _wq_sku_mappings_by_skus(db, all_skus)
+    if all_active_mappings is None:
+        all_active_mappings = db.query(SkuMapping).filter(
+            SkuMapping.sku.in_(all_skus),
+            SkuMapping.ativo == True
+        ).all()
     
     year_mappings = [m for m in all_active_mappings if m.ano == ano]
     if not year_mappings and all_active_mappings:
@@ -3172,9 +3319,8 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
 
 def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
     normalized_grupo = _normalize_name_for_match(evento_grupo)
-    projetos = db.query(DimProjeto).filter(
-        DimProjeto.data_evento.isnot(None)
-    ).all()
+    projetos = _wq_all_dim_projetos(db)
+    projetos = [p for p in projetos if p.data_evento is not None]
     
     best_match = None
     best_score = 0
@@ -3235,13 +3381,9 @@ def get_curva_comparativa_evento(
             ano = datetime.now().year
         ano_anterior = ano - 1
 
-        all_mappings = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano.in_([ano, ano_anterior]),
-            SkuMapping.ativo == True
-        ).all()
+        all_mappings = _wq_sku_mappings_by_grupo(db, grupo_nome, [ano, ano_anterior])
     else:
-        projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
+        projeto = _wq_dim_projeto_by_id(db, int(evento_id))
         if not projeto:
             raise HTTPException(status_code=404, detail="Evento nao encontrado")
 
@@ -3253,22 +3395,13 @@ def get_curva_comparativa_evento(
             ano = projeto.data_evento.year if projeto.data_evento else datetime.now().year
         ano_anterior = ano - 1
 
-        mapping = db.query(SkuMapping).filter(
-            SkuMapping.sku == sku,
-            SkuMapping.ativo == True
-        ).first()
+        mapping_list = _wq_sku_mappings_by_sku(db, sku)
+        mapping = mapping_list[0] if mapping_list else None
 
         if mapping and mapping.evento_grupo:
-            all_mappings = db.query(SkuMapping).filter(
-                SkuMapping.evento_grupo == mapping.evento_grupo,
-                SkuMapping.ano.in_([ano, ano_anterior]),
-                SkuMapping.ativo == True
-            ).all()
+            all_mappings = _wq_sku_mappings_by_grupo(db, mapping.evento_grupo, [ano, ano_anterior])
         else:
-            all_mappings = db.query(SkuMapping).filter(
-                SkuMapping.sku == sku,
-                SkuMapping.ativo == True
-            ).all()
+            all_mappings = _wq_sku_mappings_by_sku(db, sku)
             if not all_mappings:
                 all_mappings = []
 
@@ -3628,13 +3761,9 @@ def get_evento_insights(
             ano = datetime.now().year
         ano_anterior = ano - 1
 
-        all_mappings = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano.in_([ano, ano_anterior]),
-            SkuMapping.ativo == True
-        ).all()
+        all_mappings = _wq_sku_mappings_by_grupo(db, grupo_nome, [ano, ano_anterior])
     else:
-        projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
+        projeto = _wq_dim_projeto_by_id(db, int(evento_id))
         if not projeto:
             raise HTTPException(status_code=404, detail="Evento nao encontrado")
 
@@ -3646,22 +3775,13 @@ def get_evento_insights(
             ano = projeto.data_evento.year if projeto.data_evento else datetime.now().year
         ano_anterior = ano - 1
 
-        mapping = db.query(SkuMapping).filter(
-            SkuMapping.sku == sku,
-            SkuMapping.ativo == True
-        ).first()
+        mapping_list = _wq_sku_mappings_by_sku(db, sku)
+        mapping = mapping_list[0] if mapping_list else None
 
         if mapping and mapping.evento_grupo:
-            all_mappings = db.query(SkuMapping).filter(
-                SkuMapping.evento_grupo == mapping.evento_grupo,
-                SkuMapping.ano.in_([ano, ano_anterior]),
-                SkuMapping.ativo == True
-            ).all()
+            all_mappings = _wq_sku_mappings_by_grupo(db, mapping.evento_grupo, [ano, ano_anterior])
         else:
-            all_mappings = db.query(SkuMapping).filter(
-                SkuMapping.sku == sku,
-                SkuMapping.ativo == True
-            ).all()
+            all_mappings = _wq_sku_mappings_by_sku(db, sku)
             if not all_mappings:
                 all_mappings = []
 
@@ -4102,18 +4222,12 @@ def get_marketing_event_by_id(
             if cached_detail is not None:
                 return cached_detail
         
-        mappings = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano == ano,
-            SkuMapping.ativo == True
-        ).all()
+        mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         
         skus = [m.sku for m in mappings]
         
         proj_skus = [m.sku for m in mappings]
-        projetos = db.query(DimProjeto).filter(
-            DimProjeto.codigo.in_(proj_skus)
-        ).all() if proj_skus else []
+        projetos = _wq_dim_projetos_by_codigos(db, proj_skus)
         
         latest_date = None
         rep_projeto = projetos[0] if projetos else None
@@ -4197,7 +4311,7 @@ def get_marketing_event_by_id(
         detail_bt_total_receita = 0.0
         detail_bt_total_qtd = 0
         for p in projetos:
-            detail_cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == p.id).first()
+            detail_cad = _wq_cadastro_by_projeto_id(db, p.id)
             if detail_cad and detail_cad.atletas_site_tkt_medio and detail_cad.atletas_site_pago:
                 detail_bt_total_receita += float(detail_cad.atletas_site_tkt_medio) * int(detail_cad.atletas_site_pago)
                 detail_bt_total_qtd += int(detail_cad.atletas_site_pago)
@@ -4219,7 +4333,7 @@ def get_marketing_event_by_id(
         detail_kit_w_num = 0.0
         detail_kit_w_den = 0
         for p in projetos:
-            p_cad_d = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == p.id).first()
+            p_cad_d = _wq_cadastro_by_projeto_id(db, p.id)
             p_cap_d = get_meta_from_cadastro(p_cad_d) if p_cad_d else get_meta_orcada(db, p.id)
             p_kc_d = detail_kit_costs.get(p.id, 50.0)
             detail_kit_w_num += p_kc_d * p_cap_d
@@ -4286,11 +4400,7 @@ def get_marketing_event_by_id(
                 })
         
         ano_anterior = ano - 1
-        mappings_anterior = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ano == ano_anterior,
-            SkuMapping.ativo == True
-        ).all()
+        mappings_anterior = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano_anterior)
         
         comparacao_anual = None
         if mappings_anterior:
@@ -4323,9 +4433,7 @@ def get_marketing_event_by_id(
                         receita_anterior += row.get('receita', 0.0)
             
             proj_skus_anterior = [m.sku for m in mappings_anterior]
-            projetos_anterior = db.query(DimProjeto).filter(
-                DimProjeto.codigo.in_(proj_skus_anterior)
-            ).all() if proj_skus_anterior else []
+            projetos_anterior = _wq_dim_projetos_by_codigos(db, proj_skus_anterior)
             
             cap_anterior = get_meta_orcada_projetos(db, projetos_anterior)
             meta_anterior = cap_anterior
@@ -4356,10 +4464,15 @@ def get_marketing_event_by_id(
                 }
             }
         
-        anos_disponiveis = db.query(SkuMapping.ano).filter(
-            SkuMapping.evento_grupo == grupo_nome,
-            SkuMapping.ativo == True
-        ).distinct().order_by(SkuMapping.ano.desc()).all()
+        all_grupo_mappings_for_anos = _wq_sku_mappings_by_grupo(db, grupo_nome, list(range(2018, ano + 2)))
+        if all_grupo_mappings_for_anos:
+            anos_set = sorted(set(m.ano for m in all_grupo_mappings_for_anos if m.ano), reverse=True)
+            anos_disponiveis = [(a,) for a in anos_set]
+        else:
+            anos_disponiveis = db.query(SkuMapping.ano).filter(
+                SkuMapping.evento_grupo == grupo_nome,
+                SkuMapping.ativo == True
+            ).distinct().order_by(SkuMapping.ano.desc()).all()
         
         grouped_result = {
             "status": "success",
@@ -4375,7 +4488,7 @@ def get_marketing_event_by_id(
         event_detail_cache.set(detail_cache_key, grouped_result)
         return grouped_result
     
-    projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
+    projeto = _wq_dim_projeto_by_id(db, int(evento_id))
     
     if not projeto:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
@@ -4405,19 +4518,16 @@ def get_marketing_event_by_id(
     
     sales_goal = get_meta_orcada(db, projeto.id)
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-    detail_standalone_cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == projeto.id).first()
+    detail_standalone_cad = _wq_cadastro_by_projeto_id(db, projeto.id)
     detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
     
     standalone_evento_grupo = None
     if sku:
-        standalone_mapping = db.query(SkuMapping).filter(
-            SkuMapping.sku == sku,
-            SkuMapping.evento_grupo.isnot(None),
-            SkuMapping.evento_grupo != '',
-            SkuMapping.ativo == True
-        ).first()
-        if standalone_mapping:
-            standalone_evento_grupo = standalone_mapping.evento_grupo
+        standalone_mappings = _wq_sku_mappings_by_sku(db, sku)
+        for sm in standalone_mappings:
+            if sm.evento_grupo and sm.evento_grupo.strip():
+                standalone_evento_grupo = sm.evento_grupo
+                break
 
     data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=2) if projeto_data_evento else None
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)

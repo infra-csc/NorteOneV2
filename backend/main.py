@@ -13,7 +13,8 @@ from app.core.cache import (
     set_last_full_refresh, set_full_refresh_in_progress, 
     register_full_warmup_fn,
     isc_cache, event_detail_cache, curva_cache, medias_cache,
-    _full_refresh_lock
+    _full_refresh_lock,
+    set_warmup_metadata_cache, clear_warmup_metadata_cache
 )
 import app.core.cache as _cache_module
 import logging
@@ -53,6 +54,7 @@ def _full_cache_warmup():
     import threading
 
     WARMUP_WORKERS = 8
+    TIER1_D_MINUS_THRESHOLD = 60
 
     with _full_refresh_lock:
         if _cache_module._full_refresh_in_progress:
@@ -73,28 +75,100 @@ def _full_cache_warmup():
         daily_sales_cache.invalidate(f"{ano}_prefetch_daily")
         logger.info(f"[Warmup] Invalidated daily_sales cache for {ano}")
 
-        set_warmup_progress(1, "Atualizando dados de inscrições", 0, 2)
-        logger.info("[Warmup 1/3] Refreshing ISC pricing data...")
+        set_warmup_progress(1, "Atualizando dados de inscrições", 0, 4)
+        logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
         try:
             fetch_isc_pricing_data(db=db, force_refresh=True)
-            logger.info("[Warmup 1/3] ISC pricing data refreshed")
+            logger.info("[Warmup 1/4] ISC pricing data refreshed")
             update_warmup_sub_progress(1)
         except Exception as e:
-            logger.error(f"[Warmup 1/3] ISC pricing data FAILED: {e}")
+            logger.error(f"[Warmup 1/4] ISC pricing data FAILED: {e}")
             partial_warnings.append(f"Dados de inscrições parciais: {str(e)[:100]}")
 
-        cadastros_list = db.query(CadastroEvento).all()
+        prefetch_start = time.time()
+        all_cadastros = db.query(CadastroEvento).all()
+        all_sku_mappings = db.query(SkuMapping).filter(SkuMapping.ativo == True).all()
+        all_projetos = db.query(DimProjeto).all()
+
+        from types import SimpleNamespace
+
+        def _detach_sku(m):
+            return SimpleNamespace(
+                id=m.id, fonte=m.fonte, id_externo=m.id_externo, sku=m.sku,
+                evento_grupo=m.evento_grupo, ano=m.ano, nome_evento=m.nome_evento,
+                ativo=m.ativo, evento_consolidado_id=m.evento_consolidado_id
+            )
+
+        def _detach_proj(p):
+            return SimpleNamespace(
+                id=p.id, codigo=p.codigo, produto=p.produto, modalidade=p.modalidade,
+                tipo_evento=p.tipo_evento, evento=p.evento, lei=p.lei, cliente=p.cliente,
+                status=p.status, data_evento=p.data_evento, local_evento=p.local_evento,
+                cidade=p.cidade, estado=p.estado, capacidade_maxima=p.capacidade_maxima,
+                etapa=p.etapa, imagem_kv=p.imagem_kv
+            )
+
+        def _detach_cad(c):
+            return SimpleNamespace(
+                id=c.id, projeto_id=c.projeto_id, nome=c.nome,
+                circuito_produto=c.circuito_produto, localizacao_evento=c.localizacao_evento,
+                ano_evento=c.ano_evento, imagem_kv=c.imagem_kv, status=c.status,
+                modalidade=c.modalidade, sku=c.sku, produto=c.produto,
+                tipo_evento=c.tipo_evento, lei=c.lei, capacidade_maxima=c.capacidade_maxima,
+                cidade=c.cidade, estado=c.estado, data_evento=c.data_evento,
+                atletas_site_pago=c.atletas_site_pago,
+                atletas_site_tkt_medio=c.atletas_site_tkt_medio,
+                atletas_grupos_pago=c.atletas_grupos_pago,
+                atletas_grupos_tkt_medio=c.atletas_grupos_tkt_medio,
+                atletas_cortesia=c.atletas_cortesia,
+                atletas_appai_pago=c.atletas_appai_pago,
+                atletas_appai_tkt_medio=c.atletas_appai_tkt_medio
+            )
+
+        sku_by_grupo = {}
+        sku_by_sku = {}
+        for m in all_sku_mappings:
+            dm = _detach_sku(m)
+            if m.evento_grupo and m.ano:
+                key = f"{m.evento_grupo}_{m.ano}"
+                sku_by_grupo.setdefault(key, []).append(dm)
+            if m.sku:
+                sku_key = m.sku.upper().strip()
+                sku_by_sku.setdefault(sku_key, []).append(dm)
+
+        proj_by_codigo = {}
+        proj_by_id = {}
+        detached_all_projetos = []
+        for p in all_projetos:
+            dp = _detach_proj(p)
+            detached_all_projetos.append(dp)
+            proj_by_id[p.id] = dp
+            if p.codigo:
+                key = str(p.codigo).upper().strip()
+                proj_by_codigo.setdefault(key, []).append(dp)
+
+        cad_by_proj = {}
+        for c in all_cadastros:
+            if c.projeto_id:
+                cad_by_proj[c.projeto_id] = _detach_cad(c)
+
+        set_warmup_metadata_cache(sku_by_grupo, sku_by_sku, proj_by_codigo, proj_by_id, cad_by_proj, detached_all_projetos)
+        logger.info(f"[Warmup 1/4] Metadata pre-fetched: {len(all_sku_mappings)} SkuMappings, {len(all_projetos)} DimProjetos, {len(all_cadastros)} Cadastros in {time.time()-prefetch_start:.1f}s")
+        update_warmup_sub_progress(2)
+
         sku_to_grupo = _build_sku_to_grupo_map(db, ano)
 
-        active_evento_ids = []
+        tier1_evento_ids = []
+        tier2_evento_ids = []
         grupo_names_seen = set()
+        grupo_d_minus = {}
         all_ativo_ids = []
         all_magento_ids = []
 
-        for cad in cadastros_list:
+        for cad in all_cadastros:
             if not cad.projeto_id:
                 continue
-            projeto = db.query(DimProjeto).filter(DimProjeto.id == cad.projeto_id).first()
+            projeto = proj_by_id.get(cad.projeto_id)
             if not projeto or not projeto.data_evento:
                 continue
 
@@ -105,37 +179,42 @@ def _full_cache_warmup():
             sku_norm = normalize_sku(str(projeto.codigo)) if projeto.codigo else None
             grupo_nome = sku_to_grupo.get(sku_norm) if sku_norm else None
 
-            if grupo_nome and grupo_nome not in grupo_names_seen:
-                grupo_names_seen.add(grupo_nome)
-                active_evento_ids.append(f"grp_{grupo_nome}")
+            if grupo_nome:
+                if grupo_nome not in grupo_names_seen:
+                    grupo_names_seen.add(grupo_nome)
+                    eid = f"grp_{grupo_nome}"
+                    grupo_d_minus[eid] = d_minus
+                    if d_minus <= TIER1_D_MINUS_THRESHOLD:
+                        tier1_evento_ids.append(eid)
+                    else:
+                        tier2_evento_ids.append(eid)
+                else:
+                    eid = f"grp_{grupo_nome}"
+                    if eid in grupo_d_minus:
+                        grupo_d_minus[eid] = min(grupo_d_minus[eid], d_minus)
+                        if grupo_d_minus[eid] <= TIER1_D_MINUS_THRESHOLD and eid in tier2_evento_ids:
+                            tier2_evento_ids.remove(eid)
+                            tier1_evento_ids.append(eid)
             elif not grupo_nome:
-                active_evento_ids.append(str(projeto.id))
+                eid = str(projeto.id)
+                if d_minus <= TIER1_D_MINUS_THRESHOLD:
+                    tier1_evento_ids.append(eid)
+                else:
+                    tier2_evento_ids.append(eid)
 
-        all_active_skus = set()
-        for cad in cadastros_list:
-            if not cad.projeto_id:
-                continue
-            projeto = db.query(DimProjeto).filter(DimProjeto.id == cad.projeto_id).first()
-            if projeto and projeto.codigo:
-                all_active_skus.add(str(projeto.codigo).upper().strip())
-
-        if all_active_skus:
-            from app.models.dimensoes import SkuMapping
-            all_mappings = db.query(SkuMapping).filter(
-                SkuMapping.sku.in_(list(all_active_skus)),
-                SkuMapping.ativo == True
-            ).all()
-            for m in all_mappings:
-                if m.id_externo:
-                    ext_id = str(m.id_externo)
-                    if m.fonte == 'ATIVO':
-                        all_ativo_ids.append(ext_id)
-                    elif m.fonte == 'MAGENTO':
-                        all_magento_ids.append(ext_id)
+        for m in all_sku_mappings:
+            if m.id_externo:
+                ext_id = str(m.id_externo)
+                if m.fonte == 'ATIVO':
+                    all_ativo_ids.append(ext_id)
+                elif m.fonte == 'MAGENTO':
+                    all_magento_ids.append(ext_id)
 
         all_ativo_ids = list(set(all_ativo_ids))
         all_magento_ids = list(set(all_magento_ids))
-        logger.info(f"[Warmup 1/3] Pre-fetching daily sales: {len(all_ativo_ids)} Ativo IDs, {len(all_magento_ids)} Magento IDs")
+        active_evento_ids = tier1_evento_ids + tier2_evento_ids
+        logger.info(f"[Warmup] Found {len(active_evento_ids)} active events: Tier 1 (d-≤{TIER1_D_MINUS_THRESHOLD}): {len(tier1_evento_ids)}, Tier 2 (d->{TIER1_D_MINUS_THRESHOLD}): {len(tier2_evento_ids)}")
+        logger.info(f"[Warmup 1/4] Pre-fetching daily sales: {len(all_ativo_ids)} Ativo IDs, {len(all_magento_ids)} Magento IDs")
 
         ativo_grouped = {}
         magento_grouped = {}
@@ -153,29 +232,26 @@ def _full_cache_warmup():
 
             for name, fut in pf_futures.items():
                 try:
-                    result = fut.result(timeout=60)
+                    result = fut.result(timeout=120)
                     if name == "ativo_daily":
                         ativo_grouped = result
-                        logger.info(f"[Warmup 1/3] Ativo daily pre-fetch: {len(result)} events")
+                        logger.info(f"[Warmup 1/4] Ativo daily pre-fetch: {len(result)} events")
                     elif name == "magento_daily":
                         magento_grouped = result
-                        logger.info(f"[Warmup 1/3] Magento daily pre-fetch: {len(result)} events")
+                        logger.info(f"[Warmup 1/4] Magento daily pre-fetch: {len(result)} events")
                     elif name == "ativo_cat":
                         cat_ativo_grouped = result
-                        logger.info(f"[Warmup 1/3] Ativo category pre-fetch: {len(result)} events")
+                        logger.info(f"[Warmup 1/4] Ativo category pre-fetch: {len(result)} events")
                     elif name == "magento_cat":
                         cat_magento_grouped = result
-                        logger.info(f"[Warmup 1/3] Magento category pre-fetch: {len(result)} events")
+                        logger.info(f"[Warmup 1/4] Magento category pre-fetch: {len(result)} events")
                 except Exception as e:
-                    logger.error(f"[Warmup 1/3] Pre-fetch {name} FAILED: {e}")
+                    logger.error(f"[Warmup 1/4] Pre-fetch {name} FAILED: {e}")
                     partial_warnings.append(f"Pre-fetch {name} parcial: {str(e)[:80]}")
 
         set_warmup_daily_cache(ativo_grouped, magento_grouped, cat_ativo_grouped, cat_magento_grouped)
-        update_warmup_sub_progress(2)
-        logger.info("[Warmup 1/3] Daily sales + category cache populated")
-
-        total_events = len(active_evento_ids)
-        logger.info(f"[Warmup] Found {total_events} active events to warm up")
+        update_warmup_sub_progress(4)
+        logger.info(f"[Warmup 1/4] Phase 1 complete in {time.time()-start:.1f}s")
 
         from app.api.routes.marketing import (
             get_marketing_event_by_id,
@@ -192,11 +268,12 @@ def _full_cache_warmup():
             ("medias", lambda eid, a, d: get_sales_averages(evento_id=eid, periodo=30, ano=a, force_refresh=True, db=d, current_user=None)),
             ("insights", lambda eid, a, d: get_evento_insights(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
         ]
-        all_step_fns = priority_fns + secondary_fns
 
-        total_tasks = total_events * len(all_step_fns)
+        tier1_full_tasks = len(tier1_evento_ids) * 4
+        tier2_detail_tasks = len(tier2_evento_ids)
+        total_tasks = tier1_full_tasks + tier2_detail_tasks
         set_warmup_progress(2, "Processando eventos", 0, total_tasks)
-        logger.info(f"[Warmup 2/3] Processing {total_tasks} tasks ({total_events} events x {len(all_step_fns)} steps) — detalhes first...")
+        logger.info(f"[Warmup 2/4] Processing {total_tasks} tasks — Tier1: {tier1_full_tasks} (full), Tier2: {tier2_detail_tasks} (details only)")
 
         completed_tasks = 0
         task_counter_lock = threading.Lock()
@@ -225,20 +302,22 @@ def _full_cache_warmup():
                 except Exception:
                     pass
 
+        phase2_start = time.time()
         with ThreadPoolExecutor(max_workers=WARMUP_WORKERS, thread_name_prefix="warmup") as executor:
-            priority_futures = []
+            all_detail_futures = []
             for eid in active_evento_ids:
                 for step_name, step_fn in priority_fns:
-                    priority_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
-            for f in as_completed(priority_futures):
+                    all_detail_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
+            for f in as_completed(all_detail_futures):
                 try:
                     f.result()
                 except Exception:
                     pass
-            logger.info(f"[Warmup 2/3] Priority phase done (detalhes: {step_counts['detalhes']}), starting secondary steps...")
+            details_elapsed = time.time() - phase2_start
+            logger.info(f"[Warmup 2/4] All detalhes done ({step_counts['detalhes']}) in {details_elapsed:.1f}s, starting Tier 1 secondary...")
 
             secondary_futures = []
-            for eid in active_evento_ids:
+            for eid in tier1_evento_ids:
                 for step_name, step_fn in secondary_fns:
                     secondary_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
             for f in as_completed(secondary_futures):
@@ -247,18 +326,20 @@ def _full_cache_warmup():
                 except Exception:
                     pass
 
-        logger.info(f"[Warmup 2/3] All tasks done: {step_counts}")
+        logger.info(f"[Warmup 2/4] All tasks done: {step_counts}")
 
         set_warmup_progress(3, "Finalizando", 0, 1)
         clear_warmup_daily_cache()
+        clear_warmup_metadata_cache()
 
         from app.api.routes.marketing import eventos_list_cache as _evt_list_cache
         _evt_list_cache.invalidate_all()
-        logger.info("[Warmup 3/3] eventos_list_cache invalidated")
+        logger.info("[Warmup 3/4] Caches cleaned, eventos_list invalidated")
 
         set_last_full_refresh(time.time())
         elapsed = time.time() - start
         logger.info(f"=== FULL CACHE WARMUP COMPLETED in {elapsed:.1f}s ===")
+        logger.info(f"    Tier1: {len(tier1_evento_ids)} events (full), Tier2: {len(tier2_evento_ids)} events (details only)")
         logger.info(f"    Details: {step_counts['detalhes']}, Curvas: {step_counts['curvas']}, Médias: {step_counts['medias']}, Insights: {step_counts['insights']}")
         update_warmup_sub_progress(1)
 
@@ -270,6 +351,7 @@ def _full_cache_warmup():
         set_last_refresh_error(f"Falha na atualização dos dados: {str(e)}")
     finally:
         clear_warmup_daily_cache()
+        clear_warmup_metadata_cache()
         set_full_refresh_in_progress(False)
         if db:
             try:

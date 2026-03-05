@@ -377,6 +377,85 @@ curva_cache = SmartCache("curva_comparativa")
 medias_cache = SmartCache("medias_vendas")
 eventos_list_cache = SmartCache("eventos_list")
 
+_warmup_metadata_cache: dict = {}
+_warmup_metadata_lock = threading.Lock()
+
+
+def set_warmup_metadata_cache(sku_mappings_by_grupo: dict, sku_mappings_by_sku: dict,
+                               dim_projetos_by_codigo: dict, dim_projetos_by_id: dict,
+                               cadastros_by_projeto_id: dict, all_dim_projetos: list = None):
+    with _warmup_metadata_lock:
+        _warmup_metadata_cache.clear()
+        _warmup_metadata_cache["sku_by_grupo"] = sku_mappings_by_grupo
+        _warmup_metadata_cache["sku_by_sku"] = sku_mappings_by_sku
+        _warmup_metadata_cache["proj_by_codigo"] = dim_projetos_by_codigo
+        _warmup_metadata_cache["proj_by_id"] = dim_projetos_by_id
+        _warmup_metadata_cache["cad_by_proj"] = cadastros_by_projeto_id
+        if all_dim_projetos is not None:
+            _warmup_metadata_cache["all_projetos"] = all_dim_projetos
+
+
+def clear_warmup_metadata_cache():
+    with _warmup_metadata_lock:
+        _warmup_metadata_cache.clear()
+
+
+def get_warmup_sku_mappings_by_grupo(grupo: str, anos: list) -> Optional[list]:
+    with _warmup_metadata_lock:
+        idx = _warmup_metadata_cache.get("sku_by_grupo")
+        if idx is None:
+            return None
+        result = []
+        for a in anos:
+            key = f"{grupo}_{a}"
+            result.extend(idx.get(key, []))
+        return result
+
+
+def get_warmup_sku_mappings_by_sku(sku: str, anos: list = None, active_only: bool = True) -> Optional[list]:
+    with _warmup_metadata_lock:
+        idx = _warmup_metadata_cache.get("sku_by_sku")
+        if idx is None:
+            return None
+        items = idx.get(sku.upper().strip(), [])
+        if anos:
+            items = [m for m in items if m.ano in anos]
+        return items
+
+
+def get_warmup_dim_projetos_by_codigos(codigos: list) -> Optional[list]:
+    with _warmup_metadata_lock:
+        idx = _warmup_metadata_cache.get("proj_by_codigo")
+        if idx is None:
+            return None
+        result = []
+        for c in codigos:
+            key = str(c).upper().strip()
+            if key in idx:
+                result.extend(idx[key])
+        return result
+
+
+def get_warmup_dim_projeto_by_id(proj_id: int) -> Optional[Any]:
+    with _warmup_metadata_lock:
+        idx = _warmup_metadata_cache.get("proj_by_id")
+        if idx is None:
+            return None
+        return idx.get(proj_id)
+
+
+def get_warmup_cadastro_by_projeto_id(projeto_id: int) -> Optional[Any]:
+    with _warmup_metadata_lock:
+        idx = _warmup_metadata_cache.get("cad_by_proj")
+        if idx is None:
+            return None
+        return idx.get(projeto_id, None)
+
+
+def get_warmup_all_dim_projetos() -> Optional[list]:
+    with _warmup_metadata_lock:
+        return _warmup_metadata_cache.get("all_projetos")
+
 ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache]
 
 
