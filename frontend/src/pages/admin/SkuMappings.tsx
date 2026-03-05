@@ -4,7 +4,7 @@ import api from '../../services/api';
 import { 
   Package, Search, Plus, Edit2, Trash2, RefreshCw, 
   AlertTriangle, CheckCircle, X, Calendar,
-  Link2, Filter, Check, FolderOpen, Globe, ChevronDown, ChevronRight
+  Link2, Filter, Check, FolderOpen, Globe, ChevronDown, ChevronRight, Download
 } from 'lucide-react';
 
 interface SkuMapping {
@@ -389,6 +389,39 @@ const SkuMappings: React.FC = () => {
       : 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400';
   };
 
+  const exportMappings = () => {
+    const dataToExport = filteredMappings;
+    if (dataToExport.length === 0) return;
+
+    const headers = ['ID', 'Fonte', 'ID Externo', 'SKU', 'Grupo de Evento', 'Ano', 'Nome do Evento', 'Ativo', 'Criado em', 'Atualizado em'];
+    const csvRows = [
+      headers.join(';'),
+      ...dataToExport.map(m => [
+        m.id,
+        m.fonte,
+        m.id_externo,
+        m.sku,
+        m.evento_grupo,
+        m.ano,
+        `"${(m.nome_evento || '').replace(/"/g, '""')}"`,
+        m.ativo ? 'Sim' : 'Não',
+        m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR') : '',
+        m.updated_at ? new Date(m.updated_at).toLocaleDateString('pt-BR') : ''
+      ].join(';'))
+    ];
+
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mapeamentos_sku_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const allGrupoNames = [
     ...new Set([
       ...grupos,
@@ -488,6 +521,16 @@ const SkuMappings: React.FC = () => {
                   </select>
                   <button onClick={fetchMappings} className={`p-2 rounded-lg ${isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`} title="Atualizar">
                     <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                  </button>
+                  <button onClick={exportMappings} disabled={filteredMappings.length === 0}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-all ${
+                      filteredMappings.length === 0
+                        ? 'opacity-50 cursor-not-allowed'
+                        : ''
+                    } ${isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}
+                    title="Exportar dados filtrados como CSV">
+                    <Download className="w-4 h-4" />
+                    Exportar
                   </button>
                   <button onClick={openCreateModal}
                     className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg text-sm">
