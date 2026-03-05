@@ -261,7 +261,7 @@ const MarketingDashboard: React.FC = () => {
             if (status.last_error) {
               if (status.last_error.includes('avisos')) {
                 showRefreshResult('success');
-                setAvisos(prev => [...prev, status.last_error]);
+                setAvisos(prev => [...prev, status.last_error!]);
               } else {
                 showRefreshResult('error');
                 setError(status.last_error);
