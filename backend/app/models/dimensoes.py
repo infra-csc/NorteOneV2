@@ -126,6 +126,7 @@ class SkuMapping(Base):
     nome_evento = Column(String(255), nullable=False)
     ativo = Column(Boolean, default=True)
     evento_consolidado_id = Column(Integer, ForeignKey("eventos_consolidados.id"), nullable=True)
+    data_evento = Column(Date, nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
     

@@ -96,7 +96,8 @@ def _full_cache_warmup():
             return SimpleNamespace(
                 id=m.id, fonte=m.fonte, id_externo=m.id_externo, sku=m.sku,
                 evento_grupo=m.evento_grupo, ano=m.ano, nome_evento=m.nome_evento,
-                ativo=m.ativo, evento_consolidado_id=m.evento_consolidado_id
+                ativo=m.ativo, evento_consolidado_id=m.evento_consolidado_id,
+                data_evento=getattr(m, 'data_evento', None)
             )
 
         def _detach_proj(p):
@@ -444,6 +445,7 @@ def _run_column_migrations():
             "ALTER TABLE sku_mappings ALTER COLUMN evento_grupo TYPE VARCHAR(200)",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS dias_encerramento_inscricao INTEGER DEFAULT 2",
+            "ALTER TABLE sku_mappings ADD COLUMN IF NOT EXISTS data_evento DATE",
         ]
         for sql in migrations:
             try:

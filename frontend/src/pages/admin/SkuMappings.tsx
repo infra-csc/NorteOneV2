@@ -16,6 +16,7 @@ interface SkuMapping {
   ano: number;
   nome_evento: string;
   ativo: boolean;
+  data_evento: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -28,6 +29,7 @@ interface SkuMappingForm {
   ano: number;
   nome_evento: string;
   ativo: boolean;
+  data_evento: string;
 }
 
 interface EventoSugerido {
@@ -97,7 +99,8 @@ const SkuMappings: React.FC = () => {
     evento_grupo: '',
     ano: currentYear,
     nome_evento: '',
-    ativo: true
+    ativo: true,
+    data_evento: ''
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -233,7 +236,7 @@ const SkuMappings: React.FC = () => {
 
   const openCreateModal = () => {
     setEditingMapping(null);
-    setFormData({ fonte: 'ATIVO', id_externo: 0, sku: '', evento_grupo: '', ano: currentYear, nome_evento: '', ativo: true });
+    setFormData({ fonte: 'ATIVO', id_externo: 0, sku: '', evento_grupo: '', ano: currentYear, nome_evento: '', ativo: true, data_evento: '' });
     setFormError(null);
     setShowModal(true);
   };
@@ -242,7 +245,8 @@ const SkuMappings: React.FC = () => {
     setEditingMapping(mapping);
     setFormData({
       fonte: mapping.fonte, id_externo: mapping.id_externo, sku: mapping.sku,
-      evento_grupo: mapping.evento_grupo, ano: mapping.ano, nome_evento: mapping.nome_evento, ativo: mapping.ativo
+      evento_grupo: mapping.evento_grupo, ano: mapping.ano, nome_evento: mapping.nome_evento, ativo: mapping.ativo,
+      data_evento: mapping.data_evento || ''
     });
     setFormError(null);
     setShowModal(true);
@@ -253,10 +257,11 @@ const SkuMappings: React.FC = () => {
     setFormError(null);
     setSaving(true);
     try {
+      const payload = { ...formData, data_evento: formData.data_evento || null };
       if (editingMapping) {
-        await api.put(`/admin/sku-mappings/${editingMapping.id}`, formData);
+        await api.put(`/admin/sku-mappings/${editingMapping.id}`, payload);
       } else {
-        await api.post('/admin/sku-mappings', formData);
+        await api.post('/admin/sku-mappings', payload);
       }
       setShowModal(false);
       fetchMappings();
@@ -393,7 +398,7 @@ const SkuMappings: React.FC = () => {
     const dataToExport = filteredMappings;
     if (dataToExport.length === 0) return;
 
-    const headers = ['ID', 'Fonte', 'ID Externo', 'SKU', 'Grupo de Evento', 'Ano', 'Nome do Evento', 'Ativo', 'Criado em', 'Atualizado em'];
+    const headers = ['ID', 'Fonte', 'ID Externo', 'SKU', 'Grupo de Evento', 'Ano', 'Data Evento', 'Nome do Evento', 'Ativo', 'Criado em', 'Atualizado em'];
     const csvRows = [
       headers.join(';'),
       ...dataToExport.map(m => [
@@ -403,6 +408,7 @@ const SkuMappings: React.FC = () => {
         m.sku,
         m.evento_grupo,
         m.ano,
+        m.data_evento || '',
         `"${(m.nome_evento || '').replace(/"/g, '""')}"`,
         m.ativo ? 'Sim' : 'Não',
         m.created_at ? new Date(m.created_at).toLocaleDateString('pt-BR') : '',
@@ -596,6 +602,11 @@ const SkuMappings: React.FC = () => {
                                     <Calendar className={`w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
                                     <span className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{mapping.ano}</span>
                                   </div>
+                                  {mapping.data_evento && (
+                                    <div className={`px-2 py-0.5 rounded text-xs ${isDark ? 'bg-blue-900/30 text-blue-400' : 'bg-blue-100 text-blue-700'}`}>
+                                      {new Date(mapping.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                    </div>
+                                  )}
                                   <div className="flex items-center gap-1">
                                     <button onClick={() => openEditModal(mapping)} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-white' : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`} title="Editar">
                                       <Edit2 className="w-4 h-4" />
@@ -943,6 +954,14 @@ const SkuMappings: React.FC = () => {
                 </select>
                 <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                   Cadastre novos grupos na aba "Grupos de Evento"
+                </p>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Data do Evento</label>
+                <input type="date" value={formData.data_evento} onChange={(e) => setFormData({ ...formData, data_evento: e.target.value })}
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-emerald-500`} />
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Informe a data real do evento para calcular a curva D- corretamente
                 </p>
               </div>
               <div className="flex items-center gap-2">

@@ -181,6 +181,7 @@ class SkuMappingBase(BaseModel):
     nome_evento: str
     ativo: bool = True
     evento_consolidado_id: Optional[int] = None
+    data_evento: Optional[date] = None
 
 class SkuMappingCreate(SkuMappingBase):
     pass
@@ -194,6 +195,7 @@ class SkuMappingUpdate(BaseModel):
     nome_evento: Optional[str] = None
     ativo: Optional[bool] = None
     evento_consolidado_id: Optional[int] = None
+    data_evento: Optional[date] = None
 
 class SkuMappingResponse(SkuMappingBase):
     id: int

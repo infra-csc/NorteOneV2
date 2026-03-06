@@ -3529,6 +3529,17 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
 
 
 def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
+    from ...models.dimensoes import SkuMapping
+    mapping_with_date = db.query(SkuMapping).filter(
+        SkuMapping.evento_grupo == evento_grupo,
+        SkuMapping.ano == ano,
+        SkuMapping.data_evento != None,
+        SkuMapping.ativo == True
+    ).first()
+    if mapping_with_date:
+        logger.info(f"Found data_evento in sku_mappings for '{evento_grupo}' ano={ano}: {mapping_with_date.data_evento}")
+        return mapping_with_date.data_evento
+
     normalized_grupo = _normalize_name_for_match(evento_grupo)
     projetos = _wq_all_dim_projetos(db)
     projetos = [p for p in projetos if p.data_evento is not None]
