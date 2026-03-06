@@ -447,21 +447,11 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS dias_encerramento_inscricao INTEGER DEFAULT 2",
             "ALTER TABLE sku_mappings ADD COLUMN IF NOT EXISTS data_evento DATE",
         ]
-        one_time_fixes = [
-            "DELETE FROM curva_historica_snapshot WHERE evento_grupo = 'Circuito das Estações - Outono - São Paulo' AND ano_referencia = 2025",
-        ]
         for sql in migrations:
             try:
                 db.execute(text(sql))
             except Exception as e:
                 logger.warning(f"Migration skipped: {e}")
-        db.commit()
-
-        for sql in one_time_fixes:
-            try:
-                db.execute(text(sql))
-            except Exception as e:
-                logger.warning(f"One-time fix skipped: {e}")
         db.commit()
 
         cache_dedup_migrations = [

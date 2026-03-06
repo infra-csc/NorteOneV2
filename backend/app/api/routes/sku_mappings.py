@@ -4,6 +4,7 @@ from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.dimensoes import SkuMapping, EventoConsolidado, EventoGrupo
+from app.models.vendas_snapshot import CurvaHistoricaSnapshot
 from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
     EventoConsolidadoCreate, EventoConsolidadoUpdate, EventoConsolidadoResponse,
@@ -23,6 +24,18 @@ import re
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
+
+
+def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
+    if not evento_grupo:
+        return
+    deleted = db.query(CurvaHistoricaSnapshot).filter(
+        CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
+        CurvaHistoricaSnapshot.ano_referencia == ano
+    ).delete()
+    if deleted:
+        db.commit()
+        logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} ({deleted} registros) — data_evento alterada")
 
 
 class EventoExterno(BaseModel):
@@ -227,6 +240,8 @@ def create_sku_mapping(
     db.add(db_mapping)
     db.commit()
     db.refresh(db_mapping)
+    if db_mapping.data_evento:
+        _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
     return db_mapping
 
 
@@ -261,11 +276,30 @@ def update_sku_mapping(
                 detail=f"Já existe um mapeamento para {new_fonte} ID {new_id_externo} no ano {new_ano}"
             )
     
+    old_data_evento = db_mapping.data_evento
+    old_evento_grupo = db_mapping.evento_grupo
+    old_ano = db_mapping.ano
+
     for key, value in update_data.items():
         setattr(db_mapping, key, value)
     
     db.commit()
     db.refresh(db_mapping)
+
+    data_evento_changed = db_mapping.data_evento != old_data_evento
+    grupo_or_ano_changed = db_mapping.evento_grupo != old_evento_grupo or db_mapping.ano != old_ano
+
+    if data_evento_changed or grupo_or_ano_changed:
+        invalidated = set()
+        if old_evento_grupo:
+            key = (old_evento_grupo, old_ano)
+            if key not in invalidated:
+                _invalidate_snapshot(db, old_evento_grupo, old_ano)
+                invalidated.add(key)
+        key = (db_mapping.evento_grupo, db_mapping.ano)
+        if key not in invalidated:
+            _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
+
     return db_mapping
 
 
@@ -307,6 +341,14 @@ def bulk_create_sku_mappings(
     for m in created:
         db.refresh(m)
     
+    invalidated = set()
+    for m in created:
+        if m.data_evento:
+            key = (m.evento_grupo, m.ano)
+            if key not in invalidated:
+                _invalidate_snapshot(db, m.evento_grupo, m.ano)
+                invalidated.add(key)
+
     return created
 
 
