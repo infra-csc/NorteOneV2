@@ -1901,9 +1901,9 @@ def get_marketing_events(
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
-        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
-        d_minus_inscricoes = d_minus
-        is_active = d_minus > 0
+        d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
+        is_active = d_minus_inscricoes > 0
         
         if status == 'active' and not is_active:
             continue
@@ -2017,9 +2017,9 @@ def get_marketing_events(
         sku = projeto_codigo
         projeto_data_evento = projeto.data_evento
         dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=cad)
-        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
-        d_minus_inscricoes = d_minus
-        is_active = d_minus > 0
+        d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
+        is_active = d_minus_inscricoes > 0
         
         if status == 'active' and not is_active:
             continue
@@ -4542,9 +4542,9 @@ def get_marketing_event_by_id(
         total_capacity = get_meta_orcada_projetos(db, projetos)
         projeto_data_evento = latest_date
         dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id) if rep_projeto else 2
-        d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
-        d_minus_inscricoes = d_minus
-        is_active = d_minus > 0 if ano == datetime.now().year else True
+        d_minus_inscricoes = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=0) if projeto_data_evento else 0
+        is_active = d_minus_inscricoes > 0 if ano == datetime.now().year else True
         sales_goal = total_capacity
         
         data_fim_inscricoes = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
@@ -4805,9 +4805,9 @@ def get_marketing_event_by_id(
     
     detail_standalone_cad = _wq_cadastro_by_projeto_id(db, projeto.id)
     dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=detail_standalone_cad)
-    d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
-    d_minus_inscricoes = d_minus
-    is_active = d_minus > 0 if ano == datetime.now().year else True
+    d_minus_inscricoes = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
+    d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=0) if projeto_data_evento else 0
+    is_active = d_minus_inscricoes > 0 if ano == datetime.now().year else True
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
     if not force_refresh:
@@ -5819,8 +5819,9 @@ def get_pricing_analysis(
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
-        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
-        is_active = d_minus > 0
+        d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
+        is_active = d_minus_inscricoes > 0
         
         if status == 'active' and not is_active:
             continue
@@ -5927,8 +5928,9 @@ def get_pricing_analysis(
         sku_normalized = normalize_sku(sku)
         projeto_data_evento = projeto.data_evento
         dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=cad)
-        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
-        is_active = d_minus > 0
+        d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
+        d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
+        is_active = d_minus_inscricoes > 0
         
         if status == 'active' and not is_active:
             continue

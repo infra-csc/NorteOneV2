@@ -342,11 +342,11 @@ const MarketingDashboard: React.FC = () => {
     if (dMinusFilter !== 'all') {
       filtered = filtered.filter(e => {
         switch (dMinusFilter) {
-          case 'critical': return e.dMinus <= 40;
-          case '41-60': return e.dMinus >= 41 && e.dMinus <= 60;
-          case '61-90': return e.dMinus >= 61 && e.dMinus <= 90;
-          case '91-120': return e.dMinus >= 91 && e.dMinus <= 120;
-          case '120+': return e.dMinus > 120;
+          case 'critical': return e.dMinusInscricoes <= 40;
+          case '41-60': return e.dMinusInscricoes >= 41 && e.dMinusInscricoes <= 60;
+          case '61-90': return e.dMinusInscricoes >= 61 && e.dMinusInscricoes <= 90;
+          case '91-120': return e.dMinusInscricoes >= 91 && e.dMinusInscricoes <= 120;
+          case '120+': return e.dMinusInscricoes > 120;
           default: return true;
         }
       });
@@ -378,23 +378,23 @@ const MarketingDashboard: React.FC = () => {
     });
   };
 
-  const getActionChipStyle = (isc: number, dMinus: number) => {
+  const getActionChipStyle = (isc: number, dMinusInscricoes: number) => {
     if (isc > 1.10) {
       return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
     }
     if (isc >= 0.90) {
       return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
     }
-    if (dMinus < 40) {
+    if (dMinusInscricoes < 40) {
       return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400';
     }
     return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
   };
 
-  const getActionText = (isc: number, dMinus: number) => {
+  const getActionText = (isc: number, dMinusInscricoes: number) => {
     if (isc > 1.10) return 'Subir Preço';
     if (isc >= 0.90) return 'Monitorar';
-    if (dMinus < 40) return 'Só Comunicação';
+    if (dMinusInscricoes < 40) return 'Só Comunicação';
     return 'Ação Promocional';
   };
 
@@ -674,19 +674,8 @@ const MarketingDashboard: React.FC = () => {
                     D-
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
-                      <div className="hidden group-hover:block absolute z-10 w-48 p-2 bg-gray-900 text-white text-xs rounded-lg -left-20 top-5">
-                        Dias restantes até o evento
-                      </div>
-                    </div>
-                  </div>
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  <div className="flex items-center justify-center gap-1">
-                    D- Inscr.
-                    <div className="group relative">
-                      <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-52 p-2 bg-gray-900 text-white text-xs rounded-lg -left-22 top-5">
-                        Dias restantes até o fechamento das inscrições (D- evento − 2 dias)
+                        Dias restantes até o fechamento das inscrições
                       </div>
                     </div>
                   </div>
@@ -759,7 +748,7 @@ const MarketingDashboard: React.FC = () => {
                 </>
               ) : filteredEventos.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                     {eventos.length > 0 ? 'Nenhum evento encontrado com os filtros selecionados.' : 'Nenhum evento encontrado.'}
                   </td>
                 </tr>
@@ -771,7 +760,7 @@ const MarketingDashboard: React.FC = () => {
                     { state: { previewEvent: event } }
                   )}
                   className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors ${
-                    isInCriticalWindow(event.dMinus) 
+                    isInCriticalWindow(event.dMinusInscricoes) 
                       ? 'bg-amber-50 dark:bg-amber-900/10 border-l-4 border-l-amber-500' 
                       : ''
                   }`}
@@ -788,7 +777,7 @@ const MarketingDashboard: React.FC = () => {
                           {event.location}
                         </p>
                       </div>
-                      {isInCriticalWindow(event.dMinus) && (
+                      {isInCriticalWindow(event.dMinusInscricoes) && (
                         <span className="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded-full flex items-center gap-1">
                           <Target className="w-3 h-3" />
                           JANELA CRÍTICA
@@ -798,15 +787,6 @@ const MarketingDashboard: React.FC = () => {
                   </td>
                   <td className="px-4 py-4 text-sm text-gray-900 dark:text-white">
                     {event.date ? new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
-                  </td>
-                  <td className="px-4 py-4 text-center">
-                    <span className={`font-bold ${
-                      event.dMinus < 40 
-                        ? 'text-orange-600 dark:text-orange-400' 
-                        : 'text-gray-900 dark:text-white'
-                    }`}>
-                      D-{event.dMinus}
-                    </span>
                   </td>
                   <td className="px-4 py-4 text-center">
                     <span className={`font-bold ${
@@ -853,8 +833,8 @@ const MarketingDashboard: React.FC = () => {
                     {event.iscComponents.curvaDPercent.toFixed(2)}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getActionChipStyle(event.isc, event.dMinus)}`}>
-                      {getActionText(event.isc, event.dMinus)}
+                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getActionChipStyle(event.isc, event.dMinusInscricoes)}`}>
+                      {getActionText(event.isc, event.dMinusInscricoes)}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-center">
