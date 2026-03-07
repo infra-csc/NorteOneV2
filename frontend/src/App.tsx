@@ -21,6 +21,7 @@ const SkuMappings = lazy(() => import('./pages/admin/SkuMappings'));
 const PerfisAcesso = lazy(() => import('./pages/admin/PerfisAcesso'));
 const MonitoramentoUsuarios = lazy(() => import('./pages/admin/MonitoramentoUsuarios'));
 const CotacoesImportacao = lazy(() => import('./pages/cotacoes/CotacoesImportacao'));
+const ManualSistema = lazy(() => import('./pages/manual/ManualSistema'));
 
 
 const PageLoader = () => (
@@ -68,6 +69,7 @@ function App() {
               <Route path="/admin/perfis-acesso" element={<PrivateRoute><Layout><PerfisAcesso /></Layout></PrivateRoute>} />
               <Route path="/admin/monitoramento" element={<PrivateRoute><Layout><MonitoramentoUsuarios /></Layout></PrivateRoute>} />
               <Route path="/cotacoes" element={<PrivateRoute><Layout><CotacoesImportacao /></Layout></PrivateRoute>} />
+              <Route path="/manual" element={<PrivateRoute><Layout><ManualSistema /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>
         </Router>

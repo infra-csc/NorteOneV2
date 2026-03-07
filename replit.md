@@ -55,6 +55,7 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Marketing Settings Persistence:** API for persisting marketing settings (key-value JSON), actively used in ISC calculations.
 - **Event Detail Layout:** Redesigned layout for improved readability, including D- bar, ISC gauge, and sales indicators, with instant header rendering during data loading. Includes a "Controle Diário" tab with a spreadsheet-style table (`DailySalesTable.tsx`) showing all daily sales columns matching the external control spreadsheet (Data, D-, Vendas, Acumulado, % Curva Ant., Meta Dia, Meta Acum., Dif, Ating. Acum., Ating. Dia), with sort toggle and CSV export.
 - **Cotação & Importação (Quote & Import):** System for managing product quotes and import costs, including suppliers, exchange rates, and event linking, with a dashboard and access control.
+- **Manual do Sistema:** Built-in documentation/knowledge base page at `/manual`, accessible to all authenticated users via the sidebar (BookOpen icon). Contains 12 sections covering all system features: Visão Geral, Dashboard Principal, Mapeamento de SKU, Dashboard ISC, Configurações de Marketing, Comparativo de Eventos, Gestão de Usuários, Nori (Assistente IA), Cotações, Centros de Custo, Categorias de Atletas, Dados Consolidados. Features include section search, responsive sidebar navigation, next/previous navigation, and support for dark/light themes. Component: `frontend/src/pages/manual/ManualSistema.tsx`.
 
 ## External Dependencies
 - **PostgreSQL:** Primary application database.
