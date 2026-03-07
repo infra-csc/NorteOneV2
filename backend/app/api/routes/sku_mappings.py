@@ -26,6 +26,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
 
 
+def _invalidate_curva_cache(evento_grupo: str, ano: int):
+    if not evento_grupo:
+        return
+    try:
+        from app.core.cache import curva_cache
+        prev_ano = ano - 1
+        next_ano = ano + 1
+        for y in [prev_ano, ano, next_ano]:
+            curva_cache.invalidate(f"{y}_grp_{evento_grupo}_curva")
+            curva_cache.invalidate(f"{y}_grp_{evento_grupo}_insights")
+        logger.info(f"Curva cache invalidado: '{evento_grupo}' anos={prev_ano},{ano},{next_ano}")
+    except Exception as e:
+        logger.warning(f"Failed to invalidate curva cache for '{evento_grupo}': {e}")
+
+
 def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if not evento_grupo:
         return
@@ -36,6 +51,7 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if deleted:
         db.commit()
         logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} ({deleted} registros) — data_evento alterada")
+    _invalidate_curva_cache(evento_grupo, ano)
 
 
 class EventoExterno(BaseModel):
@@ -242,6 +258,8 @@ def create_sku_mapping(
     db.refresh(db_mapping)
     if db_mapping.data_evento:
         _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
+    else:
+        _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano)
     return db_mapping
 
 
@@ -299,6 +317,8 @@ def update_sku_mapping(
         key = (db_mapping.evento_grupo, db_mapping.ano)
         if key not in invalidated:
             _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
+    else:
+        _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano)
 
     return db_mapping
 
@@ -313,8 +333,11 @@ def delete_sku_mapping(
     if not db_mapping:
         raise HTTPException(status_code=404, detail="Mapeamento não encontrado")
     
+    evento_grupo = db_mapping.evento_grupo
+    ano = db_mapping.ano
     db.delete(db_mapping)
     db.commit()
+    _invalidate_curva_cache(evento_grupo, ano)
     return {"message": "Mapeamento excluído com sucesso"}
 
 

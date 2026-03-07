@@ -3531,18 +3531,23 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
 def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
     from ...models.dimensoes import SkuMapping
     ano_corrente = date.today().year
-    if ano < ano_corrente:
-        mapping_with_date = db.query(SkuMapping).filter(
-            SkuMapping.evento_grupo == evento_grupo,
-            SkuMapping.ano == ano,
-            SkuMapping.data_evento != None,
-            SkuMapping.ativo == True
-        ).first()
-        if mapping_with_date:
-            logger.info(f"Found data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior): {mapping_with_date.data_evento}")
-            return mapping_with_date.data_evento
-    else:
-        logger.debug(f"Skipping sku_mappings.data_evento for '{evento_grupo}' ano={ano} (ano corrente={ano_corrente}), usando dim_projeto/cadastro")
+
+    sku_mapping_date = None
+    mapping_with_date = db.query(SkuMapping).filter(
+        SkuMapping.evento_grupo == evento_grupo,
+        SkuMapping.ano == ano,
+        SkuMapping.data_evento.isnot(None),
+        SkuMapping.ativo == True
+    ).first()
+    if mapping_with_date:
+        sku_mapping_date = mapping_with_date.data_evento
+        if ano < ano_corrente:
+            logger.info(f"Found data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior): {sku_mapping_date}")
+            return sku_mapping_date
+        else:
+            logger.debug(f"sku_mappings has data_evento={sku_mapping_date} for '{evento_grupo}' ano={ano}, but preferring dim_projeto/cadastro for current year")
+    elif ano < ano_corrente:
+        logger.info(f"No data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior), falling back to dim_projeto")
 
     normalized_grupo = _normalize_name_for_match(evento_grupo)
     projetos = _wq_all_dim_projetos(db)
@@ -3595,14 +3600,25 @@ def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date
     if adj_best_match and adj_best_score >= 0.5:
         try:
             adjusted_date = adj_best_match.data_evento.replace(year=ano)
-            logger.info(f"Estimated data_evento for '{evento_grupo}' ano={ano} from year {adj_best_match.data_evento.year} event '{adj_best_match.evento}': {adjusted_date}")
-            return adjusted_date
         except ValueError:
             month = adj_best_match.data_evento.month
             day = 28 if adj_best_match.data_evento.month == 2 else adj_best_match.data_evento.day
             adjusted_date = date(ano, month, day)
-            logger.info(f"Estimated data_evento for '{evento_grupo}' ano={ano} (adjusted for leap year): {adjusted_date}")
-            return adjusted_date
+
+        if sku_mapping_date and abs((adjusted_date - sku_mapping_date).days) > 60:
+            logger.warning(
+                f"Estimated data_evento ({adjusted_date}) for '{evento_grupo}' ano={ano} differs by "
+                f"{abs((adjusted_date - sku_mapping_date).days)} days from sku_mappings date ({sku_mapping_date}). "
+                f"Using sku_mappings date as it is more reliable."
+            )
+            return sku_mapping_date
+
+        logger.info(f"Estimated data_evento for '{evento_grupo}' ano={ano} from year {adj_best_match.data_evento.year} event '{adj_best_match.evento}': {adjusted_date}")
+        return adjusted_date
+
+    if sku_mapping_date:
+        logger.info(f"No dim_projeto match for '{evento_grupo}' ano={ano}, using sku_mappings date: {sku_mapping_date}")
+        return sku_mapping_date
 
     logger.warning(f"Could not match evento_grupo '{evento_grupo}' ano={ano} to any dim_projeto (best_score={best_score:.2f})")
     return None
@@ -3629,7 +3645,12 @@ def get_curva_comparativa_evento(
     if not force_refresh:
         cached_curva = curva_cache.get(smart_curva_key)
         if cached_curva is not None:
-            return cached_curva
+            cached_data = cached_curva.get("data", []) if isinstance(cached_curva, dict) else []
+            if cached_data:
+                return cached_curva
+            else:
+                logger.warning(f"Discarding empty cached curva for key={smart_curva_key}, will recalculate")
+                curva_cache.invalidate(smart_curva_key)
 
     is_grouped = evento_id.startswith("grp_")
 
