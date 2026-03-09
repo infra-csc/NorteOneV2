@@ -259,7 +259,8 @@ def _full_cache_warmup():
             get_marketing_event_by_id,
             get_curva_comparativa_evento,
             get_sales_averages,
-            get_evento_insights
+            get_evento_insights,
+            get_marketing_events
         )
 
         priority_fns = [
@@ -337,6 +338,19 @@ def _full_cache_warmup():
         from app.api.routes.marketing import eventos_list_cache as _evt_list_cache
         _evt_list_cache.invalidate_all()
         logger.info("[Warmup 3/4] Caches cleaned, eventos_list invalidated")
+
+        try:
+            logger.info(f"[Warmup 3/4] Populating default dashboard cache keys")
+            _warmup_db = SessionLocal()
+            try:
+                get_marketing_events(ano=ano, status="active", categoria=None, busca=None, force_refresh=True, db=_warmup_db, current_user=None)
+                logger.info(f"[Warmup 3/4] Default dashboard cache key '{ano}_active_all_' populated")
+                get_marketing_events(ano=ano, status=None, categoria=None, busca=None, force_refresh=True, db=_warmup_db, current_user=None)
+                logger.info(f"[Warmup 3/4] Dashboard cache key '{ano}_all_all_' populated")
+            finally:
+                _warmup_db.close()
+        except Exception as e:
+            logger.warning(f"[Warmup 3/4] Failed to populate default dashboard cache: {e}")
 
         set_last_full_refresh(time.time())
         elapsed = time.time() - start
@@ -540,6 +554,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Data-Stale"],
 )
 
 app.include_router(auth.router, prefix="/api")

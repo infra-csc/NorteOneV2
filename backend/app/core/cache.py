@@ -21,6 +21,9 @@ _warmup_progress = {"step": 0, "total_steps": 3, "label": "", "started_at": None
 _last_refresh_error = None
 
 _db_persist_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cache_persist")
+_swr_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="cache_swr")
+_swr_in_flight: set = set()
+_swr_lock = threading.Lock()
 
 
 def register_full_warmup_fn(fn: Callable):
@@ -339,6 +342,52 @@ class SmartCache:
                 _delete_from_db(self.name, cache_key)
 
         return None
+
+    def get_or_revalidate(self, cache_key: str, refresh_fn: Optional[Callable] = None) -> tuple:
+        with self._lock:
+            if cache_key in self._data:
+                ts = self._timestamps.get(cache_key)
+                if ts is None:
+                    return None, False
+
+                if self._is_historical(cache_key):
+                    return self._data[cache_key], False
+
+                elapsed = time.time() - ts
+                if elapsed < CURRENT_YEAR_TTL:
+                    return self._data[cache_key], False
+
+                if elapsed < MAX_STALE_AGE:
+                    data = self._data[cache_key]
+                    if refresh_fn is not None:
+                        swr_key = f"{self.name}:{cache_key}"
+                        with _swr_lock:
+                            if swr_key not in _swr_in_flight:
+                                _swr_in_flight.add(swr_key)
+                                try:
+                                    _swr_executor.submit(self._swr_refresh, cache_key, refresh_fn, swr_key)
+                                    logger.info(f"Cache '{self.name}' SWR: serving stale key={cache_key} (age={elapsed:.0f}s), refresh started")
+                                except RuntimeError:
+                                    _swr_in_flight.discard(swr_key)
+                            else:
+                                logger.debug(f"Cache '{self.name}' SWR: refresh already in flight for key={cache_key}")
+                    return data, True
+
+                logger.warning(f"Cache '{self.name}' discarding expired data for key={cache_key} (age={elapsed:.0f}s)")
+                self._data.pop(cache_key, None)
+                self._timestamps.pop(cache_key, None)
+
+        return None, False
+
+    def _swr_refresh(self, cache_key: str, refresh_fn: Callable, swr_key: str):
+        try:
+            refresh_fn()
+            logger.info(f"Cache '{self.name}' SWR: background refresh completed for key={cache_key}")
+        except Exception as e:
+            logger.error(f"Cache '{self.name}' SWR: background refresh failed for key={cache_key}: {e}")
+        finally:
+            with _swr_lock:
+                _swr_in_flight.discard(swr_key)
 
     def set(self, cache_key: str, data: Any):
         with self._lock:

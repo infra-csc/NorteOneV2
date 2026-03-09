@@ -680,7 +680,7 @@ export const marketingService = {
     categoria?: string;
     busca?: string;
     force_refresh?: boolean;
-  }, signal?: AbortSignal): Promise<MarketingEventsResponse> => {
+  }, signal?: AbortSignal): Promise<MarketingEventsResponse & { _isStale?: boolean }> => {
     const queryParams = new URLSearchParams();
     if (params?.ano) queryParams.append('ano', params.ano.toString());
     if (params?.status) queryParams.append('status', params.status);
@@ -690,6 +690,8 @@ export const marketingService = {
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const response = await api.get(`/marketing/eventos${queryString}`, { signal });
     const data = response.data;
+    const isStale = response.headers?.['x-data-stale'] === 'true';
+    data._isStale = isStale;
     const key = getCacheKey(params);
     if (dashboardCache.size >= MAX_CACHE_ENTRIES) {
       const oldestKey = dashboardCache.keys().next().value;

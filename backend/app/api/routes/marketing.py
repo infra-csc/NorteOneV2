@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text, bindparam
 from typing import Optional, List
@@ -1774,7 +1774,8 @@ def get_marketing_events(
     busca: Optional[str] = Query(None, description="Buscar por nome do evento"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    response: Response = None
 ):
     """
     Retorna eventos para o Dashboard ISC com dados consolidados de vendas
@@ -1786,8 +1787,18 @@ def get_marketing_events(
     
     cache_key = f"{ano}_{status or 'all'}_{categoria or 'all'}_{busca or ''}"
     if not force_refresh:
-        cached = eventos_list_cache.get(cache_key)
+        def _swr_refresh():
+            from ...core.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                get_marketing_events(ano=ano, status=status, categoria=categoria, busca=busca, force_refresh=True, db=_db, current_user=None)
+            finally:
+                _db.close()
+
+        cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
         if cached is not None:
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
             return cached
     
     isc_cfg = _get_isc_settings(db)
@@ -2109,6 +2120,8 @@ def get_marketing_events(
         avisos=get_isc_warnings()
     )
     eventos_list_cache.set(cache_key, result.model_dump(mode="json"))
+    if response is not None:
+        response.headers["X-Data-Stale"] = "false"
     return result
 
 
@@ -2136,7 +2149,8 @@ def get_sales_averages(
     ano: int = Query(default=None, description="Ano do evento"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    response: Response = None
 ):
     from datetime import timedelta
     
@@ -2146,8 +2160,18 @@ def get_sales_averages(
     
     medias_cache_key = f"{ano}_{evento_id}_{periodo}_medias"
     if not force_refresh:
-        cached_medias = medias_cache.get(medias_cache_key)
+        def _swr_medias_refresh():
+            from ...core.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                get_sales_averages(evento_id=evento_id, periodo=periodo, ano=ano, force_refresh=True, db=_db, current_user=None)
+            finally:
+                _db.close()
+
+        cached_medias, is_stale = medias_cache.get_or_revalidate(medias_cache_key, refresh_fn=_swr_medias_refresh)
         if cached_medias is not None:
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
             return cached_medias
     
     is_consolidated = evento_id.startswith('grp_')
@@ -3627,7 +3651,8 @@ def get_curva_comparativa_evento(
     ano: int = Query(default=None, description="Ano base para comparacao"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    response: Response = None
 ):
     import time
 
@@ -3636,10 +3661,20 @@ def get_curva_comparativa_evento(
     
     smart_curva_key = f"{ano}_{evento_id}_curva"
     if not force_refresh:
-        cached_curva = curva_cache.get(smart_curva_key)
+        def _swr_curva_refresh():
+            from ...core.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                get_curva_comparativa_evento(evento_id=evento_id, ano=ano, force_refresh=True, db=_db, current_user=None)
+            finally:
+                _db.close()
+
+        cached_curva, is_stale = curva_cache.get_or_revalidate(smart_curva_key, refresh_fn=_swr_curva_refresh)
         if cached_curva is not None:
             cached_data = cached_curva.get("data", []) if isinstance(cached_curva, dict) else []
             if cached_data:
+                if response is not None:
+                    response.headers["X-Data-Stale"] = "true" if is_stale else "false"
                 return cached_curva
             else:
                 logger.warning(f"Discarding empty cached curva for key={smart_curva_key}, will recalculate")
@@ -4035,12 +4070,23 @@ def get_evento_insights(
     ano: int = Query(default=None, description="Ano base para comparacao"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    response: Response = None
 ):
     smart_insights_key = f"{ano}_{evento_id}_insights"
     if not force_refresh:
-        cached = curva_cache.get(smart_insights_key)
+        def _swr_insights_refresh():
+            from ...core.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                get_evento_insights(evento_id=evento_id, ano=ano, force_refresh=True, db=_db, current_user=None)
+            finally:
+                _db.close()
+
+        cached, is_stale = curva_cache.get_or_revalidate(smart_insights_key, refresh_fn=_swr_insights_refresh)
         if cached is not None:
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
             return cached
 
     is_grouped = evento_id.startswith("grp_")
@@ -4507,7 +4553,8 @@ def get_marketing_event_by_id(
     ano: int = Query(default=None, description="Ano para evento consolidado"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(get_current_user),
+    response: Response = None
 ):
     """
     Retorna os dados de um evento específico pelo ID.
@@ -4515,7 +4562,15 @@ def get_marketing_event_by_id(
     """
     isc_cfg = _get_isc_settings(db)
     is_grouped = evento_id.startswith("grp_")
-    
+
+    def _swr_detail_refresh():
+        from ...core.database import SessionLocal
+        _db = SessionLocal()
+        try:
+            get_marketing_event_by_id(evento_id=evento_id, ano=ano, force_refresh=True, db=_db, current_user=None)
+        finally:
+            _db.close()
+
     if is_grouped:
         grupo_nome = evento_id.replace("grp_", "")
         grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
@@ -4527,8 +4582,10 @@ def get_marketing_event_by_id(
         
         detail_cache_key = f"{ano}_{evento_id}_detail"
         if not force_refresh:
-            cached_detail = event_detail_cache.get(detail_cache_key)
+            cached_detail, is_stale = event_detail_cache.get_or_revalidate(detail_cache_key, refresh_fn=_swr_detail_refresh)
             if cached_detail is not None:
+                if response is not None:
+                    response.headers["X-Data-Stale"] = "true" if is_stale else "false"
                 return cached_detail
         
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
@@ -4824,8 +4881,10 @@ def get_marketing_event_by_id(
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
     if not force_refresh:
-        cached_standalone = event_detail_cache.get(standalone_cache_key)
+        cached_standalone, is_stale = event_detail_cache.get_or_revalidate(standalone_cache_key, refresh_fn=_swr_detail_refresh)
         if cached_standalone is not None:
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
             return cached_standalone
     
     isc_data = fetch_isc_pricing_data(db=db)

@@ -111,8 +111,10 @@ const MarketingDashboard: React.FC = () => {
   const [serverLastUpdate, setServerLastUpdate] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [fromCache, setFromCache] = useState(false);
+  const [serverStale, setServerStale] = useState(false);
   
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const staleRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const cacheStatusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshResultRef = useRef<'success' | 'error' | 'timeout' | null>(null);
@@ -166,6 +168,17 @@ const MarketingDashboard: React.FC = () => {
       if (!controller.signal.aborted) {
         applyResponse(response);
         setFromCache(false);
+        const isStale = !!(response as any)._isStale;
+        setServerStale(isStale);
+        if (staleRefetchTimerRef.current) {
+          clearTimeout(staleRefetchTimerRef.current);
+          staleRefetchTimerRef.current = null;
+        }
+        if (isStale) {
+          staleRefetchTimerRef.current = setTimeout(() => {
+            fetchData(true);
+          }, 30000);
+        }
       }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
@@ -205,6 +218,9 @@ const MarketingDashboard: React.FC = () => {
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
+      }
+      if (staleRefetchTimerRef.current) {
+        clearTimeout(staleRefetchTimerRef.current);
       }
     };
   }, [fetchData]);
@@ -406,7 +422,7 @@ const MarketingDashboard: React.FC = () => {
         <div className={`absolute top-1/2 left-1/2 w-64 h-64 ${isDark ? 'bg-indigo-500/5' : 'bg-indigo-400/15'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '2s' }} />
       </div>
 
-      {revalidating && (
+      {(revalidating || serverStale) && (
         <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-gray-200 dark:bg-gray-700 overflow-hidden">
           <div className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-500 animate-[shimmer_1.5s_ease-in-out_infinite]" style={{ width: '40%', animation: 'shimmer 1.5s ease-in-out infinite' }} />
           <style>{`@keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }`}</style>
@@ -429,6 +445,12 @@ const MarketingDashboard: React.FC = () => {
             <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
               <Clock className="w-3 h-3" />
               <span>Última atualização: {new Date(serverLastUpdate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+              {serverStale && (
+                <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400 ml-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  atualizando...
+                </span>
+              )}
             </div>
           )}
           <div className="flex items-center gap-2">
