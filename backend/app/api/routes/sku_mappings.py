@@ -1,14 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.database import get_db
-from app.models.dimensoes import SkuMapping, EventoConsolidado, EventoGrupo
+from app.models.dimensoes import SkuMapping, EventoGrupo
 from app.models.vendas_snapshot import CurvaHistoricaSnapshot
 from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
-    EventoConsolidadoCreate, EventoConsolidadoUpdate, EventoConsolidadoResponse,
-    EventoConsolidadoDetailResponse,
     EventoGrupoCreate, EventoGrupoUpdate, EventoGrupoResponse
 )
 from app.core.security import get_current_user
@@ -16,8 +14,6 @@ from app.models.user import Usuario
 import app.core.database as db_module
 from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor
-import asyncio
-from functools import partial
 import logging
 import re
 

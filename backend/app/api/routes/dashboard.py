@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, distinct, extract
+from sqlalchemy import distinct, extract
 from typing import Optional
 from ...core.database import get_db
 from ...core.security import get_current_user

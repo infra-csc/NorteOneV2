@@ -1,6 +1,5 @@
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot
 from ..models.dimensoes import SkuMapping, DimProjeto
 import logging
@@ -175,7 +174,7 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
 
 def snapshot_diario_batch(db: Session):
-    from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku, calculate_d_minus
+    from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
 
     today = date.today()
     yesterday = today - timedelta(days=1)

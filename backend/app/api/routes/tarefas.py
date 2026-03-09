@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import Usuario
-from app.models.tarefas import Tarefa, StatusTarefa as ModelStatusTarefa, PrioridadeTarefa as ModelPrioridadeTarefa
+from app.models.tarefas import Tarefa, StatusTarefa as ModelStatusTarefa
 from app.schemas.tarefas import TarefaCreate, TarefaUpdate, TarefaResponse, StatusTarefa, PrioridadeTarefa
 
 router = APIRouter(prefix="/tarefas", tags=["Tarefas"])

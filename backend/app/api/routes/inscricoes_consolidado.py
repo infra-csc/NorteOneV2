@@ -7,8 +7,7 @@ import app.core.database as db_module
 from app.core.database import get_db
 from ...core.security import get_current_user
 from app.models.dimensoes import SkuMapping
-from datetime import datetime, timedelta
-from functools import partial
+from datetime import datetime  # noqa: F401 - used by callers via from .inscricoes_consolidado import
 import logging
 import re
 

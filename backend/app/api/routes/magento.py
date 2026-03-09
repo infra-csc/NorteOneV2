@@ -1,9 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 import logging
 import app.core.database as db_module
-from app.core.database import get_db
 from ...core.security import get_current_user
 
 logger = logging.getLogger(__name__)

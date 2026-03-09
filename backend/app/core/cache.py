@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 CURRENT_YEAR_TTL = 7200
 HISTORICAL_TTL = None
+MAX_STALE_AGE = 28800
 
 _last_full_refresh_timestamp = None
 _full_refresh_in_progress = False
@@ -275,12 +276,24 @@ class SmartCache:
     def warm_from_db(self):
         loaded = _load_all_from_db(self.name)
         if loaded:
+            now = time.time()
+            loaded_count = 0
+            expired_count = 0
             with self._lock:
                 for key, val in loaded.items():
                     if key not in self._data:
-                        self._data[key] = val["data"]
-                        self._timestamps[key] = val["updated_at"]
-            logger.info(f"Cache '{self.name}' warmed from DB: {len(loaded)} entries loaded")
+                        is_hist = self._is_historical(key)
+                        db_age = now - val["updated_at"]
+                        if is_hist or db_age < MAX_STALE_AGE:
+                            self._data[key] = val["data"]
+                            self._timestamps[key] = val["updated_at"]
+                            loaded_count += 1
+                        else:
+                            expired_count += 1
+            if expired_count > 0:
+                logger.info(f"Cache '{self.name}' warmed from DB: {loaded_count} entries loaded, {expired_count} expired entries skipped")
+            else:
+                logger.info(f"Cache '{self.name}' warmed from DB: {loaded_count} entries loaded")
             self._db_loaded = True
         else:
             logger.info(f"Cache '{self.name}' warm from DB: no entries found")
@@ -300,19 +313,30 @@ class SmartCache:
                 if elapsed < CURRENT_YEAR_TTL:
                     return self._data[cache_key]
 
-                if stale_ok:
+                if stale_ok and elapsed < MAX_STALE_AGE:
                     logger.debug(f"Cache '{self.name}' serving stale data for key={cache_key} (age={elapsed:.0f}s)")
                     return self._data[cache_key]
+
+                if elapsed >= MAX_STALE_AGE:
+                    logger.warning(f"Cache '{self.name}' discarding expired data for key={cache_key} (age={elapsed:.0f}s > max {MAX_STALE_AGE}s)")
+                    self._data.pop(cache_key, None)
+                    self._timestamps.pop(cache_key, None)
 
                 return None
 
         db_result = _load_from_db(self.name, cache_key)
         if db_result is not None:
-            with self._lock:
-                self._data[cache_key] = db_result["data"]
-                self._timestamps[cache_key] = db_result["updated_at"]
-            logger.info(f"Cache '{self.name}' loaded from DB for key={cache_key}")
-            return db_result["data"]
+            is_hist = self._is_historical(cache_key)
+            db_age = time.time() - db_result["updated_at"]
+            if is_hist or db_age < MAX_STALE_AGE:
+                with self._lock:
+                    self._data[cache_key] = db_result["data"]
+                    self._timestamps[cache_key] = db_result["updated_at"]
+                logger.info(f"Cache '{self.name}' loaded from DB for key={cache_key}")
+                return db_result["data"]
+            else:
+                logger.warning(f"Cache '{self.name}' discarding expired DB entry for key={cache_key} (age={db_age:.0f}s)")
+                _delete_from_db(self.name, cache_key)
 
         return None
 
@@ -327,10 +351,12 @@ class SmartCache:
             logger.warning(f"DB persist executor shutdown, skipping persist for {self.name}/{cache_key}")
 
     def invalidate(self, cache_key: str = None):
+        keys_removed = []
         with self._lock:
             if cache_key:
                 self._data.pop(cache_key, None)
                 self._timestamps.pop(cache_key, None)
+                keys_removed.append(cache_key)
             else:
                 keys_to_remove = [
                     k for k in self._data
@@ -339,13 +365,23 @@ class SmartCache:
                 for k in keys_to_remove:
                     self._data.pop(k, None)
                     self._timestamps.pop(k, None)
-        if cache_key:
-            _delete_from_db(self.name, cache_key)
+                    keys_removed.append(k)
+        for k in keys_removed:
+            try:
+                _delete_from_db(self.name, k)
+            except Exception as e:
+                logger.warning(f"Failed to delete cache {self.name}/{k} from DB during invalidation: {e}")
 
     def invalidate_all(self):
         with self._lock:
+            all_keys = list(self._data.keys())
             self._data.clear()
             self._timestamps.clear()
+        for k in all_keys:
+            try:
+                _delete_from_db(self.name, k)
+            except Exception as e:
+                logger.warning(f"Failed to delete cache {self.name}/{k} from DB during invalidate_all: {e}")
 
     def get_info(self, cache_key: str = None) -> dict:
         with self._lock:

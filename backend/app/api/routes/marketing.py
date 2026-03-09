@@ -5,17 +5,15 @@ from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
-from ...core.database import get_db, engine_ativo, engine_ssh
+from ...core.database import get_db
 from ...core import database as db_module
 from ...core.security import get_current_user
-from ...models.dimensoes import DimProjeto, EventoConsolidado, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
+from ...models.dimensoes import DimProjeto, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
 from ...models.user import Usuario
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from .inscricoes_consolidado import normalize_sku
 import logging
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -766,8 +764,6 @@ def calculate_isc(components: ISCComponents, ia_weight: float = 20.0, curva_weig
 
 
 def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:
-    from datetime import timedelta
-    from ...models.dimensoes import SkuMapping
     from ...services.snapshot_service import get_curva_historica_snapshot, save_curva_historica_snapshot
     prev_ano = ano - 1
 
@@ -871,9 +867,7 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 
 
 def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET") -> list:
-    from datetime import timedelta
-    from ...models.dimensoes import SkuMapping
-    from ...services.snapshot_service import get_snapshot_vendas, get_latest_snapshot_date
+    from ...services.snapshot_service import get_snapshot_vendas
     
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -1191,7 +1185,7 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
 _isc_cache = {}
 _isc_cache_timestamp = None
 
-from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, cache_scheduler, CURRENT_YEAR_TTL
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL
 
 def build_query_isc_ativo() -> str:
     return """
@@ -1934,7 +1928,6 @@ def get_marketing_events(
         
         grupo_daily_sales_dict = _build_grupo_daily_dict(sku_daily_prefetch, proj_list)
         
-        from datetime import timedelta
         _yesterday = date.today() - timedelta(days=1)
         if grupo_daily_sales_dict and len(grupo_daily_sales_dict) > 0:
             current_sales = sum(v for k, v in grupo_daily_sales_dict.items() if k <= _yesterday)
@@ -3856,7 +3849,6 @@ def get_curva_comparativa_evento(
 
     hoje = date.today()
     dias_ate_evento_atual = (data_evento_atual - hoje).days if data_evento_atual else 0
-    d_minus_bucket_atual = _bucket_key_for(dias_ate_evento_atual) if dias_ate_evento_atual > 0 else 0
 
     total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
     total_receita_atual = sum(v["receita"] for v in daily_atual.values())
@@ -4857,8 +4849,6 @@ def get_marketing_event_by_id(
     data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
-    
-    standalone_media_14d = sales_info.get('media_14d', 0.0)
     
     standalone_detail_hist = None
     if standalone_evento_grupo:

@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func as sa_func
 from typing import List, Optional
 from ...core.database import get_db
-from ...core.security import get_current_user, require_admin, require_permission
+from ...core.security import get_current_user, require_permission
 from ...models.user import Usuario
 from ...models.cotacao import ViagemCotacao, Cotacao, Fornecedor, CustoImportacao, CotacaoEvento
 from ...models.cadastro_evento import CadastroEvento

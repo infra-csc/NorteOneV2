@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 from ...core.database import get_db
-from ...core.security import get_password_hash, require_permission, get_current_user
+from ...core.security import get_password_hash, require_permission
 from ...models.user import Usuario
 from ...schemas.auth import UserCreate, UserUpdate, UserResponse
 
