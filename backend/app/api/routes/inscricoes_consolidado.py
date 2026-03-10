@@ -328,122 +328,144 @@ ORDER BY b.dt_evento
 
 def build_query_magento(ano: int) -> str:
     """
-    Constroi query do Magento filtrando por ano do evento (wl.final_date).
-    Retorna métricas completas: quantidade, cortesia, inscrição líquida, ticket médio,
-    taxa líquida, kit produto, e breakdown por grupos/site.
-    Inclui mapeamento de location_id para SKU.
+    Constroi query do Magento filtrando por ano do evento (atributo 195 - data evento).
+    Retorna métricas financeiras: receita bruta, taxa rateada, produtos, desconto rateado,
+    receita líquida e ticket médio, agrupados por evento (atributo 321 - ID Evento).
+    Usa rateio proporcional de taxa e desconto por item bundle.
     """
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    wl.location_id AS id_evento,
-    COALESCE(d.sku, '') AS sku,
-    wl.name AS evento,
-    wl.final_date AS data_evento,
-    COUNT(wl.name) AS qtd_total,
-    SUM(CASE WHEN so.base_grand_total = 0 THEN 1 ELSE 0 END) AS cortesia,
-    SUM(soi.price - CASE WHEN soi.price = 0 THEN 0 
-        WHEN soi.name LIKE '%plus%' THEN 69.00
-        WHEN soi.name LIKE '%super%' THEN 269.00
-        WHEN soi.name LIKE '%vip%' THEN 199.99
-        ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) 
-        * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-        WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-        ELSE 0 END) AS inscricao_liquida,
-    SUM(soi.price - CASE WHEN soi.price = 0 THEN 0 
-        WHEN soi.name LIKE '%plus%' THEN 69.00
-        WHEN soi.name LIKE '%super%' THEN 269.00
-        WHEN soi.name LIKE '%vip%' THEN 199.99
-        ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) 
-        * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-        WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-        ELSE 0 END) / COUNT(wl.name) AS ticket_medio,
-    SUM(sot.amount / (SELECT COUNT(*) FROM sales_order_item AS ba 
-        WHERE ba.order_id = soi.order_id AND ba.product_type = 'Bundle'
-        GROUP BY ba.order_id)) AS taxa_liquida,
-    SUM(CASE
-        WHEN soi.name LIKE '%plus%' THEN 69.00
-        WHEN soi.name LIKE '%super%' THEN 269.00
-        WHEN soi.name LIKE '%vip%' THEN 199.99
-        ELSE 0
-    END) AS kit_produto,
-    SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 1 ELSE 0 END) AS qtd_grupos,
-    SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 
-        (soi.price - CASE WHEN soi.price = 0 THEN 0 
-            WHEN soi.name LIKE '%plus%' THEN 69.00
-            WHEN soi.name LIKE '%super%' THEN 269.00
-            WHEN soi.name LIKE '%vip%' THEN 199.99
-            ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-            ELSE 0 END) ELSE 0 END) AS inscricao_liquida_grupos,
-    SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 
-        (soi.price - CASE WHEN soi.price = 0 THEN 0 
-            WHEN soi.name LIKE '%plus%' THEN 69.00
-            WHEN soi.name LIKE '%super%' THEN 269.00
-            WHEN soi.name LIKE '%vip%' THEN 199.99
-            ELSE 0 END + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-            ELSE 0 END) ELSE 0 END) / NULLIF(SUM(CASE WHEN so.discount_description LIKE '%Grup%' THEN 1 ELSE 0 END), 0) AS ticket_medio_grupos,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
-        AND so.base_grand_total > 0 THEN 1 ELSE 0 END) AS qtd_site,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
-        (soi.price - CASE WHEN soi.price = 0 THEN 0 
-            WHEN soi.name LIKE '%plus%' THEN 69.00
-            WHEN soi.name LIKE '%super%' THEN 269.00
-            WHEN soi.name LIKE '%vip%' THEN 199.99
-            ELSE 0 END 
-        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-            ELSE 0 END) ELSE 0 END) AS inscricao_liquida_site,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') THEN 
-        (soi.price - CASE WHEN soi.price = 0 THEN 0 
-            WHEN soi.name LIKE '%plus%' THEN 69.00
-            WHEN soi.name LIKE '%super%' THEN 269.00
-            WHEN soi.name LIKE '%vip%' THEN 199.99
-            ELSE 0 END 
-        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
-        - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-            ELSE 0 END) ELSE 0 END) / NULLIF(SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%') 
-        AND so.base_grand_total > 0 THEN 1 ELSE 0 END), 0) AS ticket_medio_site,
-    city AS cidade
-FROM sales_order AS so
-LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
-LEFT JOIN sales_order_tax AS sot ON sot.order_id = so.entity_id  
-LEFT JOIN sales_order_payment AS sop ON sop.parent_id = so.entity_id  
-LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id  
-LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
-LEFT JOIN (SELECT * FROM sales_order_item WHERE name LIKE '%persona%') AS soiaa ON soiaa.parent_item_id = soi.item_id  
-LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
-LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
-WHERE 
-    wl.final_date >= '{ano}-01-01' 
-    AND wl.final_date <= '{ano}-12-31'
-    AND so.increment_id NOT LIKE '%-1%'
-    AND so.increment_id NOT LIKE '%-2%'
-    AND so.increment_id NOT LIKE '%-3%'
-    AND so.increment_id NOT LIKE '%-4%'
-    AND so.increment_id NOT LIKE '%-5%'
-    AND so.increment_id NOT LIKE '%-6%'
-    AND so.increment_id NOT LIKE '%-7%'
-    AND so.increment_id NOT LIKE '%-8%'
-    AND so.increment_id NOT LIKE '%-9%'
-    AND so.increment_id NOT LIKE '%-10%'
-    AND so.increment_id NOT LIKE '%-11%'
-    AND so.increment_id NOT LIKE '%-12%'
-    AND so.increment_id NOT LIKE '%-13%'
-    AND so.increment_id NOT LIKE '%-14%'
-    AND so.increment_id NOT LIKE '%-15%'
-    AND so.increment_id NOT LIKE '%-16%'
-    AND so.increment_id NOT LIKE '%-17%'
-    AND so.status IN ('Processing','Complete','approved')
-    AND soi.product_type = 'Bundle'
-GROUP BY wl.name, wl.final_date, wl.location_id, city
-ORDER BY wl.final_date
+    cpev1.value                                         AS id_evento,
+    cpev2.value                                         AS evento,
+    COUNT(DISTINCT soi.item_id)                         AS qtd_site,
+    SUM(soi.price)                                      AS receita_bruta,
+    SUM(COALESCE(tax_rateada.taxa_item, 0))             AS total_taxa,
+    SUM(COALESCE(prod.valor_produtos, 0))               AS total_produtos,
+    SUM(
+        CASE
+            WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
+            THEN 9.80
+            ELSE COALESCE(desc_rateado.desconto_item, 0)
+        END
+    )                                                   AS total_desconto,
+    SUM(soi.price)
+        - SUM(COALESCE(tax_rateada.taxa_item, 0))
+        - SUM(COALESCE(prod.valor_produtos, 0))
+        - SUM(
+            CASE
+                WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
+                THEN 9.80
+                ELSE COALESCE(desc_rateado.desconto_item, 0)
+            END
+        )                                               AS receita_liquida,
+    (
+        SUM(soi.price)
+        - SUM(COALESCE(tax_rateada.taxa_item, 0))
+        - SUM(COALESCE(prod.valor_produtos, 0))
+        - SUM(
+            CASE
+                WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
+                THEN 9.80
+                ELSE COALESCE(desc_rateado.desconto_item, 0)
+            END
+        )
+    ) / COUNT(DISTINCT soi.item_id)                     AS ticket_medio,
+    MIN(cped.value)                                     AS data_evento
+
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+    ON soi.order_id = so.entity_id
+    AND soi.product_type = 'bundle'
+LEFT JOIN sales_order_item soi_parent
+    ON soi_parent.item_id = COALESCE(soi.parent_item_id, soi.item_id)
+LEFT JOIN (
+    SELECT
+        parent_item_id,
+        SUM(price) AS valor_produtos
+    FROM sales_order_item g2
+    LEFT JOIN catalog_product_entity h3
+        ON g2.product_id = h3.entity_id
+    WHERE h3.attribute_set_id IN (27, 29, 32, 33, 36, 37, 39, 40, 41, 42, 43, 44, 45, 47, 48, 50)
+       OR (g2.name LIKE '%Personalização%' AND g2.price > 0)
+    GROUP BY parent_item_id
+) AS prod
+    ON prod.parent_item_id = soi.item_id
+LEFT JOIN (
+    SELECT
+        soi_t.item_id,
+        ROUND(
+            t.amount * (soi_t.price / NULLIF(ot.price_total, 0))
+        , 2) AS taxa_item
+    FROM sales_order_item soi_t
+    JOIN (
+        SELECT order_id, SUM(amount) AS amount
+        FROM sales_order_tax
+        GROUP BY order_id
+    ) t ON t.order_id = soi_t.order_id
+    JOIN (
+        SELECT order_id, SUM(price) AS price_total
+        FROM sales_order_item
+        WHERE product_type = 'bundle'
+        GROUP BY order_id
+    ) ot ON ot.order_id = soi_t.order_id
+    WHERE soi_t.product_type = 'bundle'
+) AS tax_rateada
+    ON tax_rateada.item_id = soi.item_id
+LEFT JOIN (
+    SELECT
+        soi_d.item_id,
+        ROUND(
+            ABS(so_d.base_discount_amount) * (soi_d.price / NULLIF(ot_d.price_total, 0))
+        , 2) AS desconto_item
+    FROM sales_order_item soi_d
+    JOIN sales_order so_d
+        ON so_d.entity_id = soi_d.order_id
+    JOIN (
+        SELECT order_id, SUM(price) AS price_total
+        FROM sales_order_item
+        WHERE product_type = 'bundle'
+        GROUP BY order_id
+    ) ot_d ON ot_d.order_id = soi_d.order_id
+    WHERE soi_d.product_type = 'bundle'
+) AS desc_rateado
+    ON desc_rateado.item_id = soi.item_id
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321
+    GROUP BY entity_id
+) AS cpev1
+    ON soi_parent.product_id = cpev1.entity_id
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73
+    GROUP BY entity_id
+) AS cpev2
+    ON cpev1.value = cpev2.entity_id
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped
+    ON cpev1.value = cped.entity_id
+
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND cped.value BETWEEN '{ano}-01-01' AND '{ano}-12-31'
+    AND soi.sku NOT LIKE '%CORTESIA%'
+    AND soi.price > 0
+    AND so.base_grand_total > 0
+    AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+    AND so.increment_id NOT REGEXP '-[0-9]'
+
+GROUP BY
+    cpev1.value,
+    cpev2.value
+ORDER BY
+    cpev2.value ASC
 """
 
 def fetch_ativo_data(ano: int = 2026):
@@ -495,23 +517,26 @@ def fetch_magento_data(ano: int = 2026):
             return [
                 {
                     "id_evento": str(row[0]) if row[0] else None,
-                    "sku": row[1] if row[1] else None,
-                    "evento": normalize_evento_name(row[2]) if row[2] else None,
-                    "data_evento": str(row[3]) if row[3] else None,
-                    "qtd_vendida": int(row[4]) if row[4] else 0,
-                    "cortesia": int(row[5]) if row[5] else 0,
-                    "inscricao_liquida": float(row[6]) if row[6] else 0.0,
-                    "ticket_medio": float(row[7]) if row[7] else 0.0,
-                    "taxa_liquida": float(row[8]) if row[8] else 0.0,
-                    "kit_produto": float(row[9]) if row[9] else 0.0,
-                    "qtd_grupos": int(row[10]) if row[10] else 0,
-                    "inscricao_liquida_grupos": float(row[11]) if row[11] else 0.0,
-                    "ticket_medio_grupos": float(row[12]) if row[12] else 0.0,
-                    "qtd_site": int(row[13]) if row[13] else 0,
-                    "inscricao_liquida_site": float(row[14]) if row[14] else 0.0,
-                    "ticket_medio_site": float(row[15]) if row[15] else 0.0,
-                    "categoria_evento": classify_event_category(row[2]) if row[2] else None,
-                    "cidade": row[16] if row[16] else None,
+                    "sku": None,
+                    "evento": normalize_evento_name(row[1]) if row[1] else None,
+                    "data_evento": str(row[9]) if row[9] else None,
+                    "qtd_vendida": int(row[2]) if row[2] else 0,
+                    "cortesia": 0,
+                    "inscricao_liquida": float(row[7]) if row[7] else 0.0,
+                    "ticket_medio": float(row[8]) if row[8] else 0.0,
+                    "taxa_liquida": float(row[4]) if row[4] else 0.0,
+                    "kit_produto": float(row[5]) if row[5] else 0.0,
+                    "receita_bruta": float(row[3]) if row[3] else 0.0,
+                    "total_desconto": float(row[6]) if row[6] else 0.0,
+                    "qtd_grupos": 0,
+                    "inscricao_liquida_grupos": 0.0,
+                    "ticket_medio_grupos": 0.0,
+                    "qtd_site": int(row[2]) if row[2] else 0,
+                    "inscricao_liquida_site": float(row[7]) if row[7] else 0.0,
+                    "ticket_medio_site": float(row[8]) if row[8] else 0.0,
+                    "categoria_evento": classify_event_category(row[1]) if row[1] else None,
+                    "cidade": None,
+                    "valor_total": float(row[3]) if row[3] else 0.0,
                 }
                 for row in rows
             ], None
@@ -811,13 +836,15 @@ def test_magento_query(ano: int = 2026):
                 "sample": [
                     {
                         "id_evento": str(row[0]) if row[0] else None,
-                        "sku": row[1],
-                        "evento": row[2],
-                        "data_evento": str(row[3]) if row[3] else None,
-                        "qtd_total": int(row[4]) if row[4] else 0,
-                        "cortesia": int(row[5]) if row[5] else 0,
-                        "inscricao_liquida": float(row[6]) if row[6] else 0.0,
-                        "ticket_medio": float(row[7]) if row[7] else 0.0,
+                        "evento": row[1],
+                        "qtd_site": int(row[2]) if row[2] else 0,
+                        "receita_bruta": float(row[3]) if row[3] else 0.0,
+                        "total_taxa": float(row[4]) if row[4] else 0.0,
+                        "total_produtos": float(row[5]) if row[5] else 0.0,
+                        "total_desconto": float(row[6]) if row[6] else 0.0,
+                        "receita_liquida": float(row[7]) if row[7] else 0.0,
+                        "ticket_medio": float(row[8]) if row[8] else 0.0,
+                        "data_evento": str(row[9]) if row[9] else None,
                     }
                     for row in rows[:5]
                 ]
