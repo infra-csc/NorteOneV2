@@ -48,7 +48,9 @@ def _full_cache_warmup():
         set_warmup_daily_cache, clear_warmup_daily_cache,
         _fetch_daily_sales_ativo_by_ids_grouped, _fetch_daily_sales_magento_by_ids_grouped,
         _fetch_category_sales_ativo_by_ids_grouped, _fetch_category_sales_magento_by_ids_grouped,
-        register_warmup_thread, unregister_warmup_thread
+        register_warmup_thread, unregister_warmup_thread,
+        _warmup_daily_cache, _warmup_daily_cache_lock, daily_sales_cache,
+        _hist_pattern_cache, _hist_pattern_cache_lock
     )
     from concurrent.futures import ThreadPoolExecutor, as_completed
     import threading
@@ -71,9 +73,10 @@ def _full_cache_warmup():
         db = SessionLocal()
         ano = datetime.now().year
 
-        from app.api.routes.marketing import daily_sales_cache
         daily_sales_cache.invalidate(f"{ano}_prefetch_daily")
-        logger.info(f"[Warmup] Invalidated daily_sales cache for {ano}")
+        with _hist_pattern_cache_lock:
+            _hist_pattern_cache.clear()
+        logger.info(f"[Warmup] Invalidated daily_sales + hist_pattern caches for {ano}")
 
         set_warmup_progress(1, "Atualizando dados de inscrições", 0, 4)
         logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
@@ -332,6 +335,38 @@ def _full_cache_warmup():
         logger.info(f"[Warmup 2/4] All tasks done: {step_counts}")
 
         set_warmup_progress(3, "Finalizando", 0, 1)
+
+        try:
+            with _warmup_daily_cache_lock:
+                ativo_cache = _warmup_daily_cache.get("ativo", {})
+                magento_cache = _warmup_daily_cache.get("magento", {})
+            if ativo_cache or magento_cache:
+                year_mappings = [m for m in all_sku_mappings if m.ano == ano]
+                id_to_skus = {}
+                for m in year_mappings:
+                    if m.id_externo:
+                        ext_id = str(m.id_externo)
+                        if ext_id not in id_to_skus:
+                            id_to_skus[ext_id] = set()
+                        id_to_skus[ext_id].add(m.sku.upper().strip() if m.sku else "")
+                sku_daily = {}
+                for ext_id, daily in ativo_cache.items():
+                    for sku in id_to_skus.get(str(ext_id), []):
+                        if sku not in sku_daily:
+                            sku_daily[sku] = {}
+                        for d, qtd in daily.items():
+                            sku_daily[sku][d] = sku_daily[sku].get(d, 0) + qtd
+                for ext_id, daily in magento_cache.items():
+                    for sku in id_to_skus.get(str(ext_id), []):
+                        if sku not in sku_daily:
+                            sku_daily[sku] = {}
+                        for d, qtd in daily.items():
+                            sku_daily[sku][d] = sku_daily[sku].get(d, 0) + qtd
+                daily_sales_cache.set(f"{ano}_prefetch_daily", sku_daily)
+                logger.info(f"[Warmup 3/4] Pre-populated daily_sales_cache with {len(sku_daily)} SKUs from warmup data")
+        except Exception as e:
+            logger.warning(f"[Warmup 3/4] Failed to pre-populate daily_sales_cache: {e}")
+
         clear_warmup_daily_cache()
         clear_warmup_metadata_cache()
 

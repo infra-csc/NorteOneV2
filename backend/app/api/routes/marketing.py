@@ -1339,20 +1339,27 @@ SELECT
         THEN soi.item_id END) / 7.0, 2)                                     AS "Média Diária 7d"
 
 FROM sales_order so
-LEFT JOIN sales_order_item soi
+INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
       AND soi.product_type = 'bundle'
-LEFT JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id = soi.product_id
-      AND cpev1.attribute_id = 321
-LEFT JOIN catalog_product_entity_varchar cpev2
-       ON cpev2.entity_id = cpev1.value
-      AND cpev2.attribute_id = 73
-LEFT JOIN catalog_product_entity_datetime cped
-       ON cped.entity_id = cpev1.value
-      AND cped.attribute_id = 195
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321 AND store_id = 0
+) AS cpev1 ON cpev1.entity_id = soi.product_id
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195 AND store_id = 0
+) AS cped ON cped.entity_id = cpev1.value
 LEFT JOIN (
-    SELECT * FROM sales_order_item WHERE name LIKE '%%persona%%'
+    SELECT entity_id, value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73 AND store_id = 0
+) AS cpev2 ON cpev2.entity_id = cpev1.value
+LEFT JOIN (
+    SELECT parent_item_id, price
+    FROM sales_order_item WHERE name LIKE '%%persona%%'
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 LEFT JOIN customer_group AS cg
        ON cg.customer_group_id = so.customer_group_id
@@ -1362,24 +1369,8 @@ AND soi.price > 0
 AND so.base_grand_total > 0
 AND so.created_at < CURDATE()
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-AND so.increment_id NOT LIKE '%%-1%%'
-AND so.increment_id NOT LIKE '%%-2%%'
-AND so.increment_id NOT LIKE '%%-3%%'
-AND so.increment_id NOT LIKE '%%-4%%'
-AND so.increment_id NOT LIKE '%%-5%%'
-AND so.increment_id NOT LIKE '%%-6%%'
-AND so.increment_id NOT LIKE '%%-7%%'
-AND so.increment_id NOT LIKE '%%-8%%'
-AND so.increment_id NOT LIKE '%%-9%%'
-AND so.increment_id NOT LIKE '%%-10%%'
-AND so.increment_id NOT LIKE '%%-11%%'
-AND so.increment_id NOT LIKE '%%-12%%'
-AND so.increment_id NOT LIKE '%%-13%%'
-AND so.increment_id NOT LIKE '%%-14%%'
-AND so.increment_id NOT LIKE '%%-15%%'
-AND so.increment_id NOT LIKE '%%-16%%'
-AND so.increment_id NOT LIKE '%%-17%%'
-AND YEAR(cped.value) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
+AND so.increment_id NOT REGEXP '-[0-9]'
+AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
 
 GROUP BY
     cpev1.value,
@@ -1818,7 +1809,9 @@ def get_marketing_events(
     projeto_ids = [cad.projeto_id for cad in cadastros if cad.projeto_id]
     projetos = db.query(DimProjeto).filter(DimProjeto.id.in_(projeto_ids)).all() if projeto_ids else []
     
-    isc_data = fetch_isc_pricing_data(db=db, force_refresh=force_refresh)
+    from ...core.cache import is_full_refresh_in_progress as _is_refreshing
+    isc_force = force_refresh and not _is_refreshing()
+    isc_data = fetch_isc_pricing_data(db=db, force_refresh=isc_force)
     
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     
@@ -3404,11 +3397,24 @@ def _normalize_name_for_match(name: str) -> str:
     s = _re.sub(r'\s+', ' ', s).strip().lower()
     return s
 
+_hist_pattern_cache: dict = {}
+_hist_pattern_cache_lock = _threading.Lock()
+
 def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) -> dict:
     from ...models.dimensoes import SkuMapping
     prev_ano = ano - 1
     if not grupo_names:
         return {}
+
+    cache_key = f"{ano}_hist_patterns"
+    with _hist_pattern_cache_lock:
+        cached = _hist_pattern_cache.get(cache_key)
+    if cached is not None:
+        filtered = {g: cached[g] for g in grupo_names if g in cached}
+        uncached = [g for g in grupo_names if g not in cached]
+        if not uncached:
+            return filtered
+        grupo_names = uncached
 
     grupo_data_evento = {}
     grupo_mappings_map = {}
@@ -3542,6 +3548,13 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
         logger.info(f"Batch: Built historical pattern for '{grupo_nome}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
         result[grupo_nome] = pattern
 
+    with _hist_pattern_cache_lock:
+        if cache_key not in _hist_pattern_cache:
+            _hist_pattern_cache[cache_key] = {}
+        _hist_pattern_cache[cache_key].update(result)
+
+    if cached is not None:
+        result.update(filtered)
     return result
 
 
