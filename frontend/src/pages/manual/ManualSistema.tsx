@@ -21,13 +21,14 @@ import {
   Info,
   CheckCircle2,
   ArrowRight,
-  Globe
+  Globe,
+  type LucideIcon
 } from 'lucide-react';
 
 interface Section {
   id: string;
   title: string;
-  icon: React.ElementType;
+  icon: LucideIcon;
   keywords: string[];
 }
 
@@ -165,7 +166,7 @@ const VisaoGeralContent: React.FC = () => (
   </div>
 );
 
-const ModuleCard: React.FC<{ icon: React.ElementType; label: string; desc: string }> = ({ icon: Icon, label, desc }) => {
+const ModuleCard: React.FC<{ icon: LucideIcon; label: string; desc: string }> = ({ icon: Icon, label, desc }) => {
   const { isDark } = useTheme();
   return (
     <div className={`flex items-start gap-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
