@@ -251,79 +251,70 @@ class InscricoesConsolidadasResponse(BaseModel):
 def build_query_ativo(ano: int) -> str:
     """
     Constroi query do Ativo filtrando por ano do evento (dt_evento).
-    Retorna métricas completas: quantidade, cortesia, inscrição líquida, ticket médio,
-    taxa líquida, kit produto, e breakdown por grupos/site.
-    Inclui mapeamento de id_evento para SKU.
+    Retorna métricas financeiras: receita bruta, taxa, produtos, desconto,
+    receita líquida e ticket médio, agrupados por evento.
+    Filtra apenas inscrições site (fl_local_inscricao = 1), exclui grupos e cortesias.
     """
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    b.id_evento AS id_evento,
-    b.id_campanha_salesforce AS sku,
-    b.ds_evento AS evento,
-    DATE(b.dt_evento) AS data_evento,
-    COUNT(a.id_pedido_evento) AS qtd_total,
-    SUM(CASE WHEN c.nr_total = 0 THEN 1 ELSE 0 END) AS cortesia,
-    SUM(
-        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
-        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-    ) AS inscricao_liquida,
-    SUM(
-        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
-        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-    ) / COUNT(a.id_pedido_evento) AS ticket_medio,
-    SUM(
-        IF(c.fl_local_inscricao = '1',
-            IF(a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0) > a.nr_taxa, 
-                a.nr_taxa, 
-                a.nr_preco + a.nr_taxa - COALESCE(a.nr_desconto_individual, 0)),
-            c.nr_taxa / (SELECT COUNT(*) FROM sa_pedido_evento AS pe2 
-                         WHERE pe2.id_pedido = a.id_pedido GROUP BY pe2.id_pedido)
+    b.id_evento                                                         AS id_evento,
+    b.ds_evento                                                         AS evento,
+    COUNT(DISTINCT a.id_pedido_evento)                                  AS qtd_site,
+    SUM(a.nr_preco)                                                     AS receita_bruta,
+    SUM(a.nr_taxa)                                                      AS total_taxa,
+    SUM(COALESCE(h.vl_kit, 0))                                         AS total_produtos,
+    SUM(COALESCE(a.nr_desconto_individual, 0))                         AS total_desconto,
+    SUM(a.nr_preco)
+        - SUM(a.nr_taxa)
+        - SUM(COALESCE(h.vl_kit, 0))
+        - SUM(COALESCE(a.nr_desconto_individual, 0))                   AS receita_liquida,
+    (
+        SUM(a.nr_preco)
+        - SUM(a.nr_taxa)
+        - SUM(COALESCE(h.vl_kit, 0))
+        - SUM(COALESCE(a.nr_desconto_individual, 0))
+    ) / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                  AS ticket_medio,
+    MIN(DATE(b.dt_evento))                                             AS data_evento
+
+FROM sa_evento AS b
+INNER JOIN sa_pedido_evento AS a
+    ON a.id_evento = b.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+    AND c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND c.nr_total > 0
+LEFT JOIN sa_modalidade_categoria AS h
+    ON h.id_categoria = a.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e
+    ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f
+    ON f.id_cupom_desconto = e.id_cupom_desconto
+
+WHERE
+    b.dt_evento BETWEEN '{ano}-01-01' AND '{ano}-12-31'
+    AND (b.id_campanha_salesforce IS NULL
+         OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
+    AND c.nr_total > 0
+    AND (h.ds_categoria IS NULL
+         OR (h.ds_categoria NOT LIKE '%Grup%'
+         AND h.ds_categoria NOT LIKE '%ortesia%'))
+    AND (
+        f.en_cupom_classificacao IS NULL
+        OR f.en_cupom_classificacao NOT IN (
+            'Funcionário',
+            'Cortesia Faturada',
+            'Grupos',
+            'Coligados',
+            'Eventos Terceiros'
         )
-    ) AS taxa_liquida,
-    SUM(
-        IF(
-            (SELECT MIN(pe2.id_pedido_evento) FROM sa_pedido_evento AS pe2 
-             WHERE pe2.id_pedido = c.id_pedido GROUP BY pe2.id_pedido) = a.id_pedido_evento,
-            i.nr_preco * i.nr_quantidade,
-            NULL
-        )
-    ) AS kit_produto,
-    SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 1 ELSE 0 END) AS qtd_grupos,
-    SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 
-        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
-        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-    ELSE 0 END) AS inscricao_liquida_grupos,
-    SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 
-        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
-        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-    ELSE 0 END) / NULLIF(SUM(CASE WHEN f.en_cupom_classificacao OR h.ds_categoria LIKE '%Grup%' THEN 1 ELSE 0 END), 0) AS ticket_medio_grupos,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao) 
-        AND h.ds_categoria NOT LIKE '%Grup%'
-        AND c.nr_total > 0 THEN 1 ELSE 0 END) AS qtd_site,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND h.ds_categoria NOT LIKE '%Grup%' THEN 
-        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
-        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-    ELSE 0 END) AS inscricao_liquida_site,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND h.ds_categoria NOT LIKE '%Grup%' THEN 
-        IF(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0) < 0, 0,
-        a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
-    ELSE 0 END) / NULLIF(SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND h.ds_categoria NOT LIKE '%Grup%'
-        AND c.nr_total > 0 THEN 1 ELSE 0 END), 0) AS ticket_medio_site
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
-LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-LEFT JOIN sa_pedido_produto AS i ON a.id_pedido = i.id_pedido
-WHERE 
-    YEAR(b.dt_evento) = {ano}
-    AND c.id_pedido_status = 2
-GROUP BY b.id_evento, b.ds_evento, b.dt_evento
-ORDER BY b.dt_evento
+    )
+
+GROUP BY
+    b.id_evento,
+    b.ds_evento
+ORDER BY
+    b.id_evento
 """
 
 def build_query_magento(ano: int) -> str:
@@ -481,21 +472,24 @@ def fetch_ativo_data(ano: int = 2026):
             return [
                 {
                     "id_evento": str(row[0]) if row[0] else None,
-                    "sku": row[1] if row[1] else None,
-                    "evento": row[2],
-                    "data_evento": str(row[3]) if row[3] else None,
-                    "qtd_vendida": int(row[4]) if row[4] else 0,
-                    "cortesia": int(row[5]) if row[5] else 0,
-                    "inscricao_liquida": float(row[6]) if row[6] else 0.0,
-                    "ticket_medio": float(row[7]) if row[7] else 0.0,
-                    "taxa_liquida": float(row[8]) if row[8] else 0.0,
-                    "kit_produto": float(row[9]) if row[9] else 0.0,
-                    "qtd_grupos": int(row[10]) if row[10] else 0,
-                    "inscricao_liquida_grupos": float(row[11]) if row[11] else 0.0,
-                    "ticket_medio_grupos": float(row[12]) if row[12] else 0.0,
-                    "qtd_site": int(row[13]) if row[13] else 0,
-                    "inscricao_liquida_site": float(row[14]) if row[14] else 0.0,
-                    "ticket_medio_site": float(row[15]) if row[15] else 0.0,
+                    "sku": None,
+                    "evento": row[1],
+                    "data_evento": str(row[9]) if row[9] else None,
+                    "qtd_vendida": int(row[2]) if row[2] else 0,
+                    "cortesia": 0,
+                    "inscricao_liquida": float(row[7]) if row[7] else 0.0,
+                    "ticket_medio": float(row[8]) if row[8] else 0.0,
+                    "taxa_liquida": float(row[4]) if row[4] else 0.0,
+                    "kit_produto": float(row[5]) if row[5] else 0.0,
+                    "receita_bruta": float(row[3]) if row[3] else 0.0,
+                    "total_desconto": float(row[6]) if row[6] else 0.0,
+                    "qtd_grupos": 0,
+                    "inscricao_liquida_grupos": 0.0,
+                    "ticket_medio_grupos": 0.0,
+                    "qtd_site": int(row[2]) if row[2] else 0,
+                    "inscricao_liquida_site": float(row[7]) if row[7] else 0.0,
+                    "ticket_medio_site": float(row[8]) if row[8] else 0.0,
+                    "valor_total": float(row[3]) if row[3] else 0.0,
                 }
                 for row in rows
             ], None
@@ -801,14 +795,16 @@ def test_ativo_query(ano: int = 2026):
                 "total_rows": len(rows),
                 "sample": [
                     {
-                        "id_evento": str(row[0]),
-                        "sku": row[1],
-                        "evento": row[2],
-                        "data_evento": str(row[3]) if row[3] else None,
-                        "qtd_total": int(row[4]) if row[4] else 0,
-                        "cortesia": int(row[5]) if row[5] else 0,
-                        "inscricao_liquida": float(row[6]) if row[6] else 0.0,
-                        "ticket_medio": float(row[7]) if row[7] else 0.0,
+                        "id_evento": str(row[0]) if row[0] else None,
+                        "evento": row[1],
+                        "qtd_site": int(row[2]) if row[2] else 0,
+                        "receita_bruta": float(row[3]) if row[3] else 0.0,
+                        "total_taxa": float(row[4]) if row[4] else 0.0,
+                        "total_produtos": float(row[5]) if row[5] else 0.0,
+                        "total_desconto": float(row[6]) if row[6] else 0.0,
+                        "receita_liquida": float(row[7]) if row[7] else 0.0,
+                        "ticket_medio": float(row[8]) if row[8] else 0.0,
+                        "data_evento": str(row[9]) if row[9] else None,
                     }
                     for row in rows[:5]
                 ]

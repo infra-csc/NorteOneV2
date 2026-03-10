@@ -1,0 +1,63 @@
+SELECT
+    b.id_evento                                                         AS 'ID Evento',
+    b.ds_evento                                                         AS 'Evento',
+    COUNT(DISTINCT a.id_pedido_evento)                                  AS 'Qtd Site',
+    SUM(a.nr_preco)                                                     AS 'Receita Bruta',
+    SUM(a.nr_taxa)                                                      AS 'Total Taxa',
+    SUM(COALESCE(h.vl_kit, 0))                                         AS 'Total Produtos',
+    SUM(COALESCE(a.nr_desconto_individual, 0))                         AS 'Total Desconto',
+    SUM(a.nr_preco)
+        - SUM(a.nr_taxa)
+        - SUM(COALESCE(h.vl_kit, 0))
+        - SUM(COALESCE(a.nr_desconto_individual, 0))                   AS 'Receita Liquida',
+    (
+        SUM(a.nr_preco)
+        - SUM(a.nr_taxa)
+        - SUM(COALESCE(h.vl_kit, 0))
+        - SUM(COALESCE(a.nr_desconto_individual, 0))
+    ) / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                  AS 'Ticket Medio'
+
+FROM sa_evento AS b
+INNER JOIN sa_pedido_evento AS a
+    ON a.id_evento = b.id_evento
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+    AND c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND c.nr_total > 0
+LEFT JOIN sa_modalidade_categoria AS h
+    ON h.id_categoria = a.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e
+    ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f
+    ON f.id_cupom_desconto = e.id_cupom_desconto
+-- Taxa rateada: calcula o total de preços por pedido diretamente sobre
+-- os dados já filtrados pelo JOIN principal, sem re-escanear a tabela toda
+
+
+WHERE
+    b.dt_evento BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1)
+                    AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
+    AND (b.id_campanha_salesforce IS NULL
+         OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
+    AND c.nr_total > 0
+    AND (h.ds_categoria IS NULL
+         OR (h.ds_categoria NOT LIKE '%Grup%'
+         AND h.ds_categoria NOT LIKE '%ortesia%'))
+    AND (
+        f.en_cupom_classificacao IS NULL
+        OR f.en_cupom_classificacao NOT IN (
+            'Funcionário',
+            'Cortesia Faturada',
+            'Grupos',
+            'Coligados',
+            'Eventos Terceiros'
+        )
+    )
+
+
+GROUP BY
+    b.id_evento,
+    b.ds_evento
+ORDER BY
+    b.id_evento
