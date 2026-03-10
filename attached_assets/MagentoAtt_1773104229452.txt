@@ -1,0 +1,139 @@
+SELECT
+    cpev1.value                                         AS 'ID Evento',
+    cpev2.value                                         AS 'Evento',
+    COUNT(DISTINCT soi.item_id)                         AS 'Qtd Site',
+    SUM(soi.price)                                      AS 'Receita Bruta',
+    SUM(tax_rateada.taxa_item)                          AS 'Total Taxa',
+    SUM(prod.valor_produtos)                            AS 'Total Produtos',
+    SUM(
+        CASE
+            WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
+            THEN 9.80
+            ELSE desc_rateado.desconto_item
+        END
+    )                                                   AS 'Total Desconto',
+    SUM(soi.price)
+        - SUM(tax_rateada.taxa_item)
+        - SUM(prod.valor_produtos)
+        - SUM(
+            CASE
+                WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
+                THEN 9.80
+                ELSE desc_rateado.desconto_item
+            END
+        )                                               AS 'Receita Liquida',
+    (
+        SUM(soi.price)
+        - SUM(tax_rateada.taxa_item)
+        - SUM(prod.valor_produtos)
+        - SUM(
+            CASE
+                WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
+                THEN 9.80
+                ELSE desc_rateado.desconto_item
+            END
+        )
+    ) / COUNT(DISTINCT soi.item_id)                     AS 'Ticket Medio'
+
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+    ON soi.order_id = so.entity_id
+    AND soi.product_type = 'bundle'
+-- Sobe ao bundle pai para pegar o atributo 321
+LEFT JOIN sales_order_item soi_parent
+    ON soi_parent.item_id = COALESCE(soi.parent_item_id, soi.item_id)
+-- Soma dos produtos filhos (simples) por bundle
+LEFT JOIN (
+    SELECT
+        parent_item_id,
+        SUM(price) AS valor_produtos
+    FROM sales_order_item g2
+    LEFT JOIN catalog_product_entity h3
+        ON g2.product_id = h3.entity_id
+    WHERE h3.attribute_set_id IN (27, 29, 32, 33, 36, 37, 39, 40, 41, 42, 43, 44, 45, 47, 48, 50)
+       OR (g2.name LIKE '%Personalização%' AND g2.price > 0)
+    GROUP BY parent_item_id
+) AS prod
+    ON prod.parent_item_id = soi.item_id
+-- Taxa rateada por item: (price do bundle / soma dos prices do pedido) * taxa total
+LEFT JOIN (
+    SELECT
+        soi_t.item_id,
+        ROUND(
+            t.amount * (soi_t.price / NULLIF(ot.price_total, 0))
+        , 2) AS taxa_item
+    FROM sales_order_item soi_t
+    JOIN (
+        SELECT order_id, SUM(amount) AS amount
+        FROM sales_order_tax
+        GROUP BY order_id
+    ) t ON t.order_id = soi_t.order_id
+    JOIN (
+        SELECT order_id, SUM(price) AS price_total
+        FROM sales_order_item
+        WHERE product_type = 'bundle'
+        GROUP BY order_id
+    ) ot ON ot.order_id = soi_t.order_id
+    WHERE soi_t.product_type = 'bundle'
+) AS tax_rateada
+    ON tax_rateada.item_id = soi.item_id
+-- Desconto rateado por item: (price do bundle / soma dos prices do pedido) * desconto total
+LEFT JOIN (
+    SELECT
+        soi_d.item_id,
+        ROUND(
+            ABS(so_d.base_discount_amount) * (soi_d.price / NULLIF(ot_d.price_total, 0))
+        , 2) AS desconto_item
+    FROM sales_order_item soi_d
+    JOIN sales_order so_d
+        ON so_d.entity_id = soi_d.order_id
+    JOIN (
+        SELECT order_id, SUM(price) AS price_total
+        FROM sales_order_item
+        WHERE product_type = 'bundle'
+        GROUP BY order_id
+    ) ot_d ON ot_d.order_id = soi_d.order_id
+    WHERE soi_d.product_type = 'bundle'
+) AS desc_rateado
+    ON desc_rateado.item_id = soi.item_id
+-- ID Evento (atributo 321)
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321
+    GROUP BY entity_id
+) AS cpev1
+    ON soi_parent.product_id = cpev1.entity_id
+-- Nome Evento (atributo 73)
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73
+    GROUP BY entity_id
+) AS cpev2
+    ON cpev1.value = cpev2.entity_id
+-- Data Evento (atributo 195) para filtro de janela
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped
+    ON cpev1.value = cped.entity_id
+
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
+    AND soi.sku NOT LIKE '%CORTESIA%'
+    AND soi.price > 0
+    AND so.base_grand_total > 0
+    AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+    AND so.increment_id NOT REGEXP '-[0-9]'
+  -- AND cpev1.value = 48132  -- Filtro evento (descomente para filtrar)
+
+GROUP BY
+    cpev1.value,
+    cpev2.value
+ORDER BY
+    cpev2.value ASC
