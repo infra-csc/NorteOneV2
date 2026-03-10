@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
 
 
-def _invalidate_curva_cache(evento_grupo: str, ano: int):
+def _invalidate_curva_cache(evento_grupo: str, ano: int, db: Session = None):
     if not evento_grupo:
         return
     try:
@@ -32,6 +32,28 @@ def _invalidate_curva_cache(evento_grupo: str, ano: int):
         for y in [prev_ano, ano, next_ano]:
             curva_cache.invalidate(f"{y}_grp_{evento_grupo}_curva")
             curva_cache.invalidate(f"{y}_grp_{evento_grupo}_insights")
+
+        if db:
+            try:
+                from app.models.dimensoes import DimProjeto
+                grupo_mappings = db.query(SkuMapping).filter(
+                    SkuMapping.evento_grupo == evento_grupo,
+                    SkuMapping.ativo == True
+                ).all()
+                skus = set(m.sku for m in grupo_mappings if m.sku)
+                if skus:
+                    projetos = db.query(DimProjeto).filter(
+                        DimProjeto.codigo.in_(skus)
+                    ).all()
+                    for p in projetos:
+                        for y in [prev_ano, ano, next_ano]:
+                            curva_cache.invalidate(f"{y}_{p.id}_curva")
+                            curva_cache.invalidate(f"{y}_{p.id}_insights")
+                    if projetos:
+                        logger.info(f"Individual project cache invalidado: projetos={[p.id for p in projetos]} anos={prev_ano},{ano},{next_ano}")
+            except Exception as e:
+                logger.warning(f"Failed to invalidate individual project cache: {e}")
+
         logger.info(f"Curva cache invalidado: '{evento_grupo}' anos={prev_ano},{ano},{next_ano}")
     except Exception as e:
         logger.warning(f"Failed to invalidate curva cache for '{evento_grupo}': {e}")
@@ -47,7 +69,7 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if deleted:
         db.commit()
         logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} ({deleted} registros) — data_evento alterada")
-    _invalidate_curva_cache(evento_grupo, ano)
+    _invalidate_curva_cache(evento_grupo, ano, db)
 
 
 class EventoExterno(BaseModel):
@@ -255,7 +277,7 @@ def create_sku_mapping(
     if db_mapping.data_evento:
         _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
     else:
-        _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano)
+        _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano, db)
     return db_mapping
 
 
@@ -314,7 +336,7 @@ def update_sku_mapping(
         if key not in invalidated:
             _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
     else:
-        _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano)
+        _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano, db)
 
     return db_mapping
 
@@ -333,7 +355,7 @@ def delete_sku_mapping(
     ano = db_mapping.ano
     db.delete(db_mapping)
     db.commit()
-    _invalidate_curva_cache(evento_grupo, ano)
+    _invalidate_curva_cache(evento_grupo, ano, db)
     return {"message": "Mapeamento excluído com sucesso"}
 
 
