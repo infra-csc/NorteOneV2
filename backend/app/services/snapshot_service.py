@@ -133,11 +133,24 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             all_daily[d]["qtd"] += row['qtd']
             all_daily[d]["receita"] += row.get('receita', 0.0)
 
+    yesterday = date.today() - timedelta(days=1)
+
+    if data_inicio is None:
+        delete_q = db.query(VendasDiariaSnapshot).filter(
+            VendasDiariaSnapshot.evento_grupo == evento_grupo,
+            VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+        )
+        if data_fim:
+            delete_q = delete_q.filter(VendasDiariaSnapshot.data_venda <= data_fim)
+        deleted = delete_q.delete(synchronize_session=False)
+        if deleted:
+            logger.debug(f"Snapshot full refresh: deleted {deleted} old rows for '{evento_grupo}'")
+
     if not all_daily:
+        db.commit()
         logger.info(f"Nenhuma venda encontrada para grupo='{evento_grupo}', ano={ano}")
         return 0
 
-    yesterday = date.today() - timedelta(days=1)
     saved = 0
 
     for d, data in sorted(all_daily.items()):
@@ -148,24 +161,14 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
         if d > yesterday:
             continue
 
-        existing = db.query(VendasDiariaSnapshot).filter(
-            VendasDiariaSnapshot.evento_grupo == evento_grupo,
-            VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
-            VendasDiariaSnapshot.data_venda == d
-        ).first()
-
-        if existing:
-            existing.quantidade = data["qtd"]
-            existing.receita = data["receita"]
-        else:
-            entry = VendasDiariaSnapshot(
-                evento_grupo=evento_grupo,
-                fonte='CONSOLIDADO',
-                data_venda=d,
-                quantidade=data["qtd"],
-                receita=data["receita"]
-            )
-            db.add(entry)
+        entry = VendasDiariaSnapshot(
+            evento_grupo=evento_grupo,
+            fonte='CONSOLIDADO',
+            data_venda=d,
+            quantidade=data["qtd"],
+            receita=data["receita"]
+        )
+        db.add(entry)
         saved += 1
 
     db.commit()
@@ -206,8 +209,7 @@ def snapshot_diario_batch(db: Session):
             continue
 
         try:
-            start = (latest + timedelta(days=1)) if latest else None
-            consolidar_vendas_grupo(db, grupo, ano, data_inicio=start, data_fim=yesterday)
+            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday)
         except Exception as e:
             logger.error(f"Erro ao consolidar snapshot para grupo='{grupo}': {e}")
 

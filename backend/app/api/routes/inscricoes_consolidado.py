@@ -421,24 +421,21 @@ LEFT JOIN (
 ) AS desc_rateado
     ON desc_rateado.item_id = soi.item_id
 LEFT JOIN (
-    SELECT entity_id, MIN(value) AS value
+    SELECT entity_id, value
     FROM catalog_product_entity_varchar
-    WHERE attribute_id = 321
-    GROUP BY entity_id
+    WHERE attribute_id = 321 AND store_id = 0
 ) AS cpev1
     ON soi_parent.product_id = cpev1.entity_id
 LEFT JOIN (
-    SELECT entity_id, MIN(value) AS value
+    SELECT entity_id, value
     FROM catalog_product_entity_varchar
-    WHERE attribute_id = 73
-    GROUP BY entity_id
+    WHERE attribute_id = 73 AND store_id = 0
 ) AS cpev2
     ON cpev1.value = cpev2.entity_id
 LEFT JOIN (
-    SELECT entity_id, MIN(value) AS value
+    SELECT entity_id, value
     FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195
-    GROUP BY entity_id
+    WHERE attribute_id = 195 AND store_id = 0
 ) AS cped
     ON cpev1.value = cped.entity_id
 

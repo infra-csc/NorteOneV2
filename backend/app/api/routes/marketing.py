@@ -1205,13 +1205,13 @@ FROM (
         b.dt_evento,
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND h.ds_categoria NOT LIKE '%%Grup%%'
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.nr_total > 0 THEN 1 ELSE 0
         END)                                                                 AS qtd_site,
 
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND h.ds_categoria NOT LIKE '%%Grup%%'
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.nr_total > 0
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             THEN 1 ELSE 0
@@ -1219,7 +1219,7 @@ FROM (
 
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND h.ds_categoria NOT LIKE '%%Grup%%'
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.nr_total > 0
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             THEN 1 ELSE 0
@@ -1227,7 +1227,7 @@ FROM (
 
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND h.ds_categoria NOT LIKE '%%Grup%%'
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.nr_total > 0
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
             THEN 1 ELSE 0
@@ -1235,7 +1235,7 @@ FROM (
 
         SUM(CASE
             WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND h.ds_categoria NOT LIKE '%%Grup%%'
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.nr_total > 0
             THEN
                 GREATEST(0, a.nr_preco
@@ -1358,8 +1358,8 @@ LEFT JOIN (
     WHERE attribute_id = 73 AND store_id = 0
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
 LEFT JOIN (
-    SELECT parent_item_id, price
-    FROM sales_order_item WHERE name LIKE '%%persona%%'
+    SELECT parent_item_id, MAX(price) AS price
+    FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 LEFT JOIN customer_group AS cg
        ON cg.customer_group_id = so.customer_group_id
@@ -2869,14 +2869,15 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     cpev1.value AS location_id,
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order so
-LEFT JOIN sales_order_item soi
+INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
       AND soi.product_type = 'bundle'
-LEFT JOIN catalog_product_entity_varchar cpev1
+INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id
       AND cpev1.attribute_id = 321
+      AND cpev1.store_id = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
@@ -3099,14 +3100,15 @@ def _fetch_today_sales_magento_by_ids(location_ids: list) -> dict:
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order so
-LEFT JOIN sales_order_item soi
+INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
       AND soi.product_type = 'bundle'
-LEFT JOIN catalog_product_entity_varchar cpev1
+INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id
       AND cpev1.attribute_id = 321
+      AND cpev1.store_id = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
@@ -3152,8 +3154,9 @@ def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at) AS dia,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
+        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd,
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND soi.price > 0 THEN
         soi.price
         - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
@@ -3166,16 +3169,17 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
             ELSE 0 END
     ELSE 0 END) AS receita
 FROM sales_order so
-LEFT JOIN sales_order_item soi
+INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
       AND soi.product_type = 'bundle'
-LEFT JOIN catalog_product_entity_varchar cpev1
+INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id
       AND cpev1.attribute_id = 321
+      AND cpev1.store_id = 0
 LEFT JOIN customer_group cg
        ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (
-    SELECT * FROM sales_order_item WHERE name LIKE '%%persona%%'
+    SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
@@ -3298,10 +3302,10 @@ SELECT
     cpev1.value AS location_id,
     soi.name AS categoria,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order AS so
-LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
-LEFT JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321
+INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]+$'
