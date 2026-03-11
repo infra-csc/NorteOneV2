@@ -1370,7 +1370,9 @@ LEFT JOIN customer_group AS cg
        ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.state != 'canceled'
 AND soi.price > 0
+AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
@@ -2891,6 +2893,8 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.store_id = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
@@ -3125,6 +3129,8 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.store_id = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
     AND DATE(so.created_at) = CURDATE()
@@ -3197,6 +3203,8 @@ LEFT JOIN (
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
@@ -3326,6 +3334,8 @@ LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]+$'
     AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
     AND cpev1.value IN :location_ids
 GROUP BY cpev1.value, soi.name
 ORDER BY cpev1.value, qtd DESC
