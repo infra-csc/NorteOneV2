@@ -197,7 +197,7 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
             b.id_evento = :id_evento
             AND c.fl_local_inscricao = '1'
             AND c.id_pedido_status IN (1, 2)
-            AND b.id_campanha_salesforce NOT LIKE '701d0000000%'
+            AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
             AND DATE(c.dt_pedido) >= :start_date
             AND DATE(c.dt_pedido) <= :end_date
         GROUP BY DATE(c.dt_pedido)
@@ -1204,38 +1204,43 @@ FROM (
         b.ds_evento,
         b.dt_evento,
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+            WHEN (f.en_cupom_classificacao IS NULL
+                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
              AND c.nr_total > 0 THEN 1 ELSE 0
         END)                                                                 AS qtd_site,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+            WHEN (f.en_cupom_classificacao IS NULL
+                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
              AND c.nr_total > 0
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_30d,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+            WHEN (f.en_cupom_classificacao IS NULL
+                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
              AND c.nr_total > 0
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_14d,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+            WHEN (f.en_cupom_classificacao IS NULL
+                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
              AND c.nr_total > 0
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_7d,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+            WHEN (f.en_cupom_classificacao IS NULL
+                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
              AND c.nr_total > 0
             THEN
                 GREATEST(0, a.nr_preco
@@ -2520,11 +2525,13 @@ def _fetch_monthly_sales_ativo(ano_atual: int, ano_anterior: int) -> list:
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     YEAR(c.dt_pedido) AS ano,
     MONTH(c.dt_pedido) AS mes,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -2537,7 +2544,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND YEAR(c.dt_pedido) IN (:ano_atual, :ano_anterior)
 GROUP BY YEAR(c.dt_pedido), MONTH(c.dt_pedido)
 ORDER BY ano, mes
@@ -2713,11 +2720,13 @@ def _fetch_monthly_sales_ativo_by_ids(id_eventos: list) -> list:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     MONTH(c.dt_pedido) AS mes,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -2730,7 +2739,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
 GROUP BY MONTH(c.dt_pedido)
 ORDER BY mes
@@ -2810,8 +2819,9 @@ def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     b.id_evento,
     DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -2822,7 +2832,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 GROUP BY b.id_evento, DATE(c.dt_pedido)
@@ -3019,11 +3029,13 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
@@ -3036,7 +3048,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(c.dt_pedido)
@@ -3060,8 +3072,9 @@ def _fetch_today_sales_ativo_by_ids(id_eventos: list) -> dict:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -3072,7 +3085,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
     AND DATE(c.dt_pedido) = CURDATE()
 GROUP BY DATE(c.dt_pedido)
@@ -3222,8 +3235,9 @@ def _fetch_category_sales_ativo_by_ids(id_eventos: list) -> list:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     h.ds_categoria AS categoria,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -3234,7 +3248,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
 GROUP BY h.ds_categoria
 ORDER BY qtd DESC
@@ -3258,8 +3272,9 @@ def _fetch_category_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     b.id_evento,
     h.ds_categoria AS categoria,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL OR NOT f.en_cupom_classificacao)
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -3270,7 +3285,7 @@ LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
     c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (1, 2)
-    AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
 GROUP BY b.id_evento, h.ds_categoria
 ORDER BY b.id_evento, qtd DESC
