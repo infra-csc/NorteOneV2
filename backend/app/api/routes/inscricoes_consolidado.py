@@ -251,31 +251,26 @@ class InscricoesConsolidadasResponse(BaseModel):
 def build_query_ativo(ano: int) -> str:
     """
     Constroi query do Ativo filtrando por ano do evento (dt_evento).
-    Retorna métricas financeiras: receita bruta, taxa, produtos, desconto,
-    receita líquida e ticket médio, agrupados por evento.
+    Retorna métricas financeiras: receita bruta, desconto, receita líquida e ticket médio,
+    agrupados por evento.
     Filtra apenas inscrições site (fl_local_inscricao = 1), exclui grupos e cortesias.
+    Colunas (índices): 0=id_evento, 1=evento, 2=qtd_site, 3=receita_bruta,
+                       4=total_desconto, 5=receita_liquida, 6=ticket_medio, 7=data_evento
     """
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    b.id_evento                                                         AS id_evento,
-    b.ds_evento                                                         AS evento,
-    COUNT(DISTINCT a.id_pedido_evento)                                  AS qtd_site,
-    SUM(a.nr_preco)                                                     AS receita_bruta,
-    SUM(a.nr_taxa)                                                      AS total_taxa,
-    SUM(COALESCE(h.vl_kit, 0))                                         AS total_produtos,
-    SUM(COALESCE(a.nr_desconto_individual, 0))                         AS total_desconto,
+    b.id_evento                                                                    AS id_evento,
+    b.ds_evento                                                                    AS evento,
+    COUNT(DISTINCT a.id_pedido_evento)                                             AS qtd_site,
+    SUM(a.nr_preco)                                                                AS receita_bruta,
+    SUM(COALESCE(a.nr_desconto_individual, 0))                                     AS total_desconto,
     SUM(a.nr_preco)
-        - SUM(a.nr_taxa)
-        - SUM(COALESCE(h.vl_kit, 0))
-        - SUM(COALESCE(a.nr_desconto_individual, 0))                   AS receita_liquida,
+        - SUM(COALESCE(a.nr_desconto_individual, 0))                               AS receita_liquida,
     (
         SUM(a.nr_preco)
-        - SUM(a.nr_taxa)
-        - SUM(COALESCE(h.vl_kit, 0))
         - SUM(COALESCE(a.nr_desconto_individual, 0))
-    ) / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                  AS ticket_medio,
-    MIN(DATE(b.dt_evento))                                             AS data_evento
-
+    ) / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                              AS ticket_medio,
+    MIN(DATE(b.dt_evento))                                                         AS data_evento
 FROM sa_evento AS b
 INNER JOIN sa_pedido_evento AS a
     ON a.id_evento = b.id_evento
@@ -290,7 +285,6 @@ LEFT JOIN sa_cupom_desconto_item AS e
     ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f
     ON f.id_cupom_desconto = e.id_cupom_desconto
-
 WHERE
     b.dt_evento BETWEEN '{ano}-01-01' AND '{ano}-12-31'
     AND (b.id_campanha_salesforce IS NULL
@@ -309,7 +303,6 @@ WHERE
             'Eventos Terceiros'
         )
     )
-
 GROUP BY
     b.id_evento,
     b.ds_evento
@@ -320,125 +313,58 @@ ORDER BY
 def build_query_magento(ano: int) -> str:
     """
     Constroi query do Magento filtrando por ano do evento (atributo 195 - data evento).
-    Retorna métricas financeiras: receita bruta, taxa rateada, produtos, desconto rateado,
-    receita líquida e ticket médio, agrupados por evento (atributo 321 - ID Evento).
-    Usa rateio proporcional de taxa e desconto por item bundle.
+    Retorna métricas financeiras: receita bruta (descontando personalização), receita líquida
+    (descontando desconto aplicado nos filhos) e ticket médio, agrupados por evento (atributo 321).
+    Colunas (índices): 0=id_evento, 1=evento, 2=qtd_site, 3=receita_bruta,
+                       4=receita_liquida, 5=ticket_medio, 6=data_evento
     """
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    cpev1.value                                         AS id_evento,
-    cpev2.value                                         AS evento,
-    COUNT(DISTINCT soi.item_id)                         AS qtd_site,
-    SUM(soi.price)                                      AS receita_bruta,
-    SUM(COALESCE(tax_rateada.taxa_item, 0))             AS total_taxa,
-    SUM(COALESCE(prod.valor_produtos, 0))               AS total_produtos,
-    SUM(
-        CASE
-            WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
-            THEN 9.80
-            ELSE COALESCE(desc_rateado.desconto_item, 0)
-        END
-    )                                                   AS total_desconto,
-    SUM(soi.price)
-        - SUM(COALESCE(tax_rateada.taxa_item, 0))
-        - SUM(COALESCE(prod.valor_produtos, 0))
-        - SUM(
-            CASE
-                WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
-                THEN 9.80
-                ELSE COALESCE(desc_rateado.desconto_item, 0)
-            END
-        )                                               AS receita_liquida,
-    (
-        SUM(soi.price)
-        - SUM(COALESCE(tax_rateada.taxa_item, 0))
-        - SUM(COALESCE(prod.valor_produtos, 0))
-        - SUM(
-            CASE
-                WHEN soi.name LIKE '%Kit Participação%' OR soi.name LIKE '%Meia Entrada%'
-                THEN 9.80
-                ELSE COALESCE(desc_rateado.desconto_item, 0)
-            END
-        )
-    ) / COUNT(DISTINCT soi.item_id)                     AS ticket_medio,
-    MIN(cped.value)                                     AS data_evento
-
+    cpev1.value                                                                                                                           AS id_evento,
+    cpev2.value                                                                                                                           AS evento,
+    COUNT(DISTINCT soi.item_id)                                                                                                           AS qtd_site,
+    SUM(soi.price - COALESCE(soi_virtual.price_personalizacao, 0))                                                                        AS receita_bruta,
+    SUM(soi.price - COALESCE(soi_virtual.price_personalizacao, 0)) - COALESCE(SUM(soi_children.discount_invoiced), 0)                     AS receita_liquida,
+    (SUM(soi.price - COALESCE(soi_virtual.price_personalizacao, 0)) - COALESCE(SUM(soi_children.discount_invoiced), 0))
+        / NULLIF(COUNT(DISTINCT soi.item_id), 0)                                                                                          AS ticket_medio,
+    MIN(cped.value)                                                                                                                        AS data_evento
 FROM sales_order so
 LEFT JOIN sales_order_item soi
     ON soi.order_id = so.entity_id
     AND soi.product_type = 'bundle'
-LEFT JOIN sales_order_item soi_parent
-    ON soi_parent.item_id = COALESCE(soi.parent_item_id, soi.item_id)
 LEFT JOIN (
-    SELECT
-        parent_item_id,
-        SUM(price) AS valor_produtos
-    FROM sales_order_item g2
-    LEFT JOIN catalog_product_entity h3
-        ON g2.product_id = h3.entity_id
-    WHERE h3.attribute_set_id IN (27, 29, 32, 33, 36, 37, 39, 40, 41, 42, 43, 44, 45, 47, 48, 50)
-       OR (g2.name LIKE '%Personalização%' AND g2.price > 0)
+    SELECT parent_item_id, SUM(discount_invoiced) AS discount_invoiced
+    FROM sales_order_item
+    WHERE product_type = 'simple'
+      AND parent_item_id IS NOT NULL
     GROUP BY parent_item_id
-) AS prod
-    ON prod.parent_item_id = soi.item_id
+) AS soi_children ON soi_children.parent_item_id = soi.item_id
 LEFT JOIN (
-    SELECT
-        soi_t.item_id,
-        ROUND(
-            t.amount * (soi_t.price / NULLIF(ot.price_total, 0))
-        , 2) AS taxa_item
-    FROM sales_order_item soi_t
-    JOIN (
-        SELECT order_id, SUM(amount) AS amount
-        FROM sales_order_tax
-        GROUP BY order_id
-    ) t ON t.order_id = soi_t.order_id
-    JOIN (
-        SELECT order_id, SUM(price) AS price_total
-        FROM sales_order_item
-        WHERE product_type = 'bundle'
-        GROUP BY order_id
-    ) ot ON ot.order_id = soi_t.order_id
-    WHERE soi_t.product_type = 'bundle'
-) AS tax_rateada
-    ON tax_rateada.item_id = soi.item_id
+    SELECT parent_item_id, SUM(price) AS price_personalizacao
+    FROM sales_order_item
+    WHERE product_type = 'virtual'
+      AND parent_item_id IS NOT NULL
+      AND name LIKE '%ersonaliz%'
+    GROUP BY parent_item_id
+) AS soi_virtual ON soi_virtual.parent_item_id = soi.item_id
 LEFT JOIN (
-    SELECT
-        soi_d.item_id,
-        ROUND(
-            ABS(so_d.base_discount_amount) * (soi_d.price / NULLIF(ot_d.price_total, 0))
-        , 2) AS desconto_item
-    FROM sales_order_item soi_d
-    JOIN sales_order so_d
-        ON so_d.entity_id = soi_d.order_id
-    JOIN (
-        SELECT order_id, SUM(price) AS price_total
-        FROM sales_order_item
-        WHERE product_type = 'bundle'
-        GROUP BY order_id
-    ) ot_d ON ot_d.order_id = soi_d.order_id
-    WHERE soi_d.product_type = 'bundle'
-) AS desc_rateado
-    ON desc_rateado.item_id = soi.item_id
-LEFT JOIN (
-    SELECT entity_id, value
+    SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_varchar
-    WHERE attribute_id = 321 AND store_id = 0
-) AS cpev1
-    ON soi_parent.product_id = cpev1.entity_id
+    WHERE attribute_id = 321
+    GROUP BY entity_id
+) AS cpev1 ON soi.product_id = cpev1.entity_id
 LEFT JOIN (
-    SELECT entity_id, value
+    SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_varchar
-    WHERE attribute_id = 73 AND store_id = 0
-) AS cpev2
-    ON cpev1.value = cpev2.entity_id
+    WHERE attribute_id = 73
+    GROUP BY entity_id
+) AS cpev2 ON cpev1.value = cpev2.entity_id
 LEFT JOIN (
-    SELECT entity_id, value
+    SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195 AND store_id = 0
-) AS cped
-    ON cpev1.value = cped.entity_id
-
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped ON cpev1.value = cped.entity_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
@@ -448,7 +374,6 @@ WHERE
     AND so.base_grand_total > 0
     AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
     AND so.increment_id NOT REGEXP '-[0-9]'
-
 GROUP BY
     cpev1.value,
     cpev2.value
@@ -471,21 +396,21 @@ def fetch_ativo_data(ano: int = 2026):
                     "id_evento": str(row[0]) if row[0] else None,
                     "sku": None,
                     "evento": row[1],
-                    "data_evento": str(row[9]) if row[9] else None,
+                    "data_evento": str(row[7]) if row[7] else None,
                     "qtd_vendida": int(row[2]) if row[2] else 0,
                     "cortesia": 0,
-                    "inscricao_liquida": float(row[7]) if row[7] else 0.0,
-                    "ticket_medio": float(row[8]) if row[8] else 0.0,
-                    "taxa_liquida": float(row[4]) if row[4] else 0.0,
-                    "kit_produto": float(row[5]) if row[5] else 0.0,
+                    "inscricao_liquida": float(row[5]) if row[5] else 0.0,
+                    "ticket_medio": float(row[6]) if row[6] else 0.0,
+                    "taxa_liquida": 0.0,
+                    "kit_produto": 0.0,
                     "receita_bruta": float(row[3]) if row[3] else 0.0,
-                    "total_desconto": float(row[6]) if row[6] else 0.0,
+                    "total_desconto": float(row[4]) if row[4] else 0.0,
                     "qtd_grupos": 0,
                     "inscricao_liquida_grupos": 0.0,
                     "ticket_medio_grupos": 0.0,
                     "qtd_site": int(row[2]) if row[2] else 0,
-                    "inscricao_liquida_site": float(row[7]) if row[7] else 0.0,
-                    "ticket_medio_site": float(row[8]) if row[8] else 0.0,
+                    "inscricao_liquida_site": float(row[5]) if row[5] else 0.0,
+                    "ticket_medio_site": float(row[6]) if row[6] else 0.0,
                     "valor_total": float(row[3]) if row[3] else 0.0,
                 }
                 for row in rows
@@ -510,21 +435,21 @@ def fetch_magento_data(ano: int = 2026):
                     "id_evento": str(row[0]) if row[0] else None,
                     "sku": None,
                     "evento": normalize_evento_name(row[1]) if row[1] else None,
-                    "data_evento": str(row[9]) if row[9] else None,
+                    "data_evento": str(row[6]) if row[6] else None,
                     "qtd_vendida": int(row[2]) if row[2] else 0,
                     "cortesia": 0,
-                    "inscricao_liquida": float(row[7]) if row[7] else 0.0,
-                    "ticket_medio": float(row[8]) if row[8] else 0.0,
-                    "taxa_liquida": float(row[4]) if row[4] else 0.0,
-                    "kit_produto": float(row[5]) if row[5] else 0.0,
+                    "inscricao_liquida": float(row[4]) if row[4] else 0.0,
+                    "ticket_medio": float(row[5]) if row[5] else 0.0,
+                    "taxa_liquida": 0.0,
+                    "kit_produto": 0.0,
                     "receita_bruta": float(row[3]) if row[3] else 0.0,
-                    "total_desconto": float(row[6]) if row[6] else 0.0,
+                    "total_desconto": 0.0,
                     "qtd_grupos": 0,
                     "inscricao_liquida_grupos": 0.0,
                     "ticket_medio_grupos": 0.0,
                     "qtd_site": int(row[2]) if row[2] else 0,
-                    "inscricao_liquida_site": float(row[7]) if row[7] else 0.0,
-                    "ticket_medio_site": float(row[8]) if row[8] else 0.0,
+                    "inscricao_liquida_site": float(row[4]) if row[4] else 0.0,
+                    "ticket_medio_site": float(row[5]) if row[5] else 0.0,
                     "categoria_evento": classify_event_category(row[1]) if row[1] else None,
                     "cidade": None,
                     "valor_total": float(row[3]) if row[3] else 0.0,
