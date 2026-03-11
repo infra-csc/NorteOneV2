@@ -1,0 +1,61 @@
+SELECT
+    cpev1.value                                                                                                                           AS 'ID Evento',
+    cpev2.value                                                                                                                           AS 'Evento',
+    COUNT(DISTINCT soi.item_id)                                                                                                           AS 'Qtd Site',
+    SUM(soi.price - COALESCE(soi_virtual.price_personalizacao, 0))                                                                        AS 'Receita Bruta',
+    SUM(soi.price - COALESCE(soi_virtual.price_personalizacao, 0)) - COALESCE(SUM(soi_children.discount_invoiced), 0)                     AS 'Receita Líquida',
+    (SUM(soi.price - COALESCE(soi_virtual.price_personalizacao, 0)) - COALESCE(SUM(soi_children.discount_invoiced), 0))
+        / NULLIF(COUNT(DISTINCT soi.item_id), 0)                                                                                          AS 'Ticket Medio'
+FROM sales_order so
+LEFT JOIN sales_order_item soi
+    ON soi.order_id = so.entity_id
+    AND soi.product_type = 'bundle'
+LEFT JOIN (
+    SELECT parent_item_id, SUM(discount_invoiced) AS discount_invoiced
+    FROM sales_order_item
+    WHERE product_type = 'simple'
+      AND parent_item_id IS NOT NULL
+    GROUP BY parent_item_id
+) AS soi_children ON soi_children.parent_item_id = soi.item_id
+LEFT JOIN (
+    SELECT parent_item_id, SUM(price) AS price_personalizacao
+    FROM sales_order_item
+    WHERE product_type = 'virtual'
+      AND parent_item_id IS NOT NULL
+      AND name LIKE '%ersonaliz%'
+    GROUP BY parent_item_id
+) AS soi_virtual ON soi_virtual.parent_item_id = soi.item_id
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321
+    GROUP BY entity_id
+) AS cpev1 ON soi.product_id = cpev1.entity_id
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73
+    GROUP BY entity_id
+) AS cpev2 ON cpev1.value = cpev2.entity_id
+LEFT JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped ON cpev1.value = cped.entity_id
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1)
+                       AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
+    AND soi.sku NOT LIKE '%CORTESIA%'
+    AND soi.price > 0
+    AND so.base_grand_total > 0
+    AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
+    AND so.increment_id NOT REGEXP '-[0-9]'
+
+GROUP BY
+    cpev1.value,
+    cpev2.value
+ORDER BY
+    cpev2.value ASC
