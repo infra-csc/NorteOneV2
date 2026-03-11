@@ -4652,6 +4652,23 @@ def get_marketing_event_by_id(
         
         current_year = datetime.now().year
         if ano == current_year:
+            _ativo_ids_live = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
+            _magento_ids_live = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
+            _live_daily: dict = {}
+            try:
+                if _ativo_ids_live:
+                    for row in _fetch_daily_sales_ativo_by_ids(list(set(_ativo_ids_live))):
+                        d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                        _live_daily[d] = _live_daily.get(d, 0) + row['qtd']
+                if _magento_ids_live:
+                    for row in _fetch_daily_sales_magento_by_ids(list(set(_magento_ids_live))):
+                        d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                        _live_daily[d] = _live_daily.get(d, 0) + row['qtd']
+                if _live_daily:
+                    current_sales = sum(v for k, v in _live_daily.items() if k <= _yesterday_detail)
+            except Exception as _e:
+                logger.warning(f"Falha ao buscar vendas ao vivo para detalhe do grupo {grupo_nome}: {_e}")
+
             isc_data = fetch_isc_pricing_data(db=db)
             current_receita = 0.0
             seen_norms = set()
