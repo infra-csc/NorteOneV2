@@ -4642,6 +4642,15 @@ def get_marketing_event_by_id(
         except Exception:
             pass
         
+        current_year = datetime.now().year
+        if force_refresh and ano == current_year:
+            try:
+                from ...services.snapshot_service import consolidar_vendas_grupo
+                consolidar_vendas_grupo(db, grupo_nome, ano)
+                logger.info(f"Snapshot reconstruído (force_refresh) para '{grupo_nome}' ano={ano}")
+            except Exception as _e:
+                logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
+
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
@@ -4650,25 +4659,7 @@ def get_marketing_event_by_id(
         if daily_sales_dict and len(daily_sales_dict) > 0:
             current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _yesterday_detail)
         
-        current_year = datetime.now().year
         if ano == current_year:
-            _ativo_ids_live = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
-            _magento_ids_live = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
-            _live_daily: dict = {}
-            try:
-                if _ativo_ids_live:
-                    for row in _fetch_daily_sales_ativo_by_ids(list(set(_ativo_ids_live))):
-                        d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-                        _live_daily[d] = _live_daily.get(d, 0) + row['qtd']
-                if _magento_ids_live:
-                    for row in _fetch_daily_sales_magento_by_ids(list(set(_magento_ids_live))):
-                        d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-                        _live_daily[d] = _live_daily.get(d, 0) + row['qtd']
-                if _live_daily:
-                    current_sales = sum(v for k, v in _live_daily.items() if k <= _yesterday_detail)
-            except Exception as _e:
-                logger.warning(f"Falha ao buscar vendas ao vivo para detalhe do grupo {grupo_nome}: {_e}")
-
             isc_data = fetch_isc_pricing_data(db=db)
             current_receita = 0.0
             seen_norms = set()
@@ -4940,6 +4931,15 @@ def get_marketing_event_by_id(
                 break
 
     data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
+
+    if force_refresh and standalone_evento_grupo and ano == datetime.now().year:
+        try:
+            from ...services.snapshot_service import consolidar_vendas_grupo
+            consolidar_vendas_grupo(db, standalone_evento_grupo, ano)
+            logger.info(f"Snapshot reconstruído (force_refresh standalone) para '{standalone_evento_grupo}' ano={ano}")
+        except Exception as _e:
+            logger.warning(f"Falha ao reconstruir snapshot standalone para '{standalone_evento_grupo}': {_e}")
+
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     

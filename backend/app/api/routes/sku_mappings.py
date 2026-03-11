@@ -4,7 +4,7 @@ from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.dimensoes import SkuMapping, EventoGrupo
-from app.models.vendas_snapshot import CurvaHistoricaSnapshot
+from app.models.vendas_snapshot import CurvaHistoricaSnapshot, VendasDiariaSnapshot
 from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
     EventoGrupoCreate, EventoGrupoUpdate, EventoGrupoResponse
@@ -62,13 +62,32 @@ def _invalidate_curva_cache(evento_grupo: str, ano: int, db: Session = None):
 def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if not evento_grupo:
         return
-    deleted = db.query(CurvaHistoricaSnapshot).filter(
+    deleted_curva = db.query(CurvaHistoricaSnapshot).filter(
         CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
         CurvaHistoricaSnapshot.ano_referencia == ano
     ).delete()
-    if deleted:
+    deleted_vendas = db.query(VendasDiariaSnapshot).filter(
+        VendasDiariaSnapshot.evento_grupo == evento_grupo
+    ).delete(synchronize_session=False)
+    if deleted_curva or deleted_vendas:
         db.commit()
-        logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} ({deleted} registros) — data_evento alterada")
+        logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} (curva={deleted_curva}, vendas={deleted_vendas})")
+
+    import threading
+    def _rebuild():
+        try:
+            from app.core.database import SessionLocal
+            from app.services.snapshot_service import consolidar_vendas_grupo
+            rebuild_db = SessionLocal()
+            try:
+                consolidar_vendas_grupo(rebuild_db, evento_grupo, ano)
+                logger.info(f"Snapshot reconstruído em background: '{evento_grupo}' ano={ano}")
+            finally:
+                rebuild_db.close()
+        except Exception as e:
+            logger.error(f"Falha ao reconstruir snapshot em background para '{evento_grupo}': {e}")
+    threading.Thread(target=_rebuild, daemon=True).start()
+
     _invalidate_curva_cache(evento_grupo, ano, db)
 
 
