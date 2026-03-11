@@ -702,6 +702,19 @@ const EventDetail: React.FC = () => {
                 Meta total: {formatNumber(event.totalCapacity)}
               </span>
             </div>
+            {inscritosTotal > 0 && (
+              <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400 dark:text-gray-500">
+                <CheckCircle className="w-3.5 h-3.5 text-green-500 dark:text-green-400" />
+                <span>{formatNumber(inscritosTotal - todaySales)} consolidados até ontem</span>
+                {hasTodayData && todaySales > 0 && (
+                  <>
+                    <span className="text-gray-300 dark:text-gray-600">·</span>
+                    <Clock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
+                    <span>+{formatNumber(todaySales)} de hoje (parcial)</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
             <span className="text-sm text-gray-500 dark:text-gray-400">Categoria</span>
