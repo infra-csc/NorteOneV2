@@ -69,18 +69,18 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     ).scalar()
     cooldown_ok = (not last_updated) or (datetime.utcnow() - last_updated > timedelta(minutes=10))
 
-    deleted_curva = db.query(CurvaHistoricaSnapshot).filter(
-        CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
-        CurvaHistoricaSnapshot.ano_referencia == ano
-    ).delete()
-    deleted_vendas = db.query(VendasDiariaSnapshot).filter(
-        VendasDiariaSnapshot.evento_grupo == evento_grupo
-    ).delete(synchronize_session=False)
-    if deleted_curva or deleted_vendas:
-        db.commit()
-        logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} (curva={deleted_curva}, vendas={deleted_vendas})")
-
     if cooldown_ok:
+        deleted_curva = db.query(CurvaHistoricaSnapshot).filter(
+            CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
+            CurvaHistoricaSnapshot.ano_referencia == ano
+        ).delete()
+        deleted_vendas = db.query(VendasDiariaSnapshot).filter(
+            VendasDiariaSnapshot.evento_grupo == evento_grupo
+        ).delete(synchronize_session=False)
+        if deleted_curva or deleted_vendas:
+            db.commit()
+            logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} (curva={deleted_curva}, vendas={deleted_vendas})")
+
         import threading
         def _rebuild():
             try:
@@ -96,7 +96,7 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
                 logger.error(f"Falha ao reconstruir snapshot em background para '{evento_grupo}': {e}")
         threading.Thread(target=_rebuild, daemon=True).start()
     else:
-        logger.info(f"Cooldown ativo para '{evento_grupo}': snapshot atualizado há menos de 10 min, rebuild em background ignorado")
+        logger.info(f"Cooldown ativo para '{evento_grupo}': snapshot atualizado há menos de 10 min, apenas invalidando cache")
 
     _invalidate_curva_cache(evento_grupo, ano, db)
 
