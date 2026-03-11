@@ -527,28 +527,43 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
     _run_column_migrations()
     seed_admin_user()
-    _startup_resync_projetos()
-    init_mysql_connections()
-    init_ssh_tunnel()
-
-    logger.info("Loading persistent cache from PostgreSQL...")
-    warm_all_caches_from_db()
-    logger.info("Persistent cache loaded - users will see cached data immediately")
 
     register_full_warmup_fn(_full_cache_warmup)
-
     cache_scheduler.register(_scheduled_isc_refresh)
     cache_scheduler.register_full_refresh(_full_cache_warmup)
-    cache_scheduler.start(interval=1800)
-    logger.info("Cache auto-refresh scheduler started (30 min interval + daily 07:00 BRT)")
 
     import threading
 
-    def _startup_snapshot_consolidation():
-        logger.info("Starting snapshot consolidation in background...")
+    def _startup_background_init():
+        try:
+            _startup_resync_projetos()
+        except Exception as e:
+            logger.error(f"Startup resync projetos failed: {e}")
+
+        try:
+            init_mysql_connections()
+        except Exception as e:
+            logger.error(f"MySQL connections init failed: {e}")
+
+        try:
+            init_ssh_tunnel()
+        except Exception as e:
+            logger.error(f"SSH tunnel init failed: {e}")
+
+        try:
+            logger.info("Loading persistent cache from PostgreSQL...")
+            warm_all_caches_from_db()
+            logger.info("Persistent cache loaded - users will see cached data immediately")
+        except Exception as e:
+            logger.error(f"Persistent cache warmup failed: {e}")
+
+        cache_scheduler.start(interval=1800)
+        logger.info("Cache auto-refresh scheduler started (30 min interval + daily 07:00 BRT)")
+
         try:
             from app.core.database import SessionLocal
             from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
+            logger.info("Starting snapshot consolidation...")
             db = SessionLocal()
             try:
                 snapshot_diario_batch(db)
@@ -559,17 +574,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Startup snapshot consolidation failed: {e}")
 
-    def _startup_full_warmup():
         logger.info("Starting full cache warmup in background...")
-        _full_cache_warmup()
+        try:
+            _full_cache_warmup()
+        except Exception as e:
+            logger.error(f"Full cache warmup failed: {e}")
 
-    snapshot_thread = threading.Thread(target=_startup_snapshot_consolidation, daemon=True)
-    snapshot_thread.start()
-    logger.info("Snapshot consolidation thread launched")
-
-    warm_thread = threading.Thread(target=_startup_full_warmup, daemon=True)
-    warm_thread.start()
-    logger.info("Full cache warmup thread launched")
+    init_thread = threading.Thread(target=_startup_background_init, daemon=True)
+    init_thread.start()
+    logger.info("Background initialization launched - server ready to accept requests")
 
     yield
     cache_scheduler.stop()
