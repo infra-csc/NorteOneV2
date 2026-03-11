@@ -4667,10 +4667,10 @@ def get_marketing_event_by_id(
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
-        _yesterday_detail = date.today() - timedelta(days=1)
+        _today_detail = date.today()
         current_sales = 0
         if daily_sales_dict and len(daily_sales_dict) > 0:
-            current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _yesterday_detail)
+            current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _today_detail)
         
         if ano == current_year:
             isc_data = fetch_isc_pricing_data(db=db)
@@ -6120,9 +6120,9 @@ def get_pricing_analysis(
         
         standalone_pricing_daily_dict = _build_grupo_daily_dict(pricing_sku_daily, [projeto])
         
-        _yesterday_pricing = date.today() - timedelta(days=1)
+        _today_pricing = date.today()
         if standalone_pricing_daily_dict and len(standalone_pricing_daily_dict) > 0:
-            current_sales = sum(v for k, v in standalone_pricing_daily_dict.items() if k <= _yesterday_pricing)
+            current_sales = sum(v for k, v in standalone_pricing_daily_dict.items() if k <= _today_pricing)
             average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         standalone_pricing_hist = None

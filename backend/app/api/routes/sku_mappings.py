@@ -12,7 +12,8 @@ from app.schemas.dimensoes import (
 from app.core.security import get_current_user
 from app.models.user import Usuario
 import app.core.database as db_module
-from sqlalchemy import text
+from sqlalchemy import text, func
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
@@ -62,6 +63,12 @@ def _invalidate_curva_cache(evento_grupo: str, ano: int, db: Session = None):
 def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if not evento_grupo:
         return
+
+    last_updated = db.query(func.max(VendasDiariaSnapshot.updated_at)).filter(
+        VendasDiariaSnapshot.evento_grupo == evento_grupo
+    ).scalar()
+    cooldown_ok = (not last_updated) or (datetime.utcnow() - last_updated > timedelta(minutes=10))
+
     deleted_curva = db.query(CurvaHistoricaSnapshot).filter(
         CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
         CurvaHistoricaSnapshot.ano_referencia == ano
@@ -73,20 +80,23 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
         db.commit()
         logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} (curva={deleted_curva}, vendas={deleted_vendas})")
 
-    import threading
-    def _rebuild():
-        try:
-            from app.core.database import SessionLocal
-            from app.services.snapshot_service import consolidar_vendas_grupo
-            rebuild_db = SessionLocal()
+    if cooldown_ok:
+        import threading
+        def _rebuild():
             try:
-                consolidar_vendas_grupo(rebuild_db, evento_grupo, ano)
-                logger.info(f"Snapshot reconstruído em background: '{evento_grupo}' ano={ano}")
-            finally:
-                rebuild_db.close()
-        except Exception as e:
-            logger.error(f"Falha ao reconstruir snapshot em background para '{evento_grupo}': {e}")
-    threading.Thread(target=_rebuild, daemon=True).start()
+                from app.core.database import SessionLocal
+                from app.services.snapshot_service import consolidar_vendas_grupo
+                rebuild_db = SessionLocal()
+                try:
+                    consolidar_vendas_grupo(rebuild_db, evento_grupo, ano)
+                    logger.info(f"Snapshot reconstruído em background: '{evento_grupo}' ano={ano}")
+                finally:
+                    rebuild_db.close()
+            except Exception as e:
+                logger.error(f"Falha ao reconstruir snapshot em background para '{evento_grupo}': {e}")
+        threading.Thread(target=_rebuild, daemon=True).start()
+    else:
+        logger.info(f"Cooldown ativo para '{evento_grupo}': snapshot atualizado há menos de 10 min, rebuild em background ignorado")
 
     _invalidate_curva_cache(evento_grupo, ano, db)
 
