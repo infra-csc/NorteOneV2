@@ -508,14 +508,19 @@ const EventDetail: React.FC = () => {
     ? cumulativeData.slice(-chartPeriod)
     : cumulativeData;
 
+  const parsedEventDate = event.date ? new Date(event.date + 'T12:00:00') : null;
+  const hasValidEventDate = parsedEventDate && !isNaN(parsedEventDate.getTime());
+
   const goalAttainmentData = cumulativeData
     .filter(d => d.cumulativeExpected > 0)
     .map(d => {
-      const eventDate = new Date(event.date + 'T12:00:00');
-      const dayDate = new Date(d.date + 'T12:00:00');
-      const diffMs = eventDate.getTime() - dayDate.getTime();
-      const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      const dMinusInsc = Math.max(0, dMinusEvento - 2);
+      let dMinusInsc = 0;
+      if (hasValidEventDate) {
+        const dayDate = new Date(d.date + 'T12:00:00');
+        const diffMs = parsedEventDate!.getTime() - dayDate.getTime();
+        const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        dMinusInsc = Math.max(0, dMinusEvento - 2);
+      }
       const pct = parseFloat((((d.cumulative / d.cumulativeExpected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
@@ -530,11 +535,13 @@ const EventDetail: React.FC = () => {
   const goalAttainmentDailyData = (event.dailySales || [])
     .filter(d => d.expected > 0)
     .map(d => {
-      const eventDate = new Date(event.date + 'T12:00:00');
-      const dayDate = new Date(d.date + 'T12:00:00');
-      const diffMs = eventDate.getTime() - dayDate.getTime();
-      const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
-      const dMinusInsc = Math.max(0, dMinusEvento - 2);
+      let dMinusInsc = 0;
+      if (hasValidEventDate) {
+        const dayDate = new Date(d.date + 'T12:00:00');
+        const diffMs = parsedEventDate!.getTime() - dayDate.getTime();
+        const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        dMinusInsc = Math.max(0, dMinusEvento - 2);
+      }
       const pct = parseFloat((((d.sales / d.expected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
@@ -678,11 +685,13 @@ const EventDetail: React.FC = () => {
             <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400">
               <span className="flex items-center gap-1">
                 <Calendar className="w-4 h-4" />
-                {new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR', { 
-                  day: '2-digit', 
-                  month: 'long', 
-                  year: 'numeric' 
-                })}
+                {event.date
+                  ? new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR', { 
+                      day: '2-digit', 
+                      month: 'long', 
+                      year: 'numeric' 
+                    })
+                  : 'Data não definida'}
               </span>
               <span className="flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
@@ -1518,7 +1527,7 @@ const EventDetail: React.FC = () => {
               className="text-3xl font-bold mt-2"
               style={{ color: getISCColor(event.iscStatus) }}
             >
-              {getISCEmoji(event.iscStatus)} {event.isc.toFixed(2)}
+              {getISCEmoji(event.iscStatus)} {(event.isc ?? 0).toFixed(2)}
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {event.iscStatus === 'accelerating' ? 'Acelerando' : 
@@ -1541,10 +1550,10 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {event.iscComponents.ia730.toFixed(2)}
+                {(event.iscComponents?.ia730 ?? 0).toFixed(2)}
               </p>
               <div className="flex items-center gap-1 mt-1 text-xs">
-                {event.iscComponents.ia730 > 1 ? (
+                {(event.iscComponents?.ia730 ?? 0) > 1 ? (
                   <>
                     <TrendingUp className="w-3.5 h-3.5 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">Acelerando</span>
@@ -1569,10 +1578,10 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {event.iscComponents.curvaDPercent.toFixed(2)}
+                {(event.iscComponents?.curvaDPercent ?? 0).toFixed(2)}
               </p>
               <div className="flex items-center gap-1 mt-1 text-xs">
-                {event.iscComponents.curvaDPercent > 1 ? (
+                {(event.iscComponents?.curvaDPercent ?? 0) > 1 ? (
                   <>
                     <TrendingUp className="w-3.5 h-3.5 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">Adiantado</span>
@@ -1597,10 +1606,10 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {event.iscComponents.rolling14d.toFixed(2)}
+                {(event.iscComponents?.rolling14d ?? 0).toFixed(2)}
               </p>
               <div className="flex items-center gap-1 mt-1 text-xs">
-                {event.iscComponents.rolling14d > 1 ? (
+                {(event.iscComponents?.rolling14d ?? 0) > 1 ? (
                   <>
                     <Activity className="w-3.5 h-3.5 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">Momentum Quente</span>

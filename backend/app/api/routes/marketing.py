@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import text, bindparam
+from sqlalchemy import text, bindparam, func
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
@@ -1266,7 +1266,7 @@ FROM (
     WHERE
         b.dt_evento >= MAKEDATE(YEAR(CURDATE()) - 1, 1)
         AND b.dt_evento <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
-        AND c.dt_pedido < CURDATE()
+        AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 
         AND (b.id_campanha_salesforce IS NULL
              OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
@@ -1367,7 +1367,7 @@ WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND soi.price > 0
 AND so.base_grand_total > 0
-AND so.created_at < CURDATE()
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
@@ -1873,6 +1873,8 @@ def get_marketing_events(
                 all_grupo_names_for_hist.add(eg)
     hist_patterns_prefetch = _prefetch_all_historical_patterns(db, list(all_grupo_names_for_hist), ano)
     
+    _today = date.today()
+    
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -1932,9 +1934,8 @@ def get_marketing_events(
         
         grupo_daily_sales_dict = _build_grupo_daily_dict(sku_daily_prefetch, proj_list)
         
-        _yesterday = date.today() - timedelta(days=1)
         if grupo_daily_sales_dict and len(grupo_daily_sales_dict) > 0:
-            current_sales = sum(v for k, v in grupo_daily_sales_dict.items() if k <= _yesterday)
+            current_sales = sum(v for k, v in grupo_daily_sales_dict.items() if k <= _today)
             avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         grupo_hist_pattern = hist_patterns_prefetch.get(grupo_nome)
@@ -2037,7 +2038,7 @@ def get_marketing_events(
         standalone_daily_dict = _build_grupo_daily_dict(sku_daily_prefetch, [projeto])
         
         if standalone_daily_dict and len(standalone_daily_dict) > 0:
-            current_sales = sum(v for k, v in standalone_daily_dict.items() if k <= _yesterday)
+            current_sales = sum(v for k, v in standalone_daily_dict.items() if k <= _today)
             avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         
         standalone_hist = hist_patterns_prefetch.get(standalone_eg) if standalone_eg else None
@@ -2823,7 +2824,7 @@ WHERE
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN :id_eventos
-    AND c.dt_pedido < CURDATE()
+    AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 GROUP BY b.id_evento, DATE(c.dt_pedido)
 ORDER BY b.id_evento, dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -2882,7 +2883,7 @@ WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
-    AND so.created_at < CURDATE()
+    AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
 """).bindparams(bindparam("location_ids", expanding=True))
@@ -3037,7 +3038,7 @@ WHERE
     AND c.id_pedido_status IN (1, 2)
     AND b.id_campanha_salesforce NOT LIKE '701d0000000%%'
     AND b.id_evento IN :id_eventos
-    AND c.dt_pedido < CURDATE()
+    AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(c.dt_pedido)
 ORDER BY dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -3185,7 +3186,7 @@ WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND cpev1.value IN :location_ids
     AND so.increment_id NOT REGEXP '-[0-9]+$'
-    AND so.created_at < CURDATE()
+    AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """).bindparams(bindparam("location_ids", expanding=True))
@@ -4644,12 +4645,24 @@ def get_marketing_event_by_id(
         
         current_year = datetime.now().year
         if force_refresh and ano == current_year:
+            _should_rebuild = True
             try:
-                from ...services.snapshot_service import consolidar_vendas_grupo
-                consolidar_vendas_grupo(db, grupo_nome, ano)
-                logger.info(f"Snapshot reconstruído (force_refresh) para '{grupo_nome}' ano={ano}")
-            except Exception as _e:
-                logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
+                from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
+                _last_updated = db.query(func.max(_VDS.updated_at)).filter(
+                    _VDS.evento_grupo == grupo_nome
+                ).scalar()
+                if _last_updated and (datetime.now() - _last_updated).total_seconds() < 600:
+                    _should_rebuild = False
+                    logger.info(f"Snapshot cooldown: '{grupo_nome}' atualizado há {(datetime.now() - _last_updated).total_seconds():.0f}s, pulando rebuild")
+            except Exception:
+                pass
+            if _should_rebuild:
+                try:
+                    from ...services.snapshot_service import consolidar_vendas_grupo
+                    consolidar_vendas_grupo(db, grupo_nome, ano)
+                    logger.info(f"Snapshot reconstruído (force_refresh) para '{grupo_nome}' ano={ano}")
+                except Exception as _e:
+                    logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
 
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
@@ -4933,12 +4946,24 @@ def get_marketing_event_by_id(
     data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
 
     if force_refresh and standalone_evento_grupo and ano == datetime.now().year:
+        _should_rebuild_standalone = True
         try:
-            from ...services.snapshot_service import consolidar_vendas_grupo
-            consolidar_vendas_grupo(db, standalone_evento_grupo, ano)
-            logger.info(f"Snapshot reconstruído (force_refresh standalone) para '{standalone_evento_grupo}' ano={ano}")
-        except Exception as _e:
-            logger.warning(f"Falha ao reconstruir snapshot standalone para '{standalone_evento_grupo}': {_e}")
+            from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
+            _last_updated_s = db.query(func.max(_VDS.updated_at)).filter(
+                _VDS.evento_grupo == standalone_evento_grupo
+            ).scalar()
+            if _last_updated_s and (datetime.now() - _last_updated_s).total_seconds() < 600:
+                _should_rebuild_standalone = False
+                logger.info(f"Snapshot cooldown standalone: '{standalone_evento_grupo}' atualizado há {(datetime.now() - _last_updated_s).total_seconds():.0f}s, pulando rebuild")
+        except Exception:
+            pass
+        if _should_rebuild_standalone:
+            try:
+                from ...services.snapshot_service import consolidar_vendas_grupo
+                consolidar_vendas_grupo(db, standalone_evento_grupo, ano)
+                logger.info(f"Snapshot reconstruído (force_refresh standalone) para '{standalone_evento_grupo}' ano={ano}")
+            except Exception as _e:
+                logger.warning(f"Falha ao reconstruir snapshot standalone para '{standalone_evento_grupo}': {_e}")
 
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
