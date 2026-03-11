@@ -5093,6 +5093,7 @@ def refresh_cache(
     daily_sales_cache.invalidate()
     curva_cache.invalidate()
     medias_cache.invalidate()
+    clear_warmup_daily_cache()
 
     global _isc_cache, _isc_cache_timestamp, _sales_cache, _cache_timestamp
     _isc_cache = {}
