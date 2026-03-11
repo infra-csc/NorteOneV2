@@ -619,7 +619,7 @@ const EventDetail: React.FC = () => {
     return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
   };
 
-  const gaugeRotation = Math.min(Math.max((event.isc - 0.5) * 180, 0), 180);
+  const gaugeRotation = Math.min(Math.max(((event.isc ?? 0) - 0.5) * 180, 0), 180);
 
   return (
     <div className="min-h-screen">

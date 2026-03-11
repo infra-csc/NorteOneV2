@@ -67,7 +67,7 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     last_updated = db.query(func.max(VendasDiariaSnapshot.updated_at)).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo
     ).scalar()
-    cooldown_ok = (not last_updated) or (datetime.utcnow() - last_updated > timedelta(minutes=10))
+    cooldown_ok = (not last_updated) or (datetime.now() - last_updated > timedelta(minutes=10))
 
     if cooldown_ok:
         deleted_curva = db.query(CurvaHistoricaSnapshot).filter(
