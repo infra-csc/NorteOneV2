@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_permission
 from app.models.kit_config import KitConfig
 from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse
 import app.core.database as db_module
@@ -120,7 +120,7 @@ ORDER BY
 @router.get("/kits", response_model=List[KitRow])
 def get_kits_with_config(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
     if db_module.engine_magento is None:
         raise HTTPException(
@@ -180,7 +180,7 @@ def upsert_kit_config(
     bundle_entity_id: int,
     body: KitConfigUpsert,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
 ):
     existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == bundle_entity_id).first()
     if existing:
@@ -202,6 +202,6 @@ def upsert_kit_config(
 @router.get("/configs", response_model=List[KitConfigResponse])
 def get_all_configs(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
     return db.query(KitConfig).all()

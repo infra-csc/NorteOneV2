@@ -486,6 +486,7 @@ def seed_admin_user():
 def _seed_kit_config():
     from app.core.database import SessionLocal
     from app.models.kit_config import KitConfig
+    from app.models.perfil_acesso import PerfilAcesso, PerfilPermissao
     try:
         db = SessionLocal()
         seeds = [
@@ -496,6 +497,23 @@ def _seed_kit_config():
             existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == s["bundle_entity_id"]).first()
             if not existing:
                 db.add(KitConfig(**s))
+
+        admin_profiles = db.query(PerfilAcesso).filter(PerfilAcesso.is_admin == True).all()
+        for profile in admin_profiles:
+            has_perm = db.query(PerfilPermissao).filter(
+                PerfilPermissao.perfil_acesso_id == profile.id,
+                PerfilPermissao.modulo == "admin_kit_config"
+            ).first()
+            if not has_perm:
+                db.add(PerfilPermissao(
+                    perfil_acesso_id=profile.id,
+                    modulo="admin_kit_config",
+                    pode_visualizar=True,
+                    pode_criar=True,
+                    pode_editar=True,
+                    pode_deletar=True,
+                ))
+
         db.commit()
         db.close()
         logger.info("Kit config seed completed")
