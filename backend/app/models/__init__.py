@@ -13,3 +13,4 @@ from app.models.cotacao import (
 )
 from app.models.cache_entry import CacheEntry
 from app.models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot
+from app.models.kit_config import KitConfig
