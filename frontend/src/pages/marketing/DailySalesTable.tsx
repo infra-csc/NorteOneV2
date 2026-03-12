@@ -80,12 +80,17 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
   }, [dailySales]);
 
   const globalMetrics = useMemo(() => {
-    if (!salesGoal || salesGoal <= 0) return null;
-    const totalSales = dailySales.reduce((s, d) => s + d.sales, 0);
-    const atingGlobal = salesGoal > 0 ? (totalSales / salesGoal) * 100 : 0;
+    if (!dailySales.length) return null;
+    const lastRow = [...dailySales].sort((a, b) => a.date.localeCompare(b.date))[dailySales.length - 1];
+    const vendasGlobal = lastRow?.cumulativeSales ?? dailySales.reduce((s, d) => s + d.sales, 0);
+    const metaGlobal = salesGoal && salesGoal > 0
+      ? salesGoal
+      : (lastRow?.cumulativeExpected ?? dailySales.reduce((s, d) => s + (d.expected || 0), 0));
+    if (!metaGlobal || metaGlobal <= 0) return null;
+    const atingGlobal = (vendasGlobal / metaGlobal) * 100;
     return {
-      metaGlobal: salesGoal,
-      vendasGlobal: totalSales,
+      metaGlobal,
+      vendasGlobal,
       atingGlobal,
     };
   }, [dailySales, salesGoal]);
