@@ -45,8 +45,9 @@ const KitConfig: React.FC = () => {
         edits[k.bundle_entity_id] = k.multiplicador;
       });
       setEditValues(edits);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Erro ao carregar kits do Magento');
+    } catch (err) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
     } finally {
       setLoading(false);
     }
