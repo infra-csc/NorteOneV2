@@ -533,7 +533,10 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         if not id_evento or ticket_base is None:
             continue
 
-        mult = config_map.get(bundle_id, 1)
+        if bundle_id not in config_map:
+            continue
+
+        mult = config_map[bundle_id]
         ticket_final = ticket_base * mult
         evento_tickets.setdefault(id_evento, []).append(ticket_final)
 

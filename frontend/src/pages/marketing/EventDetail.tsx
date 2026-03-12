@@ -1909,7 +1909,7 @@ const EventDetail: React.FC = () => {
         </h3>
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
-          const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
+          const ticketKitConfig = event.ticketAtual || 0;
           const ticketMedio = event.averageTicket || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
           const margemRealizada = event.margemRealizadaTotal || 0;
@@ -2010,8 +2010,8 @@ const EventDetail: React.FC = () => {
           const margemReal = event.margemRealizadaTotal || 0;
           const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
-          const multipliers = [0.90, 1.05, 1.10, 1.15, 1.20];
-          const labels = ['Vendas futuras -10%', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
+          const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
+          const labels = ['Vendas futuras -10%', 'Meta (0%)', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
 
           const rows = multipliers.map((mult, i) => {
             const volFuturo = Math.round(volBase * mult);
@@ -2029,6 +2029,7 @@ const EventDetail: React.FC = () => {
               margemGlobal,
               margemNominal,
               margemPct,
+              isMeta: mult === 1.00,
             };
           });
 
@@ -2051,12 +2052,16 @@ const EventDetail: React.FC = () => {
                   {rows.map((row) => (
                     <tr
                       key={row.label}
-                      className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30"
+                      className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                        row.isMeta
+                          ? 'bg-blue-50 dark:bg-blue-900/20 font-semibold'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                      }`}
                     >
-                      <td className="py-2.5 px-3 text-gray-900 dark:text-white font-medium">
+                      <td className={`py-2.5 px-3 ${row.isMeta ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'} font-medium`}>
                         {row.label}
                       </td>
-                      <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
+                      <td className={`py-2.5 px-3 text-right ${row.isMeta ? 'text-blue-700 dark:text-blue-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
                         {formatNumber(row.volFuturo)}
                       </td>
                       <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
@@ -2071,11 +2076,11 @@ const EventDetail: React.FC = () => {
                       <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {formatCurrency(row.margemGlobal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-semibold ${row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {formatCurrency(row.margemNominal)}
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isMeta ? 'text-blue-600 dark:text-blue-400' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {row.isMeta ? 'Ref.' : formatCurrency(row.margemNominal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-semibold ${row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {`${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isMeta ? 'text-blue-600 dark:text-blue-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {row.isMeta ? '0%' : `${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
                       </td>
                     </tr>
                   ))}
