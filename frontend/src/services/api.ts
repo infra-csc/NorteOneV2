@@ -522,6 +522,8 @@ export interface MarketingEvent {
   sku?: string;
   activeAction?: { id: number; tipo: string; descricao: string; data_acao: string; dias_restantes: number } | null;
   kitCostPerUnit?: number;
+  receitaOrcadaTotal?: number;
+  currentReceita?: number;
   margemOrcadaUnit?: number;
   margemOrcadaTotal?: number;
   margemOrcadaPct?: number;

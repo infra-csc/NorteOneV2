@@ -2082,6 +2082,15 @@ const EventDetail: React.FC = () => {
                           <span className="text-gray-500 dark:text-gray-400">(×) Meta de Inscrições</span>
                           <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.salesGoal)}</span>
                         </div>
+                        <div className="my-3 border-t border-dashed border-gray-300 dark:border-gray-600" />
+                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                          <span className="text-gray-500 dark:text-gray-400">Receita Orçada Total</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.receitaOrcadaTotal || 0)}</span>
+                        </div>
+                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                          <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
+                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.salesGoal)}</span>
+                        </div>
                         <div className="flex justify-between p-2.5 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
                           <span className="text-gray-800 dark:text-gray-200 font-semibold">= Margem Orçada Total</span>
                           <div className="text-right">
@@ -2119,6 +2128,15 @@ const EventDetail: React.FC = () => {
                         <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                           <span className="text-gray-500 dark:text-gray-400">(×) Inscrições Atuais</span>
                           <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.currentSales)}</span>
+                        </div>
+                        <div className="my-3 border-t border-dashed border-gray-300 dark:border-gray-600" />
+                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                          <span className="text-gray-500 dark:text-gray-400">Receita Líquida Total</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.currentReceita || 0)}</span>
+                        </div>
+                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                          <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
+                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.currentSales)}</span>
                         </div>
                         <div className="flex justify-between p-2.5 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
                           <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Realizada Total</span>

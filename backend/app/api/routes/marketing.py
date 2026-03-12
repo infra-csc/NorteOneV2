@@ -481,6 +481,8 @@ class MarketingEvent(BaseModel):
     isActive: bool
     sku: Optional[str] = None
     kitCostPerUnit: float = 0.0
+    receitaOrcadaTotal: float = 0.0
+    currentReceita: float = 0.0
     margemOrcadaUnit: float = 0.0
     margemOrcadaTotal: float = 0.0
     margemOrcadaPct: float = 0.0
@@ -1171,8 +1173,12 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
     margem_realizada_total = round(current_receita - (kit_cost * current_sales), 2) if has_sales else 0.0
     margem_realizada_pct = round((margem_realizada_unit / avg_ticket) * 100, 1) if has_sales else 0.0
 
+    receita_orcada_total = round(budget_ticket * sales_goal, 2) if has_budget else 0.0
+
     return {
         "kitCostPerUnit": round(kit_cost, 2),
+        "receitaOrcadaTotal": receita_orcada_total,
+        "currentReceita": round(current_receita, 2) if has_sales else 0.0,
         "margemOrcadaUnit": margem_orcada_unit,
         "margemOrcadaTotal": margem_orcada_total,
         "margemOrcadaPct": margem_orcada_pct,
