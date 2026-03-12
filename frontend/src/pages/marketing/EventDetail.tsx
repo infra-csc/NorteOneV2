@@ -20,7 +20,8 @@ import {
   X,
   Trash2,
   RefreshCw,
-  TableProperties
+  TableProperties,
+  ChevronDown
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -79,6 +80,8 @@ const EventDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [showMargemInfo, setShowMargemInfo] = useState(false);
+  const [showReceitaOrcada, setShowReceitaOrcada] = useState(false);
+  const [showReceitaRealizada, setShowReceitaRealizada] = useState(false);
   const [actionForm, setActionForm] = useState({
     tipo: 'PROMOCAO',
     descricao: '',
@@ -2082,14 +2085,27 @@ const EventDetail: React.FC = () => {
                           <span className="text-gray-500 dark:text-gray-400">(×) Meta de Inscrições</span>
                           <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.salesGoal)}</span>
                         </div>
-                        <div className="my-3 border-t border-dashed border-gray-300 dark:border-gray-600" />
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">Receita Orçada Total</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.receitaOrcadaTotal || 0)}</span>
-                        </div>
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
-                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.salesGoal)}</span>
+                        <button
+                          onClick={() => setShowReceitaOrcada(!showReceitaOrcada)}
+                          className="my-3 w-full flex items-center gap-2 group cursor-pointer"
+                        >
+                          <div className="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600" />
+                          <span className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors whitespace-nowrap">
+                            <DollarSign className="w-3 h-3" />
+                            Receita
+                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showReceitaOrcada ? 'rotate-180' : ''}`} />
+                          </span>
+                          <div className="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600" />
+                        </button>
+                        <div className={`space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${showReceitaOrcada ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                            <span className="text-gray-500 dark:text-gray-400">Receita Orçada Total</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.receitaOrcadaTotal || 0)}</span>
+                          </div>
+                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                            <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
+                            <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.salesGoal)}</span>
+                          </div>
                         </div>
                         <div className="flex justify-between p-2.5 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
                           <span className="text-gray-800 dark:text-gray-200 font-semibold">= Margem Orçada Total</span>
@@ -2129,14 +2145,27 @@ const EventDetail: React.FC = () => {
                           <span className="text-gray-500 dark:text-gray-400">(×) Inscrições Atuais</span>
                           <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.currentSales)}</span>
                         </div>
-                        <div className="my-3 border-t border-dashed border-gray-300 dark:border-gray-600" />
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">Receita Líquida Total</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.currentReceita || 0)}</span>
-                        </div>
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
-                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.currentSales)}</span>
+                        <button
+                          onClick={() => setShowReceitaRealizada(!showReceitaRealizada)}
+                          className="my-3 w-full flex items-center gap-2 group cursor-pointer"
+                        >
+                          <div className="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600" />
+                          <span className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500 group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors whitespace-nowrap">
+                            <DollarSign className="w-3 h-3" />
+                            Receita
+                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showReceitaRealizada ? 'rotate-180' : ''}`} />
+                          </span>
+                          <div className="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600" />
+                        </button>
+                        <div className={`space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${showReceitaRealizada ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                            <span className="text-gray-500 dark:text-gray-400">Receita Líquida Total</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.currentReceita || 0)}</span>
+                          </div>
+                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                            <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
+                            <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.currentSales)}</span>
+                          </div>
                         </div>
                         <div className="flex justify-between p-2.5 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
                           <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Realizada Total</span>
