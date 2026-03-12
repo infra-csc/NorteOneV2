@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import os
 import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
-from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
@@ -483,6 +483,26 @@ def seed_admin_user():
     except Exception as e:
         logger.error(f"Error seeding admin user: {e}")
 
+def _seed_kit_config():
+    from app.core.database import SessionLocal
+    from app.models.kit_config import KitConfig
+    try:
+        db = SessionLocal()
+        seeds = [
+            {"bundle_entity_id": 50999, "kit_nome": "Kit Bota Pra Correr", "multiplicador": 2},
+            {"bundle_entity_id": 54863, "kit_nome": "Kit Capitão", "multiplicador": 5},
+        ]
+        for s in seeds:
+            existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == s["bundle_entity_id"]).first()
+            if not existing:
+                db.add(KitConfig(**s))
+        db.commit()
+        db.close()
+        logger.info("Kit config seed completed")
+    except Exception as e:
+        logger.error(f"Kit config seed failed: {e}")
+
+
 def _run_column_migrations():
     from app.core.database import SessionLocal
     try:
@@ -527,6 +547,7 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
     _run_column_migrations()
     seed_admin_user()
+    _seed_kit_config()
 
     register_full_warmup_fn(_full_cache_warmup)
     cache_scheduler.register(_scheduled_isc_refresh)
@@ -624,6 +645,7 @@ app.include_router(perfil_acesso.router, prefix="/api", tags=["Perfis de Acesso"
 app.include_router(distancias.router, prefix="/api", tags=["Distâncias"])
 app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importação"])
 app.include_router(admin.router, tags=["Admin"])
+app.include_router(kit_config.router, tags=["Kit Config"])
 
 @app.get("/api/health")
 async def health_check():
