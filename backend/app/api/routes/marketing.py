@@ -5263,6 +5263,7 @@ def refresh_cache(
     curva_cache.invalidate()
     medias_cache.invalidate()
     clear_warmup_daily_cache()
+    clear_ticket_atual_cache()
 
     global _isc_cache, _isc_cache_timestamp, _sales_cache, _cache_timestamp
     _isc_cache = {}
