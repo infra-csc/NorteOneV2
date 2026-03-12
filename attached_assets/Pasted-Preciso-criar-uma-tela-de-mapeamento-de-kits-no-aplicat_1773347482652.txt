@@ -1,0 +1,52 @@
+Preciso criar uma tela de mapeamento de kits no aplicativo. Temos uma query que roda no banco MySQL do Magento (AWS RDS) que retorna os kits de eventos do ano atual. Vou explicar a estrutura e o que precisa ser feito.
+O que a query retorna:
+
+id_evento — ID do evento no Magento
+nome_evento — Nome do evento
+bundle_entity_id — ID único do kit no Magento (chave principal para o mapeamento)
+nome_kit — Nome do kit (ex: Kit Capitão, Kit Plus, Meia Inscrição)
+lote_atual — Nome do lote ativo
+preco_lote — Preço do lote atual
+lote_termina_em — Data de encerramento do lote
+preco_adicional_kit — Valor do item extra incluso no kit (boné, jaqueta, mochila). Zero se não tiver.
+ticket_base — Preço base do kit (lote + adicional, ou preço fixo dependendo do tipo)
+distancias — Distâncias disponíveis no kit separadas por |
+
+
+O problema:
+Alguns kits são pacotes com múltiplas inscrições e o preço final é ticket_base × multiplicador. Esse multiplicador não está armazenado de forma estruturada no Magento, então precisa ser configurado manualmente no nosso sistema.
+Exemplos reais:
+
+Kit Bota Pra Correr (bundle_entity_id = 50999) → multiplicador 2 → ticket final = ticket_base × 2
+Kit Capitão (bundle_entity_id = 54863) → multiplicador 5 → ticket final = ticket_base × 5
+Kits normais → multiplicador 1 → ticket final = ticket_base
+
+
+O que precisa ser criado:
+1. Tabela no PostgreSQL do Replit:
+sqlCREATE TABLE kit_config (
+    bundle_entity_id  INTEGER PRIMARY KEY,
+    id_evento         INTEGER,
+    kit_nome          VARCHAR(255),
+    tipo              VARCHAR(20) DEFAULT 'multiplier',
+    multiplicador     INTEGER DEFAULT 1,
+    created_at        TIMESTAMP DEFAULT NOW(),
+    updated_at        TIMESTAMP DEFAULT NOW()
+);
+2. Tela de mapeamento:
+
+Buscar todos os kits via query no Magento
+Para cada kit, verificar se já existe configuração na tabela kit_config pelo bundle_entity_id
+Exibir uma tabela com as colunas: nome_evento, nome_kit, ticket_base, multiplicador (editável), ticket_final (calculado = ticket_base × multiplicador)
+Permitir editar o multiplicador de cada kit e salvar na tabela kit_config
+Kits novos (sem configuração) devem aparecer destacados para o usuário configurar
+
+3. Lógica do ticket final:
+javascriptconst ticketFinal = kit.ticket_base * (config?.multiplicador || 1)
+4. Os kits já mapeados inicialmente são:
+javascript// bundle_entity_id: multiplicador
+50999: 2,  // Kit Bota Pra Correr
+54863: 5,  // Kit Capitão
+// todos os demais = 1
+
+A query do Magento já está pronta e testada. O bundle_entity_id é a chave de JOIN entre o resultado da query e a tabela kit_config do Replit.
