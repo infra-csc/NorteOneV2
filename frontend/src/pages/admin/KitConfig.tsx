@@ -232,24 +232,24 @@ const KitConfig: React.FC = () => {
                           : ''
                       }`}
                     >
-                      <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textPrimary}`}>
-                        <div className="flex items-center gap-2">
+                      <td className={`px-3 py-2.5 text-left ${textPrimary}`}>
+                        <div className="flex items-start gap-2">
                           {!kit.is_configured && (
                             <span
-                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
                                 isDark ? 'bg-amber-900/40 text-amber-300' : 'bg-amber-100 text-amber-700'
                               }`}
                             >
                               NOVO
                             </span>
                           )}
-                          <span className="truncate max-w-[200px]" title={kit.nome_evento || ''}>
+                          <span title={kit.nome_evento || ''}>
                             {kit.nome_evento || '—'}
                           </span>
                         </div>
                       </td>
-                      <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
-                        <span className="truncate max-w-[180px] block" title={kit.nome_kit || ''}>
+                      <td className={`px-3 py-2.5 text-left ${textSecondary}`}>
+                        <span title={kit.nome_kit || ''}>
                           {kit.nome_kit || '—'}
                         </span>
                       </td>
