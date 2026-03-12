@@ -1909,7 +1909,8 @@ const EventDetail: React.FC = () => {
         </h3>
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
-          const ticketAtual = event.averageTicket || 0;
+          const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
+          const ticketMedio = event.averageTicket || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
           const margemRealizada = event.margemRealizadaTotal || 0;
           const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
@@ -1918,13 +1919,14 @@ const EventDetail: React.FC = () => {
             : 0;
 
           const rows = [
-            { label: 'Atual', ticket: ticketAtual, isSeparator: false },
             { label: 'Ticket p/ Meta', ticket: ticketConvergencia, isSeparator: false },
+            { label: 'Atual', ticket: ticketKitConfig, isSeparator: false },
+            { label: 'Ticket Médio', ticket: ticketMedio, isSeparator: false },
             { label: 'Análise de sensibilidade', ticket: 0, isSeparator: true },
-            { label: 'Atual + 10%', ticket: ticketAtual * 1.10, isSeparator: false },
-            { label: 'Atual + 20%', ticket: ticketAtual * 1.20, isSeparator: false },
-            { label: 'Atual + 30%', ticket: ticketAtual * 1.30, isSeparator: false },
-            { label: 'Atual + 40%', ticket: ticketAtual * 1.40, isSeparator: false },
+            { label: 'Atual + 10%', ticket: ticketKitConfig * 1.10, isSeparator: false },
+            { label: 'Atual + 20%', ticket: ticketKitConfig * 1.20, isSeparator: false },
+            { label: 'Atual + 30%', ticket: ticketKitConfig * 1.30, isSeparator: false },
+            { label: 'Atual + 40%', ticket: ticketKitConfig * 1.40, isSeparator: false },
           ];
 
           return (
@@ -2003,32 +2005,30 @@ const EventDetail: React.FC = () => {
         </h3>
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
-          const ticketAtual = event.averageTicket || 0;
+          const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
           const volBase = Math.max(volumeParaMeta, 0);
-          const volGlobalBase = inscritosTotal;
           const margemReal = event.margemRealizadaTotal || 0;
           const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
-          const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
-          const labels = ['Vendas futuras -10%', 'Vendas futuras (real)', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
+          const multipliers = [0.90, 1.05, 1.10, 1.15, 1.20];
+          const labels = ['Vendas futuras -10%', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
 
           const rows = multipliers.map((mult, i) => {
             const volFuturo = Math.round(volBase * mult);
-            const volGlobal = volGlobalBase - volBase + volFuturo;
-            const margemAdicional = (volFuturo * ticketAtual) - (volFuturo * kitCost);
+            const volGlobal = inscritosTotal + volFuturo;
+            const margemAdicional = (volFuturo * ticketKitConfig) - (volFuturo * kitCost);
             const margemGlobal = margemAdicional + margemReal;
             const margemNominal = margemGlobal - metaMargemGlobal;
             const margemPct = metaMargemGlobal > 0 ? (margemNominal / metaMargemGlobal) * 100 : 0;
             return {
               label: labels[i],
               volFuturo,
-              ticket: ticketAtual,
+              ticket: ticketKitConfig,
               volGlobal,
               margemAdicional,
               margemGlobal,
               margemNominal,
               margemPct,
-              isBase: i === 1,
             };
           });
 
@@ -2051,16 +2051,12 @@ const EventDetail: React.FC = () => {
                   {rows.map((row) => (
                     <tr
                       key={row.label}
-                      className={`border-b border-gray-100 dark:border-gray-700/50 ${
-                        row.isBase
-                          ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                      }`}
+                      className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                     >
-                      <td className={`py-2.5 px-3 ${row.isBase ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
+                      <td className="py-2.5 px-3 text-gray-900 dark:text-white font-medium">
                         {row.label}
                       </td>
-                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                      <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
                         {formatNumber(row.volFuturo)}
                       </td>
                       <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
@@ -2075,11 +2071,11 @@ const EventDetail: React.FC = () => {
                       <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {formatCurrency(row.margemGlobal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-gray-400 dark:text-gray-500' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {row.isBase ? '-' : formatCurrency(row.margemNominal)}
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {formatCurrency(row.margemNominal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-purple-600 dark:text-purple-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {row.isBase ? '100%' : `${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {`${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
                       </td>
                     </tr>
                   ))}

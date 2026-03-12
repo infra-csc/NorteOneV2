@@ -706,6 +706,9 @@ const MarketingDashboard: React.FC = () => {
                   Vendas / Meta
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Ticket Atual
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   <div className="flex items-center justify-center gap-1">
                     ISC
                     <div className="group relative">
@@ -770,7 +773,7 @@ const MarketingDashboard: React.FC = () => {
                 </>
               ) : filteredEventos.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                     {eventos.length > 0 ? 'Nenhum evento encontrado com os filtros selecionados.' : 'Nenhum evento encontrado.'}
                   </td>
                 </tr>
@@ -834,6 +837,9 @@ const MarketingDashboard: React.FC = () => {
                         {Math.round((event.currentSales / event.salesGoal) * 100)}%
                       </p>
                     </div>
+                  </td>
+                  <td className="px-4 py-4 text-center text-sm font-medium text-gray-900 dark:text-white">
+                    {event.ticketAtual && event.ticketAtual > 0 ? formatCurrency(event.ticketAtual) : '—'}
                   </td>
                   <td className="px-4 py-4 text-center">
                     <div className="flex items-center justify-center gap-2">

@@ -438,6 +438,141 @@ def calculate_action_impact(db: Session, acao) -> dict:
         "impacto_percentual": round(impacto_percentual, 1)
     }
 
+_ticket_atual_cache: dict = {}
+_ticket_atual_cache_lock = _threading.Lock()
+
+def clear_ticket_atual_cache():
+    with _ticket_atual_cache_lock:
+        _ticket_atual_cache.clear()
+
+TICKET_ATUAL_QUERY = """
+SELECT
+    cpev1.value                         AS id_evento,
+    cpe_parent.entity_id                AS bundle_entity_id,
+    CASE
+        WHEN MAX(CASE 
+            WHEN cpep.value NOT IN (14.50)
+             AND cpev_simple.value NOT LIKE '%%Distancia%%'
+             AND cpev_simple.value NOT LIKE '%%Distância%%'
+            THEN cpep.value ELSE NULL 
+        END) IS NOT NULL
+        THEN lote.lot_value + MAX(CASE 
+            WHEN cpep.value NOT IN (14.50)
+             AND cpev_simple.value NOT LIKE '%%Distancia%%'
+             AND cpev_simple.value NOT LIKE '%%Distância%%'
+            THEN cpep.value ELSE NULL 
+        END)
+        ELSE MAX(CASE 
+            WHEN (cpev_simple.value LIKE '%%Distancia%%' OR cpev_simple.value LIKE '%%Distância%%')
+             AND cpep.value > 0
+            THEN cpep.value ELSE NULL 
+        END)
+    END                                 AS ticket_base
+FROM catalog_product_entity cpe_parent
+JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = cpe_parent.entity_id
+      AND cpev1.attribute_id = 321
+JOIN catalog_product_entity_datetime cped_date
+       ON cped_date.entity_id = cpev1.value
+      AND cped_date.attribute_id = 195
+JOIN catalog_product_bundle_option cpeo
+       ON cpeo.parent_id = cpe_parent.entity_id
+JOIN catalog_product_bundle_selection cpeos
+       ON cpeos.option_id = cpeo.option_id
+LEFT JOIN catalog_product_entity_varchar cpev_simple
+       ON cpev_simple.entity_id = cpeos.product_id
+      AND cpev_simple.attribute_id = 73
+LEFT JOIN catalog_product_entity_decimal cpep
+       ON cpep.entity_id = cpeos.product_id
+      AND cpep.attribute_id = 77
+JOIN catalog_product_entity_event_lot_price lote
+       ON lote.entity_id = cpev1.value
+      AND lote.lot_id = (
+            SELECT lot_id
+            FROM catalog_product_entity_event_lot_price
+            WHERE entity_id = cpev1.value
+            ORDER BY record_id DESC
+            LIMIT 1
+      )
+WHERE cpe_parent.type_id = 'bundle'
+  AND YEAR(cped_date.value) = YEAR(CURDATE())
+GROUP BY
+    cpev1.value,
+    cpe_parent.entity_id,
+    lote.lot_value
+ORDER BY cpev1.value
+"""
+
+
+def _fetch_ticket_atual_map(db: Session) -> dict:
+    if db_module.engine_magento is None:
+        return {}
+
+    from ...models.kit_config import KitConfig
+    all_configs = db.query(KitConfig).all()
+    config_map = {c.bundle_entity_id: c.multiplicador for c in all_configs}
+    if not config_map:
+        return {}
+
+    try:
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(text(TICKET_ATUAL_QUERY))
+            rows = result.fetchall()
+            columns = list(result.keys())
+    except Exception as e:
+        logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
+        return {}
+
+    evento_tickets: dict = {}
+    for row in rows:
+        row_dict = dict(zip(columns, row))
+        bundle_id = int(row_dict["bundle_entity_id"])
+        ticket_base = float(row_dict["ticket_base"]) if row_dict.get("ticket_base") is not None else None
+        id_evento = str(row_dict["id_evento"]) if row_dict.get("id_evento") is not None else None
+
+        if not id_evento or ticket_base is None:
+            continue
+
+        mult = config_map.get(bundle_id, 1)
+        ticket_final = ticket_base * mult
+        evento_tickets.setdefault(id_evento, []).append(ticket_final)
+
+    return {k: round(sum(v) / len(v), 2) for k, v in evento_tickets.items()}
+
+
+def _get_ticket_atual_map(db: Session) -> dict:
+    with _ticket_atual_cache_lock:
+        if _ticket_atual_cache:
+            return dict(_ticket_atual_cache)
+
+    result = _fetch_ticket_atual_map(db)
+    with _ticket_atual_cache_lock:
+        _ticket_atual_cache.clear()
+        _ticket_atual_cache.update(result)
+    return result
+
+
+def _get_ticket_atual_for_event(db: Session, ticket_map: dict, projetos_or_sku, sku_mappings_cache: dict = None) -> float:
+    if isinstance(projetos_or_sku, str):
+        skus = [projetos_or_sku]
+    elif isinstance(projetos_or_sku, list):
+        skus = [str(p.codigo) for p in projetos_or_sku if p.codigo]
+    else:
+        skus = [str(projetos_or_sku.codigo)] if projetos_or_sku.codigo else []
+
+    tickets = []
+    for sku in skus:
+        mappings = sku_mappings_cache.get(sku.upper().strip()) if sku_mappings_cache else None
+        if mappings is None:
+            mappings = _wq_sku_mappings_by_sku(db, sku)
+        for m in mappings:
+            if m.fonte == 'ATIVO' and m.id_externo:
+                id_evt = str(m.id_externo)
+                if id_evt in ticket_map:
+                    tickets.append(ticket_map[id_evt])
+    return round(sum(tickets) / len(tickets), 2) if tickets else 0.0
+
+
 router = APIRouter(prefix="/marketing", tags=["Marketing ISC"])
 
 class ISCComponents(BaseModel):
@@ -489,6 +624,7 @@ class MarketingEvent(BaseModel):
     margemRealizadaUnit: float = 0.0
     margemRealizadaTotal: float = 0.0
     margemRealizadaPct: float = 0.0
+    ticketAtual: float = 0.0
 
 class DashboardSummary(BaseModel):
     totalActiveEvents: int
@@ -1869,6 +2005,7 @@ def get_marketing_events(
     
     active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
     kit_costs_batch = get_kit_basico_costs_batch(db, all_projeto_ids) if all_projeto_ids else {}
+    ticket_atual_map = _get_ticket_atual_map(db)
     
     all_projetos_flat = []
     for proj_list in grupo_projetos.values():
@@ -1994,6 +2131,8 @@ def get_marketing_events(
         grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
                                             avg_ticket, current_sales, current_receita)
         
+        grupo_ticket_atual = _get_ticket_atual_for_event(db, ticket_atual_map, proj_list)
+        
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
             name=grupo.nome,
@@ -2014,6 +2153,7 @@ def get_marketing_events(
             activeAction=grupo_active_action,
             isActive=is_active,
             sku=",".join(skus_list),
+            ticketAtual=grupo_ticket_atual,
             **grupo_margin
         )
         eventos.append(evento)
@@ -2084,6 +2224,8 @@ def get_marketing_events(
         standalone_margin = _calc_margin_fields(standalone_budget_ticket, standalone_kit_cost, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
         
+        standalone_ticket_atual = _get_ticket_atual_for_event(db, ticket_atual_map, sku)
+        
         evento = MarketingEvent(
             id=str(projeto.id),
             name=evento_nome,
@@ -2104,6 +2246,7 @@ def get_marketing_events(
             activeAction=standalone_active_action,
             isActive=is_active,
             sku=sku,
+            ticketAtual=standalone_ticket_atual,
             **standalone_margin
         )
         eventos.append(evento)
@@ -4783,6 +4926,9 @@ def get_marketing_event_by_id(
         detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
                                              avg_ticket, current_sales, current_receita)
         
+        detail_ticket_atual_map = _get_ticket_atual_map(db)
+        detail_ticket_atual = _get_ticket_atual_for_event(db, detail_ticket_atual_map, projetos)
+        
         evento = MarketingEvent(
             id=evento_id,
             name=grupo.nome,
@@ -4802,6 +4948,7 @@ def get_marketing_event_by_id(
             suggestedAction=suggested_action,
             isActive=is_active,
             sku=",".join(skus),
+            ticketAtual=detail_ticket_atual,
             **detail_margin
         )
         
@@ -5022,6 +5169,9 @@ def get_marketing_event_by_id(
     detail_sa_margin = _calc_margin_fields(detail_standalone_bt, detail_sa_kit_cost, sales_goal,
                                             avg_ticket, current_sales, current_receita)
     
+    sa_ticket_atual_map = _get_ticket_atual_map(db)
+    sa_detail_ticket_atual = _get_ticket_atual_for_event(db, sa_ticket_atual_map, sku)
+    
     evento = MarketingEvent(
         id=str(projeto.id),
         name=projeto_nome,
@@ -5041,6 +5191,7 @@ def get_marketing_event_by_id(
         suggestedAction=suggested_action,
         isActive=is_active,
         sku=sku,
+        ticketAtual=sa_detail_ticket_atual,
         **detail_sa_margin
     )
     

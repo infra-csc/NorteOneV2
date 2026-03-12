@@ -182,11 +182,14 @@ def upsert_kit_config(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
 ):
+    from .marketing import clear_ticket_atual_cache
+
     existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == bundle_entity_id).first()
     if existing:
         existing.multiplicador = body.multiplicador
         db.commit()
         db.refresh(existing)
+        clear_ticket_atual_cache()
         return existing
 
     new_config = KitConfig(
@@ -196,6 +199,7 @@ def upsert_kit_config(
     db.add(new_config)
     db.commit()
     db.refresh(new_config)
+    clear_ticket_atual_cache()
     return new_config
 
 

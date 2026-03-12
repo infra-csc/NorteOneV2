@@ -530,6 +530,7 @@ export interface MarketingEvent {
   margemRealizadaUnit?: number;
   margemRealizadaTotal?: number;
   margemRealizadaPct?: number;
+  ticketAtual?: number;
 }
 
 export interface MarketingDashboardSummary {
