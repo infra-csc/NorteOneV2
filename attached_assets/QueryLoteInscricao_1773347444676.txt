@@ -1,0 +1,100 @@
+SELECT
+    cpev1.value                         AS "id_evento",
+    cpev_kit.value                      AS "nome_evento",
+    cpe_parent.entity_id                AS "bundle_entity_id",
+    cpev_kit_name.value                 AS "nome_kit",
+    lote.lot_name                       AS "lote_atual",
+    lote.lot_value                      AS "preco_lote",
+    lote.lot_sell_ends                  AS "lote_termina_em",
+
+    COALESCE(MAX(CASE 
+        WHEN cpep.value NOT IN (14.50)
+         AND cpev_simple.value NOT LIKE '%Distancia%'
+         AND cpev_simple.value NOT LIKE '%Distância%'
+        THEN cpep.value 
+        ELSE NULL 
+    END), 0)                            AS "preco_adicional_kit",
+
+    CASE
+        WHEN MAX(CASE 
+            WHEN cpep.value NOT IN (14.50)
+             AND cpev_simple.value NOT LIKE '%Distancia%'
+             AND cpev_simple.value NOT LIKE '%Distância%'
+            THEN cpep.value ELSE NULL 
+        END) IS NOT NULL
+        THEN lote.lot_value + MAX(CASE 
+            WHEN cpep.value NOT IN (14.50)
+             AND cpev_simple.value NOT LIKE '%Distancia%'
+             AND cpev_simple.value NOT LIKE '%Distância%'
+            THEN cpep.value ELSE NULL 
+        END)
+        ELSE MAX(CASE 
+            WHEN (cpev_simple.value LIKE '%Distancia%' OR cpev_simple.value LIKE '%Distância%')
+             AND cpep.value > 0
+            THEN cpep.value ELSE NULL 
+        END)
+    END                                 AS "ticket_base",
+
+    GROUP_CONCAT(DISTINCT CASE 
+        WHEN (cpev_simple.value LIKE '%Distancia%' OR cpev_simple.value LIKE '%Distância%')
+        THEN cpev_simple.value 
+        ELSE NULL 
+    END ORDER BY cpev_simple.value SEPARATOR ' | ') AS "distancias"
+
+FROM catalog_product_entity cpe_parent
+
+JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = cpe_parent.entity_id
+      AND cpev1.attribute_id = 321
+
+JOIN catalog_product_entity_varchar cpev_kit_name
+       ON cpev_kit_name.entity_id = cpe_parent.entity_id
+      AND cpev_kit_name.attribute_id = 73
+
+JOIN catalog_product_entity_varchar cpev_kit
+       ON cpev_kit.entity_id = cpev1.value
+      AND cpev_kit.attribute_id = 73
+
+JOIN catalog_product_entity_datetime cped_date
+       ON cped_date.entity_id = cpev1.value
+      AND cped_date.attribute_id = 195
+
+JOIN catalog_product_bundle_option cpeo
+       ON cpeo.parent_id = cpe_parent.entity_id
+
+JOIN catalog_product_bundle_selection cpeos
+       ON cpeos.option_id = cpeo.option_id
+
+LEFT JOIN catalog_product_entity_varchar cpev_simple
+       ON cpev_simple.entity_id = cpeos.product_id
+      AND cpev_simple.attribute_id = 73
+
+LEFT JOIN catalog_product_entity_decimal cpep
+       ON cpep.entity_id = cpeos.product_id
+      AND cpep.attribute_id = 77
+
+JOIN catalog_product_entity_event_lot_price lote
+       ON lote.entity_id = cpev1.value
+      AND lote.lot_id = (
+            SELECT lot_id
+            FROM catalog_product_entity_event_lot_price
+            WHERE entity_id = cpev1.value
+            ORDER BY record_id DESC
+            LIMIT 1
+      )
+
+WHERE cpe_parent.type_id = 'bundle'
+  AND YEAR(cped_date.value) = YEAR(CURDATE()) -- Filtra o ano atual
+
+GROUP BY
+    cpev1.value,
+    cpev_kit.value,
+    cpe_parent.entity_id,
+    cpev_kit_name.value,
+    lote.lot_name,
+    lote.lot_value,
+    lote.lot_sell_ends
+
+ORDER BY
+    cpev1.value,
+    ticket_base

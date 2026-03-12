@@ -21,11 +21,6 @@ interface DailySalesTableProps {
   salesGoal?: number;
 }
 
-const fmt = (v: number | undefined | null, decimals = 1): string => {
-  if (v == null || isNaN(v)) return '—';
-  return v.toFixed(decimals);
-};
-
 const fmtInt = (v: number | undefined | null): string => {
   if (v == null || isNaN(v)) return '—';
   return Math.round(v).toLocaleString('pt-BR');
@@ -137,18 +132,24 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
             <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Vendas Global</span>
             <p className={`text-xl font-bold mt-1 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{fmtInt(globalMetrics.vendasGlobal)}</p>
           </div>
-          <div className={`rounded-lg p-4 border ${
-            globalMetrics.atingGlobal >= 100
-              ? (isDark ? 'bg-emerald-900/20 border-emerald-800' : 'bg-emerald-50 border-emerald-200')
-              : (isDark ? 'bg-orange-900/20 border-orange-800' : 'bg-orange-50 border-orange-200')
-          }`}>
-            <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ating. Global</span>
-            <p className={`text-xl font-bold mt-1 ${
-              globalMetrics.atingGlobal >= 100
-                ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
-                : (isDark ? 'text-orange-400' : 'text-orange-600')
-            }`}>{fmtPct(globalMetrics.atingGlobal)}</p>
-          </div>
+          {(() => {
+            const delta = globalMetrics.atingGlobal - 100;
+            const isPositive = delta >= 0;
+            return (
+              <div className={`rounded-lg p-4 border ${
+                isPositive
+                  ? (isDark ? 'bg-emerald-900/20 border-emerald-800' : 'bg-emerald-50 border-emerald-200')
+                  : (isDark ? 'bg-red-900/20 border-red-800' : 'bg-red-50 border-red-200')
+              }`}>
+                <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ating. Global</span>
+                <p className={`text-xl font-bold mt-1 ${
+                  isPositive
+                    ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
+                    : (isDark ? 'text-red-400' : 'text-red-600')
+                }`}>{isPositive ? '+' : ''}{delta.toFixed(1).replace('.', ',')}%</p>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -239,7 +240,7 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
                       {row.dMinus ?? '—'}
                     </td>
                     <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
-                      {fmt(row.expected)}
+                      {fmtInt(row.expected)}
                     </td>
                     <td className={`px-3 py-2.5 text-right text-sm font-bold whitespace-nowrap ${textPrimary}`}>
                       {fmtInt(row.sales)}
@@ -248,7 +249,7 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
                       {fmtPct(row.atingimentoDiario)}
                     </td>
                     <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
-                      {fmt(row.cumulativeExpected)}
+                      {fmtInt(row.cumulativeExpected)}
                     </td>
                     <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textSecondary}`}>
                       {fmtInt(row.cumulativeSales)}
@@ -269,12 +270,12 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
                 }`}>
                   <td className="px-3 py-3 text-left whitespace-nowrap">Total / Resumo</td>
                   <td className="px-3 py-3 text-right">—</td>
-                  <td className="px-3 py-3 text-right">{fmt(totals.totalExpected)}</td>
+                  <td className="px-3 py-3 text-right">{fmtInt(totals.totalExpected)}</td>
                   <td className="px-3 py-3 text-right">{fmtInt(totals.totalSales)}</td>
                   <td className={`px-3 py-3 text-right ${colorClass(totals.avgAtingDia, isDark)}`}>
                     {totals.avgAtingDia != null ? `μ ${fmtPct(totals.avgAtingDia)}` : '—'}
                   </td>
-                  <td className="px-3 py-3 text-right">{fmt(totals.finalCumExpected)}</td>
+                  <td className="px-3 py-3 text-right">{fmtInt(totals.finalCumExpected)}</td>
                   <td className="px-3 py-3 text-right">{fmtInt(totals.finalCumSales)}</td>
                   <td className={`px-3 py-3 text-right ${colorClass(totals.finalAtingAcum, isDark)}`}>{fmtPct(totals.finalAtingAcum)}</td>
                 </tr>
