@@ -216,6 +216,7 @@ const KitConfig: React.FC = () => {
                   const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
                   const computedFinal = kit.ticket_base != null ? kit.ticket_base * editMult : null;
                   const hasChanged = editMult !== kit.multiplicador;
+                  const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
 
@@ -289,9 +290,9 @@ const KitConfig: React.FC = () => {
                         ) : (
                           <button
                             onClick={() => handleSave(kit.bundle_entity_id)}
-                            disabled={isSaving || !hasChanged}
+                            disabled={isSaving || !canSave}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                              hasChanged
+                              canSave
                                 ? isDark
                                   ? 'bg-blue-600 text-white hover:bg-blue-500'
                                   : 'bg-blue-500 text-white hover:bg-blue-600'
