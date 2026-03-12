@@ -78,6 +78,7 @@ const EventDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
+  const [showMargemInfo, setShowMargemInfo] = useState(false);
   const [actionForm, setActionForm] = useState({
     tipo: 'PROMOCAO',
     descricao: '',
@@ -1988,6 +1989,13 @@ const EventDetail: React.FC = () => {
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <Target className="w-4 h-4 text-amber-500" />
             Análise de Margem
+            <button
+              onClick={() => setShowMargemInfo(true)}
+              className="ml-auto p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Ver composição da margem"
+            >
+              <Info className="w-4 h-4 text-gray-400 hover:text-blue-500 dark:hover:text-blue-400" />
+            </button>
           </h3>
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
@@ -2028,6 +2036,109 @@ const EventDetail: React.FC = () => {
             );
           })()}
         </div>
+
+        {showMargemInfo && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowMargemInfo(false)}>
+            <div className="absolute inset-0 bg-black/50" />
+            <div
+              className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-lg max-h-[90vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-5 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Info className="w-5 h-5 text-blue-500" />
+                  Composição da Margem
+                </h2>
+                <button
+                  onClick={() => setShowMargemInfo(false)}
+                  className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-6">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-gray-500" />
+                    Margem Orçada
+                  </h3>
+                  {event.budgetTicket > 0 && (event.kitCostPerUnit || 0) > 0 ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span className="text-gray-500 dark:text-gray-400">Ticket Orçado</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.budgetTicket)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span className="text-gray-500 dark:text-gray-400">(-) Custo Kit</span>
+                        <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(event.kitCostPerUnit || 0)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                        <span className="text-blue-700 dark:text-blue-300 font-medium">= Margem / Unidade</span>
+                        <span className="font-bold text-blue-700 dark:text-blue-300">{formatCurrency(event.margemOrcadaUnit || 0)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span className="text-gray-500 dark:text-gray-400">(×) Meta de Inscrições</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.salesGoal)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
+                        <span className="text-gray-800 dark:text-gray-200 font-semibold">= Margem Orçada Total</span>
+                        <div className="text-right">
+                          <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(event.margemOrcadaTotal || 0)}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({event.margemOrcadaPct || 0}%)</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 dark:text-gray-500 italic p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                      Dados insuficientes — ticket orçado ou custo kit não configurados
+                    </p>
+                  )}
+                </div>
+
+                <div className="border-t border-gray-200 dark:border-gray-700" />
+
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    Margem Realizada
+                  </h3>
+                  {event.currentSales > 0 && event.averageTicket > 0 ? (
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span className="text-gray-500 dark:text-gray-400">Ticket Médio Real</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.averageTicket)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span className="text-gray-500 dark:text-gray-400">(-) Custo Kit</span>
+                        <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(event.kitCostPerUnit || 0)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                        <span className="text-green-700 dark:text-green-300 font-medium">= Margem / Unidade</span>
+                        <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(event.margemRealizadaUnit || 0)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                        <span className="text-gray-500 dark:text-gray-400">(×) Inscrições Atuais</span>
+                        <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.currentSales)}</span>
+                      </div>
+                      <div className="flex justify-between p-2.5 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
+                        <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Realizada Total</span>
+                        <div className="text-right">
+                          <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(event.margemRealizadaTotal || 0)}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({event.margemRealizadaPct || 0}%)</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 dark:text-gray-500 italic p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                      Dados insuficientes — nenhuma inscrição registrada
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
