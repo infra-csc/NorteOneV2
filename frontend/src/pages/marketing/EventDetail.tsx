@@ -47,7 +47,6 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import EventInsights from './EventInsights';
 import EventSimulator from './EventSimulator';
-import EventPricing from './EventPricing';
 import DailySalesTable from './DailySalesTable';
 
 interface CommercialAction {
@@ -97,7 +96,7 @@ const EventDetail: React.FC = () => {
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'pricing' | 'projection' | 'complementares' | 'controle'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'complementares' | 'controle'>('dashboard');
   const [curvaLoading, setCurvaLoading] = useState(false);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
@@ -753,26 +752,6 @@ const EventDetail: React.FC = () => {
           Simulador
         </button>
         <button
-          onClick={() => setActiveTab('pricing')}
-          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
-            activeTab === 'pricing'
-              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-          }`}
-        >
-          Pricing
-        </button>
-        <button
-          onClick={() => setActiveTab('projection')}
-          className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
-            activeTab === 'projection'
-              ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 border border-b-0 border-gray-200 dark:border-gray-700'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-          }`}
-        >
-          Projeção
-        </button>
-        <button
           onClick={() => setActiveTab('complementares')}
           className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
             activeTab === 'complementares'
@@ -795,9 +774,7 @@ const EventDetail: React.FC = () => {
         </button>
       </div>
 
-      {activeTab === 'pricing' ? (
-        <EventPricing eventoId={id!} ano={anoParam} />
-      ) : activeTab === 'simulator' ? (
+      {activeTab === 'simulator' ? (
         <EventSimulator eventoId={id!} ano={anoParam ?? new Date().getFullYear()} isDark={isDark} />
       ) : activeTab === 'controle' ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -806,6 +783,7 @@ const EventDetail: React.FC = () => {
             dailySales={event.dailySales || []}
             isDark={isDark}
             eventName={event.name}
+            salesGoal={event.salesGoal}
           />
         </div>
       ) : activeTab === 'complementares' ? (
@@ -1207,269 +1185,6 @@ const EventDetail: React.FC = () => {
 
           <EventInsights eventoId={id!} ano={anoParam} />
         </div>
-      ) : activeTab === 'projection' ? (
-        (() => {
-          const periodos = [3, 7, 14];
-          const cenarios = periodos.map(dias => {
-            const vendas = (event.dailySales || []).slice(-dias);
-            const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
-            const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
-            const projecaoLinear = media * dMinusCalc;
-            const saldoMeta = Math.max(volumeParaMeta, 0);
-            const projecaoVsSaldo = saldoMeta > 0 ? (projecaoLinear / saldoMeta) - 1 : (projecaoLinear > 0 ? 1 : 0);
-            const volumeGlobal = projecaoLinear + inscritosTotal;
-            const volumeVsMeta = event.salesGoal > 0 ? (volumeGlobal / event.salesGoal) - 1 : 0;
-            return {
-              label: `${dias} dias`,
-              media: Math.round(media * 10) / 10,
-              projecaoLinear: Math.round(projecaoLinear),
-              projecaoVsSaldo: Math.round(projecaoVsSaldo * 1000) / 10,
-              volumeGlobal: Math.round(volumeGlobal),
-              volumeVsMeta: Math.round(volumeVsMeta * 1000) / 10,
-            };
-          });
-          return (
-            <div className="space-y-6">
-              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                  Projeção para visualização de cenários
-                </h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Dias Restantes (Inscrições)</span>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-1">{dMinusCalc}</p>
-                  </div>
-                  {cenarios.map(c => (
-                    <div key={c.label} className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
-                      <span className="text-xs text-gray-500 dark:text-gray-400">Média {c.label}</span>
-                      <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">{c.media}</p>
-                      <span className="text-xs text-gray-400">vendas/dia</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-200 dark:border-gray-700">
-                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Média Vendas</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Projeção Linear</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Projeção × Saldo Meta</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Global Projetado</th>
-                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Global × Meta</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cenarios.map(c => (
-                        <tr key={c.label} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                          <td className="py-2.5 px-3 text-gray-900 dark:text-white font-medium">{c.label}</td>
-                          <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{c.media}</td>
-                          <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(c.projecaoLinear)}</td>
-                          <td className={`py-2.5 px-3 text-right font-semibold ${c.projecaoVsSaldo >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {c.projecaoVsSaldo >= 0 ? '+' : ''}{c.projecaoVsSaldo}%
-                          </td>
-                          <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300 font-semibold">{formatNumber(c.volumeGlobal)}</td>
-                          <td className={`py-2.5 px-3 text-right font-semibold ${c.volumeVsMeta >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                            {c.volumeVsMeta >= 0 ? '+' : ''}{c.volumeVsMeta}%
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700 mt-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                  Por variação de ticket (no volume da meta)
-                </h3>
-                {(() => {
-                  const kitCost = event.kitCostPerUnit || 0;
-                  const ticketAtual = event.averageTicket || 0;
-                  const volRestante = Math.max(volumeParaMeta, 0);
-                  const margemRealizada = event.margemRealizadaTotal || 0;
-                  const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-                  const ticketConvergencia = volRestante > 0 && metaMargem > 0
-                    ? Math.max(0, ((metaMargem - margemRealizada) / volRestante) + kitCost)
-                    : 0;
-
-                  const rows = [
-                    { label: 'Atual', ticket: ticketAtual, isSeparator: false },
-                    { label: 'Ticket p/ Meta', ticket: ticketConvergencia, isSeparator: false },
-                    { label: 'Análise de sensibilidade', ticket: 0, isSeparator: true },
-                    { label: 'Atual + 10%', ticket: ticketAtual * 1.10, isSeparator: false },
-                    { label: 'Atual + 20%', ticket: ticketAtual * 1.20, isSeparator: false },
-                    { label: 'Atual + 30%', ticket: ticketAtual * 1.30, isSeparator: false },
-                    { label: 'Atual + 40%', ticket: ticketAtual * 1.40, isSeparator: false },
-                  ];
-
-                  return (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-gray-200 dark:border-gray-700">
-                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket vendas futuras</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Restante</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Adicional</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Global</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Nominal</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((row) => {
-                            if (row.isSeparator) {
-                              return (
-                                <tr key={row.label} className="bg-gray-100 dark:bg-gray-700/60">
-                                  <td colSpan={7} className="py-2 px-3 text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-                                    {row.label}
-                                  </td>
-                                </tr>
-                              );
-                            }
-                            const margemAdicional = (volRestante * row.ticket) - (kitCost * volRestante);
-                            const margemGlobal = margemAdicional + margemRealizada;
-                            const margemNominal = margemGlobal - metaMargem;
-                            const margemPct = metaMargem > 0 ? (margemNominal / metaMargem) * 100 : 0;
-                            const isConvergencia = row.label === 'Ticket p/ Meta';
-                            return (
-                              <tr
-                                key={row.label}
-                                className={`border-b border-gray-100 dark:border-gray-700/50 ${
-                                  isConvergencia
-                                    ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
-                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                                }`}
-                              >
-                                <td className={`py-2.5 px-3 ${isConvergencia ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
-                                  {row.label}
-                                </td>
-                                <td className={`py-2.5 px-3 text-right ${isConvergencia ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
-                                  {formatCurrency(row.ticket)}
-                                </td>
-                                <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
-                                  {formatNumber(volRestante)}
-                                </td>
-                                <td className={`py-2.5 px-3 text-right ${margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {formatCurrency(margemAdicional)}
-                                </td>
-                                <td className={`py-2.5 px-3 text-right ${margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {formatCurrency(margemGlobal)}
-                                </td>
-                                <td className={`py-2.5 px-3 text-right font-semibold ${isConvergencia ? 'text-gray-400 dark:text-gray-500' : margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {isConvergencia ? '-' : formatCurrency(margemNominal)}
-                                </td>
-                                <td className={`py-2.5 px-3 text-right font-semibold ${isConvergencia ? 'text-purple-600 dark:text-purple-400' : margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {isConvergencia ? '100%' : `${margemPct >= 0 ? '+' : ''}${Math.round(margemPct * 10) / 10}%`}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700 mt-6">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-                  Por variação de volume (no ticket atual)
-                </h3>
-                {(() => {
-                  const kitCost = event.kitCostPerUnit || 0;
-                  const ticketAtual = event.averageTicket || 0;
-                  const volBase = Math.max(volumeParaMeta, 0);
-                  const volGlobalBase = inscritosTotal;
-                  const margemReal = event.margemRealizadaTotal || 0;
-                  const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-
-                  const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
-                  const labels = ['Vendas futuras -10%', 'Vendas futuras (real)', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
-
-                  const rows = multipliers.map((mult, i) => {
-                    const volFuturo = Math.round(volBase * mult);
-                    const volGlobal = volGlobalBase - volBase + volFuturo;
-                    const margemAdicional = (volFuturo * ticketAtual) - (volFuturo * kitCost);
-                    const margemGlobal = margemAdicional + margemReal;
-                    const margemNominal = margemGlobal - metaMargemGlobal;
-                    const margemPct = metaMargemGlobal > 0 ? (margemNominal / metaMargemGlobal) * 100 : 0;
-                    return {
-                      label: labels[i],
-                      volFuturo,
-                      ticket: ticketAtual,
-                      volGlobal,
-                      margemAdicional,
-                      margemGlobal,
-                      margemNominal,
-                      margemPct,
-                      isBase: i === 1,
-                    };
-                  });
-
-                  return (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-gray-200 dark:border-gray-700">
-                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Volume vendas futuras</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Restante</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Volume Global</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Adicional</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Global</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Nominal</th>
-                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((row) => (
-                            <tr
-                              key={row.label}
-                              className={`border-b border-gray-100 dark:border-gray-700/50 ${
-                                row.isBase
-                                  ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
-                                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                              }`}
-                            >
-                              <td className={`py-2.5 px-3 ${row.isBase ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
-                                {row.label}
-                              </td>
-                              <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
-                                {formatNumber(row.volFuturo)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
-                                {formatCurrency(row.ticket)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300 font-semibold">
-                                {formatNumber(row.volGlobal)}
-                              </td>
-                              <td className={`py-2.5 px-3 text-right ${row.margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {formatCurrency(row.margemAdicional)}
-                              </td>
-                              <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {formatCurrency(row.margemGlobal)}
-                              </td>
-                              <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-gray-400 dark:text-gray-500' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {row.isBase ? '-' : formatCurrency(row.margemNominal)}
-                              </td>
-                              <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-purple-600 dark:text-purple-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                {row.isBase ? '100%' : `${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          );
-        })()
       ) : (
       <>
       <div className={`rounded-xl px-4 py-2 shadow-sm border flex flex-wrap items-center gap-3 ${getRecommendationStyle()}`}>
@@ -2189,44 +1904,147 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <Target className="w-4 h-4 text-purple-500" />
-          Caminhos para Meta Margem
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+          Por variação de ticket (no volume da meta)
         </h3>
         {(() => {
-          const base = Math.max(volumeParaMeta, 0);
-          const kitCostCaminho = event.kitCostPerUnit || 0;
-          const metaMargemTotal = event.budgetTicket > 0 && kitCostCaminho > 0 ? (event.budgetTicket - kitCostCaminho) * event.salesGoal : 0;
-          const margAcumCaminho = event.margemRealizadaTotal || 0;
-          const ticketBase = base > 0 && metaMargemTotal > 0
-            ? Math.max(0, ((metaMargemTotal - margAcumCaminho) / base) - kitCostCaminho)
+          const kitCost = event.kitCostPerUnit || 0;
+          const ticketAtual = event.averageTicket || 0;
+          const volRestante = Math.max(volumeParaMeta, 0);
+          const margemRealizada = event.margemRealizadaTotal || 0;
+          const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
+          const ticketConvergencia = volRestante > 0 && metaMargem > 0
+            ? Math.max(0, ((metaMargem - margemRealizada) / volRestante) + kitCost)
             : 0;
-          const inscMultipliers = [0.81, 0.90, 1.00, 1.10, 1.21];
-          const ticketMultipliers = [1.21, 1.10, 1.00, 0.90, 0.81];
-          const labels = ['Cenário 1', 'Cenário 2', 'Volume p/ Meta', 'Cenário 4', 'Cenário 5'];
-          const ticketBase5 = ticketBase * 1.05;
-          const ticketBase10 = ticketBase * 1.10;
-          const margemGlobalBase = metaMargemTotal > 0 ? metaMargemTotal : 0;
-          const margemGlobal5 = margemGlobalBase * 1.05;
-          const margemGlobal10 = margemGlobalBase * 1.10;
-          const rows = labels.map((label, i) => ({
-            label,
-            inscritos: Math.round(base * inscMultipliers[i]),
-            ticket: ticketBase * ticketMultipliers[i],
-            ticket5: ticketBase5 * ticketMultipliers[i],
-            ticket10: ticketBase10 * ticketMultipliers[i],
-            isBase: i === 2,
-          }));
+
+          const rows = [
+            { label: 'Atual', ticket: ticketAtual, isSeparator: false },
+            { label: 'Ticket p/ Meta', ticket: ticketConvergencia, isSeparator: false },
+            { label: 'Análise de sensibilidade', ticket: 0, isSeparator: true },
+            { label: 'Atual + 10%', ticket: ticketAtual * 1.10, isSeparator: false },
+            { label: 'Atual + 20%', ticket: ticketAtual * 1.20, isSeparator: false },
+            { label: 'Atual + 30%', ticket: ticketAtual * 1.30, isSeparator: false },
+            { label: 'Atual + 40%', ticket: ticketAtual * 1.40, isSeparator: false },
+          ];
+
           return (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
-                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Cenário</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Inscrições Totais</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Margem</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Margem +5%</th>
-                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Margem +10%</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket vendas futuras</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Vol. Restante</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Adicional</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Global</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Nominal</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    if (row.isSeparator) {
+                      return (
+                        <tr key={row.label} className="bg-gray-100 dark:bg-gray-700/60">
+                          <td colSpan={7} className="py-2 px-3 text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                            {row.label}
+                          </td>
+                        </tr>
+                      );
+                    }
+                    const margemAdicional = (volRestante * row.ticket) - (kitCost * volRestante);
+                    const margemGlobal = margemAdicional + margemRealizada;
+                    const margemNominal = margemGlobal - metaMargem;
+                    const margemPct = metaMargem > 0 ? (margemNominal / metaMargem) * 100 : 0;
+                    const isConvergencia = row.label === 'Ticket p/ Meta';
+                    return (
+                      <tr
+                        key={row.label}
+                        className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                          isConvergencia
+                            ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                        }`}
+                      >
+                        <td className={`py-2.5 px-3 ${isConvergencia ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
+                          {row.label}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right ${isConvergencia ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                          {formatCurrency(row.ticket)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
+                          {formatNumber(volRestante)}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right ${margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {formatCurrency(margemAdicional)}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right ${margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {formatCurrency(margemGlobal)}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-semibold ${isConvergencia ? 'text-gray-400 dark:text-gray-500' : margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {isConvergencia ? '-' : formatCurrency(margemNominal)}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-semibold ${isConvergencia ? 'text-purple-600 dark:text-purple-400' : margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                          {isConvergencia ? '100%' : `${margemPct >= 0 ? '+' : ''}${Math.round(margemPct * 10) / 10}%`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+          Por variação de volume (no ticket atual)
+        </h3>
+        {(() => {
+          const kitCost = event.kitCostPerUnit || 0;
+          const ticketAtual = event.averageTicket || 0;
+          const volBase = Math.max(volumeParaMeta, 0);
+          const volGlobalBase = inscritosTotal;
+          const margemReal = event.margemRealizadaTotal || 0;
+          const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
+
+          const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
+          const labels = ['Vendas futuras -10%', 'Vendas futuras (real)', 'Vendas futuras +5%', 'Vendas futuras +10%', 'Vendas futuras +15%', 'Vendas futuras +20%'];
+
+          const rows = multipliers.map((mult, i) => {
+            const volFuturo = Math.round(volBase * mult);
+            const volGlobal = volGlobalBase - volBase + volFuturo;
+            const margemAdicional = (volFuturo * ticketAtual) - (volFuturo * kitCost);
+            const margemGlobal = margemAdicional + margemReal;
+            const margemNominal = margemGlobal - metaMargemGlobal;
+            const margemPct = metaMargemGlobal > 0 ? (margemNominal / metaMargemGlobal) * 100 : 0;
+            return {
+              label: labels[i],
+              volFuturo,
+              ticket: ticketAtual,
+              volGlobal,
+              margemAdicional,
+              margemGlobal,
+              margemNominal,
+              margemPct,
+              isBase: i === 1,
+            };
+          });
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Volume vendas futuras</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Restante</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Volume Global</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Adicional</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Global</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Nominal</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem %</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2239,37 +2057,32 @@ const EventDetail: React.FC = () => {
                           : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
                       }`}
                     >
-                      <td className={`py-2.5 px-3 ${row.isBase ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'}`}>
+                      <td className={`py-2.5 px-3 ${row.isBase ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
                         {row.label}
                       </td>
                       <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {formatNumber(row.inscritos)}
+                        {formatNumber(row.volFuturo)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                      <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
                         {formatCurrency(row.ticket)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {formatCurrency(row.ticket5)}
+                      <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300 font-semibold">
+                        {formatNumber(row.volGlobal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right ${row.isBase ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
-                        {formatCurrency(row.ticket10)}
+                      <td className={`py-2.5 px-3 text-right ${row.margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {formatCurrency(row.margemAdicional)}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {formatCurrency(row.margemGlobal)}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-gray-400 dark:text-gray-500' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {row.isBase ? '-' : formatCurrency(row.margemNominal)}
+                      </td>
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isBase ? 'text-purple-600 dark:text-purple-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {row.isBase ? '100%' : `${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
                       </td>
                     </tr>
                   ))}
-                  <tr className="bg-gray-100 dark:bg-gray-700/60">
-                    <td colSpan={2} className="py-2 px-3 text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-                      Margem Global
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-gray-700 dark:text-gray-300">
-                      {formatCurrency(margemGlobalBase)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-gray-700 dark:text-gray-300">
-                      {formatCurrency(margemGlobal5)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-gray-700 dark:text-gray-300">
-                      {formatCurrency(margemGlobal10)}
-                    </td>
-                  </tr>
                 </tbody>
               </table>
             </div>

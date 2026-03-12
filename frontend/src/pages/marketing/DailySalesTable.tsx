@@ -18,6 +18,7 @@ interface DailySalesTableProps {
   dailySales: DailySaleRow[];
   isDark: boolean;
   eventName?: string;
+  salesGoal?: number;
 }
 
 const fmt = (v: number | undefined | null, decimals = 1): string => {
@@ -46,7 +47,7 @@ const colorClass = (v: number | undefined | null, isDark: boolean): string => {
   return v > 0 ? 'text-emerald-400' : 'text-red-400';
 };
 
-const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, eventName }) => {
+const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, eventName, salesGoal }) => {
   const [sortAsc, setSortAsc] = useState(false);
 
   const sortedData = useMemo(() => {
@@ -61,6 +62,7 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
   const totals = useMemo(() => {
     if (!dailySales.length) return null;
     const totalSales = dailySales.reduce((s, d) => s + d.sales, 0);
+    const totalExpected = dailySales.reduce((s, d) => s + (d.expected || 0), 0);
     const lastRow = dailySales[dailySales.length - 1];
     const avgDailyAtingimento = dailySales.filter(d => d.atingimentoDiario != null && isFinite(d.atingimentoDiario!));
     const avgAtDia = avgDailyAtingimento.length > 0
@@ -68,28 +70,37 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
       : null;
     return {
       totalSales,
+      totalExpected,
       finalCumSales: lastRow?.cumulativeSales ?? totalSales,
       finalCumExpected: lastRow?.cumulativeExpected,
-      finalDif: lastRow?.dif,
       finalAtingAcum: lastRow?.atingimentoAcumulado,
       avgAtingDia: avgAtDia,
       days: dailySales.length
     };
   }, [dailySales]);
 
+  const globalMetrics = useMemo(() => {
+    if (!salesGoal || salesGoal <= 0) return null;
+    const totalSales = dailySales.reduce((s, d) => s + d.sales, 0);
+    const atingGlobal = salesGoal > 0 ? (totalSales / salesGoal) * 100 : 0;
+    return {
+      metaGlobal: salesGoal,
+      vendasGlobal: totalSales,
+      atingGlobal,
+    };
+  }, [dailySales, salesGoal]);
+
   const handleExportCSV = () => {
-    const headers = ['Data', 'D-', 'Vendas Diárias', 'Vendas Acumuladas', '% Curva Ano Anterior', 'Meta Diária', 'Meta Acumulada', 'Dif', 'Ating. Acumulado (%)', 'Ating. Diário (%)'];
+    const headers = ['Data', 'D-', 'Meta Dia', 'Vendas Dia', 'Ating. Dia (%)', 'Meta Acum.', 'Vendas Acum.', 'Ating. Acum. (%)'];
     const rows = sortedData.map(d => [
       fmtDate(d.date),
       d.dMinus ?? '',
-      d.sales,
-      d.cumulativeSales ?? '',
-      d.curvaAnoAnterior != null ? d.curvaAnoAnterior.toFixed(1) : '',
       d.expected != null ? d.expected.toFixed(1) : '',
+      d.sales,
+      d.atingimentoDiario != null ? d.atingimentoDiario.toFixed(1) : '',
       d.cumulativeExpected != null ? d.cumulativeExpected.toFixed(1) : '',
-      d.dif != null ? d.dif.toFixed(1) : '',
+      d.cumulativeSales ?? '',
       d.atingimentoAcumulado != null ? d.atingimentoAcumulado.toFixed(1) : '',
-      d.atingimentoDiario != null ? d.atingimentoDiario.toFixed(1) : ''
     ]);
     const csv = [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
     const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -111,6 +122,31 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
 
   return (
     <div className="space-y-3">
+      {globalMetrics && (
+        <div className={`grid grid-cols-3 gap-4 mb-2`}>
+          <div className={`rounded-lg p-4 border ${isDark ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200'}`}>
+            <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Meta Global</span>
+            <p className={`text-xl font-bold mt-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{fmtInt(globalMetrics.metaGlobal)}</p>
+          </div>
+          <div className={`rounded-lg p-4 border ${isDark ? 'bg-emerald-900/20 border-emerald-800' : 'bg-emerald-50 border-emerald-200'}`}>
+            <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Vendas Global</span>
+            <p className={`text-xl font-bold mt-1 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{fmtInt(globalMetrics.vendasGlobal)}</p>
+          </div>
+          <div className={`rounded-lg p-4 border ${
+            globalMetrics.atingGlobal >= 100
+              ? (isDark ? 'bg-emerald-900/20 border-emerald-800' : 'bg-emerald-50 border-emerald-200')
+              : (isDark ? 'bg-orange-900/20 border-orange-800' : 'bg-orange-50 border-orange-200')
+          }`}>
+            <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ating. Global</span>
+            <p className={`text-xl font-bold mt-1 ${
+              globalMetrics.atingGlobal >= 100
+                ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
+                : (isDark ? 'text-orange-400' : 'text-orange-600')
+            }`}>{fmtPct(globalMetrics.atingGlobal)}</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
@@ -147,14 +183,12 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
                 {[
                   { label: 'Data', align: 'left', sortable: true },
                   { label: 'D-', align: 'right' },
-                  { label: 'Vendas Dia', align: 'right' },
-                  { label: 'Vendas Acum.', align: 'right' },
-                  { label: '% Curva Ant.', align: 'right' },
                   { label: 'Meta Dia', align: 'right' },
-                  { label: 'Meta Acum.', align: 'right' },
-                  { label: 'Dif', align: 'right' },
-                  { label: 'Ating. Acum.', align: 'right' },
+                  { label: 'Vendas Dia', align: 'right' },
                   { label: 'Ating. Dia', align: 'right' },
+                  { label: 'Meta Acum.', align: 'right' },
+                  { label: 'Vendas Acum.', align: 'right' },
+                  { label: 'Ating. Acum.', align: 'right' },
                 ].map((col, idx) => (
                   <th
                     key={idx}
@@ -199,29 +233,23 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
                     }`}>
                       {row.dMinus ?? '—'}
                     </td>
+                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
+                      {fmt(row.expected)}
+                    </td>
                     <td className={`px-3 py-2.5 text-right text-sm font-bold whitespace-nowrap ${textPrimary}`}>
                       {fmtInt(row.sales)}
                     </td>
-                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textSecondary}`}>
-                      {fmtInt(row.cumulativeSales)}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
-                      {fmtPct(row.curvaAnoAnterior)}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
-                      {fmt(row.expected)}
+                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.atingimentoDiario, isDark)}`}>
+                      {fmtPct(row.atingimentoDiario)}
                     </td>
                     <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textMuted}`}>
                       {fmt(row.cumulativeExpected)}
                     </td>
-                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.dif, isDark)}`}>
-                      {fmt(row.dif)}
+                    <td className={`px-3 py-2.5 text-right text-sm whitespace-nowrap ${textSecondary}`}>
+                      {fmtInt(row.cumulativeSales)}
                     </td>
                     <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.atingimentoAcumulado, isDark)}`}>
                       {fmtPct(row.atingimentoAcumulado)}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right text-sm font-semibold whitespace-nowrap ${colorClass(row.atingimentoDiario, isDark)}`}>
-                      {fmtPct(row.atingimentoDiario)}
                     </td>
                   </tr>
                 );
@@ -236,16 +264,14 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, e
                 }`}>
                   <td className="px-3 py-3 text-left whitespace-nowrap">Total / Resumo</td>
                   <td className="px-3 py-3 text-right">—</td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.totalExpected)}</td>
                   <td className="px-3 py-3 text-right">{fmtInt(totals.totalSales)}</td>
-                  <td className="px-3 py-3 text-right">{fmtInt(totals.finalCumSales)}</td>
-                  <td className="px-3 py-3 text-right">—</td>
-                  <td className="px-3 py-3 text-right">—</td>
-                  <td className="px-3 py-3 text-right">{fmt(totals.finalCumExpected)}</td>
-                  <td className={`px-3 py-3 text-right ${colorClass(totals.finalDif, isDark)}`}>{fmt(totals.finalDif)}</td>
-                  <td className={`px-3 py-3 text-right ${colorClass(totals.finalAtingAcum, isDark)}`}>{fmtPct(totals.finalAtingAcum)}</td>
                   <td className={`px-3 py-3 text-right ${colorClass(totals.avgAtingDia, isDark)}`}>
                     {totals.avgAtingDia != null ? `μ ${fmtPct(totals.avgAtingDia)}` : '—'}
                   </td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.finalCumExpected)}</td>
+                  <td className="px-3 py-3 text-right">{fmtInt(totals.finalCumSales)}</td>
+                  <td className={`px-3 py-3 text-right ${colorClass(totals.finalAtingAcum, isDark)}`}>{fmtPct(totals.finalAtingAcum)}</td>
                 </tr>
               </tfoot>
             )}
