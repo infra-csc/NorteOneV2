@@ -2103,7 +2103,7 @@ const EventDetail: React.FC = () => {
                         {formatCurrency(row.margemGlobal)}
                       </td>
                       <td className={`py-2.5 px-3 text-right font-semibold ${row.isMeta ? 'text-blue-600 dark:text-blue-400' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                        {row.isMeta ? 'Ref.' : formatCurrency(row.margemNominal)}
+                        {formatCurrency(row.margemNominal)}
                       </td>
                       <td className={`py-2.5 px-3 text-right font-semibold ${row.isMeta ? 'text-blue-600 dark:text-blue-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {row.isMeta ? '0%' : `${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
