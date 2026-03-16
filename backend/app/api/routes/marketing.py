@@ -489,23 +489,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             )
         evento_tickets[id_evento] = ticket_final
 
-    sku_mappings = db.query(SkuMapping.sku, SkuMapping.id_evento).filter(
-        SkuMapping.status == 'ATIVO'
-    ).all()
-    sku_to_mag_evt = {sm.sku: str(sm.id_evento) for sm in sku_mappings if sm.id_evento is not None}
-
-    cadastros = db.query(CadastroEvento.projeto_id, CadastroEvento.sku).filter(
-        CadastroEvento.projeto_id.isnot(None),
-        CadastroEvento.sku.isnot(None),
-    ).all()
-
-    projeto_tickets: dict = {}
-    for cad in cadastros:
-        mag_evt = sku_to_mag_evt.get(cad.sku)
-        if mag_evt and mag_evt in evento_tickets:
-            projeto_tickets[cad.projeto_id] = evento_tickets[mag_evt]
-
-    return projeto_tickets
+    return evento_tickets
 
 
 
@@ -532,9 +516,11 @@ def _get_ticket_atual_for_event(ticket_map: dict, cadastros) -> float:
     for cad in cadastros:
         if cad is None:
             continue
-        pid = getattr(cad, 'projeto_id', None)
-        if pid is not None and pid in ticket_map:
-            return ticket_map[pid]
+        id_evt = getattr(cad, 'id_evento_magento', None)
+        if id_evt is not None:
+            key = str(id_evt)
+            if key in ticket_map:
+                return ticket_map[key]
 
     return 0.0
 
