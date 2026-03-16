@@ -1853,19 +1853,32 @@ const EventDetail: React.FC = () => {
                       <div className="w-2 h-2 rounded-full bg-green-500" />
                       Margem Realizada
                     </h3>
-                    {event.currentSales > 0 && event.averageTicket > 0 ? (
+                    {event.currentSales > 0 && (event.ticketAtual > 0 || event.averageTicket > 0) ? (
+                      (() => {
+                        const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : event.averageTicket;
+                        const kitCost = event.kitCostPerUnit || 0;
+                        const margemUnit = Math.round((ticketRef - kitCost) * 100) / 100;
+                        const margemTotal = Math.round(margemUnit * event.currentSales * 100) / 100;
+                        const margemPct = ticketRef > 0 ? Math.round((margemUnit / ticketRef) * 1000) / 10 : 0;
+                        return (
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">Ticket Médio Real</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.averageTicket)}</span>
+                          <span className="text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(ticketRef)}</span>
                         </div>
+                        {event.averageTicket > 0 && event.ticketAtual > 0 && event.ticketAtual !== event.averageTicket && (
+                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                            <span className="text-gray-500 dark:text-gray-400">Ticket Médio Realizado</span>
+                            <span className="font-medium text-gray-500 dark:text-gray-400 text-xs">{formatCurrency(event.averageTicket)}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                           <span className="text-gray-500 dark:text-gray-400">(-) Custo Kit</span>
-                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(event.kitCostPerUnit || 0)}</span>
+                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(kitCost)}</span>
                         </div>
                         <div className="flex justify-between p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                           <span className="text-green-700 dark:text-green-300 font-medium">= Margem / Unidade</span>
-                          <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(event.margemRealizadaUnit || 0)}</span>
+                          <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(margemUnit)}</span>
                         </div>
                         <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                           <span className="text-gray-500 dark:text-gray-400">(×) Inscrições Atuais</span>
@@ -1885,22 +1898,24 @@ const EventDetail: React.FC = () => {
                         </button>
                         <div className={`space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${showReceitaRealizada ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
                           <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                            <span className="text-gray-500 dark:text-gray-400">Receita Líquida Total</span>
-                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(event.currentReceita || 0)}</span>
+                            <span className="text-gray-500 dark:text-gray-400">Receita Projetada (Kit × Inscrições)</span>
+                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(ticketRef * event.currentSales)}</span>
                           </div>
                           <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                             <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
-                            <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.currentSales)}</span>
+                            <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(kitCost * event.currentSales)}</span>
                           </div>
                         </div>
                         <div className="flex justify-between p-2.5 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
-                          <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Realizada Total</span>
+                          <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Projetada Total</span>
                           <div className="text-right">
-                            <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(event.margemRealizadaTotal || 0)}</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({event.margemRealizadaPct || 0}%)</span>
+                            <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(margemTotal)}</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({margemPct}%)</span>
                           </div>
                         </div>
                       </div>
+                        );
+                      })()
                     ) : (
                       <p className="text-sm text-gray-400 dark:text-gray-500 italic p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                         Dados insuficientes.
