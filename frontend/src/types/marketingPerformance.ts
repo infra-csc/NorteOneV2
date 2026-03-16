@@ -2,6 +2,8 @@ export interface DailySales {
   date: string;
   sales: number;
   expected: number;
+  normalizedSales?: number;
+  cumulativeNormalized?: number;
 }
 
 export interface CommercialAction {
