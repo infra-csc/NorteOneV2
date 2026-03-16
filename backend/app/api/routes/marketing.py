@@ -1189,7 +1189,7 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     return result
 
 
-def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, threshold: float = 2.0, spread: int = 5) -> list:
+def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, threshold: float = 2.0, spread: int = 3) -> list:
     import statistics
 
     n = len(daily_sales_list)
@@ -1221,12 +1221,16 @@ def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, thre
         if raw_sales[i] > limit:
             excess = raw_sales[i] - limit
             normalized[i] = limit
+            spread_start = max(0, i - spread)
             spread_end = min(n, i + spread + 1)
-            neighbors = [j for j in range(i + 1, spread_end)]
-            if neighbors:
-                portion = excess / len(neighbors)
-                for j in neighbors:
-                    normalized[j] += portion
+            neighbors = [j for j in range(spread_start, spread_end) if j != i]
+            if not neighbors:
+                continue
+            neighbor_sales = [max(raw_sales[j], 1) for j in neighbors]
+            total_weight = sum(neighbor_sales)
+            for idx, j in enumerate(neighbors):
+                proportion = neighbor_sales[idx] / total_weight
+                normalized[j] += excess * proportion
 
     cum = 0
     for i, item in enumerate(daily_sales_list):
