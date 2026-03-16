@@ -533,7 +533,12 @@ def _run_column_migrations():
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS dias_encerramento_inscricao INTEGER DEFAULT 2",
             "ALTER TABLE sku_mappings ADD COLUMN IF NOT EXISTS data_evento DATE",
+            "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS is_kit_basico BOOLEAN DEFAULT FALSE NOT NULL",
         ]
+        kit_basico_idx = [
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
+        ]
+        migrations.extend(kit_basico_idx)
         for sql in migrations:
             try:
                 db.execute(text(sql))

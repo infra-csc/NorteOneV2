@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from typing import List
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
@@ -149,6 +150,7 @@ def get_kits_with_config(
         cfg = config_map.get(bundle_id)
         multiplicador = cfg.multiplicador if cfg else 1
         is_configured = cfg is not None
+        is_kit_basico = cfg.is_kit_basico if cfg else False
 
         ticket_final = (ticket_base * multiplicador) if ticket_base is not None else None
 
@@ -170,6 +172,7 @@ def get_kits_with_config(
             multiplicador=multiplicador,
             ticket_final=ticket_final,
             is_configured=is_configured,
+            is_kit_basico=is_kit_basico,
         ))
 
     return kits
@@ -184,23 +187,42 @@ def upsert_kit_config(
 ):
     from .marketing import clear_ticket_atual_cache
 
-    existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == bundle_entity_id).first()
-    if existing:
-        existing.multiplicador = body.multiplicador
-        db.commit()
-        db.refresh(existing)
-        clear_ticket_atual_cache()
-        return existing
+    if body.is_kit_basico and body.id_evento is not None:
+        db.query(KitConfig).filter(
+            KitConfig.id_evento == body.id_evento,
+            KitConfig.bundle_entity_id != bundle_entity_id,
+            KitConfig.is_kit_basico == True,
+        ).update({"is_kit_basico": False})
 
-    new_config = KitConfig(
-        bundle_entity_id=bundle_entity_id,
-        multiplicador=body.multiplicador,
-    )
-    db.add(new_config)
-    db.commit()
-    db.refresh(new_config)
-    clear_ticket_atual_cache()
-    return new_config
+    existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == bundle_entity_id).first()
+    try:
+        if existing:
+            existing.multiplicador = body.multiplicador
+            existing.is_kit_basico = body.is_kit_basico
+            if body.id_evento is not None:
+                existing.id_evento = body.id_evento
+            db.commit()
+            db.refresh(existing)
+            clear_ticket_atual_cache()
+            return existing
+
+        new_config = KitConfig(
+            bundle_entity_id=bundle_entity_id,
+            multiplicador=body.multiplicador,
+            is_kit_basico=body.is_kit_basico,
+            id_evento=body.id_evento,
+        )
+        db.add(new_config)
+        db.commit()
+        db.refresh(new_config)
+        clear_ticket_atual_cache()
+        return new_config
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Já existe um Kit Básico para este evento. Desmarque o outro antes de marcar este.",
+        )
 
 
 @router.get("/configs", response_model=List[KitConfigResponse])

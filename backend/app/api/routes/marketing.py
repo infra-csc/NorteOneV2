@@ -445,78 +445,21 @@ def clear_ticket_atual_cache():
     with _ticket_atual_cache_lock:
         _ticket_atual_cache.clear()
 
-TICKET_ATUAL_QUERY = """
-SELECT
-    cpev1.value                         AS id_evento,
-    cpe_parent.entity_id                AS bundle_entity_id,
-    CASE
-        WHEN MAX(CASE 
-            WHEN cpep.value NOT IN (14.50)
-             AND cpev_simple.value NOT LIKE '%%Distancia%%'
-             AND cpev_simple.value NOT LIKE '%%Distância%%'
-            THEN cpep.value ELSE NULL 
-        END) IS NOT NULL
-        THEN lote.lot_value + MAX(CASE 
-            WHEN cpep.value NOT IN (14.50)
-             AND cpev_simple.value NOT LIKE '%%Distancia%%'
-             AND cpev_simple.value NOT LIKE '%%Distância%%'
-            THEN cpep.value ELSE NULL 
-        END)
-        ELSE MAX(CASE 
-            WHEN (cpev_simple.value LIKE '%%Distancia%%' OR cpev_simple.value LIKE '%%Distância%%')
-             AND cpep.value > 0
-            THEN cpep.value ELSE NULL 
-        END)
-    END                                 AS ticket_base
-FROM catalog_product_entity cpe_parent
-JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id = cpe_parent.entity_id
-      AND cpev1.attribute_id = 321
-JOIN catalog_product_entity_datetime cped_date
-       ON cped_date.entity_id = cpev1.value
-      AND cped_date.attribute_id = 195
-JOIN catalog_product_bundle_option cpeo
-       ON cpeo.parent_id = cpe_parent.entity_id
-JOIN catalog_product_bundle_selection cpeos
-       ON cpeos.option_id = cpeo.option_id
-LEFT JOIN catalog_product_entity_varchar cpev_simple
-       ON cpev_simple.entity_id = cpeos.product_id
-      AND cpev_simple.attribute_id = 73
-LEFT JOIN catalog_product_entity_decimal cpep
-       ON cpep.entity_id = cpeos.product_id
-      AND cpep.attribute_id = 77
-JOIN catalog_product_entity_event_lot_price lote
-       ON lote.entity_id = cpev1.value
-      AND lote.lot_id = (
-            SELECT lot_id
-            FROM catalog_product_entity_event_lot_price
-            WHERE entity_id = cpev1.value
-            ORDER BY record_id DESC
-            LIMIT 1
-      )
-WHERE cpe_parent.type_id = 'bundle'
-  AND YEAR(cped_date.value) = YEAR(CURDATE())
-GROUP BY
-    cpev1.value,
-    cpe_parent.entity_id,
-    lote.lot_value
-ORDER BY cpev1.value
-"""
-
-
 def _fetch_ticket_atual_map(db: Session) -> dict:
-    if db_module.engine_magento is None:
-        return {}
-
     from ...models.kit_config import KitConfig
-    all_configs = db.query(KitConfig).all()
-    config_map = {c.bundle_entity_id: c.multiplicador for c in all_configs}
-    if not config_map:
+    from ..routes.kit_config import MAGENTO_KITS_QUERY
+
+    basico_configs = db.query(KitConfig).filter(KitConfig.is_kit_basico == True).all()
+    if not basico_configs:
+        return {}
+    basico_map = {c.bundle_entity_id: c for c in basico_configs}
+
+    if db_module.engine_magento is None:
         return {}
 
     try:
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(TICKET_ATUAL_QUERY))
+            result = conn.execute(text(MAGENTO_KITS_QUERY))
             rows = result.fetchall()
             columns = list(result.keys())
     except Exception as e:
@@ -527,20 +470,26 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     for row in rows:
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
+
+        cfg = basico_map.get(bundle_id)
+        if cfg is None:
+            continue
+
         ticket_base = float(row_dict["ticket_base"]) if row_dict.get("ticket_base") is not None else None
         id_evento = str(row_dict["id_evento"]) if row_dict.get("id_evento") is not None else None
 
         if not id_evento or ticket_base is None:
             continue
 
-        if bundle_id not in config_map:
-            continue
+        ticket_final = round(ticket_base * cfg.multiplicador, 2)
+        if id_evento in evento_tickets:
+            logger.warning(
+                f"Múltiplos kits básicos para id_evento={id_evento}. "
+                f"bundle_entity_id={bundle_id} sobrescreve valor anterior."
+            )
+        evento_tickets[id_evento] = ticket_final
 
-        mult = config_map[bundle_id]
-        ticket_final = ticket_base * mult
-        evento_tickets.setdefault(id_evento, []).append(ticket_final)
-
-    return {k: round(sum(v) / len(v), 2) for k, v in evento_tickets.items()}
+    return evento_tickets
 
 
 def _get_ticket_atual_map(db: Session) -> dict:

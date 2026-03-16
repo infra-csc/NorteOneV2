@@ -5,6 +5,8 @@ from datetime import datetime
 
 class KitConfigUpsert(BaseModel):
     multiplicador: int = Field(default=1, ge=1, le=100)
+    is_kit_basico: bool = False
+    id_evento: Optional[int] = None
 
 
 class KitConfigResponse(BaseModel):
@@ -13,6 +15,7 @@ class KitConfigResponse(BaseModel):
     kit_nome: Optional[str] = None
     tipo: str = "multiplier"
     multiplicador: int = 1
+    is_kit_basico: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -34,3 +37,4 @@ class KitRow(BaseModel):
     multiplicador: int = 1
     ticket_final: Optional[float] = None
     is_configured: bool = False
+    is_kit_basico: bool = False
