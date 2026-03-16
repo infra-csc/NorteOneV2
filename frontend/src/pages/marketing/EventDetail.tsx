@@ -1838,7 +1838,6 @@ const EventDetail: React.FC = () => {
                           <span className="text-gray-800 dark:text-gray-200 font-semibold">= Margem Orçada Total</span>
                           <div className="text-right">
                             <span className="font-bold text-gray-900 dark:text-white">{formatCurrency(event.margemOrcadaTotal || 0)}</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({event.margemOrcadaPct || 0}%)</span>
                           </div>
                         </div>
                       </div>
@@ -1911,7 +1910,6 @@ const EventDetail: React.FC = () => {
                           <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Projetada Total</span>
                           <div className="text-right">
                             <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(margemTotal)}</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({margemPct}%)</span>
                           </div>
                         </div>
                       </div>
