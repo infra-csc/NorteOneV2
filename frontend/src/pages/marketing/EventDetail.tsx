@@ -1728,8 +1728,9 @@ const EventDetail: React.FC = () => {
           </h3>
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
+            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : (event.averageTicket || 0);
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-            const margemRealizadaTotal = event.margemRealizadaTotal || 0;
+            const margemRealizadaTotal = ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0;
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
               <div className="space-y-3">
