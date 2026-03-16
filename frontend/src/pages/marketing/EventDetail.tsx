@@ -62,7 +62,7 @@ interface CommercialAction {
 }
 
 interface ExtendedEvent extends MarketingEvent {
-  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number }[];
+  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number }[];
   commercialActions?: CommercialAction[];
 }
 
@@ -113,6 +113,7 @@ const EventDetail: React.FC = () => {
   const [controleSubTab, setControleSubTab] = useState<'tabela' | 'curva'>('tabela');
   const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
+  const [showNormalized, setShowNormalized] = useState(false);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -145,7 +146,9 @@ const EventDetail: React.FC = () => {
             curvaAnoAnterior: d.curvaAnoAnterior,
             dif: d.dif,
             atingimentoAcumulado: d.atingimentoAcumulado,
-            atingimentoDiario: d.atingimentoDiario
+            atingimentoDiario: d.atingimentoDiario,
+            normalizedSales: d.normalizedSales,
+            cumulativeNormalized: d.cumulativeNormalized
           })),
           commercialActions: response.commercialActions?.map((a: any) => ({
             id: a.id,
@@ -292,7 +295,9 @@ const EventDetail: React.FC = () => {
           curvaAnoAnterior: d.curvaAnoAnterior,
           dif: d.dif,
           atingimentoAcumulado: d.atingimentoAcumulado,
-          atingimentoDiario: d.atingimentoDiario
+          atingimentoDiario: d.atingimentoDiario,
+          normalizedSales: d.normalizedSales,
+          cumulativeNormalized: d.cumulativeNormalized
         })),
         commercialActions: (response as any).commercialActions?.map((a: any) => ({
           id: a.id,
@@ -445,7 +450,9 @@ const EventDetail: React.FC = () => {
           curvaAnoAnterior: d.curvaAnoAnterior,
           dif: d.dif,
           atingimentoAcumulado: d.atingimentoAcumulado,
-          atingimentoDiario: d.atingimentoDiario
+          atingimentoDiario: d.atingimentoDiario,
+          normalizedSales: d.normalizedSales,
+          cumulativeNormalized: d.cumulativeNormalized
         })),
         commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
@@ -493,7 +500,9 @@ const EventDetail: React.FC = () => {
           curvaAnoAnterior: d.curvaAnoAnterior,
           dif: d.dif,
           atingimentoAcumulado: d.atingimentoAcumulado,
-          atingimentoDiario: d.atingimentoDiario
+          atingimentoDiario: d.atingimentoDiario,
+          normalizedSales: d.normalizedSales,
+          cumulativeNormalized: d.cumulativeNormalized
         })),
         commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
@@ -524,16 +533,20 @@ const EventDetail: React.FC = () => {
   const cumulativeData = (event.dailySales || []).reduce((acc, day, index) => {
     const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
     const prevExpected = index > 0 ? acc[index - 1].cumulativeExpected : 0;
+    const prevNormalized = index > 0 ? acc[index - 1].cumulativeNormalized : 0;
+    const normDaily = day.normalizedSales ?? day.sales;
     
     acc.push({
       date: day.date,
       cumulative: prevCumulative + day.sales,
       cumulativeExpected: prevExpected + day.expected,
-      daily: day.sales
+      daily: day.sales,
+      cumulativeNormalized: day.cumulativeNormalized ?? (prevNormalized + normDaily),
+      normalizedDaily: normDaily
     });
     
     return acc;
-  }, [] as { date: string; cumulative: number; cumulativeExpected: number; daily: number }[]);
+  }, [] as { date: string; cumulative: number; cumulativeExpected: number; daily: number; cumulativeNormalized: number; normalizedDaily: number }[]);
 
   const filteredCumulativeData = chartPeriod
     ? cumulativeData.slice(-chartPeriod)
@@ -932,27 +945,41 @@ const EventDetail: React.FC = () => {
                 <h3 className="font-semibold text-gray-900 dark:text-white">
                   Curva de Vendas Acumuladas vs Esperado
                 </h3>
-                <div className="flex flex-wrap gap-1">
-                  {[
-                    { label: '7d', value: 7 },
-                    { label: '14d', value: 14 },
-                    { label: '30d', value: 30 },
-                    { label: '60d', value: 60 },
-                    { label: '90d', value: 90 },
-                    { label: 'Todos', value: null as number | null },
-                  ].map((opt) => (
-                    <button
-                      key={opt.label}
-                      onClick={() => setChartPeriod(opt.value)}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                        chartPeriod === opt.value
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowNormalized(!showNormalized)}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                      showNormalized
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                    title="Mostra curva com outliers de campanhas suavizados"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    Normalizada
+                  </button>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { label: '7d', value: 7 },
+                      { label: '14d', value: 14 },
+                      { label: '30d', value: 30 },
+                      { label: '60d', value: 60 },
+                      { label: '90d', value: 90 },
+                      { label: 'Todos', value: null as number | null },
+                    ].map((opt) => (
+                      <button
+                        key={opt.label}
+                        onClick={() => setChartPeriod(opt.value)}
+                        className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                          chartPeriod === opt.value
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="h-80">
@@ -971,12 +998,16 @@ const EventDetail: React.FC = () => {
                         if (!active || !payload || !payload.length) return null;
                         const real = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulative')?.value ?? 0));
                         const esperado = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpected')?.value ?? 0));
+                        const normalizado = showNormalized ? Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeNormalized')?.value ?? 0)) : null;
                         const diff = real - esperado;
                         const diffColor = diff >= 0 ? '#22C55E' : '#EF4444';
                         return (
                           <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
                             <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{new Date(label + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
                             <p style={{ color: '#3B82F6' }}>Vendas Reais: {formatNumber(real)}</p>
+                            {normalizado !== null && (
+                              <p style={{ color: '#F97316' }}>Normalizada: {formatNumber(normalizado)}</p>
+                            )}
                             <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
                             <p style={{ color: diffColor, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
                               Diferença: {diff >= 0 ? '+' : ''}{formatNumber(diff)}
@@ -994,6 +1025,17 @@ const EventDetail: React.FC = () => {
                       strokeWidth={2}
                       dot={false}
                     />
+                    {showNormalized && (
+                      <Line 
+                        type="monotone" 
+                        dataKey="cumulativeNormalized" 
+                        name="Normalizada"
+                        stroke="#F97316" 
+                        strokeWidth={2}
+                        strokeDasharray="8 4"
+                        dot={false}
+                      />
+                    )}
                     <Line 
                       type="monotone" 
                       dataKey="cumulativeExpected" 

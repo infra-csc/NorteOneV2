@@ -1184,7 +1184,57 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
             "atingimentoDiario": ating_diario
         })
     
+    result = normalize_daily_sales_outliers(result)
+
     return result
+
+
+def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, threshold: float = 2.0, spread: int = 5) -> list:
+    import statistics
+
+    n = len(daily_sales_list)
+    if n < window:
+        for item in daily_sales_list:
+            item["normalizedSales"] = item["sales"]
+        cum = 0
+        for item in daily_sales_list:
+            cum += item["normalizedSales"]
+            item["cumulativeNormalized"] = cum
+        return daily_sales_list
+
+    raw_sales = [item["sales"] for item in daily_sales_list]
+    normalized = list(raw_sales)
+
+    non_zero = [s for s in raw_sales if s > 0]
+    global_median = statistics.median(non_zero) if non_zero else 0
+    min_threshold = max(global_median * 0.5, 5)
+
+    for i in range(n):
+        half = window // 2
+        start = max(0, i - half)
+        end = min(n, i + half + 1)
+        local_window = raw_sales[start:end]
+        if len(local_window) < 3:
+            continue
+        median_val = statistics.median(local_window)
+        limit = max(median_val * threshold, min_threshold)
+        if raw_sales[i] > limit:
+            excess = raw_sales[i] - limit
+            normalized[i] = limit
+            spread_end = min(n, i + spread + 1)
+            neighbors = [j for j in range(i + 1, spread_end)]
+            if neighbors:
+                portion = excess / len(neighbors)
+                for j in neighbors:
+                    normalized[j] += portion
+
+    cum = 0
+    for i, item in enumerate(daily_sales_list):
+        item["normalizedSales"] = round(normalized[i], 1)
+        cum += normalized[i]
+        item["cumulativeNormalized"] = round(cum, 1)
+
+    return daily_sales_list
 
 
 def get_kit_basico_cost(db: Session, projeto_id: int) -> float:
