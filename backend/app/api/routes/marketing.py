@@ -489,24 +489,49 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             )
         evento_tickets[id_evento] = ticket_final
 
-    if not evento_tickets:
+    return evento_tickets
+
+
+_sku_id_evento_bridge_cache: dict = {}
+_sku_id_evento_bridge_lock = _threading.Lock()
+
+
+def clear_sku_id_evento_bridge_cache():
+    with _sku_id_evento_bridge_lock:
+        _sku_id_evento_bridge_cache.clear()
+
+
+def _fetch_sku_id_evento_bridge(db: Session) -> dict:
+    from ...models.kit_config import KitConfig
+
+    all_configs = db.query(KitConfig).filter(KitConfig.id_evento.isnot(None)).all()
+    if not all_configs:
         return {}
 
-    id_evento_list = list(evento_tickets.keys())
+    id_evento_set = set(str(c.id_evento) for c in all_configs)
+
     sku_mappings = db.query(SkuMapping).filter(
         SkuMapping.fonte == 'ATIVO',
-        SkuMapping.id_externo.in_(id_evento_list),
+        SkuMapping.id_externo.in_(list(id_evento_set)),
         SkuMapping.ativo == True,
     ).all()
 
-    sku_ticket_map: dict = {}
+    bridge: dict = {}
     for m in sku_mappings:
-        id_evt = str(m.id_externo)
-        if id_evt in evento_tickets:
-            sku_key = m.sku.upper().strip()
-            sku_ticket_map[sku_key] = evento_tickets[id_evt]
+        bridge[m.sku.upper().strip()] = str(m.id_externo)
 
-    return sku_ticket_map
+    return bridge
+
+
+def _get_sku_id_evento_bridge(db: Session) -> dict:
+    with _sku_id_evento_bridge_lock:
+        if _sku_id_evento_bridge_cache:
+            return dict(_sku_id_evento_bridge_cache)
+    result = _fetch_sku_id_evento_bridge(db)
+    with _sku_id_evento_bridge_lock:
+        _sku_id_evento_bridge_cache.clear()
+        _sku_id_evento_bridge_cache.update(result)
+    return result
 
 
 def _get_ticket_atual_map(db: Session) -> dict:
@@ -521,8 +546,8 @@ def _get_ticket_atual_map(db: Session) -> dict:
     return result
 
 
-def _get_ticket_atual_for_event(db: Session, ticket_map: dict, projetos_or_sku, sku_mappings_cache: dict = None) -> float:
-    if not ticket_map:
+def _get_ticket_atual_for_event(ticket_map: dict, sku_bridge: dict, projetos_or_sku) -> float:
+    if not ticket_map or not sku_bridge:
         return 0.0
 
     if isinstance(projetos_or_sku, str):
@@ -533,9 +558,9 @@ def _get_ticket_atual_for_event(db: Session, ticket_map: dict, projetos_or_sku, 
         skus = [str(projetos_or_sku.codigo)] if projetos_or_sku.codigo else []
 
     for sku in skus:
-        key = sku.upper().strip()
-        if key in ticket_map:
-            return ticket_map[key]
+        id_evento = sku_bridge.get(sku.upper().strip())
+        if id_evento and id_evento in ticket_map:
+            return ticket_map[id_evento]
 
     return 0.0
 
@@ -1973,6 +1998,7 @@ def get_marketing_events(
     active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
     kit_costs_batch = get_kit_basico_costs_batch(db, all_projeto_ids) if all_projeto_ids else {}
     ticket_atual_map = _get_ticket_atual_map(db)
+    sku_id_evento_bridge = _get_sku_id_evento_bridge(db)
     
     all_projetos_flat = []
     for proj_list in grupo_projetos.values():
@@ -2098,7 +2124,7 @@ def get_marketing_events(
         grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
                                             avg_ticket, current_sales, current_receita)
         
-        grupo_ticket_atual = _get_ticket_atual_for_event(db, ticket_atual_map, proj_list)
+        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, sku_id_evento_bridge, proj_list)
         
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
@@ -2191,7 +2217,7 @@ def get_marketing_events(
         standalone_margin = _calc_margin_fields(standalone_budget_ticket, standalone_kit_cost, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
         
-        standalone_ticket_atual = _get_ticket_atual_for_event(db, ticket_atual_map, sku)
+        standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, sku_id_evento_bridge, sku)
         
         evento = MarketingEvent(
             id=str(projeto.id),
@@ -4894,7 +4920,8 @@ def get_marketing_event_by_id(
                                              avg_ticket, current_sales, current_receita)
         
         detail_ticket_atual_map = _get_ticket_atual_map(db)
-        detail_ticket_atual = _get_ticket_atual_for_event(db, detail_ticket_atual_map, projetos)
+        detail_sku_bridge = _get_sku_id_evento_bridge(db)
+        detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, detail_sku_bridge, projetos)
         
         evento = MarketingEvent(
             id=evento_id,
@@ -5137,7 +5164,8 @@ def get_marketing_event_by_id(
                                             avg_ticket, current_sales, current_receita)
     
     sa_ticket_atual_map = _get_ticket_atual_map(db)
-    sa_detail_ticket_atual = _get_ticket_atual_for_event(db, sa_ticket_atual_map, sku)
+    sa_sku_bridge = _get_sku_id_evento_bridge(db)
+    sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, sa_sku_bridge, sku)
     
     evento = MarketingEvent(
         id=str(projeto.id),
