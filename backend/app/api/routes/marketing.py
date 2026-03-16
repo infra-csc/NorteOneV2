@@ -989,7 +989,7 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
     return pattern
 
 
-def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET") -> list:
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: date = None) -> list:
     from ...services.snapshot_service import get_snapshot_vendas
     
     today = date.today()
@@ -1088,6 +1088,10 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
             start_date = max(earliest, end_date - timedelta(days=days_history))
         else:
             start_date = earliest
+
+    # Cap end_date at the real event date if the event has already passed
+    if data_evento_real and data_evento_real < today:
+        end_date = min(end_date, data_evento_real)
     
     all_dates = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
     total_days = len(all_dates)
@@ -2443,6 +2447,90 @@ def get_sales_averages(
     }
     medias_cache.set(medias_cache_key, medias_result)
     return medias_result
+
+
+@router.get("/eventos/{evento_id}/curva-snapshot")
+def get_curva_snapshot(
+    evento_id: str,
+    ano: int = Query(default=None, description="Ano do evento"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Retorna os dados da curva histórica snapshot (ano anterior) para um evento,
+    incluindo as quantidades de meta calculadas a partir do percentual e da meta atual.
+    """
+    from ...services.snapshot_service import get_curva_historica_snapshot
+
+    if ano is None:
+        ano = datetime.now().year
+
+    is_grouped = evento_id.startswith("grp_")
+
+    if is_grouped:
+        grupo_nome = evento_id.replace("grp_", "")
+        grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
+        if not grupo:
+            raise HTTPException(status_code=404, detail="Grupo de evento não encontrado")
+        mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
+        proj_skus = list(set(m.sku for m in mappings))
+        projetos_q = _wq_dim_projetos_by_codigos(db, proj_skus)
+        sales_goal = get_meta_orcada_projetos(db, projetos_q)
+        evento_grupo = grupo_nome
+    else:
+        projeto = _wq_dim_projeto_by_id(db, int(evento_id))
+        if not projeto:
+            raise HTTPException(status_code=404, detail="Evento não encontrado")
+        sales_goal = get_meta_orcada(db, projeto.id)
+        evento_grupo = None
+        sku = str(projeto.codigo) if projeto.codigo else None
+        if sku:
+            standalone_mappings = _wq_sku_mappings_by_sku(db, sku)
+            for sm in standalone_mappings:
+                if sm.evento_grupo and sm.evento_grupo.strip():
+                    evento_grupo = sm.evento_grupo
+                    break
+
+    if not evento_grupo:
+        raise HTTPException(status_code=404, detail="Evento sem grupo configurado")
+
+    prev_ano = ano - 1
+    pattern = get_curva_historica_snapshot(db, evento_grupo, prev_ano)
+
+    if not pattern:
+        return {
+            "status": "success",
+            "evento_grupo": evento_grupo,
+            "ano_referencia": prev_ano,
+            "sales_goal": sales_goal,
+            "data": [],
+            "message": f"Sem dados de curva histórica para {prev_ano}"
+        }
+
+    sorted_dms = sorted(pattern.keys(), reverse=True)
+    rows = []
+    prev_pct = 0.0
+    for i, dm in enumerate(sorted_dms):
+        pct_acum = pattern[dm]
+        pct_dia = pct_acum - prev_pct
+        meta_acumulado = round(pct_acum * sales_goal)
+        meta_dia = round(pct_dia * sales_goal)
+        rows.append({
+            "d_minus": dm,
+            "percentual_acumulado": round(pct_acum * 100, 2),
+            "percentual_dia": round(pct_dia * 100, 2),
+            "meta_acumulado": meta_acumulado,
+            "meta_dia": meta_dia,
+        })
+        prev_pct = pct_acum
+
+    return {
+        "status": "success",
+        "evento_grupo": evento_grupo,
+        "ano_referencia": prev_ano,
+        "sales_goal": sales_goal,
+        "data": rows
+    }
 
 
 @router.get("/eventos/{evento_id}/simulacao")
@@ -4822,7 +4910,7 @@ def get_marketing_event_by_id(
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
 
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern)
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern, data_evento_real=projeto_data_evento)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         _today_detail = date.today()
@@ -5127,7 +5215,7 @@ def get_marketing_event_by_id(
             except Exception as _e:
                 logger.warning(f"Falha ao reconstruir snapshot standalone para '{standalone_evento_grupo}': {_e}")
 
-    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone)
+    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone, data_evento_real=projeto_data_evento)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_detail_hist = None

@@ -110,6 +110,9 @@ const EventDetail: React.FC = () => {
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
+  const [controleSubTab, setControleSubTab] = useState<'tabela' | 'curva'>('tabela');
+  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(null);
+  const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -245,6 +248,31 @@ const EventDetail: React.FC = () => {
     fetchAverages();
     return () => controller.abort();
   }, [id, salesAvgPeriod, anoParam]);
+
+  useEffect(() => {
+    if (!id || controleSubTab !== 'curva') return;
+    if (curvaSnapshot !== null) return;
+    const controller = new AbortController();
+    const fetchSnapshot = async () => {
+      setCurvaSnapshotLoading(true);
+      try {
+        const data = await marketingService.getCurvaSnapshot(id, controller.signal, anoParam);
+        if (!controller.signal.aborted) {
+          setCurvaSnapshot(data);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError' && err?.code !== 'ERR_CANCELED') {
+          console.error('Error fetching curva snapshot:', err);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setCurvaSnapshotLoading(false);
+        }
+      }
+    };
+    fetchSnapshot();
+    return () => controller.abort();
+  }, [id, controleSubTab, anoParam]);
 
   const handleForceRefresh = async () => {
     if (!id || refreshing) return;
@@ -777,14 +805,125 @@ const EventDetail: React.FC = () => {
       {activeTab === 'simulator' ? (
         <EventSimulator eventoId={id!} ano={anoParam ?? new Date().getFullYear()} isDark={isDark} />
       ) : activeTab === 'controle' ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="font-semibold text-gray-900 dark:text-white mb-4">Controle Diário de Vendas</h3>
-          <DailySalesTable
-            dailySales={event.dailySales || []}
-            isDark={isDark}
-            eventName={event.name}
-            salesGoal={event.salesGoal}
-          />
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+            <button
+              onClick={() => setControleSubTab('tabela')}
+              className={`px-5 py-3 text-sm font-medium transition-colors ${
+                controleSubTab === 'tabela'
+                  ? isDark
+                    ? 'text-blue-400 border-b-2 border-blue-400'
+                    : 'text-blue-600 border-b-2 border-blue-600'
+                  : isDark
+                    ? 'text-gray-400 hover:text-gray-200'
+                    : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Controle Diário
+            </button>
+            <button
+              onClick={() => setControleSubTab('curva')}
+              className={`px-5 py-3 text-sm font-medium transition-colors ${
+                controleSubTab === 'curva'
+                  ? isDark
+                    ? 'text-blue-400 border-b-2 border-blue-400'
+                    : 'text-blue-600 border-b-2 border-blue-600'
+                  : isDark
+                    ? 'text-gray-400 hover:text-gray-200'
+                    : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Composição da Curva
+            </button>
+          </div>
+
+          <div className="p-6">
+            {controleSubTab === 'tabela' ? (
+              <DailySalesTable
+                dailySales={event.dailySales || []}
+                isDark={isDark}
+                eventName={event.name}
+                salesGoal={event.salesGoal}
+              />
+            ) : (
+              <div>
+                {curvaSnapshotLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-blue-500 mr-2" />
+                    <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando dados da curva...</span>
+                  </div>
+                ) : !curvaSnapshot || curvaSnapshot.data.length === 0 ? (
+                  <div className={`text-center py-12 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {curvaSnapshot?.message || 'Sem dados de curva histórica disponíveis para este evento.'}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4`}>
+                      <div className={`rounded-lg p-4 border ${isDark ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200'}`}>
+                        <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ano de Referência</span>
+                        <p className={`text-xl font-bold mt-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{curvaSnapshot.ano_referencia}</p>
+                      </div>
+                      <div className={`rounded-lg p-4 border ${isDark ? 'bg-purple-900/20 border-purple-800' : 'bg-purple-50 border-purple-200'}`}>
+                        <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Meta Atual (base)</span>
+                        <p className={`text-xl font-bold mt-1 ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>{curvaSnapshot.sales_goal.toLocaleString('pt-BR')}</p>
+                      </div>
+                      <div className={`rounded-lg p-4 border ${isDark ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                        <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Pontos D-minus</span>
+                        <p className={`text-xl font-bold mt-1 ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>{curvaSnapshot.data.length}</p>
+                      </div>
+                    </div>
+
+                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                      A curva é baseada no histórico de {curvaSnapshot.ano_referencia}. As quantidades de meta são calculadas aplicando o % acumulado à meta atual de {curvaSnapshot.sales_goal.toLocaleString('pt-BR')} inscrições.
+                    </p>
+
+                    <div className={`rounded-lg overflow-hidden border ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
+                      <div className="overflow-auto max-h-[550px]">
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className={`sticky top-0 z-10 border-b-2 ${isDark ? 'bg-slate-700 border-blue-500/50' : 'bg-slate-100 border-slate-300'}`}>
+                              {['D-', '% Acum.', '% Dia', 'Meta Acum.', 'Meta Dia'].map((col, i) => (
+                                <th key={i} className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${i === 0 ? 'text-left' : 'text-right'} ${isDark ? 'text-blue-300' : 'text-slate-700'}`}>
+                                  {col}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {curvaSnapshot.data.map((row, i) => {
+                              const evenRow = i % 2 === 0;
+                              const rowBg = isDark
+                                ? (evenRow ? 'bg-gray-800' : 'bg-[#2d3748]')
+                                : (evenRow ? 'bg-white' : 'bg-slate-50');
+                              return (
+                                <tr key={row.d_minus} className={`${rowBg} hover:${isDark ? 'bg-slate-600' : 'bg-blue-50'} transition-colors border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                                  <td className={`px-3 py-2.5 text-left font-semibold text-sm ${isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>
+                                    D-{row.d_minus}
+                                  </td>
+                                  <td className={`px-3 py-2.5 text-right text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                    {row.percentual_acumulado.toFixed(2)}%
+                                  </td>
+                                  <td className={`px-3 py-2.5 text-right text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                    {row.percentual_dia.toFixed(2)}%
+                                  </td>
+                                  <td className={`px-3 py-2.5 text-right text-sm font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+                                    {row.meta_acumulado.toLocaleString('pt-BR')}
+                                  </td>
+                                  <td className={`px-3 py-2.5 text-right text-sm ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
+                                    {row.meta_dia.toLocaleString('pt-BR')}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       ) : activeTab === 'complementares' ? (
         <div className="space-y-6">

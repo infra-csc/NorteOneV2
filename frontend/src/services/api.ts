@@ -791,6 +791,19 @@ export const marketingService = {
     const response = await api.get(url, { signal });
     return response.data;
   },
+  getCurvaSnapshot: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<{
+    status: string;
+    evento_grupo: string;
+    ano_referencia: number;
+    sales_goal: number;
+    data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[];
+    message?: string;
+  }> => {
+    const params: any = {};
+    if (ano) params.ano = ano;
+    const response = await api.get(`/marketing/eventos/${eventoId}/curva-snapshot`, { signal, params });
+    return response.data;
+  },
   getSimulacao: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<any> => {
     const queryParams = new URLSearchParams();
     if (ano) queryParams.append('ano', ano.toString());
