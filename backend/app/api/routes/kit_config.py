@@ -186,7 +186,7 @@ def upsert_kit_config(
     current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
 ):
     from .marketing import clear_ticket_atual_cache
-    from ...core.cache import eventos_list_cache
+    from ...core.cache import eventos_list_cache, event_detail_cache
 
     if body.is_kit_basico and body.id_evento is not None:
         db.query(KitConfig).filter(
@@ -206,6 +206,7 @@ def upsert_kit_config(
             db.refresh(existing)
             clear_ticket_atual_cache()
             eventos_list_cache.invalidate_all()
+            event_detail_cache.invalidate()
             return existing
 
         new_config = KitConfig(
@@ -219,6 +220,7 @@ def upsert_kit_config(
         db.refresh(new_config)
         clear_ticket_atual_cache()
         eventos_list_cache.invalidate_all()
+        event_detail_cache.invalidate()
         return new_config
     except IntegrityError:
         db.rollback()

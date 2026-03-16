@@ -6370,4 +6370,7 @@ def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db)
     if key == "isc_parameters":
         _isc_settings_cache["value"] = None
         _isc_settings_cache["ts"] = 0
+        _smart_isc_cache.invalidate()
+        event_detail_cache.invalidate()
+        eventos_list_cache.invalidate()
     return {"status": "success", "key": key, "value": setting.value}

@@ -23,6 +23,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
 
 
+def _invalidate_all_marketing_caches():
+    """Invalida todos os caches de marketing (ISC, detalhe de evento, lista de eventos).
+    Deve ser chamado sempre que mapeamentos SKU ou grupos de eventos forem alterados.
+    """
+    try:
+        from app.core.cache import isc_cache as _smart_isc_cache, event_detail_cache, eventos_list_cache
+        _smart_isc_cache.invalidate()
+        event_detail_cache.invalidate()
+        eventos_list_cache.invalidate()
+    except Exception as e:
+        logger.warning(f"Falha ao invalidar caches de marketing: {e}")
+
+
 def _invalidate_curva_cache(evento_grupo: str, ano: int, db: Session = None):
     if not evento_grupo:
         return
@@ -99,6 +112,7 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
         logger.info(f"Cooldown ativo para '{evento_grupo}': snapshot atualizado há menos de 10 min, apenas invalidando cache")
 
     _invalidate_curva_cache(evento_grupo, ano, db)
+    _invalidate_all_marketing_caches()
 
 
 class EventoExterno(BaseModel):
@@ -366,6 +380,7 @@ def update_sku_mapping(
             _invalidate_snapshot(db, db_mapping.evento_grupo, db_mapping.ano)
     else:
         _invalidate_curva_cache(db_mapping.evento_grupo, db_mapping.ano, db)
+        _invalidate_all_marketing_caches()
 
     return db_mapping
 
@@ -385,6 +400,7 @@ def delete_sku_mapping(
     db.delete(db_mapping)
     db.commit()
     _invalidate_curva_cache(evento_grupo, ano, db)
+    _invalidate_all_marketing_caches()
     return {"message": "Mapeamento excluído com sucesso"}
 
 
@@ -608,6 +624,7 @@ def update_evento_grupo(
     
     db.commit()
     db.refresh(db_grupo)
+    _invalidate_all_marketing_caches()
     return db_grupo
 
 
@@ -623,4 +640,5 @@ def delete_evento_grupo(
     
     db.delete(db_grupo)
     db.commit()
+    _invalidate_all_marketing_caches()
     return {"message": "Grupo excluído com sucesso"}
