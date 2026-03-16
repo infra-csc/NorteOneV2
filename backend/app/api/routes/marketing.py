@@ -447,6 +447,7 @@ def clear_ticket_atual_cache():
 
 def _fetch_ticket_atual_map(db: Session) -> dict:
     from ...models.kit_config import KitConfig
+    from ...models.cadastro_evento import CadastroEvento
     from ..routes.kit_config import MAGENTO_KITS_QUERY
 
     basico_configs = db.query(KitConfig).filter(KitConfig.is_kit_basico == True).all()
@@ -480,10 +481,39 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         tb = ticket_base_by_bundle.get(cfg.bundle_entity_id)
         if tb is None:
             continue
-        key = str(cfg.id_evento)
-        evento_tickets[key] = round(tb * cfg.multiplicador, 2)
+        evt_key = str(cfg.id_evento)
+        evento_tickets[evt_key] = round(tb * cfg.multiplicador, 2)
 
-    return evento_tickets
+    if not evento_tickets:
+        return {}
+
+    magento_evt_ids = [int(k) for k in evento_tickets.keys() if k.isdigit()]
+    magento_sms = db.query(SkuMapping.sku, SkuMapping.id_externo).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.ativo == True,
+        SkuMapping.id_externo.in_(magento_evt_ids),
+    ).all()
+    evt_id_to_sku = {str(sm.id_externo): sm.sku for sm in magento_sms}
+
+    matched_skus = list(evt_id_to_sku.values())
+    if not matched_skus:
+        return {}
+
+    cad_rows = db.query(CadastroEvento.projeto_id, CadastroEvento.sku).filter(
+        CadastroEvento.sku.in_(matched_skus),
+        CadastroEvento.projeto_id.isnot(None),
+    ).all()
+    sku_to_projeto = {c.sku: c.projeto_id for c in cad_rows}
+
+    projeto_tickets: dict = {}
+    for evt_id, ticket_final in evento_tickets.items():
+        sku = evt_id_to_sku.get(evt_id)
+        if sku:
+            pid = sku_to_projeto.get(sku)
+            if pid:
+                projeto_tickets[pid] = ticket_final
+
+    return projeto_tickets
 
 
 
@@ -500,19 +530,16 @@ def _get_ticket_atual_map(db: Session) -> dict:
     return result
 
 
-def _get_ticket_atual_for_event(ticket_map: dict, id_evento_magento_list) -> float:
+def _get_ticket_atual_for_event(ticket_map: dict, projeto_ids) -> float:
     if not ticket_map:
         return 0.0
 
-    if not isinstance(id_evento_magento_list, list):
-        id_evento_magento_list = [id_evento_magento_list] if id_evento_magento_list is not None else []
+    if not isinstance(projeto_ids, list):
+        projeto_ids = [projeto_ids] if projeto_ids is not None else []
 
-    for id_evt in id_evento_magento_list:
-        if id_evt is None:
-            continue
-        key = str(id_evt)
-        if key in ticket_map:
-            return ticket_map[key]
+    for pid in projeto_ids:
+        if pid is not None and pid in ticket_map:
+            return ticket_map[pid]
 
     return 0.0
 
@@ -2075,8 +2102,7 @@ def get_marketing_events(
         grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
                                             avg_ticket, current_sales, current_receita)
         
-        grupo_evt_ids = [getattr(cadastro_by_projeto_id.get(p.id), 'id_evento_magento', None) for p in proj_list]
-        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, grupo_evt_ids)
+        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, [p.id for p in proj_list])
         
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
@@ -2169,7 +2195,7 @@ def get_marketing_events(
         standalone_margin = _calc_margin_fields(standalone_budget_ticket, standalone_kit_cost, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
         
-        standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, getattr(cad, 'id_evento_magento', None))
+        standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, projeto.id)
         
         evento = MarketingEvent(
             id=str(projeto.id),
@@ -4872,8 +4898,7 @@ def get_marketing_event_by_id(
                                              avg_ticket, current_sales, current_receita)
         
         detail_ticket_atual_map = _get_ticket_atual_map(db)
-        detail_evt_ids = [getattr(_wq_cadastro_by_projeto_id(db, p.id), 'id_evento_magento', None) for p in projetos]
-        detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, detail_evt_ids)
+        detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         evento = MarketingEvent(
             id=evento_id,
@@ -5116,8 +5141,7 @@ def get_marketing_event_by_id(
                                             avg_ticket, current_sales, current_receita)
     
     sa_ticket_atual_map = _get_ticket_atual_map(db)
-    sa_detail_cad = _wq_cadastro_by_projeto_id(db, projeto.id)
-    sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, getattr(sa_detail_cad, 'id_evento_magento', None))
+    sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
     
     evento = MarketingEvent(
         id=str(projeto.id),
