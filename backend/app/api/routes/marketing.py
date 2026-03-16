@@ -489,7 +489,24 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             )
         evento_tickets[id_evento] = ticket_final
 
-    return evento_tickets
+    if not evento_tickets:
+        return {}
+
+    id_evento_list = list(evento_tickets.keys())
+    sku_mappings = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'ATIVO',
+        SkuMapping.id_externo.in_(id_evento_list),
+        SkuMapping.ativo == True,
+    ).all()
+
+    sku_ticket_map: dict = {}
+    for m in sku_mappings:
+        id_evt = str(m.id_externo)
+        if id_evt in evento_tickets:
+            sku_key = m.sku.upper().strip()
+            sku_ticket_map[sku_key] = evento_tickets[id_evt]
+
+    return sku_ticket_map
 
 
 def _get_ticket_atual_map(db: Session) -> dict:
@@ -505,6 +522,9 @@ def _get_ticket_atual_map(db: Session) -> dict:
 
 
 def _get_ticket_atual_for_event(db: Session, ticket_map: dict, projetos_or_sku, sku_mappings_cache: dict = None) -> float:
+    if not ticket_map:
+        return 0.0
+
     if isinstance(projetos_or_sku, str):
         skus = [projetos_or_sku]
     elif isinstance(projetos_or_sku, list):
@@ -512,17 +532,12 @@ def _get_ticket_atual_for_event(db: Session, ticket_map: dict, projetos_or_sku, 
     else:
         skus = [str(projetos_or_sku.codigo)] if projetos_or_sku.codigo else []
 
-    tickets = []
     for sku in skus:
-        mappings = sku_mappings_cache.get(sku.upper().strip()) if sku_mappings_cache else None
-        if mappings is None:
-            mappings = _wq_sku_mappings_by_sku(db, sku)
-        for m in mappings:
-            if m.fonte == 'ATIVO' and m.id_externo:
-                id_evt = str(m.id_externo)
-                if id_evt in ticket_map:
-                    tickets.append(ticket_map[id_evt])
-    return round(sum(tickets) / len(tickets), 2) if tickets else 0.0
+        key = sku.upper().strip()
+        if key in ticket_map:
+            return ticket_map[key]
+
+    return 0.0
 
 
 router = APIRouter(prefix="/marketing", tags=["Marketing ISC"])
