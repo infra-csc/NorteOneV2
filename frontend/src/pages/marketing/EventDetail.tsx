@@ -1853,9 +1853,9 @@ const EventDetail: React.FC = () => {
                       <div className="w-2 h-2 rounded-full bg-green-500" />
                       Margem Realizada
                     </h3>
-                    {event.currentSales > 0 && (event.ticketAtual > 0 || event.averageTicket > 0) ? (
+                    {event.currentSales > 0 && ((event.ticketAtual ?? 0) > 0 || event.averageTicket > 0) ? (
                       (() => {
-                        const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : event.averageTicket;
+                        const ticketRef = (event.ticketAtual ?? 0) > 0 ? (event.ticketAtual as number) : event.averageTicket;
                         const kitCost = event.kitCostPerUnit || 0;
                         const margemUnit = Math.round((ticketRef - kitCost) * 100) / 100;
                         const margemTotal = Math.round(margemUnit * event.currentSales * 100) / 100;
@@ -1866,7 +1866,7 @@ const EventDetail: React.FC = () => {
                           <span className="text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
                           <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(ticketRef)}</span>
                         </div>
-                        {event.averageTicket > 0 && event.ticketAtual > 0 && event.ticketAtual !== event.averageTicket && (
+                        {event.averageTicket > 0 && (event.ticketAtual ?? 0) > 0 && (event.ticketAtual as number) !== event.averageTicket && (
                           <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                             <span className="text-gray-500 dark:text-gray-400">Ticket Médio Realizado</span>
                             <span className="font-medium text-gray-500 dark:text-gray-400 text-xs">{formatCurrency(event.averageTicket)}</span>
