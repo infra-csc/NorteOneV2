@@ -452,7 +452,6 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     basico_configs = db.query(KitConfig).filter(KitConfig.is_kit_basico == True).all()
     if not basico_configs:
         return {}
-    basico_map = {c.bundle_entity_id: c for c in basico_configs}
 
     if db_module.engine_magento is None:
         return {}
