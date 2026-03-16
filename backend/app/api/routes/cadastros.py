@@ -538,6 +538,13 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
     db.commit()
     db.refresh(cadastro)
     
+    if cadastro.projeto_id:
+        try:
+            from app.api.routes.marketing import invalidate_cadastro_caches
+            invalidate_cadastro_caches(cadastro.projeto_id)
+        except Exception:
+            pass
+    
     return db_to_response(cadastro)
 
 

@@ -19,6 +19,19 @@ logger = logging.getLogger(__name__)
 
 _cadastro_cache: dict = {}
 
+def invalidate_cadastro_caches(projeto_id: int):
+    """Limpa caches relacionados a um cadastro de evento específico.
+    Deve ser chamado sempre que atletas_site_pago ou outros campos críticos forem atualizados.
+    """
+    if projeto_id in _cadastro_cache:
+        del _cadastro_cache[projeto_id]
+    try:
+        from ...core.cache import event_detail_cache, eventos_list_cache
+        event_detail_cache.invalidate()
+        eventos_list_cache.invalidate()
+    except Exception:
+        pass
+
 import threading as _threading
 _warmup_daily_cache: dict = {}
 _warmup_daily_cache_lock = _threading.Lock()
@@ -5079,7 +5092,7 @@ def get_marketing_event_by_id(
     current_sales = sales_info.get('qtd_site', 0)
     current_receita = sales_info.get('receita_liquida_site', 0.0)
     
-    sales_goal = get_meta_orcada(db, projeto.id)
+    sales_goal = get_meta_from_cadastro(detail_standalone_cad) if detail_standalone_cad else get_meta_orcada(db, projeto.id)
     avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
     detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
     
