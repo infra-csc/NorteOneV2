@@ -185,7 +185,7 @@ def upsert_kit_config(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
 ):
-    from .marketing import clear_ticket_atual_cache, clear_sku_id_evento_bridge_cache
+    from .marketing import clear_ticket_atual_cache
 
     if body.is_kit_basico and body.id_evento is not None:
         db.query(KitConfig).filter(
@@ -204,7 +204,6 @@ def upsert_kit_config(
             db.commit()
             db.refresh(existing)
             clear_ticket_atual_cache()
-            clear_sku_id_evento_bridge_cache()
             return existing
 
         new_config = KitConfig(
@@ -217,7 +216,6 @@ def upsert_kit_config(
         db.commit()
         db.refresh(new_config)
         clear_ticket_atual_cache()
-        clear_sku_id_evento_bridge_cache()
         return new_config
     except IntegrityError:
         db.rollback()

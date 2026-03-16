@@ -430,6 +430,37 @@ def _startup_resync_projetos():
     except Exception as e:
         logger.error(f"Startup resync failed: {e}")
 
+def _sync_id_evento_magento():
+    from app.core.database import SessionLocal
+    from app.models.cadastro_evento import CadastroEvento
+    from app.models.dimensoes import SkuMapping
+    try:
+        db = SessionLocal()
+        cadastros = db.query(CadastroEvento).filter(
+            CadastroEvento.sku.isnot(None),
+            CadastroEvento.id_evento_magento.is_(None),
+        ).all()
+        if not cadastros:
+            db.close()
+            return
+        updated = 0
+        for cad in cadastros:
+            mapping = db.query(SkuMapping).filter(
+                SkuMapping.sku == cad.sku.upper().strip(),
+                SkuMapping.fonte == 'ATIVO',
+                SkuMapping.ativo == True,
+            ).first()
+            if mapping and mapping.id_externo:
+                cad.id_evento_magento = int(mapping.id_externo)
+                updated += 1
+        if updated:
+            db.commit()
+            logger.info(f"Synced id_evento_magento for {updated} cadastro_evento records")
+        db.close()
+    except Exception as e:
+        logger.error(f"id_evento_magento sync failed: {e}")
+
+
 def seed_admin_user():
     from app.core.database import SessionLocal
     from app.models.user import Usuario
@@ -534,6 +565,7 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS dias_encerramento_inscricao INTEGER DEFAULT 2",
             "ALTER TABLE sku_mappings ADD COLUMN IF NOT EXISTS data_evento DATE",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS is_kit_basico BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS id_evento_magento INTEGER",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
@@ -583,6 +615,11 @@ async def lifespan(app: FastAPI):
             _startup_resync_projetos()
         except Exception as e:
             logger.error(f"Startup resync projetos failed: {e}")
+
+        try:
+            _sync_id_evento_magento()
+        except Exception as e:
+            logger.error(f"Startup id_evento_magento sync failed: {e}")
 
         try:
             init_mysql_connections()

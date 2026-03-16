@@ -492,46 +492,6 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     return evento_tickets
 
 
-_sku_id_evento_bridge_cache: dict = {}
-_sku_id_evento_bridge_lock = _threading.Lock()
-
-
-def clear_sku_id_evento_bridge_cache():
-    with _sku_id_evento_bridge_lock:
-        _sku_id_evento_bridge_cache.clear()
-
-
-def _fetch_sku_id_evento_bridge(db: Session) -> dict:
-    from ...models.kit_config import KitConfig
-
-    all_configs = db.query(KitConfig).filter(KitConfig.id_evento.isnot(None)).all()
-    if not all_configs:
-        return {}
-
-    id_evento_set = set(str(c.id_evento) for c in all_configs)
-
-    sku_mappings = db.query(SkuMapping).filter(
-        SkuMapping.fonte == 'ATIVO',
-        SkuMapping.id_externo.in_(list(id_evento_set)),
-        SkuMapping.ativo == True,
-    ).all()
-
-    bridge: dict = {}
-    for m in sku_mappings:
-        bridge[m.sku.upper().strip()] = str(m.id_externo)
-
-    return bridge
-
-
-def _get_sku_id_evento_bridge(db: Session) -> dict:
-    with _sku_id_evento_bridge_lock:
-        if _sku_id_evento_bridge_cache:
-            return dict(_sku_id_evento_bridge_cache)
-    result = _fetch_sku_id_evento_bridge(db)
-    with _sku_id_evento_bridge_lock:
-        _sku_id_evento_bridge_cache.clear()
-        _sku_id_evento_bridge_cache.update(result)
-    return result
 
 
 def _get_ticket_atual_map(db: Session) -> dict:
@@ -546,21 +506,21 @@ def _get_ticket_atual_map(db: Session) -> dict:
     return result
 
 
-def _get_ticket_atual_for_event(ticket_map: dict, sku_bridge: dict, projetos_or_sku) -> float:
-    if not ticket_map or not sku_bridge:
+def _get_ticket_atual_for_event(ticket_map: dict, cadastros) -> float:
+    if not ticket_map:
         return 0.0
 
-    if isinstance(projetos_or_sku, str):
-        skus = [projetos_or_sku]
-    elif isinstance(projetos_or_sku, list):
-        skus = [str(p.codigo) for p in projetos_or_sku if p.codigo]
-    else:
-        skus = [str(projetos_or_sku.codigo)] if projetos_or_sku.codigo else []
+    if not isinstance(cadastros, list):
+        cadastros = [cadastros] if cadastros else []
 
-    for sku in skus:
-        id_evento = sku_bridge.get(sku.upper().strip())
-        if id_evento and id_evento in ticket_map:
-            return ticket_map[id_evento]
+    for cad in cadastros:
+        if cad is None:
+            continue
+        id_evt_mag = getattr(cad, 'id_evento_magento', None)
+        if id_evt_mag is not None:
+            key = str(id_evt_mag)
+            if key in ticket_map:
+                return ticket_map[key]
 
     return 0.0
 
@@ -1998,7 +1958,6 @@ def get_marketing_events(
     active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
     kit_costs_batch = get_kit_basico_costs_batch(db, all_projeto_ids) if all_projeto_ids else {}
     ticket_atual_map = _get_ticket_atual_map(db)
-    sku_id_evento_bridge = _get_sku_id_evento_bridge(db)
     
     all_projetos_flat = []
     for proj_list in grupo_projetos.values():
@@ -2124,7 +2083,8 @@ def get_marketing_events(
         grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
                                             avg_ticket, current_sales, current_receita)
         
-        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, sku_id_evento_bridge, proj_list)
+        grupo_cadastros = [cadastro_by_projeto_id.get(p.id) for p in proj_list]
+        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, grupo_cadastros)
         
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
@@ -2217,7 +2177,7 @@ def get_marketing_events(
         standalone_margin = _calc_margin_fields(standalone_budget_ticket, standalone_kit_cost, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
         
-        standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, sku_id_evento_bridge, sku)
+        standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, cad)
         
         evento = MarketingEvent(
             id=str(projeto.id),
@@ -4920,8 +4880,8 @@ def get_marketing_event_by_id(
                                              avg_ticket, current_sales, current_receita)
         
         detail_ticket_atual_map = _get_ticket_atual_map(db)
-        detail_sku_bridge = _get_sku_id_evento_bridge(db)
-        detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, detail_sku_bridge, projetos)
+        detail_cadastros = [_wq_cadastro_by_projeto_id(db, p.id) for p in projetos]
+        detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, detail_cadastros)
         
         evento = MarketingEvent(
             id=evento_id,
@@ -5164,8 +5124,8 @@ def get_marketing_event_by_id(
                                             avg_ticket, current_sales, current_receita)
     
     sa_ticket_atual_map = _get_ticket_atual_map(db)
-    sa_sku_bridge = _get_sku_id_evento_bridge(db)
-    sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, sa_sku_bridge, sku)
+    sa_detail_cadastro = _wq_cadastro_by_projeto_id(db, projeto.id)
+    sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, sa_detail_cadastro)
     
     evento = MarketingEvent(
         id=str(projeto.id),
