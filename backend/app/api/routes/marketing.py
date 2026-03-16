@@ -26,9 +26,10 @@ def invalidate_cadastro_caches(projeto_id: int):
     if projeto_id in _cadastro_cache:
         del _cadastro_cache[projeto_id]
     try:
-        from ...core.cache import event_detail_cache, eventos_list_cache
+        from ...core.cache import event_detail_cache, eventos_list_cache, curva_cache
         event_detail_cache.invalidate()
         eventos_list_cache.invalidate()
+        curva_cache.invalidate()
     except Exception:
         pass
 
