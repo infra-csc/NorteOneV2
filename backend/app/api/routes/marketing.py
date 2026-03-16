@@ -447,6 +447,7 @@ def clear_ticket_atual_cache():
 
 def _fetch_ticket_atual_map(db: Session) -> dict:
     from ...models.kit_config import KitConfig
+    from ...models.cadastro_evento import CadastroEvento
     from ..routes.kit_config import MAGENTO_KITS_QUERY
 
     basico_configs = db.query(KitConfig).filter(KitConfig.is_kit_basico == True).all()
@@ -489,7 +490,19 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             )
         evento_tickets[id_evento] = ticket_final
 
-    return evento_tickets
+    cadastros = db.query(CadastroEvento).filter(
+        CadastroEvento.projeto_id.isnot(None)
+    ).all()
+
+    projeto_tickets: dict = {}
+    for cad in cadastros:
+        mag_id = cad.id_evento_magento
+        if mag_id is not None:
+            key = str(mag_id)
+            if key in evento_tickets:
+                projeto_tickets[cad.projeto_id] = evento_tickets[key]
+
+    return projeto_tickets
 
 
 
@@ -516,11 +529,9 @@ def _get_ticket_atual_for_event(ticket_map: dict, cadastros) -> float:
     for cad in cadastros:
         if cad is None:
             continue
-        id_evt_mag = getattr(cad, 'id_evento_magento', None)
-        if id_evt_mag is not None:
-            key = str(id_evt_mag)
-            if key in ticket_map:
-                return ticket_map[key]
+        pid = getattr(cad, 'projeto_id', None)
+        if pid is not None and pid in ticket_map:
+            return ticket_map[pid]
 
     return 0.0
 
