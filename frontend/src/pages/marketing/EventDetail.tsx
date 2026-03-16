@@ -1661,20 +1661,29 @@ const EventDetail: React.FC = () => {
             <DollarSign className="w-4 h-4 text-green-500" />
             Análise de Ticket Médio
           </h3>
+          {(() => {
+            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : event.averageTicket;
+            return (
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-              <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Médio Atual</span>
-              <span className="text-lg font-bold text-gray-900 dark:text-white">{formatCurrency(event.averageTicket)}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
+              <span className="text-lg font-bold text-gray-900 dark:text-white">{ticketRef > 0 ? formatCurrency(ticketRef) : '—'}</span>
             </div>
+            {event.averageTicket > 0 && (
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Médio Realizado</span>
+                <span className="text-base font-medium text-gray-600 dark:text-gray-300">{formatCurrency(event.averageTicket)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Orçado</span>
               <span className="text-lg font-bold text-gray-600 dark:text-gray-300">{formatCurrency(event.budgetTicket || 0)}</span>
             </div>
-            {event.budgetTicket > 0 && (
+            {event.budgetTicket > 0 && ticketRef > 0 && (
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <span className="text-xs text-gray-500 dark:text-gray-400">% do Orçado</span>
-                <span className={`text-lg font-bold ${(event.averageTicket / event.budgetTicket) >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {((event.averageTicket / event.budgetTicket) - 1) >= 0 ? '+' : ''}{Math.round(((event.averageTicket / event.budgetTicket) - 1) * 100)}%
+                <span className={`text-lg font-bold ${(ticketRef / event.budgetTicket) >= 1 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {((ticketRef / event.budgetTicket) - 1) >= 0 ? '+' : ''}{Math.round(((ticketRef / event.budgetTicket) - 1) * 100)}%
                 </span>
               </div>
             )}
@@ -1701,6 +1710,8 @@ const EventDetail: React.FC = () => {
               </div>
             )}
           </div>
+            );
+          })()}
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
