@@ -480,23 +480,24 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
         return {}
 
-    ticket_base_by_bundle: dict = {}
+    special_price_base_by_bundle: dict = {}
     for row in rows:
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
-        ticket_base = float(row_dict["ticket_base"]) if row_dict.get("ticket_base") is not None else None
-        if ticket_base is not None:
-            ticket_base_by_bundle[bundle_id] = ticket_base
+        sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
+        mult_sugerido = int(row_dict.get("multiplicador") or 1)
+        if sp is not None and mult_sugerido > 0:
+            special_price_base_by_bundle[bundle_id] = sp / mult_sugerido
 
     evento_tickets: dict = {}
     for cfg in basico_configs:
         if cfg.id_evento is None:
             continue
-        tb = ticket_base_by_bundle.get(cfg.bundle_entity_id)
-        if tb is None:
+        sp_base = special_price_base_by_bundle.get(cfg.bundle_entity_id)
+        if sp_base is None:
             continue
         evt_key = str(cfg.id_evento)
-        evento_tickets[evt_key] = round(tb * cfg.multiplicador, 2)
+        evento_tickets[evt_key] = round(sp_base * cfg.multiplicador, 2)
 
     if not evento_tickets:
         return {}
