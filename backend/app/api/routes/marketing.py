@@ -1492,12 +1492,11 @@ def get_margem_por_kit(
                         if b.custo_kit is not None:
                             custo_kit_override[b.tipo_kit] = float(b.custo_kit)
 
+        import datetime as _dt
+        _ano = ano if ano else _dt.datetime.now().year
+
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            # Build year-filter clause: join on event date attribute (attribute_id=195, same as
-            # build_query_isc_magento) to scope sales to the same year window as the main ISC query.
-            import datetime as _dt
-            _ano = ano if ano else _dt.datetime.now().year
             _year_filter = (
                 f"AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) "
                 f"AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY"
@@ -1591,6 +1590,92 @@ GROUP BY soi.product_id
                     "receita": 0.0,
                     "has_cost": True,
                 }
+
+        # 3.5 Fallback: quando algum kit ainda tem qtd=0 (tipo_kit não mapeado no KitConfig),
+        # consolida vendas Magento agrupadas por nome do bundle e faz matching por nome
+        # contra as chaves do kit_map (ex: "Kit Básico" está contido em "Kit Básico Bravus Race - Speed I")
+        kits_sem_venda = [k for k, v in kit_map.items() if v["qtd"] == 0]
+        if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
+            ev_ids_fb = list(seen_magento_events)
+            fb_query = text(f"""
+SELECT
+    soi.name                          AS bundle_name,
+    COUNT(DISTINCT soi.item_id)       AS qtd,
+    ROUND(SUM(
+        CASE
+            WHEN soi.price = 0 THEN 0
+            ELSE CASE
+                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
+                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
+                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
+                ELSE soi.price
+            END
+            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+            - CASE
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN soiaa.price = 14.90
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0
+              END
+        END
+    ), 2) AS receita_liquida
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321 AND store_id = 0
+) AS cpev1 ON cpev1.entity_id = soi.product_id
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195 AND store_id = 0
+) AS cped ON cped.entity_id = cpev1.value
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS price
+    FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+WHERE
+    cpev1.value IN :ev_ids_fb
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.state != 'canceled'
+AND soi.price > 0
+AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+AND so.base_grand_total > 0
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY
+GROUP BY soi.name
+""").bindparams(bindparam("ev_ids_fb", expanding=True))
+            try:
+                with db_module.engine_magento.connect() as conn:
+                    fb_result = conn.execute(fb_query, {"ev_ids_fb": ev_ids_fb})
+                    # bundle_name → (qtd, receita)
+                    fb_by_name: dict = {}
+                    for fb_row in fb_result.fetchall():
+                        bname = (fb_row[0] or "").strip()
+                        bqtd  = int(fb_row[1] or 0)
+                        brec  = float(fb_row[2] or 0)
+                        fb_by_name[bname] = {"qtd": bqtd, "receita": brec}
+
+                    # Só aplica onde qtd ainda é 0; evita sobrescrever dados já preenchidos
+                    for kit_name in kits_sem_venda:
+                        kit_name_lower = kit_name.lower()
+                        total_qtd  = 0
+                        total_rec  = 0.0
+                        for bname, bdata in fb_by_name.items():
+                            if kit_name_lower in bname.lower():
+                                total_qtd += bdata["qtd"]
+                                total_rec += bdata["receita"]
+                        if total_qtd > 0 and kit_name in kit_map:
+                            kit_map[kit_name]["qtd"]     = total_qtd
+                            kit_map[kit_name]["receita"] = total_rec
+            except Exception as e:
+                logger.error(f"Erro no fallback de vendas por nome de bundle para margem: {e}")
 
         # 4. Build result list — inclui kits sem vendas (qtd=0) para visibilidade de custo
         if not kit_map:
