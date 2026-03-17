@@ -560,7 +560,7 @@ const EventDetail: React.FC = () => {
     acc.push({
       date: day.date,
       cumulative: prevCumulative + day.sales,
-      cumulativeExpected: prevExpected + day.expected,
+      cumulativeExpected: day.cumulativeExpected != null ? day.cumulativeExpected : (prevExpected + day.expected),
       daily: day.sales,
       cumulativeNormalized: day.cumulativeNormalized ?? (prevNormalized + normDaily),
       normalizedDaily: normDaily
