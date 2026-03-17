@@ -1392,31 +1392,22 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
     }
 
 
-def get_margem_por_kit(db: Session, projeto_ids: list, ano: int = None) -> list:
-    """
-    Computes margin per kit type for an event using Magento bundle sales.
-
-    CadastroKitProduto is the source of truth for kit types and item costs.
-    KitConfig.tipo_kit maps each Magento bundle_entity_id to a CadastroKitProduto.kit name.
-
-    Design principles:
-    - Kit cost data is merged across ALL cadastros for all projetos (not just the first one)
-    - Magento event IDs and bundle IDs are deduplicated before querying to prevent double-counting
-    - Sales-only kit rows (tipo_kit present in Magento but not in any cadastro) are included with custo=0
-    - Only Magento bundle sales are used (deterministic kit-to-bundle mapping via KitConfig.tipo_kit)
-    - Price adjustments for plus/vip/super bundles are applied (same as main ISC query)
-    - Year-scoped via event date attribute on each bundle (same temporal filter as main ISC query)
-    - ativo_categoria is stored in the model for future use but excluded from this calculation
-    """
+def get_margem_por_kit(
+    db: Session,
+    projeto_ids: list,
+    ano: int = None,
+    card_total_qty: int = None,
+    card_total_receita: float = None,
+    card_kit_cost_avg: float = None,
+) -> list:
+    """Quebra de margem por tipo de kit via vendas Magento bundle."""
     from ...models.kit_config import KitConfig
 
     if not projeto_ids:
         return []
 
     try:
-        # --- 1. Collect kit costs from ALL cadastros across all projetos ---
-        # kit_map: {kit_name: {custo, ativo_categoria, qtd, receita}}
-        # On name collision, the first cadastro wins (preserves custo + ativo_categoria).
+        # 1. Custo por kit: mescla de TODOS os cadastros de todos os projetos
         kit_map: dict = {}
 
         for pid in projeto_ids:
@@ -1440,10 +1431,8 @@ def get_margem_por_kit(db: Session, projeto_ids: list, ano: int = None) -> list:
 
             for kc in kit_configs_db:
                 kit_name = (kc.kit or "").strip()
-                if not kit_name:
+                if not kit_name or kit_name in kit_map:
                     continue
-                if kit_name in kit_map:
-                    continue  # First cadastro wins for cost/mapping
                 cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kc.id, []))
                 kit_map[kit_name] = {
                     "custo": cost,
@@ -1453,7 +1442,7 @@ def get_margem_por_kit(db: Session, projeto_ids: list, ano: int = None) -> list:
                     "has_cost": True,
                 }
 
-        # --- 2. Collect SKU mappings for all projetos ---
+        # 2. SKU mappings filtrados por ano para evitar contaminação entre edições
         proj_by_id = {
             pid: db.query(DimProjeto).filter(DimProjeto.id == pid).first()
             for pid in projeto_ids
@@ -1464,13 +1453,16 @@ def get_margem_por_kit(db: Session, projeto_ids: list, ano: int = None) -> list:
             if not proj or not proj.codigo:
                 return []
             sku = proj.codigo.upper().strip()
-            return db.query(SkuMapping).filter(
+            q = db.query(SkuMapping).filter(
                 SkuMapping.sku == sku,
                 SkuMapping.fonte == fonte,
-                SkuMapping.ativo == True
-            ).all()
+                SkuMapping.ativo == True,
+            )
+            if ano:
+                q = q.filter(SkuMapping.ano == ano)
+            return q.all()
 
-        # --- 3. Magento: deduplicate event IDs and bundle IDs across all projetos ---
+        # 3. Magento: deduplicação de event IDs e bundle IDs entre todos os projetos
         seen_magento_events: set = set()
         seen_bundle_ids: set = set()
         global_bundle_tipo_map: dict = {}  # bundle_entity_id -> tipo_kit
@@ -1580,12 +1572,7 @@ GROUP BY soi.product_id
             except Exception as e:
                 logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
 
-        # NOTE: Only Magento bundle sales are aggregated here (deterministic kit-to-bundle mapping).
-        # ativo_categoria in CadastroKitProduto is stored for potential future expansion
-        # but is not included in this calculation to keep the per-kit data source consistent
-        # with the Magento bundle/tipo_kit mapping.
-
-        # --- 4. Build result list ---
+        # 4. Build result list
         if not kit_map:
             return []
 
@@ -1619,15 +1606,27 @@ GROUP BY soi.product_id
             total_margem += margem_total
 
         if result_list:
-            total_ticket = round(total_receita / total_qtd, 2) if total_qtd > 0 else 0.0
+            # Linha consolidada usa os totais do card principal quando disponíveis,
+            # garantindo consistência matemática com os valores exibidos na análise de margem.
+            if card_total_qty is not None and card_total_receita is not None:
+                c_qtd = card_total_qty
+                c_receita = round(card_total_receita, 2)
+                c_ticket = round(c_receita / c_qtd, 2) if c_qtd > 0 else 0.0
+                c_custo_avg = card_kit_cost_avg or 0.0
+                c_margem = round(c_receita - c_custo_avg * c_qtd, 2)
+            else:
+                c_qtd = total_qtd
+                c_receita = round(total_receita, 2)
+                c_ticket = round(c_receita / c_qtd, 2) if c_qtd > 0 else 0.0
+                c_margem = round(total_margem, 2)
             result_list.append({
                 "tipoKit": "CONSOLIDADO",
-                "qtd": total_qtd,
-                "receitaLiquida": round(total_receita, 2),
-                "ticketMedio": total_ticket,
+                "qtd": c_qtd,
+                "receitaLiquida": c_receita,
+                "ticketMedio": c_ticket,
                 "custoKit": None,
                 "margemUnit": None,
-                "margemTotal": round(total_margem, 2),
+                "margemTotal": c_margem,
             })
 
         return result_list
@@ -5327,7 +5326,14 @@ def get_marketing_event_by_id(
         detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         grupo_projeto_ids = [p.id for p in projetos]
-        detail_margem_por_kit = get_margem_por_kit(db, grupo_projeto_ids, ano=ano)
+        detail_margem_por_kit = get_margem_por_kit(
+            db,
+            grupo_projeto_ids,
+            ano=ano,
+            card_total_qty=current_sales,
+            card_total_receita=current_receita,
+            card_kit_cost_avg=detail_kit_cost_avg,
+        )
         
         evento = MarketingEvent(
             id=evento_id,
@@ -5573,7 +5579,14 @@ def get_marketing_event_by_id(
     sa_ticket_atual_map = _get_ticket_atual_map(db)
     sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
     
-    sa_margem_por_kit = get_margem_por_kit(db, [projeto.id], ano=ano)
+    sa_margem_por_kit = get_margem_por_kit(
+        db,
+        [projeto.id],
+        ano=ano,
+        card_total_qty=current_sales,
+        card_total_receita=current_receita,
+        card_kit_cost_avg=detail_sa_kit_cost,
+    )
     
     evento = MarketingEvent(
         id=str(projeto.id),
