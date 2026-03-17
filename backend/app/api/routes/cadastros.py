@@ -128,6 +128,7 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         KitProdutoResponse(
             id=kp.id,
             kit=kp.kit or "",
+            ativo_categoria=kp.ativo_categoria,
             produtos=[
                 ProdutoItemResponse(id=p.id, nome=p.nome, valor_unitario=p.valor_unitario or Decimal("0"))
                 for p in kp.produtos
@@ -304,7 +305,8 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     for kit in data.kit_produto:
         kit_obj = CadastroKitProduto(
             cadastro_id=cadastro.id,
-            kit=kit.kit
+            kit=kit.kit,
+            ativo_categoria=kit.ativo_categoria
         )
         db.add(kit_obj)
         db.flush()
@@ -478,7 +480,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         for kit in data.kit_produto:
             kit_obj = CadastroKitProduto(
                 cadastro_id=cadastro.id,
-                kit=kit.kit
+                kit=kit.kit,
+                ativo_categoria=kit.ativo_categoria
             )
             db.add(kit_obj)
             db.flush()

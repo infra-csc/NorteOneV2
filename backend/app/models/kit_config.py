@@ -9,6 +9,7 @@ class KitConfig(Base):
     bundle_entity_id = Column(Integer, primary_key=True)
     id_evento = Column(Integer, nullable=True)
     kit_nome = Column(String(255), nullable=True)
+    tipo_kit = Column(String(100), nullable=True)
     tipo = Column(String(20), default="multiplier")
     multiplicador = Column(Integer, default=1)
     is_kit_basico = Column(Boolean, default=False, nullable=False)

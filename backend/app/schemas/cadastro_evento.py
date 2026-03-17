@@ -56,6 +56,7 @@ class ProdutoItemResponse(ProdutoItemBase):
 
 class KitProdutoBase(BaseModel):
     kit: str = ""
+    ativo_categoria: Optional[str] = None
     produtos: List[ProdutoItemCreate] = []
 
 
@@ -66,6 +67,7 @@ class KitProdutoCreate(KitProdutoBase):
 class KitProdutoResponse(BaseModel):
     id: int
     kit: str
+    ativo_categoria: Optional[str] = None
     produtos: List[ProdutoItemResponse] = []
     
     class Config:

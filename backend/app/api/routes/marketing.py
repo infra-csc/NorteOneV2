@@ -612,6 +612,7 @@ class MarketingEvent(BaseModel):
     margemRealizadaTotal: float = 0.0
     margemRealizadaPct: float = 0.0
     ticketAtual: float = 0.0
+    margemPorKit: Optional[List[dict]] = None
 
 class DashboardSummary(BaseModel):
     totalActiveEvents: int
@@ -1389,6 +1390,261 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
         "margemRealizadaTotal": margem_realizada_total,
         "margemRealizadaPct": margem_realizada_pct,
     }
+
+
+def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
+    """
+    Computes margin per kit type for an event combining Ativo + Magento sales data.
+
+    CadastroKitProduto is the source of truth for kit types and item costs.
+    KitConfig.tipo_kit maps each Magento bundle_entity_id to a CadastroKitProduto.kit name.
+    CadastroKitProduto.ativo_categoria maps a kit type to its Ativo ds_categoria label.
+    """
+    from ...models.kit_config import KitConfig
+
+    if not projeto_ids:
+        return []
+
+    try:
+        cadastro = None
+        for pid in projeto_ids:
+            cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == pid).first()
+            if cadastro:
+                break
+
+        if not cadastro:
+            return []
+
+        kit_configs_db = db.query(CadastroKitProduto).filter(
+            CadastroKitProduto.cadastro_id == cadastro.id
+        ).all()
+
+        if not kit_configs_db:
+            return []
+
+        kit_ids = [kc.id for kc in kit_configs_db]
+        all_items = db.query(CadastroKitProdutoItem).filter(
+            CadastroKitProdutoItem.kit_produto_id.in_(kit_ids)
+        ).all()
+        items_by_kit = {}
+        for item in all_items:
+            items_by_kit.setdefault(item.kit_produto_id, []).append(item)
+
+        kit_map = {}
+        for kc in kit_configs_db:
+            kit_name = (kc.kit or "").strip()
+            if not kit_name:
+                continue
+            cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kc.id, []))
+            kit_map[kit_name] = {
+                "custo": cost,
+                "ativo_categoria": kc.ativo_categoria,
+                "qtd": 0,
+                "receita": 0.0,
+            }
+
+        if not kit_map:
+            return []
+
+        proj_by_id = {
+            pid: db.query(DimProjeto).filter(DimProjeto.id == pid).first()
+            for pid in projeto_ids
+        }
+
+        def _get_sku_maps(pid, fonte):
+            proj = proj_by_id.get(pid)
+            if not proj or not proj.codigo:
+                return []
+            sku = proj.codigo.upper().strip()
+            return db.query(SkuMapping).filter(
+                SkuMapping.sku == sku,
+                SkuMapping.fonte == fonte,
+                SkuMapping.ativo == True
+            ).all()
+
+        magento_id_eventos = []
+        for pid in projeto_ids:
+            for sm in _get_sku_maps(pid, 'MAGENTO'):
+                if sm.id_externo:
+                    magento_id_eventos.append(str(sm.id_externo))
+
+        if magento_id_eventos and db_module.engine_magento is not None:
+            for id_evento_magento in magento_id_eventos:
+                try:
+                    magento_event_int = int(id_evento_magento)
+                except (ValueError, TypeError):
+                    continue
+
+                bundles = db.query(KitConfig).filter(
+                    KitConfig.id_evento == magento_event_int,
+                    KitConfig.tipo_kit.isnot(None)
+                ).all()
+
+                if not bundles:
+                    continue
+
+                bundle_tipo_map = {b.bundle_entity_id: b.tipo_kit for b in bundles if b.tipo_kit}
+                if not bundle_tipo_map:
+                    continue
+
+                bundle_ids = list(bundle_tipo_map.keys())
+                magento_bundle_query = text("""
+SELECT
+    soi.product_id AS bundle_entity_id,
+    COUNT(DISTINCT soi.item_id) AS qtd,
+    ROUND(SUM(
+        CASE
+            WHEN soi.price = 0 THEN 0
+            ELSE soi.price
+                + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+                - CASE
+                    WHEN cg.customer_group_id = 4 THEN 0
+                    WHEN soiaa.price = 14.90
+                     AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                    ELSE 0
+                  END
+        END
+    ), 2) AS receita_liquida
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS price
+    FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
+LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+WHERE
+    soi.product_id IN :bundle_ids
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.state != 'canceled'
+AND soi.price > 0
+AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+AND so.base_grand_total > 0
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+GROUP BY soi.product_id
+""").bindparams(bindparam("bundle_ids", expanding=True))
+
+                try:
+                    with db_module.engine_magento.connect() as conn:
+                        result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
+                        for row in result.fetchall():
+                            bid = int(row[0])
+                            qtd = int(row[1] or 0)
+                            receita = float(row[2] or 0)
+                            tipo_kit = bundle_tipo_map.get(bid)
+                            if tipo_kit and tipo_kit in kit_map:
+                                kit_map[tipo_kit]["qtd"] += qtd
+                                kit_map[tipo_kit]["receita"] += receita
+                except Exception as e:
+                    logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+
+        ativo_id_eventos = []
+        for pid in projeto_ids:
+            for sm in _get_sku_maps(pid, 'ATIVO'):
+                if sm.id_externo:
+                    ativo_id_eventos.append(str(sm.id_externo))
+
+        categorias_mapeadas = {
+            kdata["ativo_categoria"]
+            for kdata in kit_map.values()
+            if kdata.get("ativo_categoria")
+        }
+
+        if ativo_id_eventos and categorias_mapeadas and db_module.engine_ssh is not None:
+            safe_ids = [str(int(i)) for i in ativo_id_eventos if str(i).isdigit()]
+            if safe_ids:
+                ativo_kit_query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    h.ds_categoria AS categoria,
+    COUNT(CASE
+        WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+         AND c.nr_total > 0 THEN 1 END) AS qtd,
+    SUM(CASE
+        WHEN (f.en_cupom_classificacao IS NULL
+              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
+         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+         AND c.nr_total > 0
+        THEN GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
+        ELSE 0 END) AS receita_liquida
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE
+    c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+    AND b.id_evento IN :id_eventos
+GROUP BY h.ds_categoria
+""").bindparams(bindparam("id_eventos", expanding=True))
+
+                try:
+                    with db_module.engine_ssh.connect() as conn:
+                        result = conn.execute(ativo_kit_query, {"id_eventos": safe_ids})
+                        for row in result.fetchall():
+                            cat = str(row[0] or "")
+                            qtd = int(row[1] or 0)
+                            receita = float(row[2] or 0)
+                            for kdata in kit_map.values():
+                                if kdata.get("ativo_categoria") and kdata["ativo_categoria"] == cat:
+                                    kdata["qtd"] += qtd
+                                    kdata["receita"] += receita
+                                    break
+                except Exception as e:
+                    logger.error(f"Erro ao buscar vendas Ativo por categoria para margem: {e}")
+
+        result_list = []
+        total_qtd = 0
+        total_receita = 0.0
+        total_margem = 0.0
+
+        for kit_name in sorted(kit_map.keys()):
+            kdata = kit_map[kit_name]
+            qtd = kdata["qtd"]
+            receita = kdata["receita"]
+            custo = kdata["custo"]
+            ticket_medio = round(receita / qtd, 2) if qtd > 0 else 0.0
+            margem_unit = round(ticket_medio - custo, 2) if qtd > 0 else round(-custo, 2)
+            margem_total = round(receita - (custo * qtd), 2) if qtd >= 0 else 0.0
+
+            result_list.append({
+                "tipoKit": kit_name,
+                "qtd": qtd,
+                "receitaLiquida": round(receita, 2),
+                "ticketMedio": ticket_medio,
+                "custoKit": round(custo, 2),
+                "margemUnit": margem_unit,
+                "margemTotal": margem_total,
+            })
+
+            total_qtd += qtd
+            total_receita += receita
+            total_margem += margem_total
+
+        if result_list:
+            total_ticket = round(total_receita / total_qtd, 2) if total_qtd > 0 else 0.0
+            result_list.append({
+                "tipoKit": "CONSOLIDADO",
+                "qtd": total_qtd,
+                "receitaLiquida": round(total_receita, 2),
+                "ticketMedio": total_ticket,
+                "custoKit": None,
+                "margemUnit": None,
+                "margemTotal": round(total_margem, 2),
+            })
+
+        return result_list
+
+    except Exception as e:
+        logger.error(f"Erro ao calcular margem por kit: {e}")
+        return []
 
 
 _isc_cache = {}
@@ -5080,6 +5336,9 @@ def get_marketing_event_by_id(
         detail_ticket_atual_map = _get_ticket_atual_map(db)
         detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
+        grupo_projeto_ids = [p.id for p in projetos]
+        detail_margem_por_kit = get_margem_por_kit(db, grupo_projeto_ids)
+        
         evento = MarketingEvent(
             id=evento_id,
             name=grupo.nome,
@@ -5100,6 +5359,7 @@ def get_marketing_event_by_id(
             isActive=is_active,
             sku=",".join(skus),
             ticketAtual=detail_ticket_atual,
+            margemPorKit=detail_margem_por_kit if detail_margem_por_kit else None,
             **detail_margin
         )
         
@@ -5323,6 +5583,8 @@ def get_marketing_event_by_id(
     sa_ticket_atual_map = _get_ticket_atual_map(db)
     sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
     
+    sa_margem_por_kit = get_margem_por_kit(db, [projeto.id])
+    
     evento = MarketingEvent(
         id=str(projeto.id),
         name=projeto_nome,
@@ -5343,6 +5605,7 @@ def get_marketing_event_by_id(
         isActive=is_active,
         sku=sku,
         ticketAtual=sa_detail_ticket_atual,
+        margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
         **detail_sa_margin
     )
     

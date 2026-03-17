@@ -7,12 +7,14 @@ class KitConfigUpsert(BaseModel):
     multiplicador: int = Field(default=1, ge=1, le=100)
     is_kit_basico: bool = False
     id_evento: Optional[int] = None
+    tipo_kit: Optional[str] = None
 
 
 class KitConfigResponse(BaseModel):
     bundle_entity_id: int
     id_evento: Optional[int] = None
     kit_nome: Optional[str] = None
+    tipo_kit: Optional[str] = None
     tipo: str = "multiplier"
     multiplicador: int = 1
     is_kit_basico: bool = False
@@ -28,6 +30,7 @@ class KitRow(BaseModel):
     nome_evento: Optional[str] = None
     bundle_entity_id: int
     nome_kit: Optional[str] = None
+    tipo_kit: Optional[str] = None
     tipo_categoria: Optional[str] = None
     lote_atual: Optional[str] = None
     multiplicador_sugerido: int = 1

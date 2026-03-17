@@ -264,6 +264,7 @@ def get_kits_with_config(
         multiplicador = cfg.multiplicador if cfg else mult_sugerido
         is_configured = cfg is not None
         is_kit_basico = cfg.is_kit_basico if cfg else False
+        tipo_kit = cfg.tipo_kit if cfg else None
 
         price_final = (price_base * multiplicador) if price_base is not None else None
         special_price_final = (special_price_base * multiplicador) if special_price_base is not None else None
@@ -273,6 +274,7 @@ def get_kits_with_config(
             nome_evento=row_dict.get("nome_evento"),
             bundle_entity_id=bundle_id,
             nome_kit=row_dict.get("nome_kit"),
+            tipo_kit=tipo_kit,
             tipo_categoria=row_dict.get("tipo_categoria"),
             lote_atual=row_dict.get("lote_atual"),
             multiplicador_sugerido=mult_sugerido,
@@ -312,6 +314,7 @@ def upsert_kit_config(
             existing.is_kit_basico = body.is_kit_basico
             if body.id_evento is not None:
                 existing.id_evento = body.id_evento
+            existing.tipo_kit = body.tipo_kit
             db.commit()
             db.refresh(existing)
             clear_ticket_atual_cache()
@@ -324,6 +327,7 @@ def upsert_kit_config(
             multiplicador=body.multiplicador,
             is_kit_basico=body.is_kit_basico,
             id_evento=body.id_evento,
+            tipo_kit=body.tipo_kit,
         )
         db.add(new_config)
         db.commit()

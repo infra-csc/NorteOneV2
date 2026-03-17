@@ -115,6 +115,7 @@ class CadastroKitProduto(Base):
     id = Column(Integer, primary_key=True, index=True)
     cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
     kit = Column(String(100))
+    ativo_categoria = Column(String(100), nullable=True)
     
     cadastro = relationship("CadastroEvento", back_populates="kit_produtos")
     produtos = relationship("CadastroKitProdutoItem", back_populates="kit_produto", cascade="all, delete-orphan")

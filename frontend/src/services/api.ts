@@ -531,6 +531,15 @@ export interface MarketingEvent {
   margemRealizadaTotal?: number;
   margemRealizadaPct?: number;
   ticketAtual?: number;
+  margemPorKit?: Array<{
+    tipoKit: string;
+    qtd: number;
+    receitaLiquida: number;
+    ticketMedio: number;
+    custoKit: number | null;
+    margemUnit: number | null;
+    margemTotal: number;
+  }> | null;
 }
 
 export interface MarketingDashboardSummary {

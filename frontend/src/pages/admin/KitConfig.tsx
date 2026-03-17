@@ -8,6 +8,7 @@ interface KitRow {
   nome_evento: string | null;
   bundle_entity_id: number;
   nome_kit: string | null;
+  tipo_kit: string | null;
   tipo_categoria: string | null;
   lote_atual: string | null;
   multiplicador_sugerido: number;
@@ -32,6 +33,7 @@ const KitConfig: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<number, number>>({});
   const [basicoValues, setBasicoValues] = useState<Record<number, boolean>>({});
+  const [tipoKitValues, setTipoKitValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
@@ -68,12 +70,15 @@ const KitConfig: React.FC = () => {
       setKits(res.data);
       const edits: Record<number, number> = {};
       const basicos: Record<number, boolean> = {};
+      const tipoKits: Record<number, string> = {};
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
         basicos[k.bundle_entity_id] = k.is_kit_basico;
+        tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
       });
       setEditValues(edits);
       setBasicoValues(basicos);
+      setTipoKitValues(tipoKits);
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
@@ -89,6 +94,7 @@ const KitConfig: React.FC = () => {
   const handleSave = async (bundleId: number) => {
     const mult = editValues[bundleId] ?? 1;
     const isBasico = basicoValues[bundleId] ?? false;
+    const tipoKit = (tipoKitValues[bundleId] ?? '').trim() || null;
     const kit = kits.find((k) => k.bundle_entity_id === bundleId);
     const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
 
@@ -98,6 +104,7 @@ const KitConfig: React.FC = () => {
         multiplicador: mult,
         is_kit_basico: isBasico,
         id_evento: idEvento,
+        tipo_kit: tipoKit,
       });
       setSavedFeedback((s) => ({ ...s, [bundleId]: true }));
       setTimeout(() => setSavedFeedback((s) => ({ ...s, [bundleId]: false })), 2000);
@@ -418,7 +425,7 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Básico', ''].map(
+                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Básico', ''].map(
                     (label, i) => (
                       <th
                         key={i}
@@ -449,9 +456,10 @@ const KitConfig: React.FC = () => {
                   const hoverBg = isDark ? 'hover:bg-slate-600' : 'hover:bg-blue-50';
                   const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
                   const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
+                  const editTipoKit = tipoKitValues[kit.bundle_entity_id] ?? (kit.tipo_kit || '');
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
-                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico;
+                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || editTipoKit !== (kit.tipo_kit || '');
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
@@ -487,6 +495,19 @@ const KitConfig: React.FC = () => {
                         <span title={kit.nome_kit || ''}>
                           {kit.nome_kit || '—'}
                         </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-left whitespace-nowrap">
+                        <input
+                          type="text"
+                          placeholder="Ex: Kit Básico"
+                          value={editTipoKit}
+                          onChange={(e) => setTipoKitValues((prev) => ({ ...prev, [kit.bundle_entity_id]: e.target.value }))}
+                          className={`w-32 text-left px-2 py-1 rounded border text-xs ${
+                            isDark
+                              ? 'bg-gray-700 border-gray-600 text-white focus:border-purple-400 placeholder-gray-500'
+                              : 'bg-white border-gray-300 text-gray-900 focus:border-purple-500 placeholder-gray-400'
+                          } outline-none ${editTipoKit !== (kit.tipo_kit || '') ? (isDark ? 'ring-1 ring-purple-400' : 'ring-1 ring-purple-500') : ''}`}
+                        />
                       </td>
                       <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
                         {kit.tipo_categoria || '—'}

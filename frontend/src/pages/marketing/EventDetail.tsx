@@ -2195,6 +2195,76 @@ const EventDetail: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {event.margemPorKit && event.margemPorKit.length > 0 && (
+                <div className="px-5 pb-5">
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-5">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-purple-500" />
+                      Margem por Tipo de Kit
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-gray-200 dark:border-gray-700">
+                            <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Tipo de Kit</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Qtd Vendida</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Receita Líquida</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket Médio</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Custo Kit</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Margem/Un</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Margem Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {event.margemPorKit.map((row, idx) => {
+                            const isConsolidado = row.tipoKit === 'CONSOLIDADO';
+                            const margemPositiva = row.margemTotal >= 0;
+                            return (
+                              <tr
+                                key={idx}
+                                className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                                  isConsolidado
+                                    ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
+                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                                }`}
+                              >
+                                <td className={`py-2 px-2 ${isConsolidado ? 'text-purple-700 dark:text-purple-300' : 'text-gray-700 dark:text-gray-300'}`}>
+                                  {isConsolidado ? 'TOTAL CONSOLIDADO' : row.tipoKit}
+                                </td>
+                                <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
+                                  {row.qtd.toLocaleString('pt-BR')}
+                                </td>
+                                <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
+                                  {row.receitaLiquida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </td>
+                                <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
+                                  {row.ticketMedio > 0
+                                    ? row.ticketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                    : '—'}
+                                </td>
+                                <td className="text-right py-2 px-2 text-red-600 dark:text-red-400">
+                                  {row.custoKit != null
+                                    ? row.custoKit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                    : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 ${row.margemUnit != null ? (row.margemUnit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : 'text-gray-400'}`}>
+                                  {row.margemUnit != null
+                                    ? row.margemUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                    : '—'}
+                                </td>
+                                <td className={`text-right py-2 px-2 font-medium ${margemPositiva ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                  {row.margemTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

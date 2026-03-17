@@ -74,7 +74,7 @@ interface CadastroEvento {
     local: string;
     data_horario: string;
   };
-  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
+  kit_produto: Array<{ kit: string; ativo_categoria?: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
   faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
@@ -114,7 +114,7 @@ interface FormData {
     local: string;
     data_horario: string;
   };
-  kit_produto: Array<{ kit: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
+  kit_produto: Array<{ kit: string; ativo_categoria?: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
   faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
@@ -544,7 +544,7 @@ const Cadastro: React.FC = () => {
       cortesias: item.cortesias?.length > 0 ? item.cortesias.map(c => ({ ...c })) : [],
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
       retirada_kit: { ...item.retirada_kit },
-      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, produtos: k.produtos.map(p => ({ ...p, valor_unitario: Number(p.valor_unitario) || 0 })) })) : [{ kit: '', produtos: [] }],
+      kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, ativo_categoria: k.ativo_categoria ?? '', produtos: k.produtos.map(p => ({ ...p, valor_unitario: Number(p.valor_unitario) || 0 })) })) : [{ kit: '', ativo_categoria: '', produtos: [] }],
       faixas_preco_site: {
         kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
           ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
@@ -641,7 +641,7 @@ const Cadastro: React.FC = () => {
 
   const addArrayField = (field: 'kit_produto' | 'cortesias' | 'taxas') => {
     const defaults: Record<string, any> = {
-      kit_produto: { kit: '', produtos: [] },
+      kit_produto: { kit: '', ativo_categoria: '', produtos: [] },
       cortesias: { cliente: '', quantidade: 0 },
       taxas: { valor_unitario: 0, percentual_inscricao: 0, validado: false, data_validacao: '' }
     };
@@ -2339,47 +2339,68 @@ const Cadastro: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <div className="mb-4">
-                  <select
-                    value={kit.kit}
-                    onChange={(e) => {
-                      const selectedKit = e.target.value;
-                      const defaultProdutos = (produtosPadraoPorKit[selectedKit] || []).map(p => ({ ...p }));
-                      setForm(prev => {
-                        const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
-                        let produtosFinais = defaultProdutos;
-                        if (kitBasico && selectedKit !== 'Kit Básico') {
-                          if (selectedKit === 'Kit Participação') {
-                            produtosFinais = defaultProdutos.map(p => {
-                              const matchBasico = kitBasico.produtos.find(bp => bp.nome === p.nome);
-                              return matchBasico ? { ...p, valor_unitario: matchBasico.valor_unitario } : p;
-                            });
-                          } else {
-                            const basicoProdutos = kitBasico.produtos.map(bp => ({ ...bp }));
-                            const extras = produtosExtrasPorKit[selectedKit] || [];
-                            const extraProdutos = extras
-                              .filter(nome => !basicoProdutos.some(bp => bp.nome === nome))
-                              .map(nome => ({ nome, valor_unitario: 0 }));
-                            produtosFinais = [...basicoProdutos, ...extraProdutos];
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
+                  <div className="flex-1">
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Tipo de Kit
+                    </label>
+                    <select
+                      value={kit.kit}
+                      onChange={(e) => {
+                        const selectedKit = e.target.value;
+                        const defaultProdutos = (produtosPadraoPorKit[selectedKit] || []).map(p => ({ ...p }));
+                        setForm(prev => {
+                          const kitBasico = prev.kit_produto.find(k => k.kit === 'Kit Básico');
+                          let produtosFinais = defaultProdutos;
+                          if (kitBasico && selectedKit !== 'Kit Básico') {
+                            if (selectedKit === 'Kit Participação') {
+                              produtosFinais = defaultProdutos.map(p => {
+                                const matchBasico = kitBasico.produtos.find(bp => bp.nome === p.nome);
+                                return matchBasico ? { ...p, valor_unitario: matchBasico.valor_unitario } : p;
+                              });
+                            } else {
+                              const basicoProdutos = kitBasico.produtos.map(bp => ({ ...bp }));
+                              const extras = produtosExtrasPorKit[selectedKit] || [];
+                              const extraProdutos = extras
+                                .filter(nome => !basicoProdutos.some(bp => bp.nome === nome))
+                                .map(nome => ({ nome, valor_unitario: 0 }));
+                              produtosFinais = [...basicoProdutos, ...extraProdutos];
+                            }
                           }
-                        }
-                        return {
-                          ...prev,
-                          kit_produto: prev.kit_produto.map((k, i) => 
-                            i === index ? { ...k, kit: selectedKit, produtos: produtosFinais } : k
-                          )
-                        };
-                      });
-                    }}
-                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  >
-                    <option value="">Selecione o Kit</option>
-                    {kitOptions.filter(k => !form.kit_produto.some((fk, i) => i !== index && fk.kit === k)).map(k => (
-                      <option key={k} value={k}>{k}</option>
-                    ))}
-                  </select>
+                          return {
+                            ...prev,
+                            kit_produto: prev.kit_produto.map((k, i) => 
+                              i === index ? { ...k, kit: selectedKit, produtos: produtosFinais } : k
+                            )
+                          };
+                        });
+                      }}
+                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                    >
+                      <option value="">Selecione o Kit</option>
+                      {kitOptions.filter(k => !form.kit_produto.some((fk, i) => i !== index && fk.kit === k)).map(k => (
+                        <option key={k} value={k}>{k}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Categoria Ativo (ds_categoria)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: KIT BASICO"
+                      value={kit.ativo_categoria || ''}
+                      onChange={(e) => setForm(prev => ({
+                        ...prev,
+                        kit_produto: prev.kit_produto.map((k, i) =>
+                          i === index ? { ...k, ativo_categoria: e.target.value } : k
+                        )
+                      }))}
+                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 placeholder-gray-400'} focus:ring-2 focus:ring-purple-500`}
+                    />
+                  </div>
                 </div>
-                
                 <div>
                   <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                     Produtos do Kit (clique para adicionar/remover)
