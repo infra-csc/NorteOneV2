@@ -540,6 +540,19 @@ export interface MarketingEvent {
     margemUnit: number | null;
     margemTotal: number;
   }> | null;
+  detalheVendasPorKit?: Array<{
+    kit: string;
+    tipoCategoria: string | null;
+    distancia: string | null;
+    canal: string;
+    loteAtual: string | null;
+    price: number | null;
+    specialPrice: number | null;
+    inscritos: number;
+    receitaBruta: number;
+    receitaLiquida: number;
+    ticketMedio: number | null;
+  }> | null;
 }
 
 export interface MarketingDashboardSummary {
