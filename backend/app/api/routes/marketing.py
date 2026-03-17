@@ -1607,7 +1607,7 @@ GROUP BY soi.product_id
             custo = kdata["custo"]
             has_cost = kdata.get("has_cost", True)
             ticket_medio = round(receita / qtd, 2) if qtd > 0 else 0.0
-            margem_unit = round(ticket_medio - custo, 2) if qtd > 0 else (round(-custo, 2) if has_cost else None)
+            margem_unit = round(ticket_medio - custo, 2) if qtd > 0 else None
             margem_total = round(receita - (custo * qtd), 2)
 
             result_list.append({
