@@ -62,7 +62,7 @@ interface CommercialAction {
 }
 
 interface ExtendedEvent extends MarketingEvent {
-  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number }[];
+  dailySales?: { date: string; sales: number; expected: number; cumulativeSales?: number; cumulativeExpected?: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number; localMedian?: number | null; outlierLimit?: number | null; isOutlier?: boolean; excessRemoved?: number; excessReceived?: number }[];
   commercialActions?: CommercialAction[];
 }
 
@@ -114,6 +114,7 @@ const EventDetail: React.FC = () => {
   const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
+  const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -148,7 +149,12 @@ const EventDetail: React.FC = () => {
             atingimentoAcumulado: d.atingimentoAcumulado,
             atingimentoDiario: d.atingimentoDiario,
             normalizedSales: d.normalizedSales,
-            cumulativeNormalized: d.cumulativeNormalized
+            cumulativeNormalized: d.cumulativeNormalized,
+            localMedian: d.localMedian,
+            outlierLimit: d.outlierLimit,
+            isOutlier: d.isOutlier,
+            excessRemoved: d.excessRemoved,
+            excessReceived: d.excessReceived
           })),
           commercialActions: response.commercialActions?.map((a: any) => ({
             id: a.id,
@@ -297,7 +303,12 @@ const EventDetail: React.FC = () => {
           atingimentoAcumulado: d.atingimentoAcumulado,
           atingimentoDiario: d.atingimentoDiario,
           normalizedSales: d.normalizedSales,
-          cumulativeNormalized: d.cumulativeNormalized
+          cumulativeNormalized: d.cumulativeNormalized,
+          localMedian: d.localMedian,
+          outlierLimit: d.outlierLimit,
+          isOutlier: d.isOutlier,
+          excessRemoved: d.excessRemoved,
+          excessReceived: d.excessReceived
         })),
         commercialActions: (response as any).commercialActions?.map((a: any) => ({
           id: a.id,
@@ -452,7 +463,12 @@ const EventDetail: React.FC = () => {
           atingimentoAcumulado: d.atingimentoAcumulado,
           atingimentoDiario: d.atingimentoDiario,
           normalizedSales: d.normalizedSales,
-          cumulativeNormalized: d.cumulativeNormalized
+          cumulativeNormalized: d.cumulativeNormalized,
+          localMedian: d.localMedian,
+          outlierLimit: d.outlierLimit,
+          isOutlier: d.isOutlier,
+          excessRemoved: d.excessRemoved,
+          excessReceived: d.excessReceived
         })),
         commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
@@ -502,7 +518,12 @@ const EventDetail: React.FC = () => {
           atingimentoAcumulado: d.atingimentoAcumulado,
           atingimentoDiario: d.atingimentoDiario,
           normalizedSales: d.normalizedSales,
-          cumulativeNormalized: d.cumulativeNormalized
+          cumulativeNormalized: d.cumulativeNormalized,
+          localMedian: d.localMedian,
+          outlierLimit: d.outlierLimit,
+          isOutlier: d.isOutlier,
+          excessRemoved: d.excessRemoved,
+          excessReceived: d.excessReceived
         })),
         commercialActions: response.commercialActions?.map((a: any) => ({
           id: a.id,
@@ -1049,6 +1070,76 @@ const EventDetail: React.FC = () => {
                 </ResponsiveContainer>
               </div>
           </div>
+
+          {event.dailySales && event.dailySales.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+              <button
+                onClick={() => setShowNormalizationDetail(!showNormalizationDetail)}
+                className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              >
+                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showNormalizationDetail ? 'rotate-180' : '-rotate-90'}`} />
+                Ver detalhamento da normalização
+              </button>
+              {showNormalizationDetail && (
+                <div className="mt-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    Parâmetros: janela = 7 dias · threshold = 2.0× · spread = 3 dias
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700">
+                          <th className="text-left py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Data</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Vendas Reais</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Mediana Local</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Limite</th>
+                          <th className="text-center py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Outlier?</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Excesso Removido</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Excesso Recebido</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Vendas Normalizadas</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Δ</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {event.dailySales.map((day, idx) => {
+                          const delta = (day.normalizedSales ?? day.sales) - day.sales;
+                          const deltaColor = delta > 0 ? 'text-green-600 dark:text-green-400' : delta < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400';
+                          return (
+                            <tr
+                              key={idx}
+                              className={`border-b border-gray-100 dark:border-gray-700/50 ${day.isOutlier ? 'bg-red-50 dark:bg-red-900/20' : ''}`}
+                            >
+                              <td className="py-1.5 px-2 text-gray-800 dark:text-gray-200">
+                                {new Date(day.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                              </td>
+                              <td className="py-1.5 px-2 text-right text-gray-800 dark:text-gray-200">{day.sales}</td>
+                              <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-400">{day.localMedian ?? '—'}</td>
+                              <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-400">{day.outlierLimit ?? '—'}</td>
+                              <td className="py-1.5 px-2 text-center">
+                                {day.isOutlier ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400">
+                                    OUTLIER
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 dark:text-gray-500">—</span>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-2 text-right text-red-600 dark:text-red-400">{(day.excessRemoved ?? 0) > 0 ? `-${day.excessRemoved}` : '—'}</td>
+                              <td className="py-1.5 px-2 text-right text-green-600 dark:text-green-400">{(day.excessReceived ?? 0) > 0 ? `+${day.excessReceived}` : '—'}</td>
+                              <td className="py-1.5 px-2 text-right font-medium text-gray-800 dark:text-gray-200">{day.normalizedSales ?? day.sales}</td>
+                              <td className={`py-1.5 px-2 text-right font-medium ${deltaColor}`}>
+                                {delta !== 0 ? (delta > 0 ? '+' : '') + delta.toFixed(1) : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">

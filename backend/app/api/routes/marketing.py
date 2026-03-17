@@ -1198,6 +1198,11 @@ def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, thre
     if n < window:
         for item in daily_sales_list:
             item["normalizedSales"] = item["sales"]
+            item["localMedian"] = None
+            item["outlierLimit"] = None
+            item["isOutlier"] = False
+            item["excessRemoved"] = 0
+            item["excessReceived"] = 0
         cum = 0
         for item in daily_sales_list:
             cum += item["normalizedSales"]
@@ -1211,6 +1216,12 @@ def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, thre
     global_median = statistics.median(non_zero) if non_zero else 0
     min_threshold = max(global_median * 0.5, 5)
 
+    local_medians = [None] * n
+    outlier_limits = [None] * n
+    is_outlier = [False] * n
+    excess_removed = [0.0] * n
+    excess_received = [0.0] * n
+
     for i in range(n):
         half = window // 2
         start = max(0, i - half)
@@ -1220,9 +1231,13 @@ def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, thre
             continue
         median_val = statistics.median(local_window)
         limit = max(median_val * threshold, min_threshold)
+        local_medians[i] = round(median_val, 1)
+        outlier_limits[i] = round(limit, 1)
         if raw_sales[i] > limit:
             excess = raw_sales[i] - limit
             normalized[i] = limit
+            is_outlier[i] = True
+            excess_removed[i] = excess
             spread_start = max(0, i - spread)
             spread_end = min(n, i + spread + 1)
             neighbors = [j for j in range(spread_start, spread_end) if j != i]
@@ -1232,13 +1247,20 @@ def normalize_daily_sales_outliers(daily_sales_list: list, window: int = 7, thre
             total_weight = sum(neighbor_sales)
             for idx, j in enumerate(neighbors):
                 proportion = neighbor_sales[idx] / total_weight
-                normalized[j] += excess * proportion
+                share = excess * proportion
+                normalized[j] += share
+                excess_received[j] += share
 
     cum = 0
     for i, item in enumerate(daily_sales_list):
         item["normalizedSales"] = round(normalized[i], 1)
         cum += normalized[i]
         item["cumulativeNormalized"] = round(cum, 1)
+        item["localMedian"] = local_medians[i]
+        item["outlierLimit"] = outlier_limits[i]
+        item["isOutlier"] = is_outlier[i]
+        item["excessRemoved"] = round(excess_removed[i], 1)
+        item["excessReceived"] = round(excess_received[i], 1)
 
     return daily_sales_list
 

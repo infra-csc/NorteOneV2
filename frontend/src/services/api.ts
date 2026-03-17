@@ -711,7 +711,7 @@ export const marketingService = {
   getEventoById: async (id: string, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<{ 
     status: string; 
     evento: MarketingEvent; 
-    dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number }[];
+    dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number; localMedian?: number | null; outlierLimit?: number | null; isOutlier?: boolean; excessRemoved?: number; excessReceived?: number }[];
     commercialActions?: { id: string; type: string; description: string; date: string; impact?: string }[];
     projetos_vinculados?: { id: number; nome: string; sku: string }[];
     ultima_atualizacao: string 

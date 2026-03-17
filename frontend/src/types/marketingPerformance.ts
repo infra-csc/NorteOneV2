@@ -4,6 +4,11 @@ export interface DailySales {
   expected: number;
   normalizedSales?: number;
   cumulativeNormalized?: number;
+  localMedian?: number | null;
+  outlierLimit?: number | null;
+  isOutlier?: boolean;
+  excessRemoved?: number;
+  excessReceived?: number;
 }
 
 export interface CommercialAction {
