@@ -2199,10 +2199,13 @@ const EventDetail: React.FC = () => {
               {event.margemPorKit && event.margemPorKit.length > 0 && (
                 <div className="px-5 pb-5">
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-5">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-purple-500" />
                       Margem por Tipo de Kit
                     </h3>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 italic">
+                      Baseado em vendas Magento mapeadas por bundle. Requer configuração de "Tipo Kit" no painel de kits.
+                    </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>

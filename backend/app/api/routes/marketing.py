@@ -1402,8 +1402,10 @@ def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
 
     Design principles:
     - Kit cost data is merged across ALL cadastros for all projetos (not just the first one)
-    - Magento event IDs are deduplicated before querying to prevent double-counting
+    - Magento event IDs and bundle IDs are deduplicated before querying to prevent double-counting
     - Sales-only kit rows (tipo_kit present in Magento but not in any cadastro) are included with custo=0
+    - Only Magento bundle sales are used (deterministic kit-to-bundle mapping via KitConfig.tipo_kit)
+    - ativo_categoria is stored in the model but excluded from this calculation for consistency
     """
     from ...models.kit_config import KitConfig
 
@@ -1558,69 +1560,12 @@ GROUP BY soi.product_id
             except Exception as e:
                 logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
 
-        # --- 4. Ativo: deduplicate event IDs ---
-        seen_ativo_events: set = set()
-        ativo_id_eventos = []
-        for pid in projeto_ids:
-            for sm in _get_sku_maps(pid, 'ATIVO'):
-                if sm.id_externo and str(sm.id_externo).isdigit():
-                    eid = str(int(sm.id_externo))
-                    if eid not in seen_ativo_events:
-                        seen_ativo_events.add(eid)
-                        ativo_id_eventos.append(eid)
+        # NOTE: Only Magento bundle sales are aggregated here (deterministic kit-to-bundle mapping).
+        # ativo_categoria in CadastroKitProduto is stored for potential future expansion
+        # but is not included in this calculation to keep the per-kit data source consistent
+        # with the Magento bundle/tipo_kit mapping.
 
-        categorias_mapeadas = {
-            kdata["ativo_categoria"]
-            for kdata in kit_map.values()
-            if kdata.get("ativo_categoria")
-        }
-
-        if ativo_id_eventos and categorias_mapeadas and db_module.engine_ssh is not None:
-            ativo_kit_query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(30000) */
-    h.ds_categoria AS categoria,
-    COUNT(CASE
-        WHEN (f.en_cupom_classificacao IS NULL
-              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-         AND c.nr_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE
-        WHEN (f.en_cupom_classificacao IS NULL
-              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-         AND c.nr_total > 0
-        THEN GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
-        ELSE 0 END) AS receita_liquida
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
-LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-WHERE
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (1, 2)
-    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-    AND b.id_evento IN :id_eventos
-GROUP BY h.ds_categoria
-""").bindparams(bindparam("id_eventos", expanding=True))
-
-            try:
-                with db_module.engine_ssh.connect() as conn:
-                    result = conn.execute(ativo_kit_query, {"id_eventos": ativo_id_eventos})
-                    for row in result.fetchall():
-                        cat = str(row[0] or "")
-                        qtd = int(row[1] or 0)
-                        receita = float(row[2] or 0)
-                        for kdata in kit_map.values():
-                            if kdata.get("ativo_categoria") and kdata["ativo_categoria"] == cat:
-                                kdata["qtd"] += qtd
-                                kdata["receita"] += receita
-                                break
-            except Exception as e:
-                logger.error(f"Erro ao buscar vendas Ativo por categoria para margem: {e}")
-
-        # --- 5. Build result list ---
+        # --- 4. Build result list ---
         if not kit_map:
             return []
 
