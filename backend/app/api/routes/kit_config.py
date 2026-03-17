@@ -6,7 +6,8 @@ from typing import List
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
 from app.models.kit_config import KitConfig
-from app.models.cadastro_evento import CadastroKitProduto, CadastroKitProdutoItem
+from app.models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
+from app.models.dimensoes import SkuMapping, DimProjeto
 from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse
 import app.core.database as db_module
 import logging
@@ -249,7 +250,20 @@ def get_kits_with_config(
     all_configs = db.query(KitConfig).all()
     config_map = {c.bundle_entity_id: c for c in all_configs}
 
-    # Custo por tipo_kit calculado do Cadastro (first-wins entre todos os eventos)
+    # Custo por tipo_kit calculado do Cadastro — resolvido por evento específico
+    # SkuMapping MAGENTO: id_externo (= cpev1.value do Magento) → sku → DimProjeto → CadastroEvento
+    all_sku_maps = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.ativo == True,
+    ).all()
+    externo_to_sku: dict = {sm.id_externo: (sm.sku or "").upper().strip() for sm in all_sku_maps if sm.id_externo}
+
+    all_projs = db.query(DimProjeto).all()
+    sku_to_projeto_id: dict = {(p.codigo or "").upper().strip(): p.id for p in all_projs if p.codigo}
+
+    all_cadastros = db.query(CadastroEvento).all()
+    projeto_to_cadastro_id: dict = {c.projeto_id: c.id for c in all_cadastros if c.projeto_id}
+
     all_kit_produtos = db.query(CadastroKitProduto).all()
     kp_ids = [kp.id for kp in all_kit_produtos]
     all_items = (
@@ -260,11 +274,32 @@ def get_kits_with_config(
     items_by_kit: dict = {}
     for item in all_items:
         items_by_kit.setdefault(item.kit_produto_id, []).append(item)
-    tipo_custo_map: dict = {}
+
+    # cadastro_id -> {kit_name -> custo}
+    cadastro_kit_costs: dict = {}
     for kp in all_kit_produtos:
         kit_name = (kp.kit or "").strip()
-        if kit_name and kit_name not in tipo_custo_map:
-            tipo_custo_map[kit_name] = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kp.id, []))
+        cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kp.id, []))
+        cadastro_kit_costs.setdefault(kp.cadastro_id, {})[kit_name] = cost
+
+    def _get_custo_for_event(id_evento_raw, tipo_kit: str | None) -> float | None:
+        """Retorna custo do kit para o evento específico vinculado ao bundle."""
+        if not id_evento_raw or not tipo_kit:
+            return None
+        try:
+            id_externo = int(id_evento_raw)
+        except (ValueError, TypeError):
+            return None
+        sku = externo_to_sku.get(id_externo)
+        if not sku:
+            return None
+        projeto_id = sku_to_projeto_id.get(sku)
+        if not projeto_id:
+            return None
+        cadastro_id = projeto_to_cadastro_id.get(projeto_id)
+        if not cadastro_id:
+            return None
+        return cadastro_kit_costs.get(cadastro_id, {}).get(tipo_kit)
 
     kits: List[KitRow] = []
     for row in magento_rows:
@@ -284,7 +319,7 @@ def get_kits_with_config(
         is_kit_basico = cfg.is_kit_basico if cfg else False
         tipo_kit = cfg.tipo_kit if cfg else None
 
-        custo_cadastro = tipo_custo_map.get(tipo_kit) if tipo_kit else None
+        custo_cadastro = _get_custo_for_event(row_dict.get("id_evento"), tipo_kit)
         custo_kit_val = float(cfg.custo_kit) if cfg and cfg.custo_kit is not None else None
 
         price_final = (price_base * multiplicador) if price_base is not None else None
