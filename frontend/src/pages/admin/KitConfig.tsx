@@ -8,14 +8,14 @@ interface KitRow {
   nome_evento: string | null;
   bundle_entity_id: number;
   nome_kit: string | null;
+  tipo_categoria: string | null;
   lote_atual: string | null;
-  preco_lote: number | null;
-  lote_termina_em: string | null;
-  preco_adicional_kit: number | null;
-  ticket_base: number | null;
-  distancias: string | null;
+  multiplicador_sugerido: number;
   multiplicador: number;
-  ticket_final: number | null;
+  price_base: number | null;
+  special_price_base: number | null;
+  price: number | null;
+  special_price: number | null;
   is_configured: boolean;
   is_kit_basico: boolean;
 }
@@ -84,7 +84,8 @@ const KitConfig: React.FC = () => {
             return {
               ...k,
               multiplicador: mult,
-              ticket_final: k.ticket_base != null ? k.ticket_base * mult : null,
+              price: k.price_base != null ? k.price_base * mult : null,
+              special_price: k.special_price_base != null ? k.special_price_base * mult : null,
               is_configured: true,
               is_kit_basico: isBasico,
             };
@@ -145,6 +146,7 @@ const KitConfig: React.FC = () => {
       (k) =>
         (k.nome_evento || '').toLowerCase().includes(q) ||
         (k.nome_kit || '').toLowerCase().includes(q) ||
+        (k.tipo_categoria || '').toLowerCase().includes(q) ||
         String(k.bundle_entity_id).includes(q),
     );
   }, [kits, search]);
@@ -225,7 +227,7 @@ const KitConfig: React.FC = () => {
           <Search className={`w-4 h-4 ${textSecondary}`} />
           <input
             type="text"
-            placeholder="Buscar por evento, kit ou ID..."
+            placeholder="Buscar por evento, kit, categoria ou ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className={`flex-1 bg-transparent outline-none text-sm ${textPrimary}`}
@@ -257,13 +259,13 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Lote Atual', 'Ticket Base', 'Mult.', 'Ticket Final', 'Básico', ''].map(
+                  {['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Básico', ''].map(
                     (label, i) => (
                       <th
                         key={i}
                         className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
-                          i >= 3 ? 'text-right' : 'text-left'
-                        } ${i === 6 ? 'text-center' : ''} ${
+                          i >= 4 ? 'text-right' : 'text-left'
+                        } ${i === 7 ? 'text-center' : ''} ${
                           isDark
                             ? `${headerBg} text-blue-300 border-blue-500/50`
                             : `${headerBg} text-slate-700 border-slate-300`
@@ -288,7 +290,8 @@ const KitConfig: React.FC = () => {
                   const hoverBg = isDark ? 'hover:bg-slate-600' : 'hover:bg-blue-50';
                   const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
                   const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
-                  const computedFinal = kit.ticket_base != null ? kit.ticket_base * editMult : null;
+                  const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
+                  const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
                   const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico;
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
@@ -327,10 +330,10 @@ const KitConfig: React.FC = () => {
                         </span>
                       </td>
                       <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
-                        {kit.lote_atual || '—'}
+                        {kit.tipo_categoria || '—'}
                       </td>
-                      <td className={`px-3 py-2.5 text-right whitespace-nowrap font-medium ${textPrimary}`}>
-                        {fmtBRL(kit.ticket_base)}
+                      <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
+                        {kit.lote_atual || '—'}
                       </td>
                       <td className="px-3 py-2.5 text-right whitespace-nowrap">
                         <input
@@ -345,6 +348,9 @@ const KitConfig: React.FC = () => {
                           } outline-none ${hasChanged ? (isDark ? 'ring-1 ring-blue-400' : 'ring-1 ring-blue-500') : ''}`}
                         />
                       </td>
+                      <td className={`px-3 py-2.5 text-right whitespace-nowrap font-medium ${textPrimary}`}>
+                        {fmtBRL(computedPrice)}
+                      </td>
                       <td
                         className={`px-3 py-2.5 text-right whitespace-nowrap font-bold ${
                           editMult > 1
@@ -354,7 +360,7 @@ const KitConfig: React.FC = () => {
                             : textPrimary
                         }`}
                       >
-                        {fmtBRL(computedFinal)}
+                        {fmtBRL(computedSpecialPrice)}
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <button
@@ -400,7 +406,7 @@ const KitConfig: React.FC = () => {
                 })}
                 {filteredKits.length === 0 && (
                   <tr>
-                    <td colSpan={8} className={`px-3 py-12 text-center ${textSecondary}`}>
+                    <td colSpan={9} className={`px-3 py-12 text-center ${textSecondary}`}>
                       {search ? 'Nenhum kit encontrado para esta busca.' : 'Nenhum kit encontrado.'}
                     </td>
                   </tr>

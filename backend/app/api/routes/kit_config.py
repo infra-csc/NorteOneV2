@@ -16,47 +16,132 @@ router = APIRouter(prefix="/api/kit-config", tags=["Kit Config"])
 
 MAGENTO_KITS_QUERY = """
 SELECT
-    cpev1.value                         AS id_evento,
-    cpev_kit.value                      AS nome_evento,
-    cpe_parent.entity_id                AS bundle_entity_id,
-    cpev_kit_name.value                 AS nome_kit,
-    lote.lot_name                       AS lote_atual,
-    lote.lot_value                      AS preco_lote,
-    lote.lot_sell_ends                  AS lote_termina_em,
+    cpev1.value                             AS id_evento,
+    cpev_kit.value                          AS nome_evento,
+    cpe_parent.entity_id                    AS bundle_entity_id,
+    cpev_kit_name.value                     AS nome_kit,
+    eaov_tipo.value                         AS tipo_categoria,
+    lote.lot_name                           AS lote_atual,
 
-    COALESCE(MAX(CASE 
-        WHEN cpep.value NOT IN (14.50)
-         AND cpev_simple.value NOT LIKE '%Distancia%'
-         AND cpev_simple.value NOT LIKE '%Distância%'
-        THEN cpep.value 
-        ELSE NULL 
-    END), 0)                            AS preco_adicional_kit,
+    CASE cpei_tipo.value
+        WHEN 1606 THEN 2
+        WHEN 1607 THEN 3
+        WHEN 1608 THEN 4
+        WHEN 1609 THEN 2
+        WHEN 1700 THEN 2
+        WHEN 1701 THEN 4
+        ELSE 1
+    END                                     AS multiplicador,
 
-    CASE
-        WHEN MAX(CASE 
-            WHEN cpep.value NOT IN (14.50)
-             AND cpev_simple.value NOT LIKE '%Distancia%'
-             AND cpev_simple.value NOT LIKE '%Distância%'
-            THEN cpep.value ELSE NULL 
-        END) IS NOT NULL
-        THEN lote.lot_value + MAX(CASE 
-            WHEN cpep.value NOT IN (14.50)
-             AND cpev_simple.value NOT LIKE '%Distancia%'
-             AND cpev_simple.value NOT LIKE '%Distância%'
-            THEN cpep.value ELSE NULL 
-        END)
-        ELSE MAX(CASE 
-            WHEN (cpev_simple.value LIKE '%Distancia%' OR cpev_simple.value LIKE '%Distância%')
+    (
+        COALESCE(MAX(CASE 
+            WHEN (
+                cpev_simple.value LIKE '%Distancia%'
+             OR cpev_simple.value LIKE '%Distância%'
+             OR cpev_simple.value LIKE '%Modalidade%'
+            )
              AND cpep.value > 0
             THEN cpep.value ELSE NULL 
-        END)
-    END                                 AS ticket_base,
+        END), 0)
+        +
+        COALESCE(MAX(CASE 
+            WHEN cpep.value > 0
+             AND cpev_simple.value NOT LIKE '%Distancia%'
+             AND cpev_simple.value NOT LIKE '%Distância%'
+             AND cpev_simple.value NOT LIKE '%Modalidade%'
+             AND cpev_simple.value NOT LIKE '%Personaliz%'
+             AND cpev_simple.value NOT LIKE '%Aceite%'
+             AND cpev_simple.value NOT LIKE '%aceito%'
+             AND cpev_simple.value NOT LIKE '%Treinão%'
+             AND cpev_simple.value NOT LIKE '%Horário%'
+             AND cpev_simple.value NOT LIKE '%Bateria%'
+             AND cpev_simple.value NOT LIKE '%Doar%'
+             AND cpev_simple.value NOT LIKE '%Tênis%'
+             AND cpev_simple.value NOT LIKE '%Tenis%'
+             AND cpev_simple.value NOT LIKE '%Bike%'
+             AND cpev_simple.value NOT LIKE '%Biciclet%'
+             AND cpev_simple.value NOT LIKE '%Festival%'
+             AND cpev_simple.value NOT LIKE '%Bag%'
+             AND cpev_simple.value NOT LIKE '%Inscrição%'
+             AND cpev_simple.value NOT LIKE '%Declaro%'
+             AND cpev_simple.value NOT LIKE '%Pochete%'
+             AND cpev_simple.value NOT LIKE '%Tarifa%'
+             AND cpev_simple.value NOT LIKE '%Skate%'
+             AND cpev_simple.value NOT LIKE '%Obstáculo%'
+             AND cpev_simple.value NOT LIKE '%Bravinhos%'
+             AND cpev_simple.value NOT LIKE '%teste%'
+             AND cpev_simple.value NOT LIKE '%Porta%'
+             AND cpev_simple.value NOT LIKE '%Luva%'
+             AND cpev_simple.value NOT LIKE '%Toalha%'
+             AND cpev_simple.value NOT LIKE '%Corrida +%'
+            THEN cpep.value ELSE NULL 
+        END), 0)
+    )
+    *
+    CASE cpei_tipo.value
+        WHEN 1606 THEN 2
+        WHEN 1607 THEN 3
+        WHEN 1608 THEN 4
+        WHEN 1609 THEN 2
+        WHEN 1700 THEN 2
+        WHEN 1701 THEN 4
+        ELSE 1
+    END                                     AS price,
 
-    GROUP_CONCAT(DISTINCT CASE 
-        WHEN (cpev_simple.value LIKE '%Distancia%' OR cpev_simple.value LIKE '%Distância%')
-        THEN cpev_simple.value 
-        ELSE NULL 
-    END ORDER BY cpev_simple.value SEPARATOR ' | ') AS distancias
+    (
+        COALESCE(MAX(CASE 
+            WHEN (
+                cpev_simple.value LIKE '%Distancia%'
+             OR cpev_simple.value LIKE '%Distância%'
+             OR cpev_simple.value LIKE '%Modalidade%'
+            )
+             AND pi_filho.final_price > 0
+            THEN pi_filho.final_price ELSE NULL 
+        END), 0)
+        +
+        COALESCE(MAX(CASE 
+            WHEN pi_filho.final_price > 0
+             AND cpev_simple.value NOT LIKE '%Distancia%'
+             AND cpev_simple.value NOT LIKE '%Distância%'
+             AND cpev_simple.value NOT LIKE '%Modalidade%'
+             AND cpev_simple.value NOT LIKE '%Personaliz%'
+             AND cpev_simple.value NOT LIKE '%Aceite%'
+             AND cpev_simple.value NOT LIKE '%aceito%'
+             AND cpev_simple.value NOT LIKE '%Treinão%'
+             AND cpev_simple.value NOT LIKE '%Horário%'
+             AND cpev_simple.value NOT LIKE '%Bateria%'
+             AND cpev_simple.value NOT LIKE '%Doar%'
+             AND cpev_simple.value NOT LIKE '%Tênis%'
+             AND cpev_simple.value NOT LIKE '%Tenis%'
+             AND cpev_simple.value NOT LIKE '%Bike%'
+             AND cpev_simple.value NOT LIKE '%Biciclet%'
+             AND cpev_simple.value NOT LIKE '%Festival%'
+             AND cpev_simple.value NOT LIKE '%Bag%'
+             AND cpev_simple.value NOT LIKE '%Inscrição%'
+             AND cpev_simple.value NOT LIKE '%Declaro%'
+             AND cpev_simple.value NOT LIKE '%Pochete%'
+             AND cpev_simple.value NOT LIKE '%Tarifa%'
+             AND cpev_simple.value NOT LIKE '%Skate%'
+             AND cpev_simple.value NOT LIKE '%Obstáculo%'
+             AND cpev_simple.value NOT LIKE '%Bravinhos%'
+             AND cpev_simple.value NOT LIKE '%teste%'
+             AND cpev_simple.value NOT LIKE '%Porta%'
+             AND cpev_simple.value NOT LIKE '%Luva%'
+             AND cpev_simple.value NOT LIKE '%Toalha%'
+             AND cpev_simple.value NOT LIKE '%Corrida +%'
+            THEN pi_filho.final_price ELSE NULL 
+        END), 0)
+    )
+    *
+    CASE cpei_tipo.value
+        WHEN 1606 THEN 2
+        WHEN 1607 THEN 3
+        WHEN 1608 THEN 4
+        WHEN 1609 THEN 2
+        WHEN 1700 THEN 2
+        WHEN 1701 THEN 4
+        ELSE 1
+    END                                     AS special_price
 
 FROM catalog_product_entity cpe_parent
 
@@ -76,6 +161,20 @@ JOIN catalog_product_entity_datetime cped_date
        ON cped_date.entity_id = cpev1.value
       AND cped_date.attribute_id = 195
 
+LEFT JOIN catalog_product_entity_int cpei_tipo
+       ON cpei_tipo.entity_id = cpe_parent.entity_id
+      AND cpei_tipo.attribute_id = (
+            SELECT attribute_id FROM eav_attribute 
+            WHERE attribute_code = 'tipo_categoria'
+            AND entity_type_id = (
+                SELECT entity_type_id FROM eav_entity_type 
+                WHERE entity_type_code = 'catalog_product'
+            )
+      )
+
+LEFT JOIN eav_attribute_option_value eaov_tipo
+       ON eaov_tipo.option_id = cpei_tipo.value
+
 JOIN catalog_product_bundle_option cpeo
        ON cpeo.parent_id = cpe_parent.entity_id
 
@@ -90,6 +189,11 @@ LEFT JOIN catalog_product_entity_decimal cpep
        ON cpep.entity_id = cpeos.product_id
       AND cpep.attribute_id = 77
 
+LEFT JOIN catalog_product_index_price pi_filho
+       ON pi_filho.entity_id = cpeos.product_id
+      AND pi_filho.website_id = 1
+      AND pi_filho.customer_group_id = 0
+
 JOIN catalog_product_entity_event_lot_price lote
        ON lote.entity_id = cpev1.value
       AND lote.lot_id = (
@@ -101,20 +205,23 @@ JOIN catalog_product_entity_event_lot_price lote
       )
 
 WHERE cpe_parent.type_id = 'bundle'
-  AND YEAR(cped_date.value) = YEAR(CURDATE())
+  AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+  AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
 
 GROUP BY
     cpev1.value,
     cpev_kit.value,
     cpe_parent.entity_id,
     cpev_kit_name.value,
+    eaov_tipo.value,
+    cpei_tipo.value,
     lote.lot_name,
     lote.lot_value,
     lote.lot_sell_ends
 
 ORDER BY
     cpev1.value,
-    ticket_base
+    special_price
 """
 
 
@@ -145,32 +252,35 @@ def get_kits_with_config(
     for row in magento_rows:
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
-        ticket_base = float(row_dict["ticket_base"]) if row_dict.get("ticket_base") is not None else None
+
+        mult_sugerido = int(row_dict.get("multiplicador") or 1)
+        price_raw = float(row_dict["price"]) if row_dict.get("price") is not None else None
+        special_price_raw = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
+
+        price_base = (price_raw / mult_sugerido) if price_raw is not None and mult_sugerido > 0 else price_raw
+        special_price_base = (special_price_raw / mult_sugerido) if special_price_raw is not None and mult_sugerido > 0 else special_price_raw
 
         cfg = config_map.get(bundle_id)
-        multiplicador = cfg.multiplicador if cfg else 1
+        multiplicador = cfg.multiplicador if cfg else mult_sugerido
         is_configured = cfg is not None
         is_kit_basico = cfg.is_kit_basico if cfg else False
 
-        ticket_final = (ticket_base * multiplicador) if ticket_base is not None else None
-
-        lote_termina = row_dict.get("lote_termina_em")
-        if lote_termina is not None:
-            lote_termina = str(lote_termina)
+        price_final = (price_base * multiplicador) if price_base is not None else None
+        special_price_final = (special_price_base * multiplicador) if special_price_base is not None else None
 
         kits.append(KitRow(
             id_evento=str(row_dict.get("id_evento")) if row_dict.get("id_evento") is not None else None,
             nome_evento=row_dict.get("nome_evento"),
             bundle_entity_id=bundle_id,
             nome_kit=row_dict.get("nome_kit"),
+            tipo_categoria=row_dict.get("tipo_categoria"),
             lote_atual=row_dict.get("lote_atual"),
-            preco_lote=float(row_dict["preco_lote"]) if row_dict.get("preco_lote") is not None else None,
-            lote_termina_em=lote_termina,
-            preco_adicional_kit=float(row_dict["preco_adicional_kit"]) if row_dict.get("preco_adicional_kit") is not None else None,
-            ticket_base=ticket_base,
-            distancias=row_dict.get("distancias"),
+            multiplicador_sugerido=mult_sugerido,
             multiplicador=multiplicador,
-            ticket_final=ticket_final,
+            price_base=price_base,
+            special_price_base=special_price_base,
+            price=price_final,
+            special_price=special_price_final,
             is_configured=is_configured,
             is_kit_basico=is_kit_basico,
         ))

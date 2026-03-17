@@ -28,13 +28,13 @@ class KitRow(BaseModel):
     nome_evento: Optional[str] = None
     bundle_entity_id: int
     nome_kit: Optional[str] = None
+    tipo_categoria: Optional[str] = None
     lote_atual: Optional[str] = None
-    preco_lote: Optional[float] = None
-    lote_termina_em: Optional[str] = None
-    preco_adicional_kit: Optional[float] = None
-    ticket_base: Optional[float] = None
-    distancias: Optional[str] = None
+    multiplicador_sugerido: int = 1
     multiplicador: int = 1
-    ticket_final: Optional[float] = None
+    price_base: Optional[float] = None
+    special_price_base: Optional[float] = None
+    price: Optional[float] = None
+    special_price: Optional[float] = None
     is_configured: bool = False
     is_kit_basico: bool = False
