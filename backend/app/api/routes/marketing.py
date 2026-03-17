@@ -1575,15 +1575,23 @@ GROUP BY soi.product_id
             except Exception as e:
                 logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
 
-        # Override custo pelo custo manual do kit_config quando definido — só atualiza
-        # kits que já existam no kit_map (via Cadastro ou vendas Magento).
-        # Kits com custo_kit mas sem dados de venda não geram linhas zeradas.
+        # Override custo pelo custo manual do kit_config quando definido.
+        # Se o tipo não existe no kit_map (sem Cadastro e sem vendas), cria entrada
+        # zerada para que o custo apareça na tabela mesmo sem inscrições.
         for tipo, custo_override in custo_kit_override.items():
             if tipo in kit_map:
                 kit_map[tipo]["custo"] = custo_override
                 kit_map[tipo]["has_cost"] = True
+            else:
+                kit_map[tipo] = {
+                    "custo": custo_override,
+                    "ativo_categoria": None,
+                    "qtd": 0,
+                    "receita": 0.0,
+                    "has_cost": True,
+                }
 
-        # 4. Build result list — apenas kits com vendas reais (qtd > 0)
+        # 4. Build result list — inclui kits sem vendas (qtd=0) para visibilidade de custo
         if not kit_map:
             return []
 
@@ -1593,8 +1601,6 @@ GROUP BY soi.product_id
         total_margem = 0.0
 
         for kit_name in sorted(kit_map.keys()):
-            if kit_map[kit_name]["qtd"] == 0:
-                continue
             kdata = kit_map[kit_name]
             qtd = kdata["qtd"]
             receita = kdata["receita"]
