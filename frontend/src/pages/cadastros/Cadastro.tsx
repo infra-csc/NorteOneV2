@@ -2383,23 +2383,6 @@ const Cadastro: React.FC = () => {
                       ))}
                     </select>
                   </div>
-                  <div className="flex-1">
-                    <label className={`block text-xs font-medium mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Categoria Ativo (ds_categoria)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex: KIT BASICO"
-                      value={kit.ativo_categoria || ''}
-                      onChange={(e) => setForm(prev => ({
-                        ...prev,
-                        kit_produto: prev.kit_produto.map((k, i) =>
-                          i === index ? { ...k, ativo_categoria: e.target.value } : k
-                        )
-                      }))}
-                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 placeholder-gray-400'} focus:ring-2 focus:ring-purple-500`}
-                    />
-                  </div>
                 </div>
                 <div>
                   <label className={`block text-xs font-medium mb-2 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>

@@ -8,6 +8,7 @@ class KitConfigUpsert(BaseModel):
     is_kit_basico: bool = False
     id_evento: Optional[int] = None
     tipo_kit: Optional[str] = None
+    custo_kit: Optional[float] = None
 
 
 class KitConfigResponse(BaseModel):
@@ -18,6 +19,7 @@ class KitConfigResponse(BaseModel):
     tipo: str = "multiplier"
     multiplicador: int = 1
     is_kit_basico: bool = False
+    custo_kit: Optional[float] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -41,3 +43,5 @@ class KitRow(BaseModel):
     special_price: Optional[float] = None
     is_configured: bool = False
     is_kit_basico: bool = False
+    custo_cadastro: Optional[float] = None
+    custo_kit: Optional[float] = None

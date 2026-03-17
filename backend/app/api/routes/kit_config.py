@@ -6,6 +6,7 @@ from typing import List
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
 from app.models.kit_config import KitConfig
+from app.models.cadastro_evento import CadastroKitProduto, CadastroKitProdutoItem
 from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse
 import app.core.database as db_module
 import logging
@@ -248,6 +249,23 @@ def get_kits_with_config(
     all_configs = db.query(KitConfig).all()
     config_map = {c.bundle_entity_id: c for c in all_configs}
 
+    # Custo por tipo_kit calculado do Cadastro (first-wins entre todos os eventos)
+    all_kit_produtos = db.query(CadastroKitProduto).all()
+    kp_ids = [kp.id for kp in all_kit_produtos]
+    all_items = (
+        db.query(CadastroKitProdutoItem)
+        .filter(CadastroKitProdutoItem.kit_produto_id.in_(kp_ids))
+        .all()
+    ) if kp_ids else []
+    items_by_kit: dict = {}
+    for item in all_items:
+        items_by_kit.setdefault(item.kit_produto_id, []).append(item)
+    tipo_custo_map: dict = {}
+    for kp in all_kit_produtos:
+        kit_name = (kp.kit or "").strip()
+        if kit_name and kit_name not in tipo_custo_map:
+            tipo_custo_map[kit_name] = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kp.id, []))
+
     kits: List[KitRow] = []
     for row in magento_rows:
         row_dict = dict(zip(columns, row))
@@ -265,6 +283,9 @@ def get_kits_with_config(
         is_configured = cfg is not None
         is_kit_basico = cfg.is_kit_basico if cfg else False
         tipo_kit = cfg.tipo_kit if cfg else None
+
+        custo_cadastro = tipo_custo_map.get(tipo_kit) if tipo_kit else None
+        custo_kit_val = float(cfg.custo_kit) if cfg and cfg.custo_kit is not None else None
 
         price_final = (price_base * multiplicador) if price_base is not None else None
         special_price_final = (special_price_base * multiplicador) if special_price_base is not None else None
@@ -285,6 +306,8 @@ def get_kits_with_config(
             special_price=special_price_final,
             is_configured=is_configured,
             is_kit_basico=is_kit_basico,
+            custo_cadastro=custo_cadastro,
+            custo_kit=custo_kit_val,
         ))
 
     return kits
@@ -315,6 +338,8 @@ def upsert_kit_config(
             if body.id_evento is not None:
                 existing.id_evento = body.id_evento
             existing.tipo_kit = body.tipo_kit
+            if body.custo_kit is not None:
+                existing.custo_kit = body.custo_kit
             db.commit()
             db.refresh(existing)
             clear_ticket_atual_cache()
@@ -328,6 +353,7 @@ def upsert_kit_config(
             is_kit_basico=body.is_kit_basico,
             id_evento=body.id_evento,
             tipo_kit=body.tipo_kit,
+            custo_kit=body.custo_kit,
         )
         db.add(new_config)
         db.commit()

@@ -19,6 +19,8 @@ interface KitRow {
   special_price: number | null;
   is_configured: boolean;
   is_kit_basico: boolean;
+  custo_cadastro: number | null;
+  custo_kit: number | null;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -34,6 +36,7 @@ const KitConfig: React.FC = () => {
   const [editValues, setEditValues] = useState<Record<number, number>>({});
   const [basicoValues, setBasicoValues] = useState<Record<number, boolean>>({});
   const [tipoKitValues, setTipoKitValues] = useState<Record<number, string>>({});
+  const [custoKitValues, setCustoKitValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
@@ -71,14 +74,17 @@ const KitConfig: React.FC = () => {
       const edits: Record<number, number> = {};
       const basicos: Record<number, boolean> = {};
       const tipoKits: Record<number, string> = {};
+      const custoKits: Record<number, string> = {};
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
         basicos[k.bundle_entity_id] = k.is_kit_basico;
         tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
+        custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
       });
       setEditValues(edits);
       setBasicoValues(basicos);
       setTipoKitValues(tipoKits);
+      setCustoKitValues(custoKits);
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
@@ -97,6 +103,8 @@ const KitConfig: React.FC = () => {
     const tipoKit = (tipoKitValues[bundleId] ?? '').trim() || null;
     const kit = kits.find((k) => k.bundle_entity_id === bundleId);
     const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
+    const custoKitStr = (custoKitValues[bundleId] ?? '').trim();
+    const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
 
     setSaving((s) => ({ ...s, [bundleId]: true }));
     try {
@@ -105,6 +113,7 @@ const KitConfig: React.FC = () => {
         is_kit_basico: isBasico,
         id_evento: idEvento,
         tipo_kit: tipoKit,
+        custo_kit: custoKit,
       });
       setSavedFeedback((s) => ({ ...s, [bundleId]: true }));
       setTimeout(() => setSavedFeedback((s) => ({ ...s, [bundleId]: false })), 2000);
@@ -119,6 +128,7 @@ const KitConfig: React.FC = () => {
               special_price: k.special_price_base != null ? k.special_price_base * mult : null,
               is_configured: true,
               is_kit_basico: isBasico,
+              custo_kit: custoKit,
             };
           }
           if (isBasico && k.id_evento === kit?.id_evento && k.is_kit_basico) {
@@ -425,7 +435,7 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Básico', ''].map(
+                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', ''].map(
                     (label, i) => (
                       <th
                         key={i}
@@ -457,9 +467,11 @@ const KitConfig: React.FC = () => {
                   const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
                   const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
                   const editTipoKit = tipoKitValues[kit.bundle_entity_id] ?? (kit.tipo_kit || '');
+                  const custoKitStr = (custoKitValues[kit.bundle_entity_id] ?? '').trim();
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
-                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || editTipoKit !== (kit.tipo_kit || '');
+                  const custoKitChanged = kit.custo_cadastro == null && custoKitStr !== '' && parseFloat(custoKitStr) !== (kit.custo_kit ?? 0);
+                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged;
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
@@ -541,6 +553,30 @@ const KitConfig: React.FC = () => {
                         }`}
                       >
                         {fmtBRL(computedSpecialPrice)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                        {kit.custo_cadastro != null ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                              {fmtBRL(kit.custo_cadastro)}
+                            </span>
+                            <span className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>do cadastro</span>
+                          </div>
+                        ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            placeholder="0,00"
+                            value={custoKitStr}
+                            onChange={(e) => setCustoKitValues((prev) => ({ ...prev, [kit.bundle_entity_id]: e.target.value }))}
+                            className={`w-24 text-right px-2 py-1 rounded border text-sm ${
+                              isDark
+                                ? 'bg-gray-700 border-gray-600 text-white focus:border-amber-400 placeholder-gray-500'
+                                : 'bg-white border-gray-300 text-gray-900 focus:border-amber-500 placeholder-gray-400'
+                            } outline-none ${custoKitChanged ? (isDark ? 'ring-1 ring-amber-400' : 'ring-1 ring-amber-500') : ''}`}
+                          />
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <button

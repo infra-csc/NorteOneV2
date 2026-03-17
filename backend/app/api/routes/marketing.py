@@ -1466,6 +1466,7 @@ def get_margem_por_kit(
         seen_magento_events: set = set()
         seen_bundle_ids: set = set()
         global_bundle_tipo_map: dict = {}  # bundle_entity_id -> tipo_kit
+        custo_kit_override: dict = {}  # tipo_kit -> custo manual (kit_config.custo_kit)
 
         for pid in projeto_ids:
             for sm in _get_sku_maps(pid, 'MAGENTO'):
@@ -1487,6 +1488,8 @@ def get_margem_por_kit(
                     if b.tipo_kit and b.bundle_entity_id not in seen_bundle_ids:
                         seen_bundle_ids.add(b.bundle_entity_id)
                         global_bundle_tipo_map[b.bundle_entity_id] = b.tipo_kit
+                        if b.custo_kit is not None:
+                            custo_kit_override[b.tipo_kit] = float(b.custo_kit)
 
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
@@ -1571,6 +1574,20 @@ GROUP BY soi.product_id
                         kit_map[tipo_kit]["receita"] += receita
             except Exception as e:
                 logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+
+        # Override custo do Cadastro pelo custo manual do kit_config quando definido
+        for tipo, custo_override in custo_kit_override.items():
+            if tipo in kit_map:
+                kit_map[tipo]["custo"] = custo_override
+                kit_map[tipo]["has_cost"] = True
+            else:
+                kit_map[tipo] = {
+                    "custo": custo_override,
+                    "ativo_categoria": None,
+                    "qtd": 0,
+                    "receita": 0.0,
+                    "has_cost": True,
+                }
 
         # 4. Build result list
         if not kit_map:
