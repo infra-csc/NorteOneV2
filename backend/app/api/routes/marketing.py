@@ -1392,20 +1392,21 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
     }
 
 
-def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
+def get_margem_por_kit(db: Session, projeto_ids: list, ano: int = None) -> list:
     """
-    Computes margin per kit type for an event combining Ativo + Magento sales data.
+    Computes margin per kit type for an event using Magento bundle sales.
 
     CadastroKitProduto is the source of truth for kit types and item costs.
     KitConfig.tipo_kit maps each Magento bundle_entity_id to a CadastroKitProduto.kit name.
-    CadastroKitProduto.ativo_categoria maps a kit type to its Ativo ds_categoria label.
 
     Design principles:
     - Kit cost data is merged across ALL cadastros for all projetos (not just the first one)
     - Magento event IDs and bundle IDs are deduplicated before querying to prevent double-counting
     - Sales-only kit rows (tipo_kit present in Magento but not in any cadastro) are included with custo=0
     - Only Magento bundle sales are used (deterministic kit-to-bundle mapping via KitConfig.tipo_kit)
-    - ativo_categoria is stored in the model but excluded from this calculation for consistency
+    - Price adjustments for plus/vip/super bundles are applied (same as main ISC query)
+    - Year-scoped via event date attribute on each bundle (same temporal filter as main ISC query)
+    - ativo_categoria is stored in the model for future use but excluded from this calculation
     """
     from ...models.kit_config import KitConfig
 
@@ -1497,27 +1498,45 @@ def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
 
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            magento_bundle_query = text("""
+            # Build year-filter clause: join on event date attribute (attribute_id=195, same as
+            # build_query_isc_magento) to scope sales to the same year window as the main ISC query.
+            import datetime as _dt
+            _ano = ano if ano else _dt.datetime.now().year
+            _year_filter = (
+                f"AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) "
+                f"AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY"
+            )
+            magento_bundle_query = text(f"""
 SELECT
     soi.product_id AS bundle_entity_id,
     COUNT(DISTINCT soi.item_id) AS qtd,
     ROUND(SUM(
         CASE
             WHEN soi.price = 0 THEN 0
-            ELSE soi.price
-                + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
-                - CASE
-                    WHEN cg.customer_group_id = 4 THEN 0
-                    WHEN soiaa.price = 14.90
-                     AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-                    ELSE 0
-                  END
+            ELSE CASE
+                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
+                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
+                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
+                ELSE soi.price
+            END
+            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
+            - CASE
+                WHEN cg.customer_group_id = 4 THEN 0
+                WHEN soiaa.price = 14.90
+                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+                ELSE 0
+              END
         END
     ), 2) AS receita_liquida
 FROM sales_order so
 INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
       AND soi.product_type = 'bundle'
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195 AND store_id = 0
+) AS cped ON cped.entity_id = soi.product_id
 LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price
     FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
@@ -1533,6 +1552,7 @@ AND so.base_grand_total > 0
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
+{_year_filter}
 GROUP BY soi.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
@@ -5307,7 +5327,7 @@ def get_marketing_event_by_id(
         detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         grupo_projeto_ids = [p.id for p in projetos]
-        detail_margem_por_kit = get_margem_por_kit(db, grupo_projeto_ids)
+        detail_margem_por_kit = get_margem_por_kit(db, grupo_projeto_ids, ano=ano)
         
         evento = MarketingEvent(
             id=evento_id,
@@ -5553,7 +5573,7 @@ def get_marketing_event_by_id(
     sa_ticket_atual_map = _get_ticket_atual_map(db)
     sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
     
-    sa_margem_por_kit = get_margem_por_kit(db, [projeto.id])
+    sa_margem_por_kit = get_margem_por_kit(db, [projeto.id], ano=ano)
     
     evento = MarketingEvent(
         id=str(projeto.id),
