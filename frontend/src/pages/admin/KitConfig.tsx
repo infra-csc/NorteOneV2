@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star } from 'lucide-react';
+import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star, Download, Filter, X } from 'lucide-react';
 
 interface KitRow {
   id_evento: string | null;
@@ -35,6 +35,30 @@ const KitConfig: React.FC = () => {
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
+
+  const [filterTipo, setFilterTipo] = useState('');
+  const [filterBasico, setFilterBasico] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterLote, setFilterLote] = useState('');
+
+  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '';
+
+  const clearFilters = () => {
+    setFilterTipo('');
+    setFilterBasico('');
+    setFilterStatus('');
+    setFilterLote('');
+  };
+
+  const tipoOptions = useMemo(() => {
+    const unique = new Set(kits.map((k) => k.tipo_categoria).filter(Boolean) as string[]);
+    return Array.from(unique).sort();
+  }, [kits]);
+
+  const loteOptions = useMemo(() => {
+    const unique = new Set(kits.map((k) => k.lote_atual).filter(Boolean) as string[]);
+    return Array.from(unique).sort();
+  }, [kits]);
 
   const fetchKits = async () => {
     setLoading(true);
@@ -140,16 +164,84 @@ const KitConfig: React.FC = () => {
   };
 
   const filteredKits = useMemo(() => {
-    if (!search.trim()) return kits;
-    const q = search.toLowerCase();
-    return kits.filter(
-      (k) =>
-        (k.nome_evento || '').toLowerCase().includes(q) ||
-        (k.nome_kit || '').toLowerCase().includes(q) ||
-        (k.tipo_categoria || '').toLowerCase().includes(q) ||
-        String(k.bundle_entity_id).includes(q),
-    );
-  }, [kits, search]);
+    let result = kits;
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (k) =>
+          (k.nome_evento || '').toLowerCase().includes(q) ||
+          (k.nome_kit || '').toLowerCase().includes(q) ||
+          (k.tipo_categoria || '').toLowerCase().includes(q) ||
+          String(k.bundle_entity_id).includes(q),
+      );
+    }
+
+    if (filterTipo) {
+      result = result.filter((k) => k.tipo_categoria === filterTipo);
+    }
+
+    if (filterBasico === 'sim') {
+      result = result.filter((k) => k.is_kit_basico);
+    } else if (filterBasico === 'nao') {
+      result = result.filter((k) => !k.is_kit_basico);
+    }
+
+    if (filterStatus === 'configurado') {
+      result = result.filter((k) => k.is_configured);
+    } else if (filterStatus === 'novo') {
+      result = result.filter((k) => !k.is_configured);
+    }
+
+    if (filterLote) {
+      result = result.filter((k) => k.lote_atual === filterLote);
+    }
+
+    return result;
+  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote]);
+
+  const handleExportCSV = useCallback(() => {
+    const headers = ['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Mult. Sugerido', 'Multiplicador', 'Price', 'Special Price', 'Kit Básico', 'Configurado'];
+
+    const escapeCSV = (val: string): string => {
+      if (val.includes(';') || val.includes('"') || val.includes('\n')) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    };
+
+    const rows = filteredKits.map((kit) => {
+      const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
+      const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
+      const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
+      const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
+
+      return [
+        escapeCSV(kit.nome_evento || ''),
+        escapeCSV(kit.nome_kit || ''),
+        escapeCSV(kit.tipo_categoria || ''),
+        escapeCSV(kit.lote_atual || ''),
+        String(kit.multiplicador_sugerido),
+        String(editMult),
+        computedPrice != null ? computedPrice.toFixed(2) : '',
+        computedSpecialPrice != null ? computedSpecialPrice.toFixed(2) : '',
+        isBasico ? 'Sim' : 'Não',
+        kit.is_configured ? 'Sim' : 'Não',
+      ].join(';');
+    });
+
+    const bom = '\uFEFF';
+    const csvContent = bom + [headers.join(';'), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mapeamento-kits-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [filteredKits, editValues, basicoValues]);
 
   const unconfiguredCount = kits.filter((k) => !k.is_configured).length;
 
@@ -166,6 +258,12 @@ const KitConfig: React.FC = () => {
   const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
   const headerBg = isDark ? 'bg-slate-700' : 'bg-slate-100';
 
+  const selectClass = `text-xs px-2 py-1.5 rounded border outline-none cursor-pointer ${
+    isDark
+      ? 'bg-gray-700 border-gray-600 text-white'
+      : 'bg-white border-gray-300 text-gray-900'
+  }`;
+
   return (
     <div className={`min-h-screen ${bg} p-0`}>
       <div className="flex items-center justify-between mb-6">
@@ -175,18 +273,32 @@ const KitConfig: React.FC = () => {
             Configure o multiplicador e marque o Kit Básico de cada evento.
           </p>
         </div>
-        <button
-          onClick={fetchKits}
-          disabled={loading}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-            isDark
-              ? 'bg-blue-600 text-white hover:bg-blue-500 disabled:bg-gray-600'
-              : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300'
-          }`}
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            disabled={loading || filteredKits.length === 0}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              isDark
+                ? 'bg-emerald-600 text-white hover:bg-emerald-500 disabled:bg-gray-600 disabled:text-gray-400'
+                : 'bg-emerald-500 text-white hover:bg-emerald-600 disabled:bg-gray-300 disabled:text-gray-500'
+            }`}
+          >
+            <Download className="w-4 h-4" />
+            Exportar CSV
+          </button>
+          <button
+            onClick={fetchKits}
+            disabled={loading}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              isDark
+                ? 'bg-blue-600 text-white hover:bg-blue-500 disabled:bg-gray-600'
+                : 'bg-blue-500 text-white hover:bg-blue-600 disabled:bg-gray-300'
+            }`}
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {(unconfiguredCount > 0 || eventosSemBasico > 0) && !loading && (
@@ -222,7 +334,7 @@ const KitConfig: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-3">
         <div className={`flex items-center flex-1 gap-2 px-3 py-2 rounded-lg border ${cardBg} ${borderColor}`}>
           <Search className={`w-4 h-4 ${textSecondary}`} />
           <input
@@ -237,6 +349,53 @@ const KitConfig: React.FC = () => {
           <Package className={`w-4 h-4 ${textSecondary}`} />
           <span className={`text-sm font-medium ${textPrimary}`}>{filteredKits.length} kits</span>
         </div>
+      </div>
+
+      <div className={`flex items-center gap-3 mb-4 flex-wrap`}>
+        <div className={`flex items-center gap-1.5 ${textSecondary}`}>
+          <Filter className="w-3.5 h-3.5" />
+          <span className="text-xs font-medium uppercase tracking-wider">Filtros</span>
+        </div>
+
+        <select value={filterTipo} onChange={(e) => setFilterTipo(e.target.value)} className={selectClass}>
+          <option value="">Tipo: Todos</option>
+          {tipoOptions.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+
+        <select value={filterBasico} onChange={(e) => setFilterBasico(e.target.value)} className={selectClass}>
+          <option value="">Básico: Todos</option>
+          <option value="sim">Com estrela</option>
+          <option value="nao">Sem estrela</option>
+        </select>
+
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className={selectClass}>
+          <option value="">Status: Todos</option>
+          <option value="configurado">Configurados</option>
+          <option value="novo">Não configurados</option>
+        </select>
+
+        <select value={filterLote} onChange={(e) => setFilterLote(e.target.value)} className={selectClass}>
+          <option value="">Lote: Todos</option>
+          {loteOptions.map((l) => (
+            <option key={l} value={l}>{l}</option>
+          ))}
+        </select>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className={`flex items-center gap-1 text-xs px-2 py-1.5 rounded transition-colors ${
+              isDark
+                ? 'text-red-400 hover:bg-red-900/30'
+                : 'text-red-500 hover:bg-red-50'
+            }`}
+          >
+            <X className="w-3 h-3" />
+            Limpar filtros
+          </button>
+        )}
       </div>
 
       {error && (
@@ -255,7 +414,7 @@ const KitConfig: React.FC = () => {
         </div>
       ) : (
         <div className={`rounded-lg overflow-hidden border ${borderColor}`}>
-          <div className="overflow-auto max-h-[calc(100vh-280px)]">
+          <div className="overflow-auto max-h-[calc(100vh-320px)]">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
@@ -407,7 +566,7 @@ const KitConfig: React.FC = () => {
                 {filteredKits.length === 0 && (
                   <tr>
                     <td colSpan={9} className={`px-3 py-12 text-center ${textSecondary}`}>
-                      {search ? 'Nenhum kit encontrado para esta busca.' : 'Nenhum kit encontrado.'}
+                      {search || hasActiveFilters ? 'Nenhum kit encontrado para os filtros aplicados.' : 'Nenhum kit encontrado.'}
                     </td>
                   </tr>
                 )}
