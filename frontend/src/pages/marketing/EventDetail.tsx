@@ -2030,7 +2030,32 @@ const EventDetail: React.FC = () => {
                 </div>
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">Custo Kit Básico</span>
+                    {event.margemPorKit && event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO' && r.custoKit != null).length > 0 ? (
+                      <div className="group relative">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 cursor-help">
+                          Custo Kit Básico
+                          <Info className="w-3 h-3 text-gray-400" />
+                        </span>
+                        <div className="hidden group-hover:block absolute z-50 left-0 top-5 w-56 bg-gray-900 text-white rounded-xl shadow-xl p-3 text-xs">
+                          <p className="font-semibold mb-2 text-gray-200">Custo por tipo de kit</p>
+                          <div className="space-y-1.5">
+                            {event.margemPorKit
+                              .filter(r => r.tipoKit !== 'CONSOLIDADO')
+                              .map((r, i) => (
+                                <div key={i} className="flex items-center justify-between gap-3">
+                                  <span className="text-gray-300 truncate">{r.tipoKit}</span>
+                                  <span className="font-medium text-amber-300 shrink-0">
+                                    {r.custoKit != null ? formatCurrency(r.custoKit) : '—'}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                          <div className="absolute -top-1.5 left-4 w-3 h-3 bg-gray-900 rotate-45" />
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Custo Kit Básico</span>
+                    )}
                     <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(kitCost)}</span>
                   </div>
                 </div>
