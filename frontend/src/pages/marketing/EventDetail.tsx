@@ -2314,8 +2314,8 @@ const EventDetail: React.FC = () => {
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 mb-2 italic">
                       Breakdown por kit, distância, canal e lote — sem cortesias/grupos. Confira com a tabela acima.
                     </p>
-                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showDetalheVendas ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                      <div className="overflow-x-auto pb-4">
+                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showDetalheVendas ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                      <div className="overflow-x-auto overflow-y-auto max-h-[480px] pb-4">
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="border-b border-gray-200 dark:border-gray-700">

@@ -1938,6 +1938,7 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
   AND so.increment_id NOT REGEXP '-[0-9]'
   AND cpev1.value IN :event_ids
   {year_filter}
+  AND soi.price > 0
   AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
   AND so.base_grand_total > 0
   AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%CORTESIA%%')
