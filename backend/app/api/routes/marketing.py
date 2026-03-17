@@ -1399,6 +1399,11 @@ def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
     CadastroKitProduto is the source of truth for kit types and item costs.
     KitConfig.tipo_kit maps each Magento bundle_entity_id to a CadastroKitProduto.kit name.
     CadastroKitProduto.ativo_categoria maps a kit type to its Ativo ds_categoria label.
+
+    Design principles:
+    - Kit cost data is merged across ALL cadastros for all projetos (not just the first one)
+    - Magento event IDs are deduplicated before querying to prevent double-counting
+    - Sales-only kit rows (tipo_kit present in Magento but not in any cadastro) are included with custo=0
     """
     from ...models.kit_config import KitConfig
 
@@ -1406,46 +1411,46 @@ def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
         return []
 
     try:
-        cadastro = None
+        # --- 1. Collect kit costs from ALL cadastros across all projetos ---
+        # kit_map: {kit_name: {custo, ativo_categoria, qtd, receita}}
+        # On name collision, the first cadastro wins (preserves custo + ativo_categoria).
+        kit_map: dict = {}
+
         for pid in projeto_ids:
             cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == pid).first()
-            if cadastro:
-                break
-
-        if not cadastro:
-            return []
-
-        kit_configs_db = db.query(CadastroKitProduto).filter(
-            CadastroKitProduto.cadastro_id == cadastro.id
-        ).all()
-
-        if not kit_configs_db:
-            return []
-
-        kit_ids = [kc.id for kc in kit_configs_db]
-        all_items = db.query(CadastroKitProdutoItem).filter(
-            CadastroKitProdutoItem.kit_produto_id.in_(kit_ids)
-        ).all()
-        items_by_kit = {}
-        for item in all_items:
-            items_by_kit.setdefault(item.kit_produto_id, []).append(item)
-
-        kit_map = {}
-        for kc in kit_configs_db:
-            kit_name = (kc.kit or "").strip()
-            if not kit_name:
+            if not cadastro:
                 continue
-            cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kc.id, []))
-            kit_map[kit_name] = {
-                "custo": cost,
-                "ativo_categoria": kc.ativo_categoria,
-                "qtd": 0,
-                "receita": 0.0,
-            }
 
-        if not kit_map:
-            return []
+            kit_configs_db = db.query(CadastroKitProduto).filter(
+                CadastroKitProduto.cadastro_id == cadastro.id
+            ).all()
+            if not kit_configs_db:
+                continue
 
+            kit_ids = [kc.id for kc in kit_configs_db]
+            all_items = db.query(CadastroKitProdutoItem).filter(
+                CadastroKitProdutoItem.kit_produto_id.in_(kit_ids)
+            ).all()
+            items_by_kit: dict = {}
+            for item in all_items:
+                items_by_kit.setdefault(item.kit_produto_id, []).append(item)
+
+            for kc in kit_configs_db:
+                kit_name = (kc.kit or "").strip()
+                if not kit_name:
+                    continue
+                if kit_name in kit_map:
+                    continue  # First cadastro wins for cost/mapping
+                cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kc.id, []))
+                kit_map[kit_name] = {
+                    "custo": cost,
+                    "ativo_categoria": kc.ativo_categoria,
+                    "qtd": 0,
+                    "receita": 0.0,
+                    "has_cost": True,
+                }
+
+        # --- 2. Collect SKU mappings for all projetos ---
         proj_by_id = {
             pid: db.query(DimProjeto).filter(DimProjeto.id == pid).first()
             for pid in projeto_ids
@@ -1462,33 +1467,35 @@ def get_margem_por_kit(db: Session, projeto_ids: list) -> list:
                 SkuMapping.ativo == True
             ).all()
 
-        magento_id_eventos = []
+        # --- 3. Magento: deduplicate event IDs and bundle IDs across all projetos ---
+        seen_magento_events: set = set()
+        seen_bundle_ids: set = set()
+        global_bundle_tipo_map: dict = {}  # bundle_entity_id -> tipo_kit
+
         for pid in projeto_ids:
             for sm in _get_sku_maps(pid, 'MAGENTO'):
-                if sm.id_externo:
-                    magento_id_eventos.append(str(sm.id_externo))
-
-        if magento_id_eventos and db_module.engine_magento is not None:
-            for id_evento_magento in magento_id_eventos:
+                if not sm.id_externo:
+                    continue
                 try:
-                    magento_event_int = int(id_evento_magento)
+                    magento_event_int = int(sm.id_externo)
                 except (ValueError, TypeError):
                     continue
+                if magento_event_int in seen_magento_events:
+                    continue
+                seen_magento_events.add(magento_event_int)
 
                 bundles = db.query(KitConfig).filter(
                     KitConfig.id_evento == magento_event_int,
                     KitConfig.tipo_kit.isnot(None)
                 ).all()
+                for b in bundles:
+                    if b.tipo_kit and b.bundle_entity_id not in seen_bundle_ids:
+                        seen_bundle_ids.add(b.bundle_entity_id)
+                        global_bundle_tipo_map[b.bundle_entity_id] = b.tipo_kit
 
-                if not bundles:
-                    continue
-
-                bundle_tipo_map = {b.bundle_entity_id: b.tipo_kit for b in bundles if b.tipo_kit}
-                if not bundle_tipo_map:
-                    continue
-
-                bundle_ids = list(bundle_tipo_map.keys())
-                magento_bundle_query = text("""
+        if global_bundle_tipo_map and db_module.engine_magento is not None:
+            bundle_ids = list(global_bundle_tipo_map.keys())
+            magento_bundle_query = text("""
 SELECT
     soi.product_id AS bundle_entity_id,
     COUNT(DISTINCT soi.item_id) AS qtd,
@@ -1527,25 +1534,40 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
-                try:
-                    with db_module.engine_magento.connect() as conn:
-                        result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
-                        for row in result.fetchall():
-                            bid = int(row[0])
-                            qtd = int(row[1] or 0)
-                            receita = float(row[2] or 0)
-                            tipo_kit = bundle_tipo_map.get(bid)
-                            if tipo_kit and tipo_kit in kit_map:
-                                kit_map[tipo_kit]["qtd"] += qtd
-                                kit_map[tipo_kit]["receita"] += receita
-                except Exception as e:
-                    logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+            try:
+                with db_module.engine_magento.connect() as conn:
+                    result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
+                    for row in result.fetchall():
+                        bid = int(row[0])
+                        qtd = int(row[1] or 0)
+                        receita = float(row[2] or 0)
+                        tipo_kit = global_bundle_tipo_map.get(bid)
+                        if not tipo_kit:
+                            continue
+                        if tipo_kit not in kit_map:
+                            # Sales-only kit: include with custo=0, no ativo_categoria
+                            kit_map[tipo_kit] = {
+                                "custo": 0.0,
+                                "ativo_categoria": None,
+                                "qtd": 0,
+                                "receita": 0.0,
+                                "has_cost": False,
+                            }
+                        kit_map[tipo_kit]["qtd"] += qtd
+                        kit_map[tipo_kit]["receita"] += receita
+            except Exception as e:
+                logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
 
+        # --- 4. Ativo: deduplicate event IDs ---
+        seen_ativo_events: set = set()
         ativo_id_eventos = []
         for pid in projeto_ids:
             for sm in _get_sku_maps(pid, 'ATIVO'):
-                if sm.id_externo:
-                    ativo_id_eventos.append(str(sm.id_externo))
+                if sm.id_externo and str(sm.id_externo).isdigit():
+                    eid = str(int(sm.id_externo))
+                    if eid not in seen_ativo_events:
+                        seen_ativo_events.add(eid)
+                        ativo_id_eventos.append(eid)
 
         categorias_mapeadas = {
             kdata["ativo_categoria"]
@@ -1554,9 +1576,7 @@ GROUP BY soi.product_id
         }
 
         if ativo_id_eventos and categorias_mapeadas and db_module.engine_ssh is not None:
-            safe_ids = [str(int(i)) for i in ativo_id_eventos if str(i).isdigit()]
-            if safe_ids:
-                ativo_kit_query = text("""
+            ativo_kit_query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     h.ds_categoria AS categoria,
     COUNT(CASE
@@ -1585,20 +1605,24 @@ WHERE
 GROUP BY h.ds_categoria
 """).bindparams(bindparam("id_eventos", expanding=True))
 
-                try:
-                    with db_module.engine_ssh.connect() as conn:
-                        result = conn.execute(ativo_kit_query, {"id_eventos": safe_ids})
-                        for row in result.fetchall():
-                            cat = str(row[0] or "")
-                            qtd = int(row[1] or 0)
-                            receita = float(row[2] or 0)
-                            for kdata in kit_map.values():
-                                if kdata.get("ativo_categoria") and kdata["ativo_categoria"] == cat:
-                                    kdata["qtd"] += qtd
-                                    kdata["receita"] += receita
-                                    break
-                except Exception as e:
-                    logger.error(f"Erro ao buscar vendas Ativo por categoria para margem: {e}")
+            try:
+                with db_module.engine_ssh.connect() as conn:
+                    result = conn.execute(ativo_kit_query, {"id_eventos": ativo_id_eventos})
+                    for row in result.fetchall():
+                        cat = str(row[0] or "")
+                        qtd = int(row[1] or 0)
+                        receita = float(row[2] or 0)
+                        for kdata in kit_map.values():
+                            if kdata.get("ativo_categoria") and kdata["ativo_categoria"] == cat:
+                                kdata["qtd"] += qtd
+                                kdata["receita"] += receita
+                                break
+            except Exception as e:
+                logger.error(f"Erro ao buscar vendas Ativo por categoria para margem: {e}")
+
+        # --- 5. Build result list ---
+        if not kit_map:
+            return []
 
         result_list = []
         total_qtd = 0
@@ -1610,16 +1634,17 @@ GROUP BY h.ds_categoria
             qtd = kdata["qtd"]
             receita = kdata["receita"]
             custo = kdata["custo"]
+            has_cost = kdata.get("has_cost", True)
             ticket_medio = round(receita / qtd, 2) if qtd > 0 else 0.0
-            margem_unit = round(ticket_medio - custo, 2) if qtd > 0 else round(-custo, 2)
-            margem_total = round(receita - (custo * qtd), 2) if qtd >= 0 else 0.0
+            margem_unit = round(ticket_medio - custo, 2) if qtd > 0 else (round(-custo, 2) if has_cost else None)
+            margem_total = round(receita - (custo * qtd), 2)
 
             result_list.append({
                 "tipoKit": kit_name,
                 "qtd": qtd,
                 "receitaLiquida": round(receita, 2),
                 "ticketMedio": ticket_medio,
-                "custoKit": round(custo, 2),
+                "custoKit": round(custo, 2) if has_cost else None,
                 "margemUnit": margem_unit,
                 "margemTotal": margem_total,
             })
