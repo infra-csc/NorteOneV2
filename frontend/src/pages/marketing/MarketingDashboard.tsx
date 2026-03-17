@@ -8,6 +8,7 @@ import {
   Calendar,
   Search,
   Filter,
+  FilterX,
   AlertTriangle,
   Target,
   ChevronRight,
@@ -83,15 +84,45 @@ const SkeletonFilters: React.FC = () => (
   </div>
 );
 
+const SESSION_STORAGE_KEY = 'mktDashFilters';
+
+const VALID_STATUS = ['all', 'active', 'closed'];
+const VALID_ZONE = ['all', 'accelerating', 'stable', 'decelerating'];
+const VALID_DMINUS = ['all', 'critical', '41-60', '61-90', '91-120', '120+'];
+
+function loadFilters(): { search: string; category: string; status: string; zone: string; dMinus: string } {
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        search: typeof parsed.search === 'string' ? parsed.search : '',
+        category: typeof parsed.category === 'string' ? parsed.category : 'all',
+        status: VALID_STATUS.includes(parsed.status) ? parsed.status : 'active',
+        zone: VALID_ZONE.includes(parsed.zone) ? parsed.zone : 'all',
+        dMinus: VALID_DMINUS.includes(parsed.dMinus) ? parsed.dMinus : 'all',
+      };
+    }
+  } catch {}
+  return { search: '', category: 'all', status: 'active', zone: 'all', dMinus: 'all' };
+}
+
+function saveFilters(filters: { search: string; category: string; status: string; zone: string; dMinus: string }) {
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(filters));
+  } catch {}
+}
+
 const MarketingDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { isDark } = useTheme();
-  const [searchInput, setSearchInput] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('active');
-  const [zoneFilter, setZoneFilter] = useState('all');
-  const [dMinusFilter, setDMinusFilter] = useState('all');
+  const initialFilters = useMemo(() => loadFilters(), []);
+  const [searchInput, setSearchInput] = useState(initialFilters.search);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialFilters.search);
+  const [categoryFilter, setCategoryFilter] = useState(initialFilters.category);
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status);
+  const [zoneFilter, setZoneFilter] = useState(initialFilters.zone);
+  const [dMinusFilter, setDMinusFilter] = useState(initialFilters.dMinus);
   
   const [eventos, setEventos] = useState<MarketingEvent[]>([]);
   const [summary, setSummary] = useState<MarketingDashboardSummary>({
@@ -127,6 +158,16 @@ const MarketingDashboard: React.FC = () => {
     setAvisos((response as any).avisos || []);
   }, []);
 
+  useEffect(() => {
+    saveFilters({
+      search: searchInput,
+      category: categoryFilter,
+      status: statusFilter,
+      zone: zoneFilter,
+      dMinus: dMinusFilter,
+    });
+  }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter]);
+
   const fetchData = useCallback(async (isRefresh = false, forceRefresh = false) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -136,9 +177,6 @@ const MarketingDashboard: React.FC = () => {
 
     const requestParams = {
       ano: new Date().getFullYear(),
-      status: statusFilter === 'all' ? undefined : statusFilter,
-      categoria: categoryFilter === 'all' ? undefined : categoryFilter,
-      busca: debouncedSearch || undefined,
     };
 
     const cached = getMarketingDashboardCache(requestParams);
@@ -211,7 +249,7 @@ const MarketingDashboard: React.FC = () => {
         setRevalidating(false);
       }
     }
-  }, [statusFilter, categoryFilter, debouncedSearch, applyResponse]);
+  }, [applyResponse]);
 
   useEffect(() => {
     fetchData();
@@ -348,8 +386,42 @@ const MarketingDashboard: React.FC = () => {
     };
   }, []);
 
+  const hasActiveFilters = useMemo(() => {
+    return searchInput !== '' || categoryFilter !== 'all' || statusFilter !== 'active' || zoneFilter !== 'all' || dMinusFilter !== 'all';
+  }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter]);
+
+  const clearAllFilters = useCallback(() => {
+    setSearchInput('');
+    setDebouncedSearch('');
+    setCategoryFilter('all');
+    setStatusFilter('active');
+    setZoneFilter('all');
+    setDMinusFilter('all');
+    try { sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch {}
+  }, []);
+
   const filteredEventos = useMemo(() => {
     let filtered = eventos;
+
+    if (debouncedSearch) {
+      const lower = debouncedSearch.toLowerCase();
+      filtered = filtered.filter(e =>
+        (e.name ?? '').toLowerCase().includes(lower) ||
+        (e.location ?? '').toLowerCase().includes(lower)
+      );
+    }
+
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(e => e.category === categoryFilter);
+    }
+
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(e => {
+        if (statusFilter === 'active') return e.isActive;
+        if (statusFilter === 'closed') return !e.isActive;
+        return true;
+      });
+    }
 
     if (zoneFilter !== 'all') {
       filtered = filtered.filter(e => e.iscStatus === zoneFilter);
@@ -369,7 +441,7 @@ const MarketingDashboard: React.FC = () => {
     }
 
     return filtered;
-  }, [eventos, zoneFilter, dMinusFilter]);
+  }, [eventos, debouncedSearch, categoryFilter, statusFilter, zoneFilter, dMinusFilter]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -662,22 +734,26 @@ const MarketingDashboard: React.FC = () => {
                 <option value="91-120">D- 91–120</option>
                 <option value="120+">D- {'>'} 120</option>
               </select>
+
+              {hasActiveFilters && (
+                <button
+                  onClick={clearAllFilters}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 transition-colors"
+                >
+                  <FilterX className="w-4 h-4" />
+                  Limpar filtros
+                </button>
+              )}
             </div>
           </div>
         </div>
         )}
 
-        {!loading && (zoneFilter !== 'all' || dMinusFilter !== 'all') && (
+        {!loading && hasActiveFilters && (
           <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <span className="text-sm text-blue-700 dark:text-blue-300">
               Exibindo {filteredEventos.length} de {eventos.length} eventos
             </span>
-            <button
-              onClick={() => { setZoneFilter('all'); setDMinusFilter('all'); }}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              Limpar filtros
-            </button>
           </div>
         )}
 
