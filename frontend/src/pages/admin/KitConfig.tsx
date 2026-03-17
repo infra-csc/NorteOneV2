@@ -182,9 +182,9 @@ const KitConfig: React.FC = () => {
     }
 
     if (filterBasico === 'sim') {
-      result = result.filter((k) => k.is_kit_basico);
+      result = result.filter((k) => basicoValues[k.bundle_entity_id] ?? k.is_kit_basico);
     } else if (filterBasico === 'nao') {
-      result = result.filter((k) => !k.is_kit_basico);
+      result = result.filter((k) => !(basicoValues[k.bundle_entity_id] ?? k.is_kit_basico));
     }
 
     if (filterStatus === 'configurado') {
@@ -198,10 +198,10 @@ const KitConfig: React.FC = () => {
     }
 
     return result;
-  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote]);
+  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, basicoValues]);
 
   const handleExportCSV = useCallback(() => {
-    const headers = ['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Mult. Sugerido', 'Multiplicador', 'Price', 'Special Price', 'Kit Básico', 'Configurado'];
+    const headers = ['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Multiplicador Sugerido', 'Multiplicador', 'Price', 'Special Price', 'Kit Básico', 'Configurado'];
 
     const escapeCSV = (val: string): string => {
       if (val.includes(';') || val.includes('"') || val.includes('\n')) {
