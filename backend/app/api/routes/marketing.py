@@ -485,8 +485,9 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
         sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
-        mult_sugerido = int(row_dict.get("multiplicador") or 1)
-        if sp is not None and mult_sugerido > 0:
+        raw_mult = row_dict.get("multiplicador")
+        mult_sugerido = int(raw_mult) if raw_mult and int(raw_mult) > 0 else 1
+        if sp is not None:
             special_price_base_by_bundle[bundle_id] = sp / mult_sugerido
 
     evento_tickets: dict = {}
