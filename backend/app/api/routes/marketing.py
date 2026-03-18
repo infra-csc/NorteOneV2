@@ -1367,9 +1367,10 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
 
 def get_kit_breakdown_for_projetos(db: Session, projeto_ids: List[int], ano: int = None) -> dict:
     """
-    Returns {projeto_id: [{tipoKit: str, custoKit: float|None}]} for all kits mapped
-    in KitConfig for each projeto (via Magento SkuMapping → id_evento).
-    Cost resolution: kit_config.custo_kit override first, then CadastroKitProduto sum.
+    Returns {projeto_id: [{tipoKit: str, custoKit: float|None}]} for ALL kit types
+    registered in CadastroKitProduto for each projeto.
+    Cost resolution: kit_config.custo_kit override (matched by tipo_kit == kit name) first,
+    then sum of CadastroKitProdutoItem values.
     """
     from ...models.kit_config import KitConfig
 
@@ -1377,78 +1378,51 @@ def get_kit_breakdown_for_projetos(db: Session, projeto_ids: List[int], ano: int
         return {}
 
     try:
-        proj_by_id = {pid: db.query(DimProjeto).filter(DimProjeto.id == pid).first() for pid in projeto_ids}
+        result: dict = {pid: [] for pid in projeto_ids}
 
-        magento_eid_to_pids: dict = {}
-        for pid, proj in proj_by_id.items():
-            if not proj or not proj.codigo:
-                continue
-            sku = proj.codigo.upper().strip()
-            q = db.query(SkuMapping).filter(
-                SkuMapping.sku == sku,
-                SkuMapping.fonte == 'MAGENTO',
-                SkuMapping.ativo == True,
-            )
-            if ano:
-                q = q.filter(SkuMapping.ano == ano)
-            for sm in q.all():
-                if not sm.id_externo:
-                    continue
-                try:
-                    eid = int(sm.id_externo)
-                except (ValueError, TypeError):
-                    continue
-                magento_eid_to_pids.setdefault(eid, []).append(pid)
-
-        if not magento_eid_to_pids:
-            return {}
-
-        all_kits = db.query(KitConfig).filter(
-            KitConfig.id_evento.in_(list(magento_eid_to_pids.keys())),
-            KitConfig.tipo_kit.isnot(None)
+        # Build KitConfig override map: tipo_kit (name) -> custo_kit
+        # We fetch all kit configs that have custo_kit set and tipo_kit set
+        override_map: dict = {}
+        all_overrides = db.query(KitConfig).filter(
+            KitConfig.tipo_kit.isnot(None),
+            KitConfig.custo_kit.isnot(None),
         ).all()
+        for ov in all_overrides:
+            if ov.tipo_kit and ov.tipo_kit not in override_map:
+                override_map[ov.tipo_kit] = float(ov.custo_kit)
 
-        if not all_kits:
-            return {}
-
-        # Build cadastro custo for kits without override
-        cadastro_custo: dict = {}
         for pid in projeto_ids:
             cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == pid).first()
             if not cad:
                 continue
+
             kit_configs_db = db.query(CadastroKitProduto).filter(
                 CadastroKitProduto.cadastro_id == cad.id
             ).all()
+            if not kit_configs_db:
+                continue
+
+            kit_ids = [kc.id for kc in kit_configs_db]
+            all_items = db.query(CadastroKitProdutoItem).filter(
+                CadastroKitProdutoItem.kit_produto_id.in_(kit_ids)
+            ).all()
+            items_by_kit: dict = {}
+            for item in all_items:
+                items_by_kit.setdefault(item.kit_produto_id, []).append(item)
+
             for kc in kit_configs_db:
                 kit_name = (kc.kit or '').strip()
-                if not kit_name or kit_name in cadastro_custo:
+                if not kit_name:
                     continue
-                items = db.query(CadastroKitProdutoItem).filter(
-                    CadastroKitProdutoItem.kit_produto_id == kc.id
-                ).all()
-                cost = sum(float(i.valor_unitario or 0) for i in items)
-                cadastro_custo[kit_name] = cost if cost > 0 else None
+                # Cost override from KitConfig takes priority
+                if kit_name in override_map:
+                    custo: float | None = override_map[kit_name]
+                else:
+                    cost_sum = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kc.id, []))
+                    custo = round(cost_sum, 2) if cost_sum > 0 else None
 
-        result: dict = {pid: [] for pid in projeto_ids}
-        seen_tipos_by_pid: dict = {}
-
-        for kit in all_kits:
-            tipo = kit.tipo_kit
-            if not tipo:
-                continue
-            if kit.custo_kit is not None:
-                custo = float(kit.custo_kit)
-            else:
-                custo = cadastro_custo.get(tipo)
-
-            for pid in magento_eid_to_pids.get(kit.id_evento, []):
-                seen_tipos_by_pid.setdefault(pid, set())
-                if tipo in seen_tipos_by_pid[pid]:
-                    continue
-                seen_tipos_by_pid[pid].add(tipo)
                 result[pid].append({
-                    "tipoKit": tipo,
+                    "tipoKit": kit_name,
                     "custoKit": round(custo, 2) if custo is not None else None,
                 })
 
