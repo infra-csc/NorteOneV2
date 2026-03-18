@@ -2353,9 +2353,29 @@ def fetch_isc_data_magento():
 
 
 _isc_warnings = []
+_isc_last_known_data: dict = {}
+_isc_bg_refresh_in_progress: bool = False
+_isc_bg_refresh_lock = _threading.Lock()
+
+
+def _run_isc_background_refresh():
+    """Runs a full ISC refresh in background and updates the smart cache."""
+    global _isc_bg_refresh_in_progress, _isc_last_known_data
+    try:
+        logger.info("ISC background refresh: started")
+        result = fetch_isc_pricing_data(db=None, force_refresh=True)
+        if result:
+            _isc_last_known_data = result
+        logger.info(f"ISC background refresh: completed ({len(result)} SKUs)")
+    except Exception as e:
+        logger.error(f"ISC background refresh failed: {e}")
+    finally:
+        with _isc_bg_refresh_lock:
+            _isc_bg_refresh_in_progress = False
+
 
 def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> dict:
-    global _isc_cache, _isc_cache_timestamp, _isc_warnings
+    global _isc_cache, _isc_cache_timestamp, _isc_warnings, _isc_last_known_data, _isc_bg_refresh_in_progress
     import time
 
     current_year = datetime.now().year
@@ -2369,6 +2389,16 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
             return cached
         else:
             logger.info(f"ISC cache MISS: key={smart_cache_key}")
+            # If we have last-known data, return it immediately and kick off background refresh
+            if _isc_last_known_data:
+                with _isc_bg_refresh_lock:
+                    if not _isc_bg_refresh_in_progress:
+                        _isc_bg_refresh_in_progress = True
+                        _threading.Thread(target=_run_isc_background_refresh, daemon=True).start()
+                        logger.info("ISC cache MISS: serving last-known data, background refresh started")
+                    else:
+                        logger.info("ISC cache MISS: serving last-known data, background refresh already running")
+                return _isc_last_known_data
     else:
         logger.info(f"ISC cache BYPASS (force_refresh): key={smart_cache_key}")
 
@@ -2508,7 +2538,10 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     _isc_cache = all_data
     _isc_cache_timestamp = current_time
     _isc_warnings = warnings
-    
+
+    if all_data:
+        _isc_last_known_data = all_data
+
     _smart_isc_cache.set(smart_cache_key, all_data)
 
     return all_data
