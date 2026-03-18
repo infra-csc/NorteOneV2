@@ -1691,21 +1691,16 @@ GROUP BY soi_parent.product_id
                     "has_cost": True,
                 }
 
-        # Merge ativo_categoria from KitConfig bundles into kit_map entries
-        # when CadastroKitProduto.ativo_categoria is not set.
-        # Builds: tipo_kit -> ativo_categoria from KitConfig records.
-        _kc_ativo_cat: dict = {}
+        # KitConfig.ativo_categoria is the authoritative (admin-controlled) mapping source.
+        # It overrides any CadastroKitProduto.ativo_categoria that may have been set above.
         for bid, tipo_k in global_bundle_tipo_map.items():
-            if tipo_k and tipo_k not in _kc_ativo_cat:
+            if tipo_k and tipo_k in kit_map:
                 _kc_rec = db.query(KitConfig).filter(
                     KitConfig.bundle_entity_id == bid,
                     KitConfig.ativo_categoria.isnot(None),
                 ).first()
                 if _kc_rec and _kc_rec.ativo_categoria:
-                    _kc_ativo_cat[tipo_k] = _kc_rec.ativo_categoria
-        for kit_name, kdata in kit_map.items():
-            if not kdata.get("ativo_categoria") and kit_name in _kc_ativo_cat:
-                kdata["ativo_categoria"] = _kc_ativo_cat[kit_name]
+                    kit_map[tipo_k]["ativo_categoria"] = _kc_rec.ativo_categoria
 
         # 3.5 Fallback: quando algum kit ainda tem qtd=0 (tipo_kit não mapeado no KitConfig),
         # consolida vendas Magento agrupadas por nome do bundle e faz matching por nome
@@ -1796,14 +1791,17 @@ GROUP BY soi_parent.name
         if ativo_event_ids and db_module.engine_ssh is not None:
             try:
                 _ativo_ids_unique = list(set(ativo_event_ids))
-                # Build reverse lookup: ativo_categoria_lower -> kit_name
+                # Build exact reverse lookup: ds_categoria_lower -> kit_name
+                # Priority: (1) KitConfig.ativo_categoria (admin-set), (2) exact kit name match.
                 _cat_to_kit: dict = {}
                 for _kn, _kd in kit_map.items():
                     _ac = (_kd.get("ativo_categoria") or "").strip()
                     if _ac:
+                        # ativo_categoria explicitly configured — this is the authoritative key
                         _cat_to_kit[_ac.lower()] = _kn
-                    # Also register kit_name itself for case-insensitive match
-                    _cat_to_kit.setdefault(_kn.lower(), _kn)
+                    else:
+                        # No explicit mapping: exact case-insensitive kit name fallback
+                        _cat_to_kit.setdefault(_kn.lower(), _kn)
 
                 _ativo_placeholders = ", ".join(str(eid) for eid in _ativo_ids_unique)
                 _ativo_query = text(f"""
@@ -1854,14 +1852,8 @@ GROUP BY a.id_evento, h.ds_categoria
                     _a_rec = float(_ar[3] or 0)
                     if _a_qtd <= 0:
                         continue
-                    # Match ds_categoria to kit name
+                    # Match ds_categoria to kit name — exact case-insensitive only
                     _matched_kit = _cat_to_kit.get(_a_ds_cat.lower())
-                    if not _matched_kit:
-                        # Try partial containment: if any kit_name is contained in ds_categoria
-                        for _kn_lower, _kn_real in _cat_to_kit.items():
-                            if _kn_lower in _a_ds_cat.lower() or _a_ds_cat.lower() in _kn_lower:
-                                _matched_kit = _kn_real
-                                break
                     if not _matched_kit:
                         logger.debug(f"Ativo ds_categoria '{_a_ds_cat}' sem correspondência no kit_map")
                         continue

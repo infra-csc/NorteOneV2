@@ -136,6 +136,8 @@ const KitConfig: React.FC = () => {
               is_configured: true,
               is_kit_basico: isBasico,
               custo_kit: custoKit,
+              tipo_kit: tipoKit,
+              ativo_categoria: ativoCateg,
             };
           }
           if (isBasico && k.id_evento === kit?.id_evento && k.is_kit_basico) {
