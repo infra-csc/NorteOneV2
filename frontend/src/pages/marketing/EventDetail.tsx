@@ -2248,14 +2248,19 @@ const EventDetail: React.FC = () => {
                         </thead>
                         <tbody>
                           {(() => {
-                            // Sum of per-kit rows (excludes CONSOLIDADO) for the TOTAL row
-                            const _kitRowsSum = event.margemPorKit
-                              .filter(r => r.tipoKit !== 'CONSOLIDADO')
-                              .reduce((acc, r) => acc + r.margemTotal, 0);
+                            // Compute all CONSOLIDADO totals from the actual kit rows (exclude CONSOLIDADO itself)
+                            const _kitRows = event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO');
+                            const _totalQtd = _kitRows.reduce((acc, r) => acc + r.qtd, 0);
+                            const _totalReceita = _kitRows.reduce((acc, r) => acc + r.receitaLiquida, 0);
+                            const _totalMargem = _kitRows.reduce((acc, r) => acc + r.margemTotal, 0);
+                            const _totalTicketMedio = _totalQtd > 0 ? _totalReceita / _totalQtd : 0;
                             return event.margemPorKit.map((row, idx) => {
                               const isConsolidado = row.tipoKit === 'CONSOLIDADO';
-                              // CONSOLIDADO = sum of the individual kit rows shown in this table
-                              const displayMargem = isConsolidado ? _kitRowsSum : row.margemTotal;
+                              // For CONSOLIDADO, all values come from the sum of kit rows above
+                              const displayQtd = isConsolidado ? _totalQtd : row.qtd;
+                              const displayReceita = isConsolidado ? _totalReceita : row.receitaLiquida;
+                              const displayTicketMedio = isConsolidado ? _totalTicketMedio : row.ticketMedio;
+                              const displayMargem = isConsolidado ? _totalMargem : row.margemTotal;
                               const margemPositiva = displayMargem >= 0;
                               return (
                                 <tr
@@ -2270,14 +2275,14 @@ const EventDetail: React.FC = () => {
                                     {isConsolidado ? 'TOTAL CONSOLIDADO' : row.tipoKit}
                                   </td>
                                   <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
-                                    {row.qtd.toLocaleString('pt-BR')}
+                                    {displayQtd.toLocaleString('pt-BR')}
                                   </td>
                                   <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
-                                    {row.receitaLiquida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                    {displayReceita.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </td>
                                   <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
-                                    {row.ticketMedio > 0
-                                      ? row.ticketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                    {displayTicketMedio > 0
+                                      ? displayTicketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                                       : '—'}
                                   </td>
                                   <td className="text-right py-2 px-2 text-blue-600 dark:text-blue-400">
