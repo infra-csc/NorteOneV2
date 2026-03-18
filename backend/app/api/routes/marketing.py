@@ -1563,6 +1563,44 @@ def get_margem_por_kit(
         import datetime as _dt
         _ano = ano if ano else _dt.datetime.now().year
 
+        # Fetch ticket_atual (special_price) per tipo_kit from Magento
+        tipo_kit_ticket_atual: dict = {}
+        if global_bundle_tipo_map and db_module.engine_magento is not None:
+            from ..routes.kit_config import MAGENTO_KITS_QUERY
+            _bid_set = set(global_bundle_tipo_map.keys())
+            _kcs_sp = db.query(KitConfig).filter(
+                KitConfig.bundle_entity_id.in_(list(_bid_set))
+            ).all()
+            _kc_mult_by_bid = {k.bundle_entity_id: (k.multiplicador or 1) for k in _kcs_sp}
+            try:
+                with db_module.engine_magento.connect() as _conn_sp:
+                    _mq_res = _conn_sp.execute(text(MAGENTO_KITS_QUERY))
+                    _mq_rows = _mq_res.fetchall()
+                    _mq_cols = list(_mq_res.keys())
+                _sp_by_bid: dict = {}
+                _msug_by_bid: dict = {}
+                for _r in _mq_rows:
+                    _d = dict(zip(_mq_cols, _r))
+                    _bid_v = _d.get("bundle_entity_id")
+                    if _bid_v is None:
+                        continue
+                    _bid_i = int(_bid_v)
+                    if _bid_i not in _bid_set or _bid_i in _sp_by_bid:
+                        continue
+                    _sp_v = float(_d["special_price"]) if _d.get("special_price") is not None else None
+                    _ms_v = int(_d.get("multiplicador") or 1) or 1
+                    if _sp_v is not None:
+                        _sp_by_bid[_bid_i] = _sp_v
+                        _msug_by_bid[_bid_i] = _ms_v
+                for _bid_k, _tipo_k in global_bundle_tipo_map.items():
+                    _sp_k = _sp_by_bid.get(_bid_k)
+                    _ms_k = _msug_by_bid.get(_bid_k, 1)
+                    _mc_k = _kc_mult_by_bid.get(_bid_k, 1)
+                    if _sp_k is not None and _ms_k > 0:
+                        tipo_kit_ticket_atual[_tipo_k] = round((_sp_k / _ms_k) * _mc_k, 2)
+            except Exception as _e_sp:
+                logger.warning(f"Erro ao buscar special_price por tipo de kit: {_e_sp}")
+
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
             _year_filter = (
@@ -1752,6 +1790,7 @@ GROUP BY soi_parent.name
                 "qtd": qtd,
                 "receitaLiquida": round(receita, 2),
                 "ticketMedio": ticket_medio,
+                "ticketAtual": tipo_kit_ticket_atual.get(kit_name),
                 "custoKit": round(custo, 2) if has_cost else None,
                 "margemUnit": margem_unit,
                 "margemTotal": margem_total,
@@ -1780,6 +1819,7 @@ GROUP BY soi_parent.name
                 "qtd": c_qtd,
                 "receitaLiquida": c_receita,
                 "ticketMedio": c_ticket,
+                "ticketAtual": None,
                 "custoKit": None,
                 "margemUnit": None,
                 "margemTotal": c_margem,

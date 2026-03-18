@@ -536,6 +536,7 @@ export interface MarketingEvent {
     qtd: number;
     receitaLiquida: number;
     ticketMedio: number;
+    ticketAtual: number | null;
     custoKit: number | null;
     margemUnit: number | null;
     margemTotal: number;

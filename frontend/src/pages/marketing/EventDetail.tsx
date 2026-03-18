@@ -2240,6 +2240,7 @@ const EventDetail: React.FC = () => {
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Qtd Vendida</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Receita Líquida</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket Médio</th>
+                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket Atual</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Custo Kit</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Margem/Un</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Margem Total</th>
@@ -2279,6 +2280,11 @@ const EventDetail: React.FC = () => {
                                   <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
                                     {row.ticketMedio > 0
                                       ? row.ticketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                      : '—'}
+                                  </td>
+                                  <td className="text-right py-2 px-2 text-blue-600 dark:text-blue-400">
+                                    {row.ticketAtual != null
+                                      ? row.ticketAtual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                                       : '—'}
                                   </td>
                                   <td className="text-right py-2 px-2 text-red-600 dark:text-red-400">
