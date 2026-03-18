@@ -1365,6 +1365,100 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
     return costs
 
 
+def get_kit_breakdown_for_projetos(db: Session, projeto_ids: List[int], ano: int = None) -> dict:
+    """
+    Returns {projeto_id: [{tipoKit: str, custoKit: float|None}]} for all kits mapped
+    in KitConfig for each projeto (via Magento SkuMapping → id_evento).
+    Cost resolution: kit_config.custo_kit override first, then CadastroKitProduto sum.
+    """
+    from ...models.kit_config import KitConfig
+
+    if not projeto_ids:
+        return {}
+
+    try:
+        proj_by_id = {pid: db.query(DimProjeto).filter(DimProjeto.id == pid).first() for pid in projeto_ids}
+
+        magento_eid_to_pids: dict = {}
+        for pid, proj in proj_by_id.items():
+            if not proj or not proj.codigo:
+                continue
+            sku = proj.codigo.upper().strip()
+            q = db.query(SkuMapping).filter(
+                SkuMapping.sku == sku,
+                SkuMapping.fonte == 'MAGENTO',
+                SkuMapping.ativo == True,
+            )
+            if ano:
+                q = q.filter(SkuMapping.ano == ano)
+            for sm in q.all():
+                if not sm.id_externo:
+                    continue
+                try:
+                    eid = int(sm.id_externo)
+                except (ValueError, TypeError):
+                    continue
+                magento_eid_to_pids.setdefault(eid, []).append(pid)
+
+        if not magento_eid_to_pids:
+            return {}
+
+        all_kits = db.query(KitConfig).filter(
+            KitConfig.id_evento.in_(list(magento_eid_to_pids.keys())),
+            KitConfig.tipo_kit.isnot(None)
+        ).all()
+
+        if not all_kits:
+            return {}
+
+        # Build cadastro custo for kits without override
+        cadastro_custo: dict = {}
+        for pid in projeto_ids:
+            cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == pid).first()
+            if not cad:
+                continue
+            kit_configs_db = db.query(CadastroKitProduto).filter(
+                CadastroKitProduto.cadastro_id == cad.id
+            ).all()
+            for kc in kit_configs_db:
+                kit_name = (kc.kit or '').strip()
+                if not kit_name or kit_name in cadastro_custo:
+                    continue
+                items = db.query(CadastroKitProdutoItem).filter(
+                    CadastroKitProdutoItem.kit_produto_id == kc.id
+                ).all()
+                cost = sum(float(i.valor_unitario or 0) for i in items)
+                cadastro_custo[kit_name] = cost if cost > 0 else None
+
+        result: dict = {pid: [] for pid in projeto_ids}
+        seen_tipos_by_pid: dict = {}
+
+        for kit in all_kits:
+            tipo = kit.tipo_kit
+            if not tipo:
+                continue
+            if kit.custo_kit is not None:
+                custo = float(kit.custo_kit)
+            else:
+                custo = cadastro_custo.get(tipo)
+
+            for pid in magento_eid_to_pids.get(kit.id_evento, []):
+                seen_tipos_by_pid.setdefault(pid, set())
+                if tipo in seen_tipos_by_pid[pid]:
+                    continue
+                seen_tipos_by_pid[pid].add(tipo)
+                result[pid].append({
+                    "tipoKit": tipo,
+                    "custoKit": round(custo, 2) if custo is not None else None,
+                })
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Erro ao buscar kit breakdown para projetos: {e}")
+        return {}
+
+
 def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
                         avg_ticket: float, current_sales: int, current_receita: float) -> dict:
     has_budget = budget_ticket > 0 and kit_cost > 0
@@ -6626,6 +6720,10 @@ class PricingDecision(BaseModel):
     reason: str
     confidence: str
 
+class KitBreakdownItem(BaseModel):
+    tipoKit: str
+    custoKit: Optional[float] = None
+
 class PricingEvent(BaseModel):
     id: str
     name: str
@@ -6644,6 +6742,7 @@ class PricingEvent(BaseModel):
     elasticityScenarios: List[ElasticityScenario]
     decision: PricingDecision
     iscStatus: str
+    kitBreakdown: Optional[List[KitBreakdownItem]] = None
 
 class PricingSummary(BaseModel):
     totalEvents: int
@@ -6872,7 +6971,8 @@ def get_pricing_analysis(
     isc_data = fetch_isc_pricing_data(db=db)
     
     kit_costs = get_kit_basico_costs_batch(db, projeto_ids)
-    
+    kit_breakdowns = get_kit_breakdown_for_projetos(db, projeto_ids, ano)
+
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     
     grupo_names_set = set(sku_to_grupo.values())
@@ -7022,6 +7122,17 @@ def get_pricing_analysis(
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         
+        # Merge kit breakdown from all projetos in the group (unique by tipoKit)
+        grupo_breakdown_map: dict = {}
+        for p in proj_list:
+            for item in kit_breakdowns.get(p.id, []):
+                if item["tipoKit"] not in grupo_breakdown_map:
+                    grupo_breakdown_map[item["tipoKit"]] = item["custoKit"]
+        grupo_kit_breakdown = (
+            [KitBreakdownItem(tipoKit=t, custoKit=c) for t, c in grupo_breakdown_map.items()]
+            if grupo_breakdown_map else None
+        )
+
         evento = PricingEvent(
             id=f"grp_{grupo_nome}",
             name=grupo.nome,
@@ -7039,7 +7150,8 @@ def get_pricing_analysis(
             pricingMetrics=pricing_metrics,
             elasticityScenarios=elasticity_scenarios,
             decision=decision,
-            iscStatus=isc_status
+            iscStatus=isc_status,
+            kitBreakdown=grupo_kit_breakdown,
         )
         eventos.append(evento)
     
@@ -7134,6 +7246,12 @@ def get_pricing_analysis(
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         
+        standalone_bd_raw = kit_breakdowns.get(projeto.id, [])
+        standalone_kit_breakdown = (
+            [KitBreakdownItem(tipoKit=i["tipoKit"], custoKit=i["custoKit"]) for i in standalone_bd_raw]
+            if standalone_bd_raw else None
+        )
+
         evento = PricingEvent(
             id=sku,
             name=evento_nome,
@@ -7151,7 +7269,8 @@ def get_pricing_analysis(
             pricingMetrics=pricing_metrics,
             elasticityScenarios=elasticity_scenarios,
             decision=decision,
-            iscStatus=isc_status
+            iscStatus=isc_status,
+            kitBreakdown=standalone_kit_breakdown,
         )
         
         eventos.append(evento)

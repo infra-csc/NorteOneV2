@@ -388,7 +388,28 @@ const EventPricing: React.FC<EventPricingProps> = ({ eventoId, ano }) => {
               <p className={`text-lg font-bold ${textColor}`}>{formatCurrency(evento.averageTicket)}</p>
             </div>
             <div className={`${metricBg} rounded-lg p-3`}>
-              <p className={`text-xs ${textMuted}`}>Custo Kit</p>
+              <div className="flex items-center gap-1 mb-0.5">
+                <p className={`text-xs ${textMuted}`}>Custo Kit</p>
+                {evento.kitBreakdown && evento.kitBreakdown.length > 0 && (
+                  <div className="group relative">
+                    <Info className={`w-3.5 h-3.5 ${textMuted} cursor-help flex-shrink-0`} />
+                    <div className="hidden group-hover:block absolute z-50 w-60 p-3 bg-gray-900 text-white text-xs rounded-xl shadow-xl left-0 top-5 pointer-events-none">
+                      <p className="font-semibold mb-2 text-gray-200">Custo por tipo de kit</p>
+                      <div className="space-y-1">
+                        {evento.kitBreakdown.map((k, i) => (
+                          <div key={i} className="flex justify-between items-center gap-3">
+                            <span className="text-gray-300 truncate">{k.tipoKit}</span>
+                            <span className="font-medium text-white whitespace-nowrap">
+                              {k.custoKit != null ? formatCurrency(k.custoKit) : '—'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="absolute -top-1.5 left-4 w-3 h-3 bg-gray-900 rotate-45"></div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <p className={`text-lg font-bold ${textColor}`}>{formatCurrency(evento.kitCost)}</p>
             </div>
           </div>

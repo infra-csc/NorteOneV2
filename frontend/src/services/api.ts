@@ -596,6 +596,11 @@ export interface PricingDecision {
   confidence: 'high' | 'medium' | 'low';
 }
 
+export interface KitBreakdownItem {
+  tipoKit: string;
+  custoKit: number | null;
+}
+
 export interface PricingEvent {
   id: string;
   name: string;
@@ -614,6 +619,7 @@ export interface PricingEvent {
   elasticityScenarios: ElasticityScenario[];
   decision: PricingDecision;
   iscStatus: 'accelerating' | 'stable' | 'decelerating';
+  kitBreakdown?: KitBreakdownItem[] | null;
 }
 
 export interface PricingSummary {
