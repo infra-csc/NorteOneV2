@@ -1806,39 +1806,65 @@ GROUP BY soi_parent.name
                 _ativo_placeholders = ", ".join(str(eid) for eid in _ativo_ids_unique)
                 _ativo_query = text(f"""
 SELECT
-    a.id_evento,
-    h.ds_categoria,
-    COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-    SUM(a.nr_preco) - SUM(COALESCE(a.nr_desconto_individual, 0)) AS receita_liquida
-FROM sa_pedido_evento AS a
-INNER JOIN sa_pedido AS c
-    ON c.id_pedido = a.id_pedido
-    AND c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (1, 2)
-    AND c.nr_total > 0
-LEFT JOIN sa_modalidade_categoria AS h
-    ON h.id_categoria = a.id_categoria
-LEFT JOIN sa_cupom_desconto_item AS e
-    ON e.id_cupom_desconto_item = a.id_cupom_individual
-LEFT JOIN sa_cupom_desconto AS f
-    ON f.id_cupom_desconto = e.id_cupom_desconto
-WHERE
-    a.id_evento IN ({_ativo_placeholders})
-    AND c.nr_total > 0
-    AND (h.ds_categoria IS NULL
-         OR (h.ds_categoria NOT LIKE '%Grup%'
-         AND h.ds_categoria NOT LIKE '%ortesia%'))
-    AND (
-        f.en_cupom_classificacao IS NULL
-        OR f.en_cupom_classificacao NOT IN (
-            'Funcionário',
-            'Cortesia Faturada',
-            'Grupos',
-            'Coligados',
-            'Eventos Terceiros'
+    sub.id_evento,
+    sub.ds_categoria,
+    SUM(sub.qtd)            AS qtd,
+    SUM(sub.receita_liquida) AS receita_liquida
+FROM (
+    SELECT
+        b.id_evento,
+        h.ds_categoria,
+        CASE
+            WHEN a.nr_preco = 0               THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE                                   'Site'
+        END                                            AS canal,
+        COUNT(DISTINCT a.id_pedido_evento)             AS qtd,
+        SUM(a.nr_preco)
+            - SUM(COALESCE(a.nr_desconto_individual, 0)) AS receita_liquida
+    FROM sa_evento AS b
+    INNER JOIN sa_pedido_evento AS a
+        ON a.id_evento = b.id_evento
+    INNER JOIN sa_pedido AS c
+        ON c.id_pedido = a.id_pedido
+        AND c.fl_local_inscricao = '1'
+        AND c.id_pedido_status IN (1, 2)
+        AND c.nr_total > 0
+    LEFT JOIN sa_modalidade_categoria AS h
+        ON h.id_categoria = a.id_categoria
+    LEFT JOIN (
+        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+        FROM sa_cupom_desconto_item AS e
+        INNER JOIN sa_cupom_desconto AS f
+            ON f.id_cupom_desconto = e.id_cupom_desconto
+    ) AS cupom
+        ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+    WHERE
+        b.id_evento IN ({_ativo_placeholders})
+        AND (b.id_campanha_salesforce IS NULL
+             OR b.id_campanha_salesforce NOT LIKE '%%701d0000000%%')
+        AND c.nr_total > 0
+        AND (
+            cupom.en_cupom_classificacao IS NULL
+            OR cupom.en_cupom_classificacao NOT IN (
+                'Funcionário',
+                'Cortesia Faturada',
+                'Grupos',
+                'Coligados',
+                'Eventos Terceiros'
+            )
         )
-    )
-GROUP BY a.id_evento, h.ds_categoria
+    GROUP BY
+        b.id_evento,
+        h.ds_categoria,
+        CASE
+            WHEN a.nr_preco = 0               THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE                                   'Site'
+        END
+) AS sub
+WHERE sub.canal = 'Site'
+GROUP BY sub.id_evento, sub.ds_categoria
 """)
                 with db_module.engine_ssh.connect() as _conn_ativo:
                     _ativo_result = _conn_ativo.execute(_ativo_query)
