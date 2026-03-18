@@ -2248,16 +2248,14 @@ const EventDetail: React.FC = () => {
                         </thead>
                         <tbody>
                           {(() => {
-                            // Compute card's "Margem Realizada" formula once for the CONSOLIDADO row
-                            const _kitCostC = event.kitCostPerUnit || 0;
-                            const _ticketRefC = (event.ticketAtual ?? 0) > 0 ? (event.ticketAtual as number) : (event.averageTicket || 0);
-                            const _cardMargem = _ticketRefC > 0 && event.currentSales > 0
-                              ? Math.round((_ticketRefC - _kitCostC) * event.currentSales * 100) / 100
-                              : null;
+                            // Sum of per-kit rows (excludes CONSOLIDADO) for the TOTAL row
+                            const _kitRowsSum = event.margemPorKit
+                              .filter(r => r.tipoKit !== 'CONSOLIDADO')
+                              .reduce((acc, r) => acc + r.margemTotal, 0);
                             return event.margemPorKit.map((row, idx) => {
                               const isConsolidado = row.tipoKit === 'CONSOLIDADO';
-                              // For CONSOLIDADO use the same value shown on the card
-                              const displayMargem = isConsolidado && _cardMargem !== null ? _cardMargem : row.margemTotal;
+                              // CONSOLIDADO = sum of the individual kit rows shown in this table
+                              const displayMargem = isConsolidado ? _kitRowsSum : row.margemTotal;
                               const margemPositiva = displayMargem >= 0;
                               return (
                                 <tr
