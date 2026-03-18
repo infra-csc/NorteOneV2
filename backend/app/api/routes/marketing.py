@@ -1691,6 +1691,22 @@ GROUP BY soi_parent.product_id
                     "has_cost": True,
                 }
 
+        # Merge ativo_categoria from KitConfig bundles into kit_map entries
+        # when CadastroKitProduto.ativo_categoria is not set.
+        # Builds: tipo_kit -> ativo_categoria from KitConfig records.
+        _kc_ativo_cat: dict = {}
+        for bid, tipo_k in global_bundle_tipo_map.items():
+            if tipo_k and tipo_k not in _kc_ativo_cat:
+                _kc_rec = db.query(KitConfig).filter(
+                    KitConfig.bundle_entity_id == bid,
+                    KitConfig.ativo_categoria.isnot(None),
+                ).first()
+                if _kc_rec and _kc_rec.ativo_categoria:
+                    _kc_ativo_cat[tipo_k] = _kc_rec.ativo_categoria
+        for kit_name, kdata in kit_map.items():
+            if not kdata.get("ativo_categoria") and kit_name in _kc_ativo_cat:
+                kdata["ativo_categoria"] = _kc_ativo_cat[kit_name]
+
         # 3.5 Fallback: quando algum kit ainda tem qtd=0 (tipo_kit não mapeado no KitConfig),
         # consolida vendas Magento agrupadas por nome do bundle e faz matching por nome
         # contra as chaves do kit_map (ex: "Kit Básico" está contido em "Kit Básico Bravus Race - Speed I")
@@ -1766,7 +1782,103 @@ GROUP BY soi_parent.name
             except Exception as e:
                 logger.error(f"Erro no fallback de vendas por nome de bundle para margem: {e}")
 
-        # 4. Build result list — inclui kits sem vendas (qtd=0) para visibilidade de custo
+        # 5. Ativo: query por ds_categoria para os event IDs mapeados como fonte=ATIVO
+        #    Todos os kits verificam o Ativo; a contribuição é somada ao Magento (ou zerado se não há match).
+        ativo_event_ids: list = []
+        for pid in projeto_ids:
+            for sm in _get_sku_maps(pid, 'ATIVO'):
+                if sm.id_externo:
+                    try:
+                        ativo_event_ids.append(int(sm.id_externo))
+                    except (ValueError, TypeError):
+                        pass
+
+        if ativo_event_ids and db_module.engine_ssh is not None:
+            try:
+                _ativo_ids_unique = list(set(ativo_event_ids))
+                # Build reverse lookup: ativo_categoria_lower -> kit_name
+                _cat_to_kit: dict = {}
+                for _kn, _kd in kit_map.items():
+                    _ac = (_kd.get("ativo_categoria") or "").strip()
+                    if _ac:
+                        _cat_to_kit[_ac.lower()] = _kn
+                    # Also register kit_name itself for case-insensitive match
+                    _cat_to_kit.setdefault(_kn.lower(), _kn)
+
+                _ativo_placeholders = ", ".join(str(eid) for eid in _ativo_ids_unique)
+                _ativo_query = text(f"""
+SELECT
+    a.id_evento,
+    h.ds_categoria,
+    COUNT(DISTINCT a.id_pedido_evento) AS qtd,
+    SUM(a.nr_preco) - SUM(COALESCE(a.nr_desconto_individual, 0)) AS receita_liquida
+FROM sa_pedido_evento AS a
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+    AND c.fl_local_inscricao = '1'
+    AND c.id_pedido_status IN (1, 2)
+    AND c.nr_total > 0
+LEFT JOIN sa_modalidade_categoria AS h
+    ON h.id_categoria = a.id_categoria
+LEFT JOIN sa_cupom_desconto_item AS e
+    ON e.id_cupom_desconto_item = a.id_cupom_individual
+LEFT JOIN sa_cupom_desconto AS f
+    ON f.id_cupom_desconto = e.id_cupom_desconto
+WHERE
+    a.id_evento IN ({_ativo_placeholders})
+    AND c.nr_total > 0
+    AND (h.ds_categoria IS NULL
+         OR (h.ds_categoria NOT LIKE '%Grup%'
+         AND h.ds_categoria NOT LIKE '%ortesia%'))
+    AND (
+        f.en_cupom_classificacao IS NULL
+        OR f.en_cupom_classificacao NOT IN (
+            'Funcionário',
+            'Cortesia Faturada',
+            'Grupos',
+            'Coligados',
+            'Eventos Terceiros'
+        )
+    )
+GROUP BY a.id_evento, h.ds_categoria
+""")
+                with db_module.engine_ssh.connect() as _conn_ativo:
+                    _ativo_result = _conn_ativo.execute(_ativo_query)
+                    _ativo_rows = _ativo_result.fetchall()
+
+                for _ar in _ativo_rows:
+                    # Unpack: id_evento, ds_categoria, qtd, receita_liquida
+                    _a_evento = _ar[0]
+                    _a_ds_cat = (_ar[1] or "").strip()
+                    _a_qtd = int(_ar[2] or 0)
+                    _a_rec = float(_ar[3] or 0)
+                    if _a_qtd <= 0:
+                        continue
+                    # Match ds_categoria to kit name
+                    _matched_kit = _cat_to_kit.get(_a_ds_cat.lower())
+                    if not _matched_kit:
+                        # Try partial containment: if any kit_name is contained in ds_categoria
+                        for _kn_lower, _kn_real in _cat_to_kit.items():
+                            if _kn_lower in _a_ds_cat.lower() or _a_ds_cat.lower() in _kn_lower:
+                                _matched_kit = _kn_real
+                                break
+                    if not _matched_kit:
+                        logger.debug(f"Ativo ds_categoria '{_a_ds_cat}' sem correspondência no kit_map")
+                        continue
+                    if _matched_kit not in kit_map:
+                        kit_map[_matched_kit] = {
+                            "custo": 0.0,
+                            "ativo_categoria": _a_ds_cat,
+                            "qtd": 0,
+                            "receita": 0.0,
+                            "has_cost": False,
+                        }
+                    kit_map[_matched_kit]["qtd"] += _a_qtd
+                    kit_map[_matched_kit]["receita"] += _a_rec
+            except Exception as _e_ativo:
+                logger.warning(f"Erro ao buscar dados Ativo por categoria para margem: {_e_ativo}")
+
+        # 6. Build result list — inclui kits sem vendas (qtd=0) para visibilidade de custo
         if not kit_map:
             return []
 

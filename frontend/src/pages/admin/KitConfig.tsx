@@ -21,6 +21,7 @@ interface KitRow {
   is_kit_basico: boolean;
   custo_cadastro: number | null;
   custo_kit: number | null;
+  ativo_categoria: string | null;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -37,6 +38,7 @@ const KitConfig: React.FC = () => {
   const [basicoValues, setBasicoValues] = useState<Record<number, boolean>>({});
   const [tipoKitValues, setTipoKitValues] = useState<Record<number, string>>({});
   const [custoKitValues, setCustoKitValues] = useState<Record<number, string>>({});
+  const [ativoCategValues, setAtivoCategValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
@@ -75,16 +77,19 @@ const KitConfig: React.FC = () => {
       const basicos: Record<number, boolean> = {};
       const tipoKits: Record<number, string> = {};
       const custoKits: Record<number, string> = {};
+      const ativoCats: Record<number, string> = {};
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
         basicos[k.bundle_entity_id] = k.is_kit_basico;
         tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
         custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
+        ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
       });
       setEditValues(edits);
       setBasicoValues(basicos);
       setTipoKitValues(tipoKits);
       setCustoKitValues(custoKits);
+      setAtivoCategValues(ativoCats);
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
@@ -105,6 +110,7 @@ const KitConfig: React.FC = () => {
     const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
     const custoKitStr = (custoKitValues[bundleId] ?? '').trim();
     const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
+    const ativoCateg = (ativoCategValues[bundleId] ?? '').trim() || null;
 
     setSaving((s) => ({ ...s, [bundleId]: true }));
     try {
@@ -114,6 +120,7 @@ const KitConfig: React.FC = () => {
         id_evento: idEvento,
         tipo_kit: tipoKit,
         custo_kit: custoKit,
+        ativo_categoria: ativoCateg,
       });
       setSavedFeedback((s) => ({ ...s, [bundleId]: true }));
       setTimeout(() => setSavedFeedback((s) => ({ ...s, [bundleId]: false })), 2000);
@@ -435,13 +442,13 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', ''].map(
+                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Cat. Ativo', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', ''].map(
                     (label, i) => (
                       <th
                         key={i}
                         className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
-                          i >= 4 ? 'text-right' : 'text-left'
-                        } ${i === 7 ? 'text-center' : ''} ${
+                          i >= 6 ? 'text-right' : 'text-left'
+                        } ${i === 10 ? 'text-center' : ''} ${
                           isDark
                             ? `${headerBg} text-blue-300 border-blue-500/50`
                             : `${headerBg} text-slate-700 border-slate-300`
@@ -467,11 +474,12 @@ const KitConfig: React.FC = () => {
                   const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
                   const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
                   const editTipoKit = tipoKitValues[kit.bundle_entity_id] ?? (kit.tipo_kit || '');
+                  const editAtivoCateg = ativoCategValues[kit.bundle_entity_id] ?? (kit.ativo_categoria || '');
                   const custoKitStr = (custoKitValues[kit.bundle_entity_id] ?? '').trim();
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
                   const custoKitChanged = kit.custo_cadastro == null && custoKitStr !== '' && parseFloat(custoKitStr) !== (kit.custo_kit ?? 0);
-                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged;
+                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '');
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
@@ -519,6 +527,19 @@ const KitConfig: React.FC = () => {
                               ? 'bg-gray-700 border-gray-600 text-white focus:border-purple-400 placeholder-gray-500'
                               : 'bg-white border-gray-300 text-gray-900 focus:border-purple-500 placeholder-gray-400'
                           } outline-none ${editTipoKit !== (kit.tipo_kit || '') ? (isDark ? 'ring-1 ring-purple-400' : 'ring-1 ring-purple-500') : ''}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 text-left whitespace-nowrap">
+                        <input
+                          type="text"
+                          placeholder="Ex: Kit Básico"
+                          value={editAtivoCateg}
+                          onChange={(e) => setAtivoCategValues((prev) => ({ ...prev, [kit.bundle_entity_id]: e.target.value }))}
+                          className={`w-32 text-left px-2 py-1 rounded border text-xs ${
+                            isDark
+                              ? 'bg-gray-700 border-gray-600 text-white focus:border-teal-400 placeholder-gray-500'
+                              : 'bg-white border-gray-300 text-gray-900 focus:border-teal-500 placeholder-gray-400'
+                          } outline-none ${editAtivoCateg !== (kit.ativo_categoria || '') ? (isDark ? 'ring-1 ring-teal-400' : 'ring-1 ring-teal-500') : ''}`}
                         />
                       </td>
                       <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
@@ -622,7 +643,7 @@ const KitConfig: React.FC = () => {
                 })}
                 {filteredKits.length === 0 && (
                   <tr>
-                    <td colSpan={9} className={`px-3 py-12 text-center ${textSecondary}`}>
+                    <td colSpan={12} className={`px-3 py-12 text-center ${textSecondary}`}>
                       {search || hasActiveFilters ? 'Nenhum kit encontrado para os filtros aplicados.' : 'Nenhum kit encontrado.'}
                     </td>
                   </tr>

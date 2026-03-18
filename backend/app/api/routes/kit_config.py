@@ -343,6 +343,7 @@ def get_kits_with_config(
             is_kit_basico=is_kit_basico,
             custo_cadastro=custo_cadastro,
             custo_kit=custo_kit_val,
+            ativo_categoria=cfg.ativo_categoria if cfg else None,
         ))
 
     return kits
@@ -375,6 +376,7 @@ def upsert_kit_config(
             existing.tipo_kit = body.tipo_kit
             if body.custo_kit is not None:
                 existing.custo_kit = body.custo_kit
+            existing.ativo_categoria = body.ativo_categoria or None
             db.commit()
             db.refresh(existing)
             clear_ticket_atual_cache()
@@ -389,6 +391,7 @@ def upsert_kit_config(
             id_evento=body.id_evento,
             tipo_kit=body.tipo_kit,
             custo_kit=body.custo_kit,
+            ativo_categoria=body.ativo_categoria or None,
         )
         db.add(new_config)
         db.commit()
