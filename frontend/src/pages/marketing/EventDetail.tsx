@@ -2246,48 +2246,58 @@ const EventDetail: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {event.margemPorKit.map((row, idx) => {
-                            const isConsolidado = row.tipoKit === 'CONSOLIDADO';
-                            const margemPositiva = row.margemTotal >= 0;
-                            return (
-                              <tr
-                                key={idx}
-                                className={`border-b border-gray-100 dark:border-gray-700/50 ${
-                                  isConsolidado
-                                    ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
-                                    : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                                }`}
-                              >
-                                <td className={`py-2 px-2 ${isConsolidado ? 'text-purple-700 dark:text-purple-300' : 'text-gray-700 dark:text-gray-300'}`}>
-                                  {isConsolidado ? 'TOTAL CONSOLIDADO' : row.tipoKit}
-                                </td>
-                                <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
-                                  {row.qtd.toLocaleString('pt-BR')}
-                                </td>
-                                <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
-                                  {row.receitaLiquida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </td>
-                                <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
-                                  {row.ticketMedio > 0
-                                    ? row.ticketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                    : '—'}
-                                </td>
-                                <td className="text-right py-2 px-2 text-red-600 dark:text-red-400">
-                                  {row.custoKit != null
-                                    ? row.custoKit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                    : '—'}
-                                </td>
-                                <td className={`text-right py-2 px-2 ${row.margemUnit != null ? (row.margemUnit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : 'text-gray-400'}`}>
-                                  {row.margemUnit != null
-                                    ? row.margemUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                    : '—'}
-                                </td>
-                                <td className={`text-right py-2 px-2 font-medium ${margemPositiva ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                  {row.margemTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {(() => {
+                            // Compute card's "Margem Realizada" formula once for the CONSOLIDADO row
+                            const _kitCostC = event.kitCostPerUnit || 0;
+                            const _ticketRefC = (event.ticketAtual ?? 0) > 0 ? (event.ticketAtual as number) : (event.averageTicket || 0);
+                            const _cardMargem = _ticketRefC > 0 && event.currentSales > 0
+                              ? Math.round((_ticketRefC - _kitCostC) * event.currentSales * 100) / 100
+                              : null;
+                            return event.margemPorKit.map((row, idx) => {
+                              const isConsolidado = row.tipoKit === 'CONSOLIDADO';
+                              // For CONSOLIDADO use the same value shown on the card
+                              const displayMargem = isConsolidado && _cardMargem !== null ? _cardMargem : row.margemTotal;
+                              const margemPositiva = displayMargem >= 0;
+                              return (
+                                <tr
+                                  key={idx}
+                                  className={`border-b border-gray-100 dark:border-gray-700/50 ${
+                                    isConsolidado
+                                      ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
+                                      : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
+                                  }`}
+                                >
+                                  <td className={`py-2 px-2 ${isConsolidado ? 'text-purple-700 dark:text-purple-300' : 'text-gray-700 dark:text-gray-300'}`}>
+                                    {isConsolidado ? 'TOTAL CONSOLIDADO' : row.tipoKit}
+                                  </td>
+                                  <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
+                                    {row.qtd.toLocaleString('pt-BR')}
+                                  </td>
+                                  <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
+                                    {row.receitaLiquida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </td>
+                                  <td className="text-right py-2 px-2 text-gray-700 dark:text-gray-300">
+                                    {row.ticketMedio > 0
+                                      ? row.ticketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                      : '—'}
+                                  </td>
+                                  <td className="text-right py-2 px-2 text-red-600 dark:text-red-400">
+                                    {row.custoKit != null
+                                      ? row.custoKit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                      : '—'}
+                                  </td>
+                                  <td className={`text-right py-2 px-2 ${row.margemUnit != null ? (row.margemUnit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400') : 'text-gray-400'}`}>
+                                    {row.margemUnit != null
+                                      ? row.margemUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                                      : '—'}
+                                  </td>
+                                  <td className={`text-right py-2 px-2 font-medium ${margemPositiva ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                    {displayMargem.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </td>
+                                </tr>
+                              );
+                            });
+                          })()}
                         </tbody>
                       </table>
                     </div>
