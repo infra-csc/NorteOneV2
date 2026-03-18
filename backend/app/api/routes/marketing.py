@@ -1503,52 +1503,46 @@ def get_margem_por_kit(
             )
             magento_bundle_query = text(f"""
 SELECT
-    soi.product_id AS bundle_entity_id,
-    COUNT(DISTINCT soi.item_id) AS qtd,
-    ROUND(SUM(
-        CASE
-            WHEN soi.price = 0 THEN 0
-            ELSE CASE
-                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
-                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
-                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
-                ELSE soi.price
-            END
-            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
-            - CASE
-                WHEN cg.customer_group_id = 4 THEN 0
-                WHEN soiaa.price = 14.90
-                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-                ELSE 0
-              END
-        END
-    ), 2) AS receita_liquida
+    soi_parent.product_id                                    AS bundle_entity_id,
+    COUNT(DISTINCT soi_parent.item_id)                       AS qtd,
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita_liquida
 FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
 INNER JOIN (
     SELECT entity_id, value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321 AND store_id = 0
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+INNER JOIN (
+    SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195 AND store_id = 0
-) AS cped ON cped.entity_id = soi.product_id
-LEFT JOIN (
-    SELECT parent_item_id, MAX(price) AS price
-    FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
-) AS soiaa ON soiaa.parent_item_id = soi.item_id
-LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped ON cped.entity_id = cpev1.value
 WHERE
-    soi.product_id IN :bundle_ids
+    soi_parent.product_id IN :bundle_ids
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
-AND soi.price > 0
-AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 {_year_filter}
-GROUP BY soi.product_id
+GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
             try:
@@ -1599,57 +1593,46 @@ GROUP BY soi.product_id
             ev_ids_fb = list(seen_magento_events)
             fb_query = text(f"""
 SELECT
-    soi.name                          AS bundle_name,
-    COUNT(DISTINCT soi.item_id)       AS qtd,
-    ROUND(SUM(
-        CASE
-            WHEN soi.price = 0 THEN 0
-            ELSE CASE
-                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
-                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
-                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
-                ELSE soi.price
-            END
-            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
-            - CASE
-                WHEN cg.customer_group_id = 4 THEN 0
-                WHEN soiaa.price = 14.90
-                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-                ELSE 0
-              END
-        END
-    ), 2) AS receita_liquida
+    soi_parent.name                                          AS bundle_name,
+    COUNT(DISTINCT soi_parent.item_id)                       AS qtd,
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita_liquida
 FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
 INNER JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 321 AND store_id = 0
-) AS cpev1 ON cpev1.entity_id = soi.product_id
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 INNER JOIN (
-    SELECT entity_id, value
+    SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195 AND store_id = 0
+    WHERE attribute_id = 195
+    GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
-LEFT JOIN (
-    SELECT parent_item_id, MAX(price) AS price
-    FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
-) AS soiaa ON soiaa.parent_item_id = soi.item_id
-LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     cpev1.value IN :ev_ids_fb
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
-AND soi.price > 0
-AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY
-GROUP BY soi.name
+GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
             try:
                 with db_module.engine_magento.connect() as conn:
@@ -1793,66 +1776,85 @@ def get_detalhe_vendas_por_kit(
 
     detalhe_query = text(f"""
 SELECT
-    soi.name                                                                        AS kit,
-    eaov_tipo.value                                                                 AS tipo_categoria,
-    soi_dist.distancia                                                              AS distancia,
+    soi_parent.name                                                               AS kit,
+    eaov_tipo.value                                                               AS tipo_categoria,
+    soi_child.name                                                                AS distancia,
     CASE
-        WHEN soi.sku             LIKE '%%CORTESIA%%'        THEN 'Cortesia'
-        WHEN so.base_grand_total = 0                        THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%CORTESIA%%'    THEN 'Cortesia'
-        WHEN so.discount_description = 'GRUPOS_NORTECORP'   THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRP%%'                    THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GR%%'                     THEN 'Grupos/B2B'
-        ELSE                                                     'Site'
-    END                                                                             AS canal,
-    lote_atual.lot_name                                                             AS lote_atual,
-    soi_prices.price                                                                AS price,
-    soi_prices.special_price                                                        AS special_price,
-    COUNT(DISTINCT soi.item_id)                                                     AS inscritos,
+        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 'Cortesia'
+        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%%CORTESIA%%'
+         AND so.base_grand_total < 50                                   THEN 'Cortesia'
+        WHEN so.discount_description = 'GRUPOS_NORTECORP'               THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRP%%'                                THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GR%%'                                 THEN 'Grupos/B2B'
+        ELSE                                                                'Site'
+    END                                                                           AS canal,
+    lote_atual.lot_name                                                           AS lote_atual,
+    soi_prices.price                                                              AS price,
+    soi_prices.special_price                                                      AS special_price,
+    COUNT(DISTINCT soi_parent.item_id)                                            AS inscritos,
     SUM(CASE
-        WHEN soi.sku             LIKE '%%CORTESIA%%'        THEN 0
-        WHEN so.base_grand_total = 0                        THEN 0
-        WHEN so.discount_description LIKE '%%CORTESIA%%'    THEN 0
-        ELSE soi.price
-    END)                                                                            AS receita_bruta,
+        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 0
+        WHEN so.base_grand_total = 0                                    THEN 0
+        WHEN so.discount_description LIKE '%%CORTESIA%%'
+         AND so.base_grand_total < 50                                   THEN 0
+        ELSE soi_child.price
+    END)                                                                          AS receita_bruta,
     SUM(CASE
-        WHEN soi.sku             LIKE '%%CORTESIA%%'        THEN 0
-        WHEN so.base_grand_total = 0                        THEN 0
-        WHEN so.discount_description LIKE '%%CORTESIA%%'    THEN 0
-        ELSE soi.price
-            - COALESCE(soi_desc.desconto_filhos, 0)
-            - COALESCE(soi.discount_amount, 0)
-    END)                                                                            AS receita_liquida,
+        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 0
+        WHEN so.base_grand_total = 0                                    THEN 0
+        WHEN so.discount_description LIKE '%%CORTESIA%%'
+         AND so.base_grand_total < 50                                   THEN 0
+        ELSE soi_child.price - soi_child.discount_amount
+    END)                                                                          AS receita_liquida,
     SUM(CASE
-        WHEN soi.sku             LIKE '%%CORTESIA%%'        THEN 0
-        WHEN so.base_grand_total = 0                        THEN 0
-        WHEN so.discount_description LIKE '%%CORTESIA%%'    THEN 0
-        ELSE soi.price
-            - COALESCE(soi_desc.desconto_filhos, 0)
-            - COALESCE(soi.discount_amount, 0)
+        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 0
+        WHEN so.base_grand_total = 0                                    THEN 0
+        WHEN so.discount_description LIKE '%%CORTESIA%%'
+         AND so.base_grand_total < 50                                   THEN 0
+        ELSE soi_child.price - soi_child.discount_amount
     END) / NULLIF(COUNT(DISTINCT CASE
-        WHEN soi.sku             LIKE '%%CORTESIA%%'        THEN NULL
-        WHEN so.base_grand_total = 0                        THEN NULL
-        WHEN so.discount_description LIKE '%%CORTESIA%%'    THEN NULL
-        ELSE soi.item_id
-    END), 0)                                                                        AS ticket_medio
+        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN NULL
+        WHEN so.base_grand_total = 0                                    THEN NULL
+        WHEN so.discount_description LIKE '%%CORTESIA%%'
+         AND so.base_grand_total < 50                                   THEN NULL
+        ELSE soi_parent.item_id
+    END), 0)                                                                      AS ticket_medio
 
 FROM sales_order so
-JOIN sales_order_item soi
-       ON soi.order_id     = so.entity_id
-      AND soi.product_type = 'bundle'
+
+JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+
+JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
+
 JOIN (
     SELECT cpev.entity_id, cpev.value
     FROM catalog_product_entity_varchar cpev
+    JOIN catalog_product_entity cpe
+          ON cpe.entity_id = cpev.entity_id
+         AND cpe.type_id   = 'bundle'
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
-) AS cpev1 ON cpev1.entity_id = soi.product_id
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+
 JOIN (
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
     WHERE attribute_id = 195
     GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
+
 LEFT JOIN (
     SELECT attribute_id
     FROM eav_attribute
@@ -1863,29 +1865,11 @@ LEFT JOIN (
       )
 ) AS attr_tipo ON 1 = 1
 LEFT JOIN catalog_product_entity_int cpei_tipo
-       ON cpei_tipo.entity_id    = soi.product_id
+       ON cpei_tipo.entity_id    = soi_parent.product_id
       AND cpei_tipo.attribute_id = attr_tipo.attribute_id
 LEFT JOIN eav_attribute_option_value eaov_tipo
        ON eaov_tipo.option_id = cpei_tipo.value
-LEFT JOIN (
-    SELECT
-        parent_item_id,
-        MAX(CASE WHEN price > 0 THEN name ELSE NULL END) AS distancia
-    FROM sales_order_item
-    WHERE product_type   = 'simple'
-      AND parent_item_id IS NOT NULL
-    GROUP BY parent_item_id
-) AS soi_dist ON soi_dist.parent_item_id = soi.item_id
-LEFT JOIN (
-    SELECT
-        parent_item_id,
-        SUM(discount_amount) AS desconto_filhos
-    FROM sales_order_item
-    WHERE product_type   = 'simple'
-      AND parent_item_id IS NOT NULL
-      AND price          > 0
-    GROUP BY parent_item_id
-) AS soi_desc ON soi_desc.parent_item_id = soi.item_id
+
 LEFT JOIN (
     SELECT lp.entity_id, lp.lot_name
     FROM catalog_product_entity_event_lot_price lp
@@ -2016,39 +2000,34 @@ LEFT JOIN (
         WHERE cpe.type_id = 'bundle'
     ) AS mult ON mult.entity_id = cpeo.parent_id
     GROUP BY cpeos.parent_product_id
-) AS soi_prices ON soi_prices.parent_product_id = soi.product_id
+) AS soi_prices ON soi_prices.parent_product_id = soi_parent.product_id
 
 WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
-  AND so.state        != 'canceled'
-  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.state          != 'canceled'
+  AND so.increment_id   NOT REGEXP '-[0-9]'
   AND cpev1.value IN :event_ids
   {year_filter}
-  AND soi.price > 0
-  AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-  AND so.base_grand_total > 0
-  AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%CORTESIA%%')
-  AND (so.discount_description IS NULL OR so.discount_description != 'GRUPOS_NORTECORP')
-  AND (so.coupon_code IS NULL OR (so.coupon_code NOT LIKE 'GRP%%' AND so.coupon_code NOT LIKE 'GR%%'))
 
 GROUP BY
-    soi.name,
+    soi_parent.name,
     eaov_tipo.value,
-    soi_dist.distancia,
+    soi_child.name,
     CASE
-        WHEN soi.sku             LIKE '%%CORTESIA%%'        THEN 'Cortesia'
-        WHEN so.base_grand_total = 0                        THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%CORTESIA%%'    THEN 'Cortesia'
-        WHEN so.discount_description = 'GRUPOS_NORTECORP'   THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRP%%'                    THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GR%%'                     THEN 'Grupos/B2B'
-        ELSE                                                     'Site'
+        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 'Cortesia'
+        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%%CORTESIA%%'
+         AND so.base_grand_total < 50                                   THEN 'Cortesia'
+        WHEN so.discount_description = 'GRUPOS_NORTECORP'               THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRP%%'                                THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GR%%'                                 THEN 'Grupos/B2B'
+        ELSE                                                                'Site'
     END,
     lote_atual.lot_name,
     soi_prices.price,
     soi_prices.special_price
 
 ORDER BY
-    soi.name,
+    soi_parent.name,
     canal,
     inscritos DESC
 """).bindparams(bindparam("event_ids", expanding=True))
@@ -2185,89 +2164,61 @@ SELECT
     cpev1.value                                                              AS "ID Evento",
     cpev2.value                                                              AS "Evento",
 
-    COUNT(DISTINCT soi.item_id)                                              AS "Qtd Site",
+    COUNT(DISTINCT soi_parent.item_id)                                       AS "Qtd Site",
 
-    ROUND(SUM(
-        CASE
-            WHEN soi.price = 0 THEN 0
-            ELSE CASE
-                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
-                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
-                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
-                ELSE soi.price
-            END
-            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
-            - CASE
-                WHEN cg.customer_group_id = 4 THEN 0
-                WHEN soiaa.price = 14.90
-                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-                ELSE 0
-              END
-        END
-    ), 2)                                                                    AS "Inscrição Líquida",
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)              AS "Inscrição Líquida",
 
-    ROUND(SUM(
-        CASE
-            WHEN soi.price = 0 THEN 0
-            ELSE CASE
-                WHEN soi.name LIKE '%%plus%%'  THEN soi.price - 69.00
-                WHEN soi.name LIKE '%%vip%%'   THEN soi.price - 199.99
-                WHEN soi.name LIKE '%%super%%' THEN soi.price - 269.00
-                ELSE soi.price
-            END
-            + COALESCE(so.discount_amount, 0) * (soi.price / NULLIF(so.base_subtotal, 0))
-            - CASE
-                WHEN cg.customer_group_id = 4 THEN 0
-                WHEN soiaa.price = 14.90
-                 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
-                ELSE 0
-              END
-        END
-    ) / NULLIF(COUNT(DISTINCT soi.item_id), 0), 2)                          AS "Ticket Médio",
+    ROUND(SUM(soi_child.price - soi_child.discount_amount)
+          / NULLIF(COUNT(DISTINCT soi_parent.item_id), 0), 2)               AS "Ticket Médio",
 
     ROUND(COUNT(DISTINCT CASE
         WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-        THEN soi.item_id END) / 30.0, 2)                                    AS "Média Diária 30d",
+        THEN soi_parent.item_id END) / 30.0, 2)                             AS "Média Diária 30d",
 
     ROUND(COUNT(DISTINCT CASE
         WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
-        THEN soi.item_id END) / 14.0, 2)                                    AS "Média Diária 14d",
+        THEN soi_parent.item_id END) / 14.0, 2)                             AS "Média Diária 14d",
 
     ROUND(COUNT(DISTINCT CASE
         WHEN so.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-        THEN soi.item_id END) / 7.0, 2)                                     AS "Média Diária 7d"
+        THEN soi_parent.item_id END) / 7.0, 2)                              AS "Média Diária 7d"
 
 FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
 INNER JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 321 AND store_id = 0
-) AS cpev1 ON cpev1.entity_id = soi.product_id
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 INNER JOIN (
-    SELECT entity_id, value
+    SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195 AND store_id = 0
+    WHERE attribute_id = 195
+    GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
 LEFT JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 73 AND store_id = 0
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
-LEFT JOIN (
-    SELECT parent_item_id, MAX(price) AS price
-    FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
-) AS soiaa ON soiaa.parent_item_id = soi.item_id
-LEFT JOIN customer_group AS cg
-       ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
-AND soi.price > 0
-AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
