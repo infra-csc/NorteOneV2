@@ -2230,7 +2230,7 @@ const EventDetail: React.FC = () => {
                       Margem por Tipo de Kit
                     </h3>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 italic">
-                      Baseado em vendas Magento mapeadas por bundle. Requer configuração de "Tipo Kit" no painel de kits.
+                      Baseado em vendas Magento (bundle) + Ativo (por categoria), somadas por tipo de kit. Requer configuração de "Tipo Kit" e "Cat. Ativo" no painel de kits.
                     </p>
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
