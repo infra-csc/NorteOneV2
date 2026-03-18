@@ -1842,7 +1842,7 @@ FROM (
     WHERE
         b.id_evento IN ({_ativo_placeholders})
         AND (b.id_campanha_salesforce IS NULL
-             OR b.id_campanha_salesforce NOT LIKE '%%701d0000000%%')
+             OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND c.nr_total > 0
         AND (
             cupom.en_cupom_classificacao IS NULL
