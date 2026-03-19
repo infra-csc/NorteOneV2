@@ -75,7 +75,8 @@ const EventDetail: React.FC = () => {
   const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
   const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!previewEvent);
+  const [detailsLoading, setDetailsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [showMargemInfo, setShowMargemInfo] = useState(false);
@@ -131,11 +132,15 @@ const EventDetail: React.FC = () => {
       if (!id) {
         setError('ID do evento não fornecido');
         setLoading(false);
+        setDetailsLoading(false);
         return;
       }
       
       try {
-        if (!isStaleRetry) setLoading(true);
+        if (!isStaleRetry) {
+          if (!event) setLoading(true);
+        }
+        setDetailsLoading(true);
         const response = await marketingService.getEventoById(id, controller.signal, anoParam);
         if (controller.signal.aborted) return;
 
@@ -203,10 +208,11 @@ const EventDetail: React.FC = () => {
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
         console.error('Erro ao carregar evento:', err);
-        setError('Erro ao carregar dados do evento');
+        if (!event) setError('Erro ao carregar dados do evento');
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
+          setDetailsLoading(false);
         }
       }
     };
@@ -755,14 +761,16 @@ const EventDetail: React.FC = () => {
         retrying={refreshing}
       />
 
-      {loading && (
+      {detailsLoading && !refreshing && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-center gap-3">
           <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400 flex-shrink-0" />
-          <span className="text-sm text-blue-700 dark:text-blue-300">Carregando dados completos do evento...</span>
+          <span className="text-sm text-blue-700 dark:text-blue-300">
+            {previewEvent ? 'Atualizando dados do evento em tempo real...' : 'Carregando dados completos do evento...'}
+          </span>
         </div>
       )}
 
-      {isStaleData && !refreshing && (
+      {isStaleData && !refreshing && !detailsLoading && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Loader2 className="w-4 h-4 animate-spin text-amber-600 dark:text-amber-400 flex-shrink-0" />

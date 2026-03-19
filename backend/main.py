@@ -195,11 +195,11 @@ def _full_cache_warmup():
         logger.info(f"[Warmup] Found {len(active_evento_ids)} active events: Tier 1 (d-≤{TIER1_D_MINUS_THRESHOLD}): {len(tier1_evento_ids)}, Tier 2 (d->{TIER1_D_MINUS_THRESHOLD}): {len(tier2_evento_ids)}")
         update_warmup_sub_progress(4)
 
-        # --- Phase 1b: kick off event_detail pre-warm for Tier 1 events (background, parallel with ISC refresh) ---
+        # --- Phase 1b: kick off event_detail pre-warm for ALL active events (background, parallel with ISC refresh) ---
         _detail_prewarm_futures = []
-        if tier1_evento_ids:
+        if active_evento_ids:
             from app.api.routes.marketing import get_marketing_event_by_id as _get_evt_detail
-            _detail_prewarm_executor = _TPE(max_workers=min(2, len(tier1_evento_ids)), thread_name_prefix="warmup_detail")
+            _detail_prewarm_executor = _TPE(max_workers=min(4, len(active_evento_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail(eid, _ano):
                 _db2 = SessionLocal()
@@ -211,10 +211,10 @@ def _full_cache_warmup():
                 finally:
                     _db2.close()
 
-            for _eid in tier1_evento_ids:
+            for _eid in active_evento_ids:
                 _detail_prewarm_futures.append(_detail_prewarm_executor.submit(_prewarm_detail, _eid, ano))
             _detail_prewarm_executor.shutdown(wait=False)
-            logger.info(f"[Warmup] event_detail background pre-warm started for {len(tier1_evento_ids)} Tier 1 events")
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active events (Tier1+Tier2)")
 
         # --- Phase 1c: ISC refresh (heavy, ~44s) — runs in parallel with event_detail pre-warm ---
         logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
