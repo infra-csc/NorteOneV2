@@ -46,14 +46,9 @@ def _full_cache_warmup():
         fetch_isc_pricing_data, normalize_sku, calculate_d_minus,
         _build_sku_to_grupo_map,
         clear_warmup_daily_cache,
-        register_warmup_thread, unregister_warmup_thread,
-        _warmup_daily_cache, _warmup_daily_cache_lock,
         _hist_pattern_cache, _hist_pattern_cache_lock
     )
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
 
-    WARMUP_WORKERS = 8
     TIER1_D_MINUS_THRESHOLD = 60
 
     with _full_refresh_lock:
@@ -207,109 +202,37 @@ def _full_cache_warmup():
         update_warmup_sub_progress(4)
         logger.info(f"[Warmup 1/4] Phase 1 complete in {time.time()-start:.1f}s")
 
+        set_warmup_progress(2, "Finalizando lista", 0, 1)
+
         from app.api.routes.marketing import (
-            get_marketing_event_by_id,
-            get_curva_comparativa_evento,
-            get_sales_averages,
-            get_evento_insights,
-            get_marketing_events
+            get_marketing_events,
+            eventos_list_cache as _evt_list_cache
         )
-
-        priority_fns = [
-            ("detalhes", lambda eid, a, d: get_marketing_event_by_id(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
-        ]
-        secondary_fns = [
-            ("curvas", lambda eid, a, d: get_curva_comparativa_evento(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
-            ("medias", lambda eid, a, d: get_sales_averages(evento_id=eid, periodo=30, ano=a, force_refresh=True, db=d, current_user=None)),
-            ("insights", lambda eid, a, d: get_evento_insights(evento_id=eid, ano=a, force_refresh=True, db=d, current_user=None)),
-        ]
-
-        tier1_full_tasks = len(tier1_evento_ids) * 4
-        tier2_detail_tasks = len(tier2_evento_ids)
-        total_tasks = tier1_full_tasks + tier2_detail_tasks
-        set_warmup_progress(2, "Processando eventos", 0, total_tasks)
-        logger.info(f"[Warmup 2/4] Processing {total_tasks} tasks — Tier1: {tier1_full_tasks} (full), Tier2: {tier2_detail_tasks} (details only)")
-
-        completed_tasks = 0
-        task_counter_lock = threading.Lock()
-        step_counts = {"detalhes": 0, "curvas": 0, "medias": 0, "insights": 0}
-
-        def _do_task(eid, step_name, step_fn):
-            nonlocal completed_tasks
-            tid = threading.current_thread().ident
-            register_warmup_thread(tid)
-            local_db = SessionLocal()
-            try:
-                step_fn(eid, ano, local_db)
-                with task_counter_lock:
-                    completed_tasks += 1
-                    step_counts[step_name] += 1
-                    update_warmup_sub_progress(completed_tasks)
-            except Exception as e:
-                with task_counter_lock:
-                    completed_tasks += 1
-                    update_warmup_sub_progress(completed_tasks)
-                logger.warning(f"[Warmup] Failed {step_name} for {eid}: {e}")
-            finally:
-                unregister_warmup_thread(tid)
-                try:
-                    local_db.close()
-                except Exception:
-                    pass
-
-        phase2_start = time.time()
-        with ThreadPoolExecutor(max_workers=WARMUP_WORKERS, thread_name_prefix="warmup") as executor:
-            all_detail_futures = []
-            for eid in active_evento_ids:
-                for step_name, step_fn in priority_fns:
-                    all_detail_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
-            for f in as_completed(all_detail_futures):
-                try:
-                    f.result()
-                except Exception:
-                    pass
-            details_elapsed = time.time() - phase2_start
-            logger.info(f"[Warmup 2/4] All detalhes done ({step_counts['detalhes']}) in {details_elapsed:.1f}s, starting Tier 1 secondary...")
-
-            secondary_futures = []
-            for eid in tier1_evento_ids:
-                for step_name, step_fn in secondary_fns:
-                    secondary_futures.append(executor.submit(_do_task, eid, step_name, step_fn))
-            for f in as_completed(secondary_futures):
-                try:
-                    f.result()
-                except Exception:
-                    pass
-
-        logger.info(f"[Warmup 2/4] All tasks done: {step_counts}")
-
-        set_warmup_progress(3, "Finalizando", 0, 1)
 
         clear_warmup_daily_cache()
         clear_warmup_metadata_cache()
 
-        from app.api.routes.marketing import eventos_list_cache as _evt_list_cache
         _evt_list_cache.invalidate_all()
-        logger.info("[Warmup 3/4] Caches cleaned, eventos_list invalidated")
+        logger.info("[Warmup 2/4] Caches cleaned, eventos_list invalidated")
 
         try:
-            logger.info(f"[Warmup 3/4] Populating default dashboard cache keys")
+            logger.info(f"[Warmup 2/4] Populating default dashboard list cache keys")
             _warmup_db = SessionLocal()
             try:
                 get_marketing_events(ano=ano, status="active", categoria=None, busca=None, force_refresh=True, db=_warmup_db, current_user=None)
-                logger.info(f"[Warmup 3/4] Default dashboard cache key '{ano}_active_all_' populated")
+                logger.info(f"[Warmup 2/4] List cache key '{ano}_active_all_' populated")
                 get_marketing_events(ano=ano, status=None, categoria=None, busca=None, force_refresh=True, db=_warmup_db, current_user=None)
-                logger.info(f"[Warmup 3/4] Dashboard cache key '{ano}_all_all_' populated")
+                logger.info(f"[Warmup 2/4] List cache key '{ano}_all_all_' populated")
             finally:
                 _warmup_db.close()
         except Exception as e:
-            logger.warning(f"[Warmup 3/4] Failed to populate default dashboard cache: {e}")
+            logger.warning(f"[Warmup 2/4] Failed to populate list cache: {e}")
 
         set_last_full_refresh(time.time())
         elapsed = time.time() - start
         logger.info(f"=== FULL CACHE WARMUP COMPLETED in {elapsed:.1f}s ===")
-        logger.info(f"    Tier1: {len(tier1_evento_ids)} events (full), Tier2: {len(tier2_evento_ids)} events (details only)")
-        logger.info(f"    Details: {step_counts['detalhes']}, Curvas: {step_counts['curvas']}, Médias: {step_counts['medias']}, Insights: {step_counts['insights']}")
+        logger.info(f"    Active events identified: Tier1={len(tier1_evento_ids)}, Tier2={len(tier2_evento_ids)}")
+        logger.info(f"    Detail caches are lazy-loaded on-demand with per-event TTL")
         update_warmup_sub_progress(1)
 
         if partial_warnings:
