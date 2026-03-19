@@ -2056,7 +2056,10 @@ const EventDetail: React.FC = () => {
             const kitCost = event.kitCostPerUnit || 0;
             const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : (event.averageTicket || 0);
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-            const margemRealizadaTotal = ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0;
+            const kitRows = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
+            const margemRealizadaTotal = kitRows.length > 0
+              ? kitRows.reduce((acc, r) => acc + r.margemTotal, 0)
+              : (ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0);
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
               <div className="space-y-3">
@@ -2367,87 +2370,6 @@ const EventDetail: React.FC = () => {
                 </div>
               )}
 
-              {event.detalheVendasPorKit && event.detalheVendasPorKit.length > 0 && (
-                <div className="px-5 pb-5">
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                    <button
-                      onClick={() => setShowDetalheVendas(!showDetalheVendas)}
-                      className="w-full flex items-center justify-between group"
-                    >
-                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-orange-400" />
-                        Detalhe de Vendas por Kit
-                      </h3>
-                      <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors">
-                        <span>{showDetalheVendas ? 'recolher' : 'expandir'}</span>
-                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showDetalheVendas ? 'rotate-180' : ''}`} />
-                      </div>
-                    </button>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 mb-2 italic">
-                      Breakdown por kit, distância, canal e lote — sem cortesias/grupos. Confira com a tabela acima.
-                    </p>
-                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showDetalheVendas ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                      <div className="overflow-x-auto overflow-y-auto max-h-[480px] pb-4">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="border-b border-gray-200 dark:border-gray-700">
-                              <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Kit</th>
-                              <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Tipo</th>
-                              <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Distância</th>
-                              <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Canal</th>
-                              <th className="text-left py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Lote</th>
-                              <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket</th>
-                              <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Inscritos</th>
-                              <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Rec. Líquida</th>
-                              <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket Médio</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {event.detalheVendasPorKit.map((row, idx) => {
-                              const canalColor =
-                                row.canal === 'Cortesia' ? 'text-gray-400 dark:text-gray-500' :
-                                row.canal === 'Grupos/B2B' ? 'text-blue-600 dark:text-blue-400' :
-                                'text-gray-700 dark:text-gray-300';
-                              const ticketDisplay = row.specialPrice != null && row.specialPrice > 0
-                                ? row.specialPrice
-                                : row.price;
-                              return (
-                                <tr key={idx} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                                  <td className="py-1.5 px-2 text-gray-700 dark:text-gray-300 max-w-[120px] truncate">{row.kit}</td>
-                                  <td className="py-1.5 px-2 text-gray-500 dark:text-gray-400">{row.tipoCategoria || '—'}</td>
-                                  <td className="py-1.5 px-2 text-gray-500 dark:text-gray-400">{row.distancia || '—'}</td>
-                                  <td className={`py-1.5 px-2 font-medium ${canalColor}`}>{row.canal}</td>
-                                  <td className="py-1.5 px-2 text-gray-500 dark:text-gray-400">{row.loteAtual || '—'}</td>
-                                  <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300">
-                                    {ticketDisplay != null ? ticketDisplay.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
-                                  </td>
-                                  <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300">{row.inscritos.toLocaleString('pt-BR')}</td>
-                                  <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300">{row.receitaLiquida.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  <td className="py-1.5 px-2 text-right text-gray-700 dark:text-gray-300">
-                                    {row.ticketMedio != null ? row.ticketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                          <tfoot>
-                            <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 font-semibold">
-                              <td colSpan={6} className="py-2 px-2 text-gray-700 dark:text-gray-300">Total</td>
-                              <td className="py-2 px-2 text-right text-gray-900 dark:text-white">
-                                {event.detalheVendasPorKit.reduce((s, r) => s + r.inscritos, 0).toLocaleString('pt-BR')}
-                              </td>
-                              <td className="py-2 px-2 text-right text-gray-900 dark:text-white">
-                                {event.detalheVendasPorKit.reduce((s, r) => s + r.receitaLiquida, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              </td>
-                              <td className="py-2 px-2 text-right text-gray-400 dark:text-gray-500">—</td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
