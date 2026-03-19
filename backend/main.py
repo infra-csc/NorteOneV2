@@ -45,8 +45,7 @@ def _full_cache_warmup():
     from app.api.routes.marketing import (
         fetch_isc_pricing_data, normalize_sku, calculate_d_minus,
         _build_sku_to_grupo_map,
-        set_warmup_daily_cache, clear_warmup_daily_cache,
-        _fetch_daily_sales_ativo_by_ids_grouped, _fetch_daily_sales_magento_by_ids_grouped,
+        clear_warmup_daily_cache,
         register_warmup_thread, unregister_warmup_thread,
         _warmup_daily_cache, _warmup_daily_cache_lock,
         _hist_pattern_cache, _hist_pattern_cache_lock
@@ -165,8 +164,6 @@ def _full_cache_warmup():
         tier2_evento_ids = []
         grupo_names_seen = set()
         grupo_d_minus = {}
-        all_ativo_ids = []
-        all_magento_ids = []
 
         for cad in all_cadastros:
             if not cad.projeto_id:
@@ -205,44 +202,8 @@ def _full_cache_warmup():
                 else:
                     tier2_evento_ids.append(eid)
 
-        for m in all_sku_mappings:
-            if m.id_externo:
-                ext_id = str(m.id_externo)
-                if m.fonte == 'ATIVO':
-                    all_ativo_ids.append(ext_id)
-                elif m.fonte == 'MAGENTO':
-                    all_magento_ids.append(ext_id)
-
-        all_ativo_ids = list(set(all_ativo_ids))
-        all_magento_ids = list(set(all_magento_ids))
         active_evento_ids = tier1_evento_ids + tier2_evento_ids
         logger.info(f"[Warmup] Found {len(active_evento_ids)} active events: Tier 1 (d-≤{TIER1_D_MINUS_THRESHOLD}): {len(tier1_evento_ids)}, Tier 2 (d->{TIER1_D_MINUS_THRESHOLD}): {len(tier2_evento_ids)}")
-        logger.info(f"[Warmup 1/4] Pre-fetching daily sales: {len(all_ativo_ids)} Ativo IDs, {len(all_magento_ids)} Magento IDs")
-
-        ativo_grouped = {}
-        magento_grouped = {}
-
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="prefetch") as pf_executor:
-            pf_futures = {}
-            if all_ativo_ids:
-                pf_futures["ativo_daily"] = pf_executor.submit(_fetch_daily_sales_ativo_by_ids_grouped, all_ativo_ids)
-            if all_magento_ids:
-                pf_futures["magento_daily"] = pf_executor.submit(_fetch_daily_sales_magento_by_ids_grouped, all_magento_ids)
-
-            for name, fut in pf_futures.items():
-                try:
-                    result = fut.result(timeout=120)
-                    if name == "ativo_daily":
-                        ativo_grouped = result
-                        logger.info(f"[Warmup 1/4] Ativo daily pre-fetch: {len(result)} events")
-                    elif name == "magento_daily":
-                        magento_grouped = result
-                        logger.info(f"[Warmup 1/4] Magento daily pre-fetch: {len(result)} events")
-                except Exception as e:
-                    logger.error(f"[Warmup 1/4] Pre-fetch {name} FAILED: {e}")
-                    partial_warnings.append(f"Pre-fetch {name} parcial: {str(e)[:80]}")
-
-        set_warmup_daily_cache(ativo_grouped, magento_grouped)
         update_warmup_sub_progress(4)
         logger.info(f"[Warmup 1/4] Phase 1 complete in {time.time()-start:.1f}s")
 
