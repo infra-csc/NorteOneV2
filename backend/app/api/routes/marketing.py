@@ -2451,7 +2451,7 @@ def build_query_isc_magento(excluded_ids: list = None) -> str:
         ids_str = ", ".join(str(i) for i in excluded_ids)
         excl_clause = f"AND cpev1.value NOT IN ({ids_str})\n"
     return f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(300000) */
     cpev1.value                                                              AS "ID Evento",
     cpev2.value                                                              AS "Evento",
 
@@ -2769,7 +2769,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
 
     if future_ativo is not None:
         try:
-            dados_ativo = future_ativo.result(timeout=120)
+            dados_ativo = future_ativo.result(timeout=300)
         except Exception as e:
             logger.error(f"Erro ISC Ativo (executor): {e}")
             dados_ativo = []
@@ -2777,7 +2777,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
 
     if future_magento is not None:
         try:
-            dados_magento = future_magento.result(timeout=120)
+            dados_magento = future_magento.result(timeout=300)
         except Exception as e:
             logger.error(f"Erro ISC Magento (executor): {e}")
             dados_magento = []
