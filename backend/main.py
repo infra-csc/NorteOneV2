@@ -44,10 +44,12 @@ def _full_cache_warmup():
     from app.models.dimensoes import DimProjeto, SkuMapping
     from app.api.routes.marketing import (
         fetch_isc_pricing_data, normalize_sku, calculate_d_minus,
+        get_event_regime,
         _build_sku_to_grupo_map,
         clear_warmup_daily_cache,
         _hist_pattern_cache, _hist_pattern_cache_lock
     )
+    from datetime import timedelta as _warmup_timedelta
 
     TIER1_D_MINUS_THRESHOLD = 60
 
@@ -154,6 +156,7 @@ def _full_cache_warmup():
         grupo_names_seen = set()
         grupo_d_minus = {}
 
+        from datetime import date as _warmup_date
         for cad in all_cadastros:
             if not cad.projeto_id:
                 continue
@@ -161,9 +164,13 @@ def _full_cache_warmup():
             if not projeto or not projeto.data_evento:
                 continue
 
-            d_minus = calculate_d_minus(projeto.data_evento)
-            if d_minus <= 0:
+            _reg_close = projeto.data_evento - _warmup_timedelta(days=2)
+            _raw_dm = (_reg_close - _warmup_date.today()).days
+            _regime = get_event_regime(_raw_dm)
+            if _regime == "consolidated":
                 continue
+
+            d_minus = max(0, _raw_dm)
 
             sku_norm = normalize_sku(str(projeto.codigo)) if projeto.codigo else None
             grupo_nome = sku_to_grupo.get(sku_norm) if sku_norm else None

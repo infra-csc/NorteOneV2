@@ -2639,6 +2639,69 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
         except Exception as e:
             logger.warning(f"Erro ao buscar mapeamentos SKU para ISC: {e}")
 
+    # ---------------------------------------------------------------------------
+    # STEP 1: Classify events by regime BEFORE dispatching external queries.
+    # Consolidated groups (D- < -1) are served exclusively from snapshot data.
+    # Their SKUs are collected into consolidated_skus_set so the external-query
+    # results can be filtered to exclude them entirely.
+    # ---------------------------------------------------------------------------
+    consolidated_skus_set: set = set()
+    consolidated_totals: dict = {}         # {grupo_nome: snap_metrics}
+    consolidated_grupo_skus: dict = {}     # {grupo_nome: [sku_norm, ...]}
+
+    if db:
+        try:
+            from ...models.dimensoes import SkuMapping as _ISC_SM
+            _isc_grupo_rows = db.query(
+                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento
+            ).filter(
+                _ISC_SM.evento_grupo != None,
+                _ISC_SM.ativo == True,
+                _ISC_SM.ano == current_year
+            ).all()
+
+            _isc_grupo_latest: dict = {}
+            for _isc_row in _isc_grupo_rows:
+                _gn = _isc_row.evento_grupo
+                if not _gn:
+                    continue
+                if _isc_row.data_evento and (
+                    _gn not in _isc_grupo_latest
+                    or _isc_row.data_evento > _isc_grupo_latest[_gn]
+                ):
+                    _isc_grupo_latest[_gn] = _isc_row.data_evento
+                if _gn not in consolidated_grupo_skus:
+                    consolidated_grupo_skus[_gn] = []
+                if _isc_row.sku:
+                    _sn = normalize_sku(_isc_row.sku)
+                    if _sn not in consolidated_grupo_skus[_gn]:
+                        consolidated_grupo_skus[_gn].append(_sn)
+
+            for _gn, _evt_date in _isc_grupo_latest.items():
+                _rc = _evt_date - timedelta(days=2)
+                _raw_dm = (_rc - date.today()).days
+                if get_event_regime(_raw_dm) != "consolidated":
+                    continue
+                _snap = _get_snapshot_metrics_for_grupo(db, _gn)
+                if not _snap:
+                    continue
+                consolidated_totals[_gn] = _snap
+                for _sn in consolidated_grupo_skus.get(_gn, []):
+                    consolidated_skus_set.add(_sn)
+
+            if consolidated_totals:
+                logger.info(
+                    f"[Hybrid] ISC: {len(consolidated_totals)} consolidated grupos "
+                    f"({len(consolidated_skus_set)} SKUs) will use snapshot-only path"
+                )
+        except Exception as _cls_err:
+            logger.warning(f"[Hybrid] Regime classification failed in ISC: {_cls_err}")
+
+    # ---------------------------------------------------------------------------
+    # STEP 2: Dispatch live external queries (Ativo + Magento).
+    # These queries are bulk and cannot exclude individual events at the SQL level.
+    # Consolidated-SKU rows returned from them will be discarded in step 3.
+    # ---------------------------------------------------------------------------
     all_data = {}
 
     future_ativo = _rolling_avg_executor.submit(fetch_isc_data_ativo)
@@ -2699,9 +2762,13 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                 'receita_liquida_site': row.get('inscricao_liquida', 0.0),
             }
 
+    # ---------------------------------------------------------------------------
+    # STEP 3: Populate all_data from external results, SKIPPING consolidated SKUs.
+    # Consolidated events must not appear in all_data from external sources.
+    # ---------------------------------------------------------------------------
     for row in dados_ativo:
         sku = normalize_sku(row.get('sku', '') or '')
-        if not sku:
+        if not sku or sku in consolidated_skus_set:
             continue
         _aggregate_isc_row(all_data, sku, row)
 
@@ -2712,11 +2779,39 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
 
     for row in dados_magento:
         sku = normalize_sku(row.get('sku', '') or '')
-        if not sku:
+        if not sku or sku in consolidated_skus_set:
             continue
         _aggregate_isc_row(all_data, sku, row)
 
+    # ---------------------------------------------------------------------------
+    # STEP 4: Add consolidated SKUs from snapshot-only path.
+    # First SKU per group receives the full grupo total; remaining SKUs get zero
+    # so that callers summing all SKUs get the correct grupo total.
+    # ---------------------------------------------------------------------------
+    for _gn, _snap in consolidated_totals.items():
+        _skus = consolidated_grupo_skus.get(_gn, [])
+        for _i, _sn in enumerate(_skus):
+            all_data[_sn] = {
+                'qtd_site': _snap['qtd_site'] if _i == 0 else 0,
+                'inscricao_liquida': _snap['receita_liquida_site'] if _i == 0 else 0.0,
+                'media_30d': 0.0,
+                'media_14d': 0.0,
+                'media_7d': 0.0,
+                'dias_ate_evento': 0,
+                'evento_name': _gn,
+                'ticket_medio': _snap.get('ticket_medio', 0.0) if _i == 0 else 0.0,
+                'fator_aceleracao': 0.0,
+                'projecao_linear': _snap['qtd_site'] if _i == 0 else 0,
+                'projecao_ajustada': _snap['qtd_site'] if _i == 0 else 0,
+                'projecao_final': _snap['qtd_site'] if _i == 0 else 0,
+                'tendencia': 'Consolidado',
+                'receita_liquida_site': _snap['receita_liquida_site'] if _i == 0 else 0.0,
+                '_regime': 'consolidated',
+            }
+
     for sku, data in all_data.items():
+        if data.get('_regime') == 'consolidated':
+            continue
         qtd_site = data['qtd_site']
         dias = max(data['dias_ate_evento'], 0)
         media_14d = data['media_14d']
@@ -2750,62 +2845,6 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
             data['tendencia'] = 'Estável'
         else:
             data['tendencia'] = 'Desacelerando'
-
-    consolidated_totals: dict = {}
-    if db:
-        try:
-            from ...models.dimensoes import SkuMapping as _ISC_SM
-            grupo_rows = db.query(
-                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento
-            ).filter(
-                _ISC_SM.evento_grupo != None,
-                _ISC_SM.ativo == True,
-                _ISC_SM.ano == current_year
-            ).all()
-
-            grupo_latest: dict = {}
-            grupo_skus_isc: dict = {}
-            for row in grupo_rows:
-                gn = row.evento_grupo
-                if not gn:
-                    continue
-                if row.data_evento and (gn not in grupo_latest or row.data_evento > grupo_latest[gn]):
-                    grupo_latest[gn] = row.data_evento
-                if gn not in grupo_skus_isc:
-                    grupo_skus_isc[gn] = []
-                if row.sku:
-                    sn = normalize_sku(row.sku)
-                    if sn not in grupo_skus_isc[gn]:
-                        grupo_skus_isc[gn].append(sn)
-
-            for grupo_nome_isc, evt_date in grupo_latest.items():
-                registration_close_isc = evt_date - timedelta(days=2)
-                real_d_minus_isc = (registration_close_isc - date.today()).days
-                regime_isc = get_event_regime(real_d_minus_isc)
-
-                if regime_isc != "consolidated":
-                    continue
-
-                snap = _get_snapshot_metrics_for_grupo(db, grupo_nome_isc)
-                if not snap:
-                    continue
-
-                consolidated_totals[grupo_nome_isc] = snap
-
-                skus_isc = grupo_skus_isc.get(grupo_nome_isc, [])
-                for sn in skus_isc:
-                    if sn in all_data:
-                        all_data[sn]['media_7d'] = 0.0
-                        all_data[sn]['media_14d'] = 0.0
-                        all_data[sn]['media_30d'] = 0.0
-                        all_data[sn]['fator_aceleracao'] = 0.0
-                        all_data[sn]['tendencia'] = 'Consolidado'
-                        all_data[sn]['_regime'] = 'consolidated'
-
-            if consolidated_totals:
-                logger.info(f"[Hybrid] ISC: {len(consolidated_totals)} consolidated grupos served from snapshots")
-        except Exception as _regime_err:
-            logger.warning(f"[Hybrid] Failed to apply regime overrides to ISC data: {_regime_err}")
 
     all_data['_consolidated_totals'] = consolidated_totals
 
