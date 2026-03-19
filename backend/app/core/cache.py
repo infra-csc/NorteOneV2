@@ -457,7 +457,7 @@ class SmartCache:
 
 
 isc_cache = SmartCache("isc_pricing")
-event_detail_cache = SmartCache("event_detail", ttl=300)
+event_detail_cache = SmartCache("event_detail", ttl=900)
 daily_sales_cache = SmartCache("daily_sales")
 curva_cache = SmartCache("curva_comparativa")
 medias_cache = SmartCache("medias_vendas")

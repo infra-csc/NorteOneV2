@@ -65,21 +65,15 @@ def _full_cache_warmup():
     try:
         db = SessionLocal()
         ano = datetime.now().year
+        from concurrent.futures import ThreadPoolExecutor as _TPE
 
         with _hist_pattern_cache_lock:
             _hist_pattern_cache.clear()
         logger.info(f"[Warmup] Cleared hist_pattern cache for {ano}")
 
         set_warmup_progress(1, "Atualizando dados de inscrições", 0, 4)
-        logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
-        try:
-            fetch_isc_pricing_data(db=db, force_refresh=True)
-            logger.info("[Warmup 1/4] ISC pricing data refreshed")
-            update_warmup_sub_progress(1)
-        except Exception as e:
-            logger.error(f"[Warmup 1/4] ISC pricing data FAILED: {e}")
-            partial_warnings.append(f"Dados de inscrições parciais: {str(e)[:100]}")
 
+        # --- Phase 1a: metadata pre-fetch (fast, ~0.5s) ---
         prefetch_start = time.time()
         all_cadastros = db.query(CadastroEvento).all()
         all_sku_mappings = db.query(SkuMapping).filter(SkuMapping.ativo == True).all()
@@ -200,6 +194,38 @@ def _full_cache_warmup():
         active_evento_ids = tier1_evento_ids + tier2_evento_ids
         logger.info(f"[Warmup] Found {len(active_evento_ids)} active events: Tier 1 (d-≤{TIER1_D_MINUS_THRESHOLD}): {len(tier1_evento_ids)}, Tier 2 (d->{TIER1_D_MINUS_THRESHOLD}): {len(tier2_evento_ids)}")
         update_warmup_sub_progress(4)
+
+        # --- Phase 1b: kick off event_detail pre-warm for Tier 1 events (background, parallel with ISC refresh) ---
+        _detail_prewarm_futures = []
+        if tier1_evento_ids:
+            from app.api.routes.marketing import get_marketing_event_by_id as _get_evt_detail
+            _detail_prewarm_executor = _TPE(max_workers=min(2, len(tier1_evento_ids)), thread_name_prefix="warmup_detail")
+
+            def _prewarm_detail(eid, _ano):
+                _db2 = SessionLocal()
+                try:
+                    _get_evt_detail(evento_id=eid, ano=_ano, force_refresh=True, db=_db2, current_user=None)
+                    logger.info(f"[Warmup BG] event_detail pre-warm OK: {eid}")
+                except Exception as _e:
+                    logger.warning(f"[Warmup BG] event_detail pre-warm failed for {eid}: {_e}")
+                finally:
+                    _db2.close()
+
+            for _eid in tier1_evento_ids:
+                _detail_prewarm_futures.append(_detail_prewarm_executor.submit(_prewarm_detail, _eid, ano))
+            _detail_prewarm_executor.shutdown(wait=False)
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(tier1_evento_ids)} Tier 1 events")
+
+        # --- Phase 1c: ISC refresh (heavy, ~44s) — runs in parallel with event_detail pre-warm ---
+        logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
+        try:
+            fetch_isc_pricing_data(db=db, force_refresh=True)
+            logger.info("[Warmup 1/4] ISC pricing data refreshed")
+            update_warmup_sub_progress(1)
+        except Exception as e:
+            logger.error(f"[Warmup 1/4] ISC pricing data FAILED: {e}")
+            partial_warnings.append(f"Dados de inscrições parciais: {str(e)[:100]}")
+
         logger.info(f"[Warmup 1/4] Phase 1 complete in {time.time()-start:.1f}s")
 
         set_warmup_progress(2, "Finalizando lista", 0, 1)
@@ -232,7 +258,7 @@ def _full_cache_warmup():
         elapsed = time.time() - start
         logger.info(f"=== FULL CACHE WARMUP COMPLETED in {elapsed:.1f}s ===")
         logger.info(f"    Active events identified: Tier1={len(tier1_evento_ids)}, Tier2={len(tier2_evento_ids)}")
-        logger.info(f"    Detail caches are lazy-loaded on-demand with per-event TTL")
+        logger.info(f"    Detail pre-warm: {len(_detail_prewarm_futures)} Tier 1 events warming in background")
         update_warmup_sub_progress(1)
 
         if partial_warnings:
