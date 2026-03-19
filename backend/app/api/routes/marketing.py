@@ -17,6 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
+_rolling_avg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mkt_io")
+
 _cadastro_cache: dict = {}
 
 def invalidate_cadastro_caches(projeto_id: int):
@@ -236,81 +238,6 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         return {}
 
 
-def fetch_daily_sales_magento(location_id: str, start_date: date, end_date: date) -> dict:
-    """
-    Busca vendas diárias do Magento para um evento específico (por location_id) dentro de um período.
-    Retorna um dicionário {data: quantidade_vendida}
-    Usa os mesmos filtros da query build_query_magento para consistência.
-    """
-    if db_module.engine_magento is None:
-        return {}
-    
-    try:
-        query = """
-        SELECT 
-            DATE(so.created_at) AS data_venda,
-            COUNT(soi.item_id) AS quantidade
-        FROM sales_order AS so
-        LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
-        LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
-        WHERE 
-            wl.location_id = :location_id
-            AND so.status IN ('Processing', 'Complete', 'approved')
-            AND soi.product_type = 'Bundle'
-            AND DATE(so.created_at) >= :start_date
-            AND DATE(so.created_at) <= :end_date
-            AND so.increment_id NOT LIKE '%-1%'
-            AND so.increment_id NOT LIKE '%-2%'
-            AND so.increment_id NOT LIKE '%-3%'
-            AND so.increment_id NOT LIKE '%-4%'
-            AND so.increment_id NOT LIKE '%-5%'
-            AND so.increment_id NOT LIKE '%-6%'
-            AND so.increment_id NOT LIKE '%-7%'
-            AND so.increment_id NOT LIKE '%-8%'
-            AND so.increment_id NOT LIKE '%-9%'
-            AND so.increment_id NOT LIKE '%-10%'
-            AND so.increment_id NOT LIKE '%-11%'
-            AND so.increment_id NOT LIKE '%-12%'
-            AND so.increment_id NOT LIKE '%-13%'
-            AND so.increment_id NOT LIKE '%-14%'
-            AND so.increment_id NOT LIKE '%-15%'
-            AND so.increment_id NOT LIKE '%-16%'
-            AND so.increment_id NOT LIKE '%-17%'
-        GROUP BY DATE(so.created_at)
-        ORDER BY data_venda
-        """
-        params = {
-            "location_id": location_id,
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
-        }
-        
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query), params)
-            rows = result.fetchall()
-            
-        daily_sales = {}
-        for row in rows:
-            data_venda = row[0]
-            quantidade = row[1]
-            if isinstance(data_venda, str):
-                data_venda = datetime.strptime(data_venda, '%Y-%m-%d').date()
-            daily_sales[data_venda] = quantidade
-            
-        return daily_sales
-    except Exception as e:
-        logger.error(f"Erro ao buscar vendas diárias do Magento: {e}")
-        return {}
-
-
-def get_location_id_from_sku(db: Session, sku: str) -> Optional[str]:
-    mappings = _wq_sku_mappings_by_sku(db, sku)
-    for m in mappings:
-        if m.fonte == 'MAGENTO' and m.id_externo:
-            return str(m.id_externo)
-    return None
-
-
 def get_id_evento_from_projeto(db: Session, projeto_id: int) -> Optional[str]:
     projeto = _wq_dim_projeto_by_id(db, projeto_id)
     if not projeto or not projeto.codigo:
@@ -402,50 +329,62 @@ def calculate_action_impact(db: Session, acao) -> dict:
 
     if _is_warmup_thread():
         return _calculate_action_impact_from_warmup_cache(acao, projeto)
-    
+
     sku = projeto.codigo.upper().strip()
-    id_evento = get_id_evento_from_projeto(db, acao.projeto_id)
-    location_id = get_location_id_from_sku(db, sku)
-    
-    if not id_evento and not location_id:
+    mappings = _wq_sku_mappings_by_sku(db, sku)
+    if not mappings:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
-    
+
     data_acao = acao.data_acao
     if isinstance(data_acao, datetime):
         data_acao = data_acao.date()
-    
+
     start_before = data_acao - timedelta(days=7)
     end_before = data_acao - timedelta(days=1)
-    
     start_after = data_acao + timedelta(days=1)
     end_after = data_acao + timedelta(days=7)
-    
+
     today = date.today()
     if end_after > today:
-        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None, 
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None,
                 "status": "aguardando_dados"}
-    
-    sales_before_ativo = fetch_daily_sales_ativo(id_evento, start_before, end_before) if id_evento else {}
-    sales_after_ativo = fetch_daily_sales_ativo(id_evento, start_after, end_after) if id_evento else {}
-    
-    sales_before_magento = fetch_daily_sales_magento(location_id, start_before, end_before) if location_id else {}
-    sales_after_magento = fetch_daily_sales_magento(location_id, start_after, end_after) if location_id else {}
-    
-    vendas_antes_ativo = sum(sales_before_ativo.values()) if sales_before_ativo else 0
-    vendas_depois_ativo = sum(sales_after_ativo.values()) if sales_after_ativo else 0
-    vendas_antes_magento = sum(sales_before_magento.values()) if sales_before_magento else 0
-    vendas_depois_magento = sum(sales_after_magento.values()) if sales_after_magento else 0
-    
-    vendas_antes = vendas_antes_ativo + vendas_antes_magento
-    vendas_depois = vendas_depois_ativo + vendas_depois_magento
-    
+
+    ano = data_acao.year
+    sku_maps = [m for m in mappings if getattr(m, 'ano', None) == ano and getattr(m, 'ativo', False)]
+    if not sku_maps:
+        sku_maps = [m for m in mappings if getattr(m, 'ativo', False)]
+
+    ativo_ids = [str(m.id_externo) for m in sku_maps if getattr(m, 'fonte', '') == 'ATIVO' and m.id_externo]
+    magento_ids = [str(m.id_externo) for m in sku_maps if getattr(m, 'fonte', '') == 'MAGENTO' and m.id_externo]
+
+    if not ativo_ids and not magento_ids:
+        return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
+
+    all_daily = []
+    if ativo_ids:
+        all_daily.extend(_fetch_daily_sales_ativo_by_ids(ativo_ids))
+    if magento_ids:
+        all_daily.extend(_fetch_daily_sales_magento_by_ids(magento_ids))
+
+    vendas_antes = 0
+    vendas_depois = 0
+    for row in all_daily:
+        try:
+            dia = date.fromisoformat(row["dia"]) if isinstance(row["dia"], str) else row["dia"]
+        except (ValueError, KeyError):
+            continue
+        if start_before <= dia <= end_before:
+            vendas_antes += row.get("qtd", 0)
+        elif start_after <= dia <= end_after:
+            vendas_depois += row.get("qtd", 0)
+
     if vendas_antes > 0:
         impacto_percentual = ((vendas_depois - vendas_antes) / vendas_antes) * 100
     elif vendas_depois > 0:
         impacto_percentual = 100.0
     else:
         impacto_percentual = 0.0
-    
+
     return {
         "vendas_antes": vendas_antes,
         "vendas_depois": vendas_depois,
@@ -2316,47 +2255,37 @@ FROM (
         b.ds_evento,
         b.dt_evento,
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL
-                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-             AND c.nr_total > 0 THEN 1 ELSE 0
+            WHEN a.nr_preco > 0
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+            THEN 1 ELSE 0
         END)                                                                 AS qtd_site,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL
-                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-             AND c.nr_total > 0
+            WHEN a.nr_preco > 0
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_30d,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL
-                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-             AND c.nr_total > 0
+            WHEN a.nr_preco > 0
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_14d,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL
-                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-             AND c.nr_total > 0
+            WHEN a.nr_preco > 0
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_7d,
 
         SUM(CASE
-            WHEN (f.en_cupom_classificacao IS NULL
-                  OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-             AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-             AND c.nr_total > 0
+            WHEN a.nr_preco > 0
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
             THEN
-                GREATEST(0, a.nr_preco
-                    - COALESCE(a.nr_desconto_individual, 0))
+                GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
             ELSE 0
         END)                                                                 AS inscricao_liquida
 
@@ -2369,23 +2298,30 @@ FROM (
         ON c.id_pedido = a.id_pedido
        AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (1, 2)
+       AND c.nr_total > 0
 
     LEFT JOIN sa_modalidade_categoria AS h
         ON h.id_categoria = a.id_categoria
 
-    LEFT JOIN sa_cupom_desconto_item AS e
-        ON e.id_cupom_desconto_item = a.id_cupom_individual
-
-    LEFT JOIN sa_cupom_desconto AS f
-        ON f.id_cupom_desconto = e.id_cupom_desconto
+    LEFT JOIN (
+        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+        FROM sa_cupom_desconto_item AS e
+        INNER JOIN sa_cupom_desconto AS f
+            ON f.id_cupom_desconto = e.id_cupom_desconto
+    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
 
     WHERE
         b.dt_evento >= MAKEDATE(YEAR(CURDATE()) - 1, 1)
         AND b.dt_evento <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
-        AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
+        AND c.nr_total > 0
 
         AND (b.id_campanha_salesforce IS NULL
              OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+
+        AND (cupom.en_cupom_classificacao IS NULL
+             OR cupom.en_cupom_classificacao NOT IN (
+                 'Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'
+             ))
 
     GROUP BY
         b.id_evento,
@@ -2459,6 +2395,7 @@ AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
 
@@ -4028,21 +3965,30 @@ def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     b.id_evento,
     DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
-              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-        AND c.nr_total > 0 THEN 1 END) AS qtd
+    COUNT(CASE WHEN a.nr_preco > 0
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+INNER JOIN sa_pedido AS c
+    ON c.id_pedido = a.id_pedido
+   AND c.fl_local_inscricao = '1'
+   AND c.id_pedido_status IN (1, 2)
+   AND c.nr_total > 0
 LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
-LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (1, 2)
-    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+LEFT JOIN (
+    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+    FROM sa_cupom_desconto_item AS e
+    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+WHERE
+    (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
+    AND c.nr_total > 0
+    AND (cupom.en_cupom_classificacao IS NULL
+         OR cupom.en_cupom_classificacao NOT IN (
+             'Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'
+         ))
     AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
 GROUP BY b.id_evento, DATE(c.dt_pedido)
 ORDER BY b.id_evento, dia
@@ -4064,14 +4010,14 @@ ORDER BY b.id_evento, dia
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids_grouped(location_ids: list) -> dict:
-    if not location_ids:
+def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list) -> dict:
+    if not magento_event_ids:
         return {}
     if _is_warmup_thread():
         with _warmup_daily_cache_lock:
             magento_cache = _warmup_daily_cache.get("magento")
         if magento_cache is not None:
-            safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+            safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
             result = {}
             for lid in safe_ids:
                 if lid in magento_cache:
@@ -4081,35 +4027,38 @@ def _fetch_daily_sales_magento_by_ids_grouped(location_ids: list) -> dict:
     if db_module.engine_magento is None:
         return {}
     try:
-        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    cpev1.value AS location_id,
+    cpev1.value AS id_evento,
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd
+    COUNT(CASE WHEN (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        THEN 1 END) AS qtd
 FROM sales_order so
-INNER JOIN sales_order_item soi
-       ON soi.order_id = so.entity_id
-      AND soi.product_type = 'bundle'
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1
-       ON cpev1.entity_id = soi.product_id
+       ON cpev1.entity_id    = soi_parent.product_id
       AND cpev1.attribute_id = 321
-      AND cpev1.store_id = 0
+      AND cpev1.store_id     = 0
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
-    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-    AND cpev1.value IN :location_ids
-    AND so.increment_id NOT REGEXP '-[0-9]+$'
+    AND cpev1.value IN :magento_event_ids
+    AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
-""").bindparams(bindparam("location_ids", expanding=True))
+""").bindparams(bindparam("magento_event_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"location_ids": safe_ids})
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
             grouped = {}
             for r in result.fetchall():
                 lid = str(r[0])
@@ -6621,259 +6570,6 @@ def delete_acao_comercial(
     }
 
 
-_rolling_avg_cache = {}
-_rolling_avg_cache_timestamp = None
-
-def fetch_rolling_avg_ativo() -> dict:
-    if db_module.engine_ssh is None:
-        return {}
-    
-    _id_evento_to_sku = {
-        '40048': 'CDE26PL1', '40145': 'CDE26RP1', '39969': 'CDE26RJ1',
-        '40120': 'CDE26FL1', '39996': 'CDE26PA1', '39964': 'CDE26SP1',
-        '40052': 'CDE26AN1', '39974': 'CDE26BH1', '39970': 'CDE26BS1',
-        '40001': 'CDE26CP1', '39986': 'CDE26RC1', '40010': 'CDE26BL1',
-        '39980': 'CDE26FT1', '40149': 'CDE26SJ1', '39994': 'CDE26CT1',
-        '40157': 'CDE26TS1', '40015': 'CDE26VT1', '40144': 'CDE26MN4',
-        '40142': 'CDE26MN2', '40143': 'CDE26MN3', '39990': 'CDE26SV1',
-        '40075': 'TBT26ST1', '40108': 'NRU26RF1', '40073': 'BRV26SP4',
-        '39999': 'CDE26PA2', '39971': 'CDE26RJ2', '40122': 'CDE26FL3',
-        '40121': 'CDE26FL2', '40076': 'TBT26ST2', '40049': 'CDE26PL2',
-        '40158': 'CDE26TS2', '40072': 'BRV26SP2', '40150': 'CDE26SJ2',
-        '40151': 'CDE26SJ3', '40146': 'CDE26RP2', '40053': 'CDE26AN2',
-        '40003': 'CDE26CP2', '39987': 'CDE26RC2', '39965': 'CDE26SP2',
-        '39975': 'CDE26BS2', '39982': 'CDE26FT2', '40107': 'NRU26CW1',
-        '40074': 'BRV26SJ1', '39995': 'CDE26CT2', '40016': 'CDE26VT2',
-        '39991': 'CDE26SV2', '40011': 'CDE26BL2', '40148': 'CDE26RP4',
-        '40147': 'CDE26RP3', '39978': 'CDE26BH2', '40070': 'AQA26RJ2',
-        '40050': 'CDE26PL3', '40054': 'CDE26AN3', '40005': 'CDE26CP3',
-        '39983': 'CDE26FT3', '39976': 'CDE26BS3', '40017': 'CDE26VT3',
-        '39988': 'CDE26RC3', '39966': 'CDE26SP3', '39997': 'CDE26CT3',
-        '40159': 'CDE26TS3', '39992': 'CDE26SV3', '40012': 'CDE26BL3',
-        '40077': 'TBT26ST3', '39972': 'CDE26RJ3', '40000': 'CDE26PA3',
-        '40113': 'NRU26FT1', '40109': 'NRU26SV1', '40081': 'NRU26RJ2',
-        '40112': 'NRU26BS1', '40063': 'NRU26SP3', '40123': 'CDE26FL4',
-        '40105': 'NRU26PA1', '39973': 'CDE26RJ4', '40047': 'CDE26PL4',
-        '40160': 'CDE26TS4', '40055': 'CDE26AN4', '39967': 'CDE26SP4',
-        '40078': 'TBT26ST4', '40152': 'CDE26SJ4', '39998': 'CDE26CT4',
-        '39985': 'CDE26FT4', '39993': 'CDE26SV4', '40014': 'CDE26BL4',
-        '39984': 'CDE26BH4', '39977': 'CDE26BS4', '40002': 'CDE26PA4',
-        '40004': 'CDE26CP4', '40018': 'CDE26VT4', '39989': 'CDE26RC4',
-    }
-    
-    try:
-        query = """
-        SELECT /*+ MAX_EXECUTION_TIME(45000) */
-            b.id_evento,
-            b.id_campanha_salesforce,
-            COUNT(DISTINCT CASE 
-                WHEN DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-                THEN pe.id_pedido_evento 
-            END) / 14 AS media_14d_atual,
-            COUNT(DISTINCT CASE 
-                WHEN DATE(p.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                           AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-                THEN pe.id_pedido_evento 
-            END) / 14 AS media_14d_ano_passado
-        FROM sa_pedido_evento AS pe
-        INNER JOIN sa_evento AS b ON b.id_evento = pe.id_evento
-        INNER JOIN sa_pedido AS p ON p.id_pedido = pe.id_pedido
-        LEFT JOIN sa_modalidade_categoria AS mc ON pe.id_categoria = mc.id_categoria
-        LEFT JOIN sa_cupom_desconto_item AS cdi ON cdi.id_cupom_desconto_item = pe.id_cupom_individual
-        LEFT JOIN sa_cupom_desconto AS cd ON cd.id_cupom_desconto = cdi.id_cupom_desconto
-        WHERE 
-            YEAR(b.dt_evento) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
-            AND p.id_pedido_status = 2
-            AND (b.id_campanha_salesforce NOT LIKE '701d0000000%%' OR b.id_campanha_salesforce IS NULL)
-            AND (cd.en_cupom_classificacao IS NULL OR NOT cd.en_cupom_classificacao OR mc.ds_categoria NOT LIKE '%%Grup%%')
-            AND p.nr_total > 0
-            AND (
-                DATE(p.dt_pedido) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-                OR DATE(p.dt_pedido) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                         AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-            )
-        GROUP BY b.id_evento, b.id_campanha_salesforce
-        """
-        
-        with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            columns = result.keys()
-            
-            data = {}
-            for row in rows:
-                row_dict = dict(zip(columns, row))
-                id_evento = str(row_dict.get('id_evento', '') or '')
-                sku = _id_evento_to_sku.get(id_evento)
-                if not sku:
-                    sku = str(row_dict.get('id_campanha_salesforce', '') or '')
-                sku = normalize_sku(sku)
-                if sku:
-                    data[sku] = {
-                        'media_14d_atual': float(row_dict.get('media_14d_atual', 0) or 0),
-                        'media_14d_ano_passado': float(row_dict.get('media_14d_ano_passado', 0) or 0),
-                    }
-            return data
-    except Exception as e:
-        logger.error(f"Erro ao buscar rolling avg Ativo: {e}")
-        return {}
-
-
-def fetch_rolling_avg_magento() -> dict:
-    if db_module.engine_magento is None:
-        return {}
-    
-    _location_to_sku = {
-        '587': 'CPLIE26SP1', '612': 'BLU26RJ1', '539': 'CDE26PL4',
-        '536': 'CDE26PL1', '560': 'CDE26TS4', '559': 'CDE26TS3',
-        '558': 'CDE26TS2', '537': 'CDE26PL2', '557': 'CDE26TS1',
-        '510': 'NRU26PA1', '438': 'CDE26RJ4', '437': 'CDE26RJ3',
-        '436': 'CDE26RJ2', '462': 'CDE26SV4', '464': 'CDE26SV3',
-        '463': 'CDE26SV2', '469': 'CDE26CP4', '470': 'CDE26CP3',
-        '471': 'CDE26CP2', '441': 'CDE26SP2', '443': 'CDE26SP4',
-        '455': 'CDE26FT4', '454': 'CDE26FT3', '453': 'CDE26FT2',
-        '466': 'CDE26CT2', '518': 'NRU26FT1', '513': 'NRU26VT1',
-        '446': 'CDE26BS3', '444': 'CDE26BS2', '449': 'CDE26BH2',
-        '473': 'CDE26PA4', '474': 'CDE26PA3', '475': 'CDE26PA2',
-        '468': 'CDE26CT4', '467': 'CDE26CT3', '447': 'CDE26BS4',
-        '544': 'GPW26SP11', '442': 'CDE26SP3', '451': 'CDE26BH4',
-        '519': 'NRU26SV1', '516': 'NRU26BS1', '515': 'NRU26RF1',
-        '521': 'NRU26CP1', '491': 'BRV26SP1', '512': 'NRU26CW1',
-        '481': 'NRU26SP3', '492': 'BRV26SP4',
-    }
-    
-    try:
-        query = """
-        SELECT /*+ MAX_EXECUTION_TIME(45000) */
-            wl.location_id,
-            d.sku AS product_sku,
-            COUNT(DISTINCT CASE 
-                WHEN DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-                THEN so.entity_id 
-            END) / 14 AS media_14d_atual,
-            COUNT(DISTINCT CASE 
-                WHEN DATE(so.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                              AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-                THEN so.entity_id 
-            END) / 14 AS media_14d_ano_passado
-        FROM sales_order AS so
-        INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id  
-        INNER JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
-        LEFT JOIN catalog_product_entity_varchar AS pai ON pai.entity_id = soi.product_id AND pai.attribute_id = 321
-        LEFT JOIN catalog_product_entity AS d ON pai.value = d.entity_id
-        WHERE
-            YEAR(wl.final_date) IN (YEAR(CURDATE()), YEAR(CURDATE()) - 1)
-            AND so.increment_id NOT LIKE '%-1%'
-            AND so.increment_id NOT LIKE '%-2%'
-            AND so.increment_id NOT LIKE '%-3%'
-            AND so.increment_id NOT LIKE '%-4%'
-            AND so.increment_id NOT LIKE '%-5%'
-            AND so.increment_id NOT LIKE '%-6%'
-            AND so.increment_id NOT LIKE '%-7%'
-            AND so.increment_id NOT LIKE '%-8%'
-            AND so.increment_id NOT LIKE '%-9%'
-            AND so.increment_id NOT LIKE '%-10%'
-            AND so.increment_id NOT LIKE '%-11%'
-            AND so.increment_id NOT LIKE '%-12%'
-            AND so.increment_id NOT LIKE '%-13%'
-            AND so.increment_id NOT LIKE '%-14%'
-            AND so.increment_id NOT LIKE '%-15%'
-            AND so.increment_id NOT LIKE '%-16%'
-            AND so.increment_id NOT LIKE '%-17%'
-            AND so.status IN ('Processing', 'Complete', 'approved')
-            AND soi.product_type = 'Bundle'
-            AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%Grup%')
-            AND so.base_grand_total > 0
-            AND (
-                DATE(so.created_at) BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND CURDATE()
-                OR DATE(so.created_at) BETWEEN DATE_SUB(DATE_SUB(CURDATE(), INTERVAL 1 YEAR), INTERVAL 14 DAY) 
-                                            AND DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
-            )
-        GROUP BY wl.location_id, d.sku
-        """
-        
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            columns = result.keys()
-            
-            data = {}
-            for row in rows:
-                row_dict = dict(zip(columns, row))
-                location_id = str(row_dict.get('location_id', '') or '')
-                sku = _location_to_sku.get(location_id, '')
-                if not sku:
-                    sku = str(row_dict.get('product_sku', '') or '')
-                sku = normalize_sku(sku)
-                if sku:
-                    media_atual = float(row_dict.get('media_14d_atual', 0) or 0)
-                    media_passado = float(row_dict.get('media_14d_ano_passado', 0) or 0)
-                    if sku in data:
-                        data[sku]['media_14d_atual'] += media_atual
-                        data[sku]['media_14d_ano_passado'] += media_passado
-                    else:
-                        data[sku] = {
-                            'media_14d_atual': media_atual,
-                            'media_14d_ano_passado': media_passado,
-                        }
-            return data
-    except Exception as e:
-        logger.error(f"Erro ao buscar rolling avg Magento: {e}")
-        return {}
-
-
-_rolling_avg_executor = ThreadPoolExecutor(max_workers=4)
-
-def fetch_consolidated_rolling_averages() -> dict:
-    global _rolling_avg_cache, _rolling_avg_cache_timestamp
-    import time
-    
-    cache_valid = (_rolling_avg_cache_timestamp is not None and 
-                   time.time() - _rolling_avg_cache_timestamp < 300)
-    
-    if cache_valid and _rolling_avg_cache:
-        return _rolling_avg_cache
-    
-    consolidated = {}
-    
-    future_ativo = _rolling_avg_executor.submit(fetch_rolling_avg_ativo)
-    future_magento = _rolling_avg_executor.submit(fetch_rolling_avg_magento)
-    
-    try:
-        ativo_data = future_ativo.result(timeout=30)
-    except Exception as e:
-        logger.error(f"Timeout ou erro ao buscar rolling avg Ativo: {e}")
-        ativo_data = {}
-    
-    try:
-        magento_data = future_magento.result(timeout=60)
-    except Exception as e:
-        logger.error(f"Timeout ou erro ao buscar rolling avg Magento: {e}")
-        magento_data = {}
-    
-    for sku, values in ativo_data.items():
-        consolidated[sku] = {
-            'media_14d_atual': values.get('media_14d_atual', 0),
-            'media_14d_ano_passado': values.get('media_14d_ano_passado', 0),
-        }
-    
-    for sku, values in magento_data.items():
-        if sku in consolidated:
-            consolidated[sku]['media_14d_atual'] += values.get('media_14d_atual', 0)
-            consolidated[sku]['media_14d_ano_passado'] += values.get('media_14d_ano_passado', 0)
-        else:
-            consolidated[sku] = {
-                'media_14d_atual': values.get('media_14d_atual', 0),
-                'media_14d_ano_passado': values.get('media_14d_ano_passado', 0),
-            }
-    
-    _rolling_avg_cache = consolidated
-    _rolling_avg_cache_timestamp = time.time()
-    
-    logger.info(f"Rolling averages consolidados: {len(consolidated)} SKUs")
-    return consolidated
-
-
 class PricingMetrics(BaseModel):
     rollingIndex: float
     rollingAvg14d: float
@@ -7183,13 +6879,7 @@ def get_pricing_analysis(
     events_increase = 0
     events_maintain = 0
     events_decrease = 0
-    
-    pricing_all_projetos = []
-    for proj_list in grupo_projetos.values():
-        pricing_all_projetos.extend(proj_list)
-    pricing_all_projetos.extend(standalone_projetos)
-    pricing_sku_daily = _prefetch_all_daily_sales(db, pricing_all_projetos, ano)
-    
+
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -7285,17 +6975,19 @@ def get_pricing_analysis(
         else:
             events_maintain += 1
         
-        pricing_daily_dict = _build_grupo_daily_dict(pricing_sku_daily, proj_list)
-        
         pricing_hist_pattern = None
         try:
             pricing_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
         except Exception:
             pass
-        
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
-                                                   daily_sales_dict=pricing_daily_dict,
-                                                   hist_pattern=pricing_hist_pattern)
+
+        isc_components = calculate_isc_components(
+            current_sales, sales_goal, d_minus,
+            media_7d=combined_m7d,
+            media_14d=combined_rolling_14d,
+            media_30d=combined_m30d,
+            hist_pattern=pricing_hist_pattern
+        )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         
@@ -7402,24 +7094,26 @@ def get_pricing_analysis(
         ).first()
         if standalone_pricing_eg_mapping:
             standalone_pricing_eg = standalone_pricing_eg_mapping.evento_grupo
-        
-        standalone_pricing_daily_dict = _build_grupo_daily_dict(pricing_sku_daily, [projeto])
-        
-        _today_pricing = date.today()
-        if standalone_pricing_daily_dict and len(standalone_pricing_daily_dict) > 0:
-            current_sales = sum(v for k, v in standalone_pricing_daily_dict.items() if k <= _today_pricing)
-            average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-        
+
         standalone_pricing_hist = None
         if standalone_pricing_eg:
             try:
                 standalone_pricing_hist = _fetch_previous_year_cumulative_pattern(db, standalone_pricing_eg, ano)
             except Exception:
                 pass
-        
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus,
-                                                   daily_sales_dict=standalone_pricing_daily_dict,
-                                                   hist_pattern=standalone_pricing_hist)
+
+        standalone_sales_info = isc_data.get(sku_normalized, {})
+        standalone_m7d = standalone_sales_info.get('media_7d', 0.0)
+        standalone_rolling_14d = standalone_sales_info.get('media_14d', 0.0)
+        standalone_m30d = standalone_sales_info.get('media_30d', 0.0)
+
+        isc_components = calculate_isc_components(
+            current_sales, sales_goal, d_minus,
+            media_7d=standalone_m7d,
+            media_14d=standalone_rolling_14d,
+            media_30d=standalone_m30d,
+            hist_pattern=standalone_pricing_hist
+        )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         
