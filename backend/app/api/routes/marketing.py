@@ -2633,6 +2633,13 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                 return _isc_last_known_data
     else:
         logger.info(f"ISC cache BYPASS (force_refresh): key={smart_cache_key}")
+        # Se ainda não temos dados anteriores em memória, carrega do cache persistente.
+        # Isso garante que o merge funcione mesmo na primeira rodada após reinicialização.
+        if not _isc_last_known_data:
+            _existing = _smart_isc_cache.get(smart_cache_key)
+            if _existing:
+                _isc_last_known_data = _existing
+                logger.info(f"[ISC] Seeded last-known data from persistent cache ({len(_existing)} entries) before force_refresh")
 
     current_time = time.time()
 
@@ -2911,11 +2918,34 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     if fontes and not warnings:
         logger.info(f"ISC/Pricing data consolidado: {len(all_data)} SKUs (fontes: {', '.join(fontes)})")
 
+    # ---------------------------------------------------------------------------
+    # Se houve falha parcial (um banco não respondeu) e temos dados anteriores,
+    # fazemos um merge: os eventos do banco que falhou ficam com os valores
+    # anteriores; apenas os do banco que respondeu são atualizados.
+    # Assim nunca perdemos dados completos por causa de uma falha temporária.
+    # ---------------------------------------------------------------------------
+    _db_partial_failure = any(
+        ("⚠️ Banco Ativo:" in w or "⚠️ Banco Magento:" in w) for w in warnings
+    )
+    if _db_partial_failure and _isc_last_known_data:
+        merged = dict(_isc_last_known_data)
+        merged.update(all_data)   # sobrescreve com novos dados onde existem
+        # _consolidated_totals já veio atualizado no all_data; garante presença
+        if '_consolidated_totals' not in merged:
+            merged['_consolidated_totals'] = {}
+        all_data = merged
+        logger.info(
+            f"[ISC] Partial failure — merged {len(all_data)} entries "
+            f"(new: {len(fontes)} fonte(s), preserved previous data for failed source)"
+        )
+
     _isc_cache = all_data
     _isc_cache_timestamp = current_time
     _isc_warnings = warnings
 
-    if all_data:
+    # Só atualiza o "last known" quando os dados são mais completos do que antes
+    # (ambas as fontes responderam) OU quando ainda não temos nenhum dado anterior.
+    if all_data and (not _db_partial_failure or not _isc_last_known_data):
         _isc_last_known_data = all_data
 
     _smart_isc_cache.set(smart_cache_key, all_data)
