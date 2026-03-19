@@ -2766,7 +2766,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
         except Exception as e:
             logger.error(f"Erro ISC Ativo (executor): {e}")
             dados_ativo = []
-            warnings.append("Falha ao buscar dados do banco Ativo: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Magento.")
+            warnings.append("⚠️ Banco Ativo: timeout ou erro de conexão. ISC exibindo apenas dados do Magento (inscrições Ativo ausentes).")
 
     if future_magento is not None:
         try:
@@ -2774,14 +2774,14 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
         except Exception as e:
             logger.error(f"Erro ISC Magento (executor): {e}")
             dados_magento = []
-            warnings.append("Falha ao buscar dados do banco Magento: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Ativo.")
+            warnings.append("⚠️ Banco Magento: timeout ou erro de conexão. ISC exibindo apenas dados do Ativo (inscrições Magento ausentes).")
 
     if isinstance(dados_ativo, dict) and 'error' in dados_ativo:
-        warnings.append(f"Erro no banco Ativo: {dados_ativo['error']}. Os dados exibidos contêm apenas inscrições do Magento.")
+        warnings.append(f"⚠️ Banco Ativo: {dados_ativo['error']}. ISC exibindo apenas dados do Magento (inscrições Ativo ausentes).")
         dados_ativo = []
 
     if isinstance(dados_magento, dict) and 'error' in dados_magento:
-        warnings.append(f"Erro no banco Magento: {dados_magento['error']}. Os dados exibidos contêm apenas inscrições do Ativo.")
+        warnings.append(f"⚠️ Banco Magento: {dados_magento['error']}. ISC exibindo apenas dados do Ativo (inscrições Magento ausentes).")
         dados_magento = []
 
     if _need_external_queries and not dados_ativo and not dados_magento:
