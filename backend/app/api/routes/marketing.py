@@ -6831,7 +6831,8 @@ def refresh_all_caches(
 def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
 ):
-    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary
+    import time as _cst_time
+    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary, get_gap_detection_result
 
     current_year = datetime.now().year
     last_refresh = get_last_full_refresh()
@@ -6844,6 +6845,19 @@ def get_cache_status(
     last_error = get_last_refresh_error()
     warmup_summary = get_warmup_summary()
     warmup_results = get_warmup_event_results()
+    gap_result = get_gap_detection_result()
+
+    STALE_THRESHOLD = 25 * 3600
+    now_ts = _cst_time.time()
+    all_timestamps = event_detail_cache.get_all_timestamps()
+    current_year_ages = {}
+    for k, ts in all_timestamps.items():
+        if not event_detail_cache._is_historical(k):
+            current_year_ages[k] = now_ts - ts
+
+    oldest_hours = round(max(current_year_ages.values()) / 3600, 1) if current_year_ages else None
+    newest_hours = round(min(current_year_ages.values()) / 3600, 1) if current_year_ages else None
+    stale_events = [k for k, age in current_year_ages.items() if age > STALE_THRESHOLD]
 
     return {
         "status": "success",
@@ -6855,12 +6869,16 @@ def get_cache_status(
         "warmup_completed_at": warmup_summary.get("completed_at"),
         "warmup_summary": warmup_summary,
         "warmup_results": warmup_results,
+        "gap_detection": gap_result,
         "caches": {
             "isc_pricing": _smart_isc_cache.get_info(f"{current_year}_isc"),
             "event_detail": {
                 "entries": event_detail_cache.entry_count(),
                 "historical": sum(1 for k in event_detail_cache.get_all_keys() if event_detail_cache._is_historical(k)),
-                "current_year": sum(1 for k in event_detail_cache.get_all_keys() if not event_detail_cache._is_historical(k))
+                "current_year": sum(1 for k in event_detail_cache.get_all_keys() if not event_detail_cache._is_historical(k)),
+                "oldest_event_detail_age_hours": oldest_hours,
+                "newest_event_detail_age_hours": newest_hours,
+                "stale_events": stale_events,
             },
             "curva_comparativa": {
                 "entries": curva_cache.entry_count(),

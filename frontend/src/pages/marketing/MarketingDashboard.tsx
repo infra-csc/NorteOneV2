@@ -517,7 +517,19 @@ const MarketingDashboard: React.FC = () => {
           {serverLastUpdate && !loading && (
             <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
               <Clock className="w-3 h-3" />
-              <span>Última atualização: {new Date(serverLastUpdate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+              <span>
+                {(() => {
+                  const d = new Date(serverLastUpdate);
+                  const now = new Date();
+                  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+                  const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                  if (d >= todayStart) return `Última atualização: hoje às ${timeStr}`;
+                  if (d >= yesterdayStart) return `Última atualização: ontem às ${timeStr}`;
+                  return `Última atualização: ${d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+                })()}
+                {summary.totalActiveEvents > 0 ? ` \u2022 ${summary.totalActiveEvents} evento${summary.totalActiveEvents !== 1 ? 's' : ''} ativo${summary.totalActiveEvents !== 1 ? 's' : ''}` : ''}
+              </span>
               {serverStale && (
                 <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400 ml-1">
                   <RefreshCw className="w-3 h-3 animate-spin" />

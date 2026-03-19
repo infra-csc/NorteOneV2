@@ -894,7 +894,27 @@ export const marketingService = {
     progress: { step: number; total_steps: number; label: string; elapsed_seconds: number | null } | null;
     last_error: string | null;
     ultima_atualizacao_completa: string | null;
-    caches: Record<string, any>;
+    warmup_duration_seconds: number | null;
+    warmup_completed_at: string | null;
+    warmup_summary: Record<string, any>;
+    warmup_results: Record<string, string>;
+    gap_detection: {
+      tier1_event_count: number;
+      missing_tier1_events: string[];
+      stale_tier1_events: string[];
+      detected_at: string;
+    } | null;
+    caches: {
+      event_detail: {
+        entries: number;
+        historical: number;
+        current_year: number;
+        oldest_event_detail_age_hours: number | null;
+        newest_event_detail_age_hours: number | null;
+        stale_events: string[];
+      };
+      [key: string]: any;
+    };
     config: Record<string, any>;
   }> => {
     const response = await api.get('/marketing/cache/status');

@@ -472,6 +472,10 @@ class SmartCache:
         with self._lock:
             return list(self._data.keys())
 
+    def get_all_timestamps(self) -> dict:
+        with self._lock:
+            return dict(self._timestamps)
+
     def entry_count(self) -> int:
         with self._lock:
             return len(self._data)
@@ -591,6 +595,21 @@ def set_warmup_summary(summary: dict):
 def get_warmup_summary() -> dict:
     with _warmup_summary_lock:
         return dict(_warmup_summary_store)
+
+
+_gap_detection_store: dict = {}
+_gap_detection_lock = threading.Lock()
+
+
+def set_gap_detection_result(result: dict):
+    with _gap_detection_lock:
+        _gap_detection_store.clear()
+        _gap_detection_store.update(result)
+
+
+def get_gap_detection_result() -> dict:
+    with _gap_detection_lock:
+        return dict(_gap_detection_store)
 
 
 def warm_all_caches_from_db():

@@ -14,7 +14,8 @@ from app.core.cache import (
     register_full_warmup_fn,
     isc_cache, event_detail_cache, curva_cache, medias_cache,
     _full_refresh_lock,
-    set_warmup_metadata_cache, clear_warmup_metadata_cache
+    set_warmup_metadata_cache, clear_warmup_metadata_cache,
+    set_gap_detection_result
 )
 import app.core.cache as _cache_module
 import logging
@@ -393,6 +394,138 @@ def _full_cache_warmup():
             except Exception:
                 pass
 
+def _startup_tier1_gap_warmup():
+    """Detect and warm Tier 1 events with missing or stale (>25h) cache right after startup DB load."""
+    from app.core.database import SessionLocal
+    from app.models.cadastro_evento import CadastroEvento
+    from app.models.dimensoes import DimProjeto, SkuMapping
+    from app.api.routes.marketing import (
+        normalize_sku, calculate_d_minus, get_event_regime,
+        _build_sku_to_grupo_map, get_marketing_event_by_id
+    )
+    from datetime import datetime as _dt, timedelta as _td, date as _date
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _as_completed
+    import time as _time
+
+    GAP_STALE_SECONDS = 25 * 3600
+    GAP_TIER1_THRESHOLD = 60
+    GAP_WORKERS = 4
+    GAP_TIMEOUT = 180
+
+    db = None
+    try:
+        db = SessionLocal()
+        ano = _dt.now().year
+        all_cadastros = db.query(CadastroEvento).all()
+        all_projetos = db.query(DimProjeto).all()
+        proj_by_id = {p.id: p for p in all_projetos}
+
+        sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+
+        tier1_ids = []
+        grupo_seen = set()
+        grupo_dm = {}
+
+        for cad in all_cadastros:
+            if not cad.projeto_id:
+                continue
+            proj = proj_by_id.get(cad.projeto_id)
+            if not proj or not proj.data_evento:
+                continue
+
+            reg_close = proj.data_evento - _td(days=2)
+            raw_dm = (reg_close - _date.today()).days
+            regime = get_event_regime(raw_dm)
+            if regime == "consolidated":
+                continue
+
+            d_minus = max(0, raw_dm)
+            sku_norm = normalize_sku(str(proj.codigo)) if proj.codigo else None
+            grupo_nome = sku_to_grupo.get(sku_norm) if sku_norm else None
+
+            if grupo_nome:
+                eid = f"grp_{grupo_nome}"
+                if eid not in grupo_seen:
+                    grupo_seen.add(eid)
+                    grupo_dm[eid] = d_minus
+                    if d_minus <= GAP_TIER1_THRESHOLD:
+                        tier1_ids.append(eid)
+                else:
+                    grupo_dm[eid] = min(grupo_dm.get(eid, d_minus), d_minus)
+            else:
+                eid = str(proj.id)
+                if d_minus <= GAP_TIER1_THRESHOLD:
+                    tier1_ids.append(eid)
+
+        db.close()
+        db = None
+
+        now_ts = _time.time()
+        timestamps = event_detail_cache.get_all_timestamps()
+
+        missing_ids = []
+        stale_ids = []
+        for eid in tier1_ids:
+            cache_key = f"{ano}_{eid}_detail"
+            ts = timestamps.get(cache_key)
+            if ts is None:
+                missing_ids.append(eid)
+            elif (now_ts - ts) > GAP_STALE_SECONDS:
+                stale_ids.append(eid)
+
+        set_gap_detection_result({
+            "tier1_event_count": len(tier1_ids),
+            "missing_tier1_events": missing_ids,
+            "stale_tier1_events": stale_ids,
+            "detected_at": _dt.now().isoformat(),
+        })
+
+        needs_warmup = missing_ids + stale_ids
+        if not needs_warmup:
+            logger.info(f"[StartupGap] All {len(tier1_ids)} Tier1 events have fresh cache. Nothing to warm.")
+            return
+
+        logger.info(f"[StartupGap] {len(needs_warmup)} Tier1 events need warmup: {len(missing_ids)} missing, {len(stale_ids)} stale. Starting targeted warmup with {GAP_WORKERS} workers...")
+
+        def _gap_warm_one(eid):
+            _db = None
+            try:
+                _db = SessionLocal()
+                get_marketing_event_by_id(evento_id=eid, ano=ano, force_refresh=True, db=_db, current_user=None, response=None)
+                return eid, "ok"
+            except Exception as ex:
+                return eid, f"error: {ex}"
+            finally:
+                if _db:
+                    try:
+                        _db.close()
+                    except Exception:
+                        pass
+
+        ok_count = 0
+        fail_count = 0
+        with _TPE(max_workers=GAP_WORKERS, thread_name_prefix="gap_warmup") as ex:
+            futs = {ex.submit(_gap_warm_one, eid): eid for eid in needs_warmup}
+            for fut in _as_completed(futs, timeout=GAP_TIMEOUT * len(needs_warmup)):
+                eid, result = fut.result()
+                if result == "ok":
+                    ok_count += 1
+                else:
+                    fail_count += 1
+                    logger.warning(f"[StartupGap] Failed to warm {eid}: {result}")
+
+        logger.info(f"[StartupGap] Targeted warmup done: {ok_count} ok, {fail_count} failed")
+
+    except Exception as e:
+        logger.error(f"[StartupGap] Startup gap detection failed: {e}", exc_info=True)
+    finally:
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def _startup_resync_projetos():
     from app.core.database import SessionLocal
     from app.models.cadastro_evento import CadastroEvento
@@ -624,6 +757,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Persistent cache warmup failed: {e}")
 
+        try:
+            logger.info("Running startup Tier1 gap detection...")
+            gap_thread = threading.Thread(target=_startup_tier1_gap_warmup, daemon=True, name="startup-gap-warmup")
+            gap_thread.start()
+        except Exception as e:
+            logger.error(f"Startup gap detection failed: {e}")
+
         cache_scheduler.start(interval=1800)
         logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
 
@@ -647,7 +787,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Full cache warmup failed: {e}")
 
-    init_thread = threading.Thread(target=_startup_background_init, daemon=True)
+    init_thread = threading.Thread(target=_startup_background_init, daemon=True, name="startup-bg-init")
     init_thread.start()
     logger.info("Background initialization launched - server ready to accept requests")
 

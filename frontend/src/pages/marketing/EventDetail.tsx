@@ -120,6 +120,7 @@ const EventDetail: React.FC = () => {
   const [showNormalized, setShowNormalized] = useState(false);
   const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
   const [isStaleData, setIsStaleData] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -194,6 +195,9 @@ const EventDetail: React.FC = () => {
           }))
         };
         setEvent(eventWithData);
+        if ((response as any).ultima_atualizacao) {
+          setUltimaAtualizacao((response as any).ultima_atualizacao);
+        }
         if ((response as any).projetos_vinculados) {
           setProjetosVinculados((response as any).projetos_vinculados);
         }
@@ -699,6 +703,28 @@ const EventDetail: React.FC = () => {
 
   const gaugeRotation = Math.min(Math.max(((event.isc ?? 0) - 0.5) * 180, 0), 180);
 
+  const getDataAgeInfo = () => {
+    if (!ultimaAtualizacao) return null;
+    const updatedAt = new Date(ultimaAtualizacao);
+    const now = new Date();
+    const diffMs = now.getTime() - updatedAt.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    const diffDays = Math.floor(diffHours / 24);
+    const timeStr = updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+    if (updatedAt >= todayStart) {
+      return { label: `Dados atualizados às ${timeStr} de hoje`, color: 'text-green-600 dark:text-green-400', isStale: false };
+    } else if (updatedAt >= yesterdayStart) {
+      return { label: `Dados de ontem às ${timeStr}`, color: 'text-yellow-600 dark:text-yellow-400', isStale: diffHours > 25 };
+    } else {
+      return { label: `Dados de ${diffDays} dias atrás (${timeStr})`, color: 'text-red-600 dark:text-red-400', isStale: true };
+    }
+  };
+
+  const dataAgeInfo = getDataAgeInfo();
+  const showDataStaleWarning = dataAgeInfo?.isStale && !refreshing;
+
   return (
     <div className="min-h-screen">
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -716,10 +742,18 @@ const EventDetail: React.FC = () => {
           >
             <ArrowLeft className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`} />
           </button>
-          <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-            <Link to="/marketing" className="hover:text-blue-600">Dashboard</Link>
-            <span>/</span>
-            <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
+          <div>
+            <div className={`flex items-center gap-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              <Link to="/marketing" className="hover:text-blue-600">Dashboard</Link>
+              <span>/</span>
+              <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
+            </div>
+            {dataAgeInfo && (
+              <div className={`flex items-center gap-1 mt-0.5 text-xs ${dataAgeInfo.color}`}>
+                <Clock className="w-3 h-3" />
+                <span>{dataAgeInfo.label}</span>
+              </div>
+            )}
           </div>
         </div>
         <button
@@ -736,6 +770,23 @@ const EventDetail: React.FC = () => {
       {refreshSuccess && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 flex items-center gap-3">
           <span className="text-sm text-green-700 dark:text-green-300 font-medium">Vendas de hoje atualizadas com sucesso.</span>
+        </div>
+      )}
+
+      {showDataStaleWarning && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+            <span className="text-sm text-amber-700 dark:text-amber-300">
+              Os dados deste evento têm mais de 24h. Use &quot;Atualizar Hoje&quot; para buscar as vendas do dia atual, ou aguarde o próximo warmup noturno.
+            </span>
+          </div>
+          <button
+            onClick={handleForceRefresh}
+            className="text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline flex-shrink-0 whitespace-nowrap"
+          >
+            Atualizar agora
+          </button>
         </div>
       )}
 
