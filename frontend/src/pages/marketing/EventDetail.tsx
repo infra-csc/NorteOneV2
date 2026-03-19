@@ -21,7 +21,8 @@ import {
   Trash2,
   RefreshCw,
   TableProperties,
-  ChevronDown
+  ChevronDown,
+  Archive
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -821,7 +822,14 @@ const EventDetail: React.FC = () => {
                 Meta total: {formatNumber(event.totalCapacity)}
               </span>
             </div>
-            {(inscritosTotal > 0 || (hasTodayData && todaySales > 0)) && (
+            {event.dataRegime === 'consolidated' ? (
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600">
+                  <Archive className="w-3 h-3" />
+                  Dados consolidados — evento encerrado
+                </span>
+              </div>
+            ) : (inscritosTotal > 0 || (hasTodayData && todaySales > 0)) ? (
               <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400 dark:text-gray-500">
                 {inscritosTotal > 0 && (
                   <>
@@ -837,7 +845,7 @@ const EventDetail: React.FC = () => {
                   </>
                 )}
               </div>
-            )}
+            ) : null}
           </div>
           <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
             <span className="text-sm text-gray-500 dark:text-gray-400">Categoria</span>

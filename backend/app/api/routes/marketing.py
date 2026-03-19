@@ -554,6 +554,7 @@ class MarketingEvent(BaseModel):
     margemPorKit: Optional[List[dict]] = None
     detalheVendasPorKit: Optional[List[dict]] = None
     detalheVendasAtivoKit: Optional[List[dict]] = None
+    dataRegime: Optional[str] = None
 
 class DashboardSummary(BaseModel):
     totalActiveEvents: int
@@ -716,6 +717,51 @@ def calculate_d_minus(event_date: date, reference_year: int = None, dias_encerra
             today = today.replace(year=reference_year, day=28)
     delta = (registration_close - today).days
     return max(0, delta)
+
+
+def get_data_regime(event_date, dias_encerramento: int = 2) -> str:
+    """
+    Determines the data regime for an event:
+    - 'consolidated': event ended more than 1 day ago → use snapshot data only, no live queries
+    - 'hybrid': event is happening now or just ended (±3 days) → snapshot history + live today
+    - 'live': upcoming event → full live queries as normal
+    """
+    if not event_date:
+        return "live"
+    registration_close = event_date - timedelta(days=dias_encerramento)
+    today = date.today()
+    real_d_minus = (registration_close - today).days
+    if real_d_minus < -1:
+        return "consolidated"
+    if real_d_minus <= 3:
+        return "hybrid"
+    return "live"
+
+
+def _get_snapshot_metrics_for_grupo(db: Session, grupo_nome: str) -> Optional[dict]:
+    """
+    Returns ISC-like metrics from snapshot data for a consolidated event group.
+    Returns None if no snapshot data exists (caller should fall back to live data).
+    """
+    try:
+        from ...services.snapshot_service import get_snapshot_vendas_com_receita
+        rows = get_snapshot_vendas_com_receita(db, grupo_nome)
+        if not rows:
+            return None
+        total_qtd = sum(r['qtd'] for r in rows)
+        total_receita = sum(r['receita'] for r in rows)
+        return {
+            'qtd_site': total_qtd,
+            'inscricao_liquida': total_receita,
+            'receita_liquida_site': total_receita,
+            'ticket_medio': round(total_receita / total_qtd, 2) if total_qtd > 0 else 0.0,
+            'media_7d': 0.0,
+            'media_14d': 0.0,
+            'media_30d': 0.0,
+        }
+    except Exception as e:
+        logger.warning(f"[Hybrid] Failed to get snapshot metrics for '{grupo_nome}': {e}")
+        return None
 
 def _interpolate_hist_pattern(hist_pattern: dict, d_minus: int) -> float:
     sorted_dms = sorted(hist_pattern.keys(), reverse=True)
@@ -3015,6 +3061,7 @@ def get_marketing_events(
         d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
         is_active = d_minus_inscricoes > 0
+        grupo_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
         
         if status == 'active' and not is_active:
             continue
@@ -3026,16 +3073,31 @@ def get_marketing_events(
         grupo_m7d = 0.0
         grupo_m14d = 0.0
         grupo_m30d = 0.0
-        seen_grupo_norms = set()
-        for p in proj_list:
-            p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
-            if p_sku and p_sku not in seen_grupo_norms and p_sku in isc_data:
-                seen_grupo_norms.add(p_sku)
-                current_sales += isc_data[p_sku].get('qtd_site', 0)
-                current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
-                grupo_m7d += isc_data[p_sku].get('media_7d', 0.0)
-                grupo_m14d += isc_data[p_sku].get('media_14d', 0.0)
-                grupo_m30d += isc_data[p_sku].get('media_30d', 0.0)
+
+        if grupo_regime == "consolidated":
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            if snap is not None:
+                current_sales = snap['qtd_site']
+                current_receita = snap['receita_liquida_site']
+            else:
+                seen_grupo_norms = set()
+                for p in proj_list:
+                    p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
+                    if p_sku and p_sku not in seen_grupo_norms and p_sku in isc_data:
+                        seen_grupo_norms.add(p_sku)
+                        current_sales += isc_data[p_sku].get('qtd_site', 0)
+                        current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
+        else:
+            seen_grupo_norms = set()
+            for p in proj_list:
+                p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
+                if p_sku and p_sku not in seen_grupo_norms and p_sku in isc_data:
+                    seen_grupo_norms.add(p_sku)
+                    current_sales += isc_data[p_sku].get('qtd_site', 0)
+                    current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
+                    grupo_m7d += isc_data[p_sku].get('media_7d', 0.0)
+                    grupo_m14d += isc_data[p_sku].get('media_14d', 0.0)
+                    grupo_m30d += isc_data[p_sku].get('media_30d', 0.0)
 
         sales_goal = total_capacity if total_capacity > 0 else 1000
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
@@ -3120,6 +3182,7 @@ def get_marketing_events(
             isActive=is_active,
             sku=",".join(skus_list),
             ticketAtual=grupo_ticket_atual,
+            dataRegime=grupo_regime,
             **grupo_margin
         )
         eventos.append(evento)
@@ -3136,6 +3199,7 @@ def get_marketing_events(
         d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
         is_active = d_minus_inscricoes > 0
+        standalone_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
         
         if status == 'active' and not is_active:
             continue
@@ -3143,21 +3207,37 @@ def get_marketing_events(
             continue
         
         sku_norm = normalize_sku(sku)
-        sales_info = isc_data.get(sku_norm, {})
-        current_sales = sales_info.get('qtd_site', 0)
-        current_receita = sales_info.get('receita_liquida_site', 0.0)
+        standalone_eg = sku_to_grupo.get(normalize_sku(sku))
+
+        if standalone_regime == "consolidated":
+            snap_eg = standalone_eg or sku_norm
+            snap = _get_snapshot_metrics_for_grupo(db, snap_eg)
+            if snap is not None:
+                current_sales = snap['qtd_site']
+                current_receita = snap['receita_liquida_site']
+                standalone_m7d = 0.0
+                standalone_m14d = 0.0
+                standalone_m30d = 0.0
+            else:
+                sales_info = isc_data.get(sku_norm, {})
+                current_sales = sales_info.get('qtd_site', 0)
+                current_receita = sales_info.get('receita_liquida_site', 0.0)
+                standalone_m7d = 0.0
+                standalone_m14d = 0.0
+                standalone_m30d = 0.0
+        else:
+            sales_info = isc_data.get(sku_norm, {})
+            current_sales = sales_info.get('qtd_site', 0)
+            current_receita = sales_info.get('receita_liquida_site', 0.0)
+            standalone_m7d = sales_info.get('media_7d', 0.0)
+            standalone_m14d = sales_info.get('media_14d', 0.0)
+            standalone_m30d = sales_info.get('media_30d', 0.0)
         
         sales_goal = get_meta_from_cadastro(cad) if cad else get_meta_orcada(db, projeto.id)
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
         standalone_budget_ticket = round(float(cad.atletas_site_tkt_medio), 2) if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0 else 0.0
         
-        standalone_eg = sku_to_grupo.get(normalize_sku(sku))
-
         standalone_hist = hist_patterns_prefetch.get(standalone_eg) if standalone_eg else None
-
-        standalone_m7d = sales_info.get('media_7d', 0.0)
-        standalone_m14d = sales_info.get('media_14d', 0.0)
-        standalone_m30d = sales_info.get('media_30d', 0.0)
 
         isc_components = calculate_isc_components(
             current_sales, sales_goal, d_minus_inscricoes,
@@ -3215,6 +3295,7 @@ def get_marketing_events(
             isActive=is_active,
             sku=sku,
             ticketAtual=standalone_ticket_atual,
+            dataRegime=standalone_regime,
             **standalone_margin
         )
         eventos.append(evento)
@@ -5797,6 +5878,7 @@ def get_marketing_event_by_id(
         sales_goal = total_capacity
         
         data_fim_inscricoes = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
+        detail_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
         
         detail_hist_pattern = None
         try:
@@ -5805,7 +5887,7 @@ def get_marketing_event_by_id(
             pass
         
         current_year = datetime.now().year
-        if force_refresh and ano == current_year:
+        if force_refresh and ano == current_year and detail_regime != "consolidated":
             _should_rebuild = True
             try:
                 from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
@@ -5824,6 +5906,8 @@ def get_marketing_event_by_id(
                     logger.info(f"Snapshot reconstruído (force_refresh) para '{grupo_nome}' ano={ano}")
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
+        elif detail_regime == "consolidated" and ano == current_year:
+            logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated — pulando rebuild de snapshot")
 
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern, data_evento_real=projeto_data_evento)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
@@ -5833,7 +5917,27 @@ def get_marketing_event_by_id(
         if daily_sales_dict and len(daily_sales_dict) > 0:
             current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _today_detail)
         
-        if ano == current_year:
+        if ano == current_year and detail_regime == "consolidated":
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            if snap is not None:
+                current_receita = snap['receita_liquida_site']
+                if current_sales == 0:
+                    current_sales = snap['qtd_site']
+            else:
+                isc_data = fetch_isc_pricing_data(db=db)
+                current_receita = 0.0
+                seen_norms = set()
+                for s_sku in skus:
+                    s_norm = normalize_sku(s_sku)
+                    if s_norm in seen_norms:
+                        continue
+                    seen_norms.add(s_norm)
+                    info = isc_data.get(s_norm, {})
+                    current_receita += info.get('receita_liquida_site', 0.0)
+            grupo_media_14d = 0.0
+            grupo_media_7d = 0.0
+            grupo_media_30d = 0.0
+        elif ano == current_year:
             isc_data = fetch_isc_pricing_data(db=db)
             current_receita = 0.0
             seen_norms = set()
@@ -5952,6 +6056,7 @@ def get_marketing_event_by_id(
             margemPorKit=detail_margem_por_kit if detail_margem_por_kit else None,
             detalheVendasPorKit=detail_detalhe_vendas if detail_detalhe_vendas else None,
             detalheVendasAtivoKit=detail_detalhe_ativo if detail_detalhe_ativo else None,
+            dataRegime=detail_regime,
             **detail_margin
         )
         
@@ -6104,6 +6209,7 @@ def get_marketing_event_by_id(
     d_minus_inscricoes = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=dias_enc) if projeto_data_evento else 0
     d_minus = calculate_d_minus(projeto_data_evento, reference_year=ano, dias_encerramento=0) if projeto_data_evento else 0
     is_active = d_minus_inscricoes > 0 if ano == datetime.now().year else True
+    standalone_detail_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
     if not force_refresh:
@@ -6115,16 +6221,6 @@ def get_marketing_event_by_id(
                 return {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
             return cached_standalone
     
-    isc_data = fetch_isc_pricing_data(db=db)
-    
-    sales_info = isc_data.get(normalize_sku(sku), {}) if sku else {}
-    current_sales = sales_info.get('qtd_site', 0)
-    current_receita = sales_info.get('receita_liquida_site', 0.0)
-    
-    sales_goal = get_meta_from_cadastro(detail_standalone_cad) if detail_standalone_cad else get_meta_orcada(db, projeto.id)
-    avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-    detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
-    
     standalone_evento_grupo = None
     if sku:
         standalone_mappings = _wq_sku_mappings_by_sku(db, sku)
@@ -6133,9 +6229,30 @@ def get_marketing_event_by_id(
                 standalone_evento_grupo = sm.evento_grupo
                 break
 
+    if standalone_detail_regime == "consolidated":
+        snap_key = standalone_evento_grupo or normalize_sku(sku or "")
+        snap = _get_snapshot_metrics_for_grupo(db, snap_key) if snap_key else None
+        if snap is not None:
+            current_sales = snap['qtd_site']
+            current_receita = snap['receita_liquida_site']
+        else:
+            isc_data_sa = fetch_isc_pricing_data(db=db)
+            sales_info = isc_data_sa.get(normalize_sku(sku), {}) if sku else {}
+            current_sales = sales_info.get('qtd_site', 0)
+            current_receita = sales_info.get('receita_liquida_site', 0.0)
+    else:
+        isc_data_sa = fetch_isc_pricing_data(db=db)
+        sales_info = isc_data_sa.get(normalize_sku(sku), {}) if sku else {}
+        current_sales = sales_info.get('qtd_site', 0)
+        current_receita = sales_info.get('receita_liquida_site', 0.0)
+    
+    sales_goal = get_meta_from_cadastro(detail_standalone_cad) if detail_standalone_cad else get_meta_orcada(db, projeto.id)
+    avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
+    detail_standalone_bt = round(float(detail_standalone_cad.atletas_site_tkt_medio), 2) if detail_standalone_cad and detail_standalone_cad.atletas_site_tkt_medio and detail_standalone_cad.atletas_site_pago and detail_standalone_cad.atletas_site_pago > 0 else 0.0
+
     data_fim_inscricoes_standalone = projeto_data_evento - timedelta(days=dias_enc) if projeto_data_evento else None
 
-    if force_refresh and standalone_evento_grupo and ano == datetime.now().year:
+    if force_refresh and standalone_evento_grupo and ano == datetime.now().year and standalone_detail_regime != "consolidated":
         _should_rebuild_standalone = True
         try:
             from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
@@ -6154,6 +6271,8 @@ def get_marketing_event_by_id(
                 logger.info(f"Snapshot reconstruído (force_refresh standalone) para '{standalone_evento_grupo}' ano={ano}")
             except Exception as _e:
                 logger.warning(f"Falha ao reconstruir snapshot standalone para '{standalone_evento_grupo}': {_e}")
+    elif standalone_detail_regime == "consolidated":
+        logger.info(f"[Hybrid] Standalone evento {evento_id} é consolidated — pulando rebuild de snapshot")
 
     daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone, data_evento_real=projeto_data_evento)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
@@ -6219,6 +6338,7 @@ def get_marketing_event_by_id(
         margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,
         detalheVendasAtivoKit=sa_detalhe_ativo if sa_detalhe_ativo else None,
+        dataRegime=standalone_detail_regime,
         **detail_sa_margin
     )
     

@@ -531,6 +531,7 @@ export interface MarketingEvent {
   margemRealizadaTotal?: number;
   margemRealizadaPct?: number;
   ticketAtual?: number;
+  dataRegime?: 'consolidated' | 'hybrid' | 'live' | null;
   margemPorKit?: Array<{
     tipoKit: string;
     qtd: number;

@@ -17,7 +17,8 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Archive
 } from 'lucide-react';
 import { 
   getISCColor, 
@@ -878,6 +879,12 @@ const MarketingDashboard: React.FC = () => {
                           {event.location}
                         </p>
                       </div>
+                      {event.dataRegime === 'consolidated' && (
+                        <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 rounded-full flex items-center gap-1 border border-gray-200 dark:border-gray-600">
+                          <Archive className="w-3 h-3" />
+                          Consolidado
+                        </span>
+                      )}
                       {isInCriticalWindow(event.dMinusInscricoes) && (
                         <span className="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded-full flex items-center gap-1">
                           <Target className="w-3 h-3" />
