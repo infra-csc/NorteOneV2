@@ -177,10 +177,10 @@ LEFT JOIN catalog_product_entity_int cpei_tipo
 LEFT JOIN eav_attribute_option_value eaov_tipo
        ON eaov_tipo.option_id = cpei_tipo.value
 
-JOIN catalog_product_bundle_option cpeo
+LEFT JOIN catalog_product_bundle_option cpeo
        ON cpeo.parent_id = cpe_parent.entity_id
 
-JOIN catalog_product_bundle_selection cpeos
+LEFT JOIN catalog_product_bundle_selection cpeos
        ON cpeos.option_id = cpeo.option_id
 
 LEFT JOIN catalog_product_entity_varchar cpev_simple
