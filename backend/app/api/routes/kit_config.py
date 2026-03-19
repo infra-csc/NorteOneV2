@@ -36,7 +36,7 @@ SELECT
     END                                     AS multiplicador,
 
     (
-        COALESCE(MAX(CASE 
+        MAX(CASE 
             WHEN (
                 cpev_simple.value LIKE '%Distancia%'
              OR cpev_simple.value LIKE '%Distância%'
@@ -44,7 +44,7 @@ SELECT
             )
              AND cpep.value > 0
             THEN cpep.value ELSE NULL 
-        END), 0)
+        END)
         +
         COALESCE(MAX(CASE 
             WHEN cpep.value > 0
@@ -91,7 +91,7 @@ SELECT
     END                                     AS price,
 
     (
-        COALESCE(MAX(CASE 
+        MAX(CASE 
             WHEN (
                 cpev_simple.value LIKE '%Distancia%'
              OR cpev_simple.value LIKE '%Distância%'
@@ -99,7 +99,7 @@ SELECT
             )
              AND pi_filho.final_price > 0
             THEN pi_filho.final_price ELSE NULL 
-        END), 0)
+        END)
         +
         COALESCE(MAX(CASE 
             WHEN pi_filho.final_price > 0
