@@ -6850,6 +6850,15 @@ def get_cache_status(
     STALE_THRESHOLD = 25 * 3600
     now_ts = _cst_time.time()
     all_timestamps = event_detail_cache.get_all_timestamps()
+
+    def _extract_event_id(cache_key: str) -> str:
+        """Strip '{ano}_' prefix and '_detail' suffix from cache key to get event ID."""
+        parts = cache_key.split("_", 1)
+        raw = parts[1] if len(parts) == 2 else cache_key
+        if raw.endswith("_detail"):
+            raw = raw[:-7]
+        return raw
+
     current_year_ages = {}
     for k, ts in all_timestamps.items():
         if not event_detail_cache._is_historical(k):
@@ -6857,7 +6866,10 @@ def get_cache_status(
 
     oldest_hours = round(max(current_year_ages.values()) / 3600, 1) if current_year_ages else None
     newest_hours = round(min(current_year_ages.values()) / 3600, 1) if current_year_ages else None
-    stale_events = [k for k, age in current_year_ages.items() if age > STALE_THRESHOLD]
+    stale_event_ids = [_extract_event_id(k) for k, age in current_year_ages.items() if age > STALE_THRESHOLD]
+
+    missing_tier1 = gap_result.get("missing_tier1_events", [])
+    stale_tier1 = gap_result.get("stale_tier1_events", [])
 
     return {
         "status": "success",
@@ -6870,6 +6882,11 @@ def get_cache_status(
         "warmup_summary": warmup_summary,
         "warmup_results": warmup_results,
         "gap_detection": gap_result,
+        "missing_tier1_events": missing_tier1,
+        "stale_tier1_events": stale_tier1,
+        "oldest_event_detail_age_hours": oldest_hours,
+        "newest_event_detail_age_hours": newest_hours,
+        "stale_events": stale_event_ids,
         "caches": {
             "isc_pricing": _smart_isc_cache.get_info(f"{current_year}_isc"),
             "event_detail": {
@@ -6878,7 +6895,7 @@ def get_cache_status(
                 "current_year": sum(1 for k in event_detail_cache.get_all_keys() if not event_detail_cache._is_historical(k)),
                 "oldest_event_detail_age_hours": oldest_hours,
                 "newest_event_detail_age_hours": newest_hours,
-                "stale_events": stale_events,
+                "stale_events": stale_event_ids,
             },
             "curva_comparativa": {
                 "entries": curva_cache.entry_count(),

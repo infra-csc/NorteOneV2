@@ -758,9 +758,8 @@ async def lifespan(app: FastAPI):
             logger.error(f"Persistent cache warmup failed: {e}")
 
         try:
-            logger.info("Running startup Tier1 gap detection...")
-            gap_thread = threading.Thread(target=_startup_tier1_gap_warmup, daemon=True, name="startup-gap-warmup")
-            gap_thread.start()
+            logger.info("Running startup Tier1 gap detection (synchronous before full warmup)...")
+            _startup_tier1_gap_warmup()
         except Exception as e:
             logger.error(f"Startup gap detection failed: {e}")
 

@@ -904,6 +904,11 @@ export const marketingService = {
       stale_tier1_events: string[];
       detected_at: string;
     } | null;
+    missing_tier1_events: string[];
+    stale_tier1_events: string[];
+    oldest_event_detail_age_hours: number | null;
+    newest_event_detail_age_hours: number | null;
+    stale_events: string[];
     caches: {
       event_detail: {
         entries: number;
