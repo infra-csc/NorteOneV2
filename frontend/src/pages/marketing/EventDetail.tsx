@@ -116,16 +116,18 @@ const EventDetail: React.FC = () => {
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
   const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
+  const [isStaleData, setIsStaleData] = useState(false);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
   const curvaAbortRef = useRef<AbortController | null>(null);
+  const staleRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const fetchEvent = async () => {
+    const fetchEvent = async (isStaleRetry = false) => {
       if (!id) {
         setError('ID do evento não fornecido');
         setLoading(false);
@@ -133,9 +135,24 @@ const EventDetail: React.FC = () => {
       }
       
       try {
-        setLoading(true);
+        if (!isStaleRetry) setLoading(true);
         const response = await marketingService.getEventoById(id, controller.signal, anoParam);
         if (controller.signal.aborted) return;
+
+        const stale = response._isStale === true;
+        setIsStaleData(stale);
+        if (stale && !isStaleRetry) {
+          if (staleRetryTimerRef.current) clearTimeout(staleRetryTimerRef.current);
+          staleRetryTimerRef.current = setTimeout(() => {
+            if (!controller.signal.aborted) fetchEvent(true);
+          }, 60000);
+        } else if (!stale) {
+          if (staleRetryTimerRef.current) {
+            clearTimeout(staleRetryTimerRef.current);
+            staleRetryTimerRef.current = null;
+          }
+        }
+
         const eventWithData = {
           ...response.evento,
           dailySales: response.dailySales?.map(d => ({
@@ -195,7 +212,13 @@ const EventDetail: React.FC = () => {
     };
     
     fetchEvent();
-    return () => { controller.abort(); };
+    return () => {
+      controller.abort();
+      if (staleRetryTimerRef.current) {
+        clearTimeout(staleRetryTimerRef.current);
+        staleRetryTimerRef.current = null;
+      }
+    };
   }, [id, anoParam]);
 
   useEffect(() => {
@@ -334,6 +357,11 @@ const EventDetail: React.FC = () => {
         setAnosDisponiveis((response as any).anos_disponiveis);
       }
       setAvisos((response as any).avisos || []);
+      setIsStaleData(response._isStale === true);
+      if (staleRetryTimerRef.current) {
+        clearTimeout(staleRetryTimerRef.current);
+        staleRetryTimerRef.current = null;
+      }
     } catch (err: any) {
       console.error('Erro ao atualizar:', err);
     } finally {
@@ -731,6 +759,23 @@ const EventDetail: React.FC = () => {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-center gap-3">
           <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400 flex-shrink-0" />
           <span className="text-sm text-blue-700 dark:text-blue-300">Carregando dados completos do evento...</span>
+        </div>
+      )}
+
+      {isStaleData && !refreshing && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-600 dark:text-amber-400 flex-shrink-0" />
+            <span className="text-sm text-amber-700 dark:text-amber-300">
+              Dados sendo atualizados em background. Os números serão atualizados automaticamente em breve.
+            </span>
+          </div>
+          <button
+            onClick={handleForceRefresh}
+            className="text-xs text-amber-600 dark:text-amber-400 hover:underline flex-shrink-0"
+          >
+            Atualizar agora
+          </button>
         </div>
       )}
 

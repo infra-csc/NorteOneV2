@@ -308,7 +308,7 @@ const MarketingDashboard: React.FC = () => {
             setRefreshProgress(null);
             showRefreshResult('timeout');
             setAvisos(prev => [...prev, 'A atualização está demorando mais que o esperado. Ela continua em andamento no servidor e será concluída em breve.']);
-            fetchData(true, true);
+            fetchData(true, false);
             return;
           }
           const status = await marketingService.getCacheStatus();
@@ -330,7 +330,7 @@ const MarketingDashboard: React.FC = () => {
             if (status.ultima_atualizacao_completa) {
               setServerLastUpdate(status.ultima_atualizacao_completa);
             }
-            fetchData(true, true);
+            fetchData(true, false);
           } else if (status.progress) {
             setRefreshProgress(status.progress);
           }
