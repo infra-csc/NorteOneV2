@@ -1000,20 +1000,24 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 all_daily[d] = all_daily.get(d, 0) + row['qtd']
     else:
-        if ativo_ids:
-            try:
-                today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
-                for d, qty in today_sales.items():
-                    all_daily[d] = all_daily.get(d, 0) + qty
-            except Exception as e:
-                logger.warning(f"Failed to fetch today's Ativo sales: {e}")
-        if magento_ids:
-            try:
-                today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
-                for d, qty in today_sales.items():
-                    all_daily[d] = all_daily.get(d, 0) + qty
-            except Exception as e:
-                logger.warning(f"Failed to fetch today's Magento sales: {e}")
+        event_already_happened = data_evento_real and data_evento_real < today
+        if event_already_happened:
+            logger.debug(f"Event '{evento_grupo}' already happened ({data_evento_real}), skipping today's live sales query")
+        else:
+            if ativo_ids:
+                try:
+                    today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
+                    for d, qty in today_sales.items():
+                        all_daily[d] = all_daily.get(d, 0) + qty
+                except Exception as e:
+                    logger.warning(f"Failed to fetch today's Ativo sales: {e}")
+            if magento_ids:
+                try:
+                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
+                    for d, qty in today_sales.items():
+                        all_daily[d] = all_daily.get(d, 0) + qty
+                except Exception as e:
+                    logger.warning(f"Failed to fetch today's Magento sales: {e}")
     
     if not all_daily:
         if days_history:
@@ -5759,6 +5763,8 @@ def get_marketing_event_by_id(
             if cached_detail is not None:
                 if response is not None:
                     response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+                if "__is_completed" in cached_detail:
+                    return {k: v for k, v in cached_detail.items() if k != "__is_completed"}
                 return cached_detail
         
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
@@ -6059,6 +6065,8 @@ def get_marketing_event_by_id(
                 SkuMapping.ativo == True
             ).distinct().order_by(SkuMapping.ano.desc()).all()
         
+        _today_now = date.today()
+        _event_is_past = bool(projeto_data_evento and projeto_data_evento < _today_now)
         grouped_result = {
             "status": "success",
             "evento": evento,
@@ -6070,8 +6078,14 @@ def get_marketing_event_by_id(
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
             "avisos": get_isc_warnings()
         }
-        event_detail_cache.set(detail_cache_key, grouped_result)
-        return grouped_result
+        if _event_is_past:
+            grouped_result["__is_completed"] = True
+            event_detail_cache.set_permanent(detail_cache_key, grouped_result)
+            logger.info(f"Event '{grupo_nome}' ({projeto_data_evento}) cached permanently (completed event)")
+        else:
+            event_detail_cache.set(detail_cache_key, grouped_result)
+        response_result = {k: v for k, v in grouped_result.items() if k != "__is_completed"}
+        return response_result
     
     projeto = _wq_dim_projeto_by_id(db, int(evento_id))
     
@@ -6097,6 +6111,8 @@ def get_marketing_event_by_id(
         if cached_standalone is not None:
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+            if "__is_completed" in cached_standalone:
+                return {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
             return cached_standalone
     
     isc_data = fetch_isc_pricing_data(db=db)
@@ -6256,8 +6272,15 @@ def get_marketing_event_by_id(
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
         "avisos": get_isc_warnings()
     }
-    event_detail_cache.set(standalone_cache_key, standalone_result)
-    return standalone_result
+    _sa_today = date.today()
+    _sa_event_is_past = bool(projeto_data_evento and projeto_data_evento < _sa_today)
+    if _sa_event_is_past:
+        standalone_result["__is_completed"] = True
+        event_detail_cache.set_permanent(standalone_cache_key, standalone_result)
+        logger.info(f"Standalone event {evento_id} ({projeto_data_evento}) cached permanently (completed event)")
+    else:
+        event_detail_cache.set(standalone_cache_key, standalone_result)
+    return {k: v for k, v in standalone_result.items() if k != "__is_completed"}
 
 
 @router.post("/cache/refresh")

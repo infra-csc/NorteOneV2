@@ -268,6 +268,7 @@ class SmartCache:
         self._timestamps = {}
         self._lock = threading.Lock()
         self._db_loaded = False
+        self._permanent_keys: set = set()
 
     def _is_historical(self, cache_key: str) -> bool:
         try:
@@ -276,6 +277,9 @@ class SmartCache:
             return year < datetime.now().year
         except (ValueError, IndexError):
             return False
+
+    def _is_permanent(self, cache_key: str) -> bool:
+        return self._is_historical(cache_key) or cache_key in self._permanent_keys
 
     def warm_from_db(self):
         loaded = _load_all_from_db(self.name)
@@ -287,10 +291,14 @@ class SmartCache:
                 for key, val in loaded.items():
                     if key not in self._data:
                         is_hist = self._is_historical(key)
+                        data = val["data"]
+                        is_completed = isinstance(data, dict) and data.get("__is_completed", False)
                         db_age = now - val["updated_at"]
-                        if is_hist or db_age < MAX_STALE_AGE:
-                            self._data[key] = val["data"]
+                        if is_hist or is_completed or db_age < MAX_STALE_AGE:
+                            self._data[key] = data
                             self._timestamps[key] = val["updated_at"]
+                            if is_completed:
+                                self._permanent_keys.add(key)
                             loaded_count += 1
                         else:
                             expired_count += 1
@@ -310,7 +318,7 @@ class SmartCache:
                 if ts is None:
                     return None
 
-                if self._is_historical(cache_key):
+                if self._is_permanent(cache_key):
                     return self._data[cache_key]
 
                 elapsed = time.time() - ts
@@ -351,7 +359,7 @@ class SmartCache:
                 if ts is None:
                     return None, False
 
-                if self._is_historical(cache_key):
+                if self._is_permanent(cache_key):
                     return self._data[cache_key], False
 
                 elapsed = time.time() - ts
@@ -400,17 +408,29 @@ class SmartCache:
         except RuntimeError:
             logger.warning(f"DB persist executor shutdown, skipping persist for {self.name}/{cache_key}")
 
+    def set_permanent(self, cache_key: str, data: Any):
+        """Store data that never expires (for completed current-year events)."""
+        with self._lock:
+            self._data[cache_key] = data
+            self._timestamps[cache_key] = time.time()
+            self._permanent_keys.add(cache_key)
+        try:
+            _db_persist_executor.submit(_persist_to_db, self.name, cache_key, data)
+        except RuntimeError:
+            logger.warning(f"DB persist executor shutdown, skipping persist for {self.name}/{cache_key}")
+
     def invalidate(self, cache_key: str = None):
         keys_removed = []
         with self._lock:
             if cache_key:
                 self._data.pop(cache_key, None)
                 self._timestamps.pop(cache_key, None)
+                self._permanent_keys.discard(cache_key)
                 keys_removed.append(cache_key)
             else:
                 keys_to_remove = [
                     k for k in self._data
-                    if not self._is_historical(k)
+                    if not self._is_permanent(k)
                 ]
                 for k in keys_to_remove:
                     self._data.pop(k, None)
@@ -437,12 +457,12 @@ class SmartCache:
         with self._lock:
             if cache_key and cache_key in self._timestamps:
                 ts = self._timestamps[cache_key]
-                is_hist = self._is_historical(cache_key)
+                is_perm = self._is_permanent(cache_key)
                 return {
                     "cached": True,
                     "cached_at": datetime.fromtimestamp(ts).isoformat(),
-                    "is_historical": is_hist,
-                    "ttl": "permanent" if is_hist else f"{self.ttl}s",
+                    "is_historical": is_perm,
+                    "ttl": "permanent" if is_perm else f"{self.ttl}s",
                     "age_seconds": round(time.time() - ts, 1)
                 }
             return {"cached": False}
