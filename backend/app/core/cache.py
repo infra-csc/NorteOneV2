@@ -629,7 +629,7 @@ class CacheRefreshScheduler:
         self._schedule(interval)
         self._schedule_daily_refresh()
         self._schedule_snapshot_consolidation()
-        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 06:00 BRT, daily refresh at 05:00 BRT)")
+        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 04:00 BRT, daily refresh at 05:00 BRT)")
 
     def _schedule(self, interval: int):
         with self._lock:
@@ -662,7 +662,7 @@ class CacheRefreshScheduler:
                 return
 
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
-        target = now.replace(hour=6, minute=0, second=0, microsecond=0)
+        target = now.replace(hour=4, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
 
@@ -678,7 +678,7 @@ class CacheRefreshScheduler:
             if not self._running:
                 return
 
-        logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (06:00 BRT) ===")
+        logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (04:00 BRT) ===")
         try:
             from app.core.database import SessionLocal
             from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch

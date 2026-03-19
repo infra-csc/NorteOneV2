@@ -6851,6 +6851,8 @@ def get_cache_status(
         "progress": progress,
         "last_error": last_error,
         "ultima_atualizacao_completa": last_refresh_str,
+        "warmup_duration_seconds": warmup_summary.get("duration_seconds"),
+        "warmup_completed_at": warmup_summary.get("completed_at"),
         "warmup_summary": warmup_summary,
         "warmup_results": warmup_results,
         "caches": {

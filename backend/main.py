@@ -204,6 +204,7 @@ def _full_cache_warmup():
 
         # --- Phase 1b: kick off event_detail pre-warm for ALL active events (background, parallel with ISC refresh) ---
         _detail_futures: dict = {}
+        _tier1_aux_futures: dict = {}
         _prewarm_detail_fn = None
         if active_evento_ids:
             from app.api.routes.marketing import (
@@ -247,9 +248,10 @@ def _full_cache_warmup():
                         logger.warning(f"[Warmup BG] curva pre-warm failed for {eid}: {_e}")
                     finally:
                         _db3.close()
+                    return "ok"
 
                 for _eid in tier1_evento_ids:
-                    _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
+                    _tier1_aux_futures[_eid] = _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
                 _tier1_aux_executor.shutdown(wait=False)
                 logger.info(f"[Warmup] medias+curva Tier 1 pre-warm started for {len(tier1_evento_ids)} events ({min(8, len(tier1_evento_ids))} workers)")
 
@@ -284,7 +286,7 @@ def _full_cache_warmup():
                     _failed_eids.append(_eid)
                 except Exception as _ec:
                     logger.warning(f"[Warmup 1d] Exception collecting event_detail for {_eid}: {_ec}")
-                    _warmup_event_results[_eid] = "error"
+                    _warmup_event_results[_eid] = "failed"
                     _failed_eids.append(_eid)
 
             if _failed_eids:
@@ -295,14 +297,14 @@ def _full_cache_warmup():
                 for _eid, _fut in _retry_futs.items():
                     try:
                         _r = _fut.result(timeout=600)
-                        _warmup_event_results[_eid] = "retried_ok" if _r == "ok" else "retry_failed"
+                        _warmup_event_results[_eid] = "retried_ok" if _r == "ok" else "failed"
                         if _r == "ok":
                             logger.info(f"[Warmup 1d] Retry OK: {_eid}")
                     except _FutureTimeout:
-                        _warmup_event_results[_eid] = "retry_timeout"
+                        _warmup_event_results[_eid] = "timeout"
                         logger.warning(f"[Warmup 1d] Retry timeout: {_eid}")
                     except Exception as _ec:
-                        _warmup_event_results[_eid] = "retry_error"
+                        _warmup_event_results[_eid] = "failed"
                         logger.warning(f"[Warmup 1d] Retry exception for {_eid}: {_ec}")
 
             _ok_cnt = sum(1 for v in _warmup_event_results.values() if v == "ok")
@@ -321,6 +323,23 @@ def _full_cache_warmup():
                 "duration_seconds": round(_warmup_elapsed, 1),
                 "completed_at": datetime.utcnow().isoformat() + "Z"
             })
+
+        # --- Phase 1d-extra: collect tier1 aux (medias/curva) futures with timeout ---
+        if _tier1_aux_futures:
+            from concurrent.futures import TimeoutError as _FutureTimeout2
+            _t1_ok = 0
+            _t1_fail = 0
+            for _eid, _fut in _tier1_aux_futures.items():
+                try:
+                    _fut.result(timeout=300)
+                    _t1_ok += 1
+                except _FutureTimeout2:
+                    logger.warning(f"[Warmup 1d] Tier1 aux timeout: {_eid}")
+                    _t1_fail += 1
+                except Exception as _ec:
+                    logger.warning(f"[Warmup 1d] Tier1 aux exception for {_eid}: {_ec}")
+                    _t1_fail += 1
+            logger.info(f"[Warmup] medias+curva summary: {_t1_ok} OK, {_t1_fail} failed from {len(_tier1_aux_futures)} Tier1 events")
 
         set_warmup_progress(2, "Finalizando lista", 0, 1)
 
