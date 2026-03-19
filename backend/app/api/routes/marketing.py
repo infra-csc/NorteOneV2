@@ -719,23 +719,28 @@ def calculate_d_minus(event_date: date, reference_year: int = None, dias_encerra
     return max(0, delta)
 
 
+def get_event_regime(d_minus_raw: int) -> str:
+    """
+    Centralized function to determine data regime from raw (unclamped) D-.
+    d_minus_raw = (registration_close - today).days, can be negative for past events.
+    - 'consolidated' (D- < -1): event ended, use snapshot data only, no live queries
+    - 'hybrid' (-1 ≤ D- ≤ 3): event is happening now or just ended, snapshot + live today
+    - 'live' (D- > 3): upcoming event, full live queries as normal
+    """
+    if d_minus_raw < -1:
+        return "consolidated"
+    if d_minus_raw <= 3:
+        return "hybrid"
+    return "live"
+
+
 def get_data_regime(event_date, dias_encerramento: int = 2) -> str:
-    """
-    Determines the data regime for an event:
-    - 'consolidated': event ended more than 1 day ago → use snapshot data only, no live queries
-    - 'hybrid': event is happening now or just ended (±3 days) → snapshot history + live today
-    - 'live': upcoming event → full live queries as normal
-    """
+    """Convenience wrapper: computes raw D- from event_date and delegates to get_event_regime."""
     if not event_date:
         return "live"
     registration_close = event_date - timedelta(days=dias_encerramento)
-    today = date.today()
-    real_d_minus = (registration_close - today).days
-    if real_d_minus < -1:
-        return "consolidated"
-    if real_d_minus <= 3:
-        return "hybrid"
-    return "live"
+    real_d_minus = (registration_close - date.today()).days
+    return get_event_regime(real_d_minus)
 
 
 def _get_snapshot_metrics_for_grupo(db: Session, grupo_nome: str) -> Optional[dict]:
@@ -2572,15 +2577,23 @@ _isc_bg_refresh_lock = _threading.Lock()
 def _run_isc_background_refresh():
     """Runs a full ISC refresh in background and updates the smart cache."""
     global _isc_bg_refresh_in_progress, _isc_last_known_data
+    _db = None
     try:
         logger.info("ISC background refresh: started")
-        result = fetch_isc_pricing_data(db=None, force_refresh=True)
+        from ...core.database import SessionLocal
+        _db = SessionLocal()
+        result = fetch_isc_pricing_data(db=_db, force_refresh=True)
         if result:
             _isc_last_known_data = result
         logger.info(f"ISC background refresh: completed ({len(result)} SKUs)")
     except Exception as e:
         logger.error(f"ISC background refresh failed: {e}")
     finally:
+        if _db:
+            try:
+                _db.close()
+            except Exception:
+                pass
         with _isc_bg_refresh_lock:
             _isc_bg_refresh_in_progress = False
 
@@ -2737,6 +2750,64 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
             data['tendencia'] = 'Estável'
         else:
             data['tendencia'] = 'Desacelerando'
+
+    consolidated_totals: dict = {}
+    if db:
+        try:
+            from ...models.dimensoes import SkuMapping as _ISC_SM
+            grupo_rows = db.query(
+                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento
+            ).filter(
+                _ISC_SM.evento_grupo != None,
+                _ISC_SM.ativo == True,
+                _ISC_SM.ano == current_year
+            ).all()
+
+            grupo_latest: dict = {}
+            grupo_skus_isc: dict = {}
+            for row in grupo_rows:
+                gn = row.evento_grupo
+                if not gn:
+                    continue
+                if row.data_evento and (gn not in grupo_latest or row.data_evento > grupo_latest[gn]):
+                    grupo_latest[gn] = row.data_evento
+                if gn not in grupo_skus_isc:
+                    grupo_skus_isc[gn] = []
+                if row.sku:
+                    sn = normalize_sku(row.sku)
+                    if sn not in grupo_skus_isc[gn]:
+                        grupo_skus_isc[gn].append(sn)
+
+            for grupo_nome_isc, evt_date in grupo_latest.items():
+                registration_close_isc = evt_date - timedelta(days=2)
+                real_d_minus_isc = (registration_close_isc - date.today()).days
+                regime_isc = get_event_regime(real_d_minus_isc)
+
+                if regime_isc != "consolidated":
+                    continue
+
+                snap = _get_snapshot_metrics_for_grupo(db, grupo_nome_isc)
+                if not snap:
+                    continue
+
+                consolidated_totals[grupo_nome_isc] = snap
+
+                skus_isc = grupo_skus_isc.get(grupo_nome_isc, [])
+                for sn in skus_isc:
+                    if sn in all_data:
+                        all_data[sn]['media_7d'] = 0.0
+                        all_data[sn]['media_14d'] = 0.0
+                        all_data[sn]['media_30d'] = 0.0
+                        all_data[sn]['fator_aceleracao'] = 0.0
+                        all_data[sn]['tendencia'] = 'Consolidado'
+                        all_data[sn]['_regime'] = 'consolidated'
+
+            if consolidated_totals:
+                logger.info(f"[Hybrid] ISC: {len(consolidated_totals)} consolidated grupos served from snapshots")
+        except Exception as _regime_err:
+            logger.warning(f"[Hybrid] Failed to apply regime overrides to ISC data: {_regime_err}")
+
+    all_data['_consolidated_totals'] = consolidated_totals
 
     fontes = []
     if dados_ativo:
@@ -3075,18 +3146,15 @@ def get_marketing_events(
         grupo_m30d = 0.0
 
         if grupo_regime == "consolidated":
-            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
-            if snap is not None:
-                current_sales = snap['qtd_site']
-                current_receita = snap['receita_liquida_site']
+            _ct = isc_data.get('_consolidated_totals', {}).get(grupo_nome)
+            if _ct is not None:
+                current_sales = _ct['qtd_site']
+                current_receita = _ct['receita_liquida_site']
             else:
-                seen_grupo_norms = set()
-                for p in proj_list:
-                    p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
-                    if p_sku and p_sku not in seen_grupo_norms and p_sku in isc_data:
-                        seen_grupo_norms.add(p_sku)
-                        current_sales += isc_data[p_sku].get('qtd_site', 0)
-                        current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
+                snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+                if snap is not None:
+                    current_sales = snap['qtd_site']
+                    current_receita = snap['receita_liquida_site']
         else:
             seen_grupo_norms = set()
             for p in proj_list:
@@ -6030,8 +6098,12 @@ def get_marketing_event_by_id(
             card_total_receita=current_receita,
             card_kit_cost_avg=detail_kit_cost_avg,
         )
-        detail_detalhe_vendas = get_detalhe_vendas_por_kit(db, grupo_projeto_ids, ano=ano)
-        detail_detalhe_ativo = get_detalhe_vendas_ativo(db, grupo_projeto_ids, ano=ano)
+        if detail_regime == "consolidated":
+            detail_detalhe_vendas = []
+            detail_detalhe_ativo = []
+        else:
+            detail_detalhe_vendas = get_detalhe_vendas_por_kit(db, grupo_projeto_ids, ano=ano)
+            detail_detalhe_ativo = get_detalhe_vendas_ativo(db, grupo_projeto_ids, ano=ano)
         
         evento = MarketingEvent(
             id=evento_id,
@@ -6312,8 +6384,12 @@ def get_marketing_event_by_id(
         card_total_receita=current_receita,
         card_kit_cost_avg=detail_sa_kit_cost,
     )
-    sa_detalhe_vendas = get_detalhe_vendas_por_kit(db, [projeto.id], ano=ano)
-    sa_detalhe_ativo = get_detalhe_vendas_ativo(db, [projeto.id], ano=ano)
+    if standalone_detail_regime == "consolidated":
+        sa_detalhe_vendas = []
+        sa_detalhe_ativo = []
+    else:
+        sa_detalhe_vendas = get_detalhe_vendas_por_kit(db, [projeto.id], ano=ano)
+        sa_detalhe_ativo = get_detalhe_vendas_ativo(db, [projeto.id], ano=ano)
     
     evento = MarketingEvent(
         id=str(projeto.id),

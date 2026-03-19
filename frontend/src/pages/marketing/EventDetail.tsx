@@ -829,7 +829,7 @@ const EventDetail: React.FC = () => {
                   Dados consolidados — evento encerrado
                 </span>
               </div>
-            ) : (inscritosTotal > 0 || (hasTodayData && todaySales > 0)) ? (
+            ) : event.dataRegime === 'hybrid' ? (
               <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400 dark:text-gray-500">
                 {inscritosTotal > 0 && (
                   <>
