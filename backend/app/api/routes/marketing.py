@@ -2710,9 +2710,10 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                 for _sn in consolidated_grupo_skus.get(_gn, []):
                     consolidated_skus_set.add(_sn)
                 for _fonte, _ext_id in _isc_grupo_ext.get(_gn, []):
-                    if _fonte == "ativo" and _ext_id not in excluded_ativo_ids:
+                    _fonte_norm = (_fonte or "").upper()
+                    if _fonte_norm == "ATIVO" and _ext_id not in excluded_ativo_ids:
                         excluded_ativo_ids.append(_ext_id)
-                    elif _fonte == "magento" and _ext_id not in excluded_magento_ids:
+                    elif _fonte_norm == "MAGENTO" and _ext_id not in excluded_magento_ids:
                         excluded_magento_ids.append(_ext_id)
 
             _need_external_queries = _live_count > 0 or not _isc_grupo_latest
