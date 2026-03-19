@@ -2347,8 +2347,12 @@ _isc_cache_timestamp = None
 
 from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL
 
-def build_query_isc_ativo() -> str:
-    return """
+def build_query_isc_ativo(excluded_ids: list = None) -> str:
+    excl_clause = ""
+    if excluded_ids:
+        ids_str = ", ".join(str(int(i)) for i in excluded_ids)
+        excl_clause = f"        AND b.id_evento NOT IN ({ids_str})\n"
+    return f"""
 SELECT
     base.id_evento                                                           AS "ID Evento",
     base.ds_evento                                                           AS "Evento",
@@ -2423,7 +2427,7 @@ FROM (
         b.dt_evento >= MAKEDATE(YEAR(CURDATE()) - 1, 1)
         AND b.dt_evento <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
         AND c.nr_total > 0
-
+{excl_clause}
         AND (b.id_campanha_salesforce IS NULL
              OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
 
@@ -2441,8 +2445,12 @@ ORDER BY base.id_evento;
 """
 
 
-def build_query_isc_magento() -> str:
-    return """
+def build_query_isc_magento(excluded_ids: list = None) -> str:
+    excl_clause = ""
+    if excluded_ids:
+        ids_str = ", ".join(str(i) for i in excluded_ids)
+        excl_clause = f"AND cpev1.value NOT IN ({ids_str})\n"
+    return f"""
 SELECT
     cpev1.value                                                              AS "ID Evento",
     cpev2.value                                                              AS "Evento",
@@ -2507,7 +2515,7 @@ AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
-
+{excl_clause}
 GROUP BY
     cpev1.value,
     cpev2.value
@@ -2648,19 +2656,24 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     consolidated_skus_set: set = set()
     consolidated_totals: dict = {}         # {grupo_nome: snap_metrics}
     consolidated_grupo_skus: dict = {}     # {grupo_nome: [sku_norm, ...]}
+    excluded_ativo_ids: list = []          # Ativo id_externo for consolidated grupos
+    excluded_magento_ids: list = []        # Magento id_externo for consolidated grupos
+    _isc_grupo_latest: dict = {}           # {grupo_nome: latest_event_date}
+    _need_external_queries: bool = True    # False only if db says all eventos are consolidated
 
     if db:
         try:
             from ...models.dimensoes import SkuMapping as _ISC_SM
             _isc_grupo_rows = db.query(
-                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento
+                _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento,
+                _ISC_SM.fonte, _ISC_SM.id_externo
             ).filter(
                 _ISC_SM.evento_grupo != None,
                 _ISC_SM.ativo == True,
                 _ISC_SM.ano == current_year
             ).all()
 
-            _isc_grupo_latest: dict = {}
+            _isc_grupo_ext: dict = {}      # {grupo_nome: [(fonte, id_externo), ...]}
             for _isc_row in _isc_grupo_rows:
                 _gn = _isc_row.evento_grupo
                 if not _gn:
@@ -2676,50 +2689,91 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                     _sn = normalize_sku(_isc_row.sku)
                     if _sn not in consolidated_grupo_skus[_gn]:
                         consolidated_grupo_skus[_gn].append(_sn)
+                if _isc_row.fonte and _isc_row.id_externo:
+                    _isc_grupo_ext.setdefault(_gn, []).append(
+                        (_isc_row.fonte, _isc_row.id_externo)
+                    )
 
+            _live_count = 0
             for _gn, _evt_date in _isc_grupo_latest.items():
                 _rc = _evt_date - timedelta(days=2)
                 _raw_dm = (_rc - date.today()).days
-                if get_event_regime(_raw_dm) != "consolidated":
+                _regime = get_event_regime(_raw_dm)
+                if _regime != "consolidated":
+                    _live_count += 1
                     continue
                 _snap = _get_snapshot_metrics_for_grupo(db, _gn)
                 if not _snap:
+                    _live_count += 1
                     continue
                 consolidated_totals[_gn] = _snap
                 for _sn in consolidated_grupo_skus.get(_gn, []):
                     consolidated_skus_set.add(_sn)
+                for _fonte, _ext_id in _isc_grupo_ext.get(_gn, []):
+                    if _fonte == "ativo" and _ext_id not in excluded_ativo_ids:
+                        excluded_ativo_ids.append(_ext_id)
+                    elif _fonte == "magento" and _ext_id not in excluded_magento_ids:
+                        excluded_magento_ids.append(_ext_id)
+
+            _need_external_queries = _live_count > 0 or not _isc_grupo_latest
 
             if consolidated_totals:
                 logger.info(
                     f"[Hybrid] ISC: {len(consolidated_totals)} consolidated grupos "
-                    f"({len(consolidated_skus_set)} SKUs) will use snapshot-only path"
+                    f"({len(consolidated_skus_set)} SKUs) excluded from external queries "
+                    f"(ativo_ids={len(excluded_ativo_ids)}, magento_ids={len(excluded_magento_ids)}, "
+                    f"need_external={_need_external_queries})"
                 )
         except Exception as _cls_err:
             logger.warning(f"[Hybrid] Regime classification failed in ISC: {_cls_err}")
 
     # ---------------------------------------------------------------------------
     # STEP 2: Dispatch live external queries (Ativo + Magento).
-    # These queries are bulk and cannot exclude individual events at the SQL level.
-    # Consolidated-SKU rows returned from them will be discarded in step 3.
+    # Consolidated event IDs are excluded at the SQL WHERE clause level so their
+    # data is never fetched from external databases.
+    # If no live/hybrid eventos exist (all consolidated), skip external calls entirely.
     # ---------------------------------------------------------------------------
     all_data = {}
 
-    future_ativo = _rolling_avg_executor.submit(fetch_isc_data_ativo)
-    future_magento = _rolling_avg_executor.submit(fetch_isc_data_magento)
+    def _fetch_ativo_filtered():
+        return _fetch_with_retry(
+            db_module.engine_ssh,
+            lambda: build_query_isc_ativo(excluded_ativo_ids if excluded_ativo_ids else None),
+            "Ativo"
+        )
 
-    try:
-        dados_ativo = future_ativo.result(timeout=120)
-    except Exception as e:
-        logger.error(f"Erro ISC Ativo (executor): {e}")
+    def _fetch_magento_filtered():
+        return _fetch_with_retry(
+            db_module.engine_magento,
+            lambda: build_query_isc_magento(excluded_magento_ids if excluded_magento_ids else None),
+            "Magento"
+        )
+
+    if not _need_external_queries:
+        logger.info("[Hybrid] ISC: all eventos are consolidated — skipping external queries entirely")
         dados_ativo = []
-        warnings.append("Falha ao buscar dados do banco Ativo: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Magento.")
-
-    try:
-        dados_magento = future_magento.result(timeout=120)
-    except Exception as e:
-        logger.error(f"Erro ISC Magento (executor): {e}")
         dados_magento = []
-        warnings.append("Falha ao buscar dados do banco Magento: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Ativo.")
+        future_ativo = None
+        future_magento = None
+    else:
+        future_ativo = _rolling_avg_executor.submit(_fetch_ativo_filtered)
+        future_magento = _rolling_avg_executor.submit(_fetch_magento_filtered)
+
+    if future_ativo is not None:
+        try:
+            dados_ativo = future_ativo.result(timeout=120)
+        except Exception as e:
+            logger.error(f"Erro ISC Ativo (executor): {e}")
+            dados_ativo = []
+            warnings.append("Falha ao buscar dados do banco Ativo: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Magento.")
+
+    if future_magento is not None:
+        try:
+            dados_magento = future_magento.result(timeout=120)
+        except Exception as e:
+            logger.error(f"Erro ISC Magento (executor): {e}")
+            dados_magento = []
+            warnings.append("Falha ao buscar dados do banco Magento: timeout ou erro de conexão. Os dados exibidos contêm apenas inscrições do Ativo.")
 
     if isinstance(dados_ativo, dict) and 'error' in dados_ativo:
         warnings.append(f"Erro no banco Ativo: {dados_ativo['error']}. Os dados exibidos contêm apenas inscrições do Magento.")
@@ -2729,7 +2783,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
         warnings.append(f"Erro no banco Magento: {dados_magento['error']}. Os dados exibidos contêm apenas inscrições do Ativo.")
         dados_magento = []
 
-    if not dados_ativo and not dados_magento:
+    if _need_external_queries and not dados_ativo and not dados_magento:
         warnings.append("Nenhuma fonte de dados retornou resultados. Verifique a conectividade com os bancos de dados.")
 
     if mappings and dados_ativo:
