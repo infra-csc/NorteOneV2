@@ -318,59 +318,33 @@ const EventDetail: React.FC = () => {
     if (!id || refreshing) return;
     setRefreshing(true);
     try {
-      const controller = new AbortController();
-      const response = await marketingService.getEventoById(id, controller.signal, anoParam, true);
-      const eventWithData = {
-        ...response.evento,
-        dailySales: response.dailySales?.map(d => ({
-          date: d.date,
-          sales: d.sales,
-          expected: d.expected,
-          cumulativeSales: d.cumulativeSales,
-          cumulativeExpected: d.cumulativeExpected,
-          dMinus: d.dMinus,
-          curvaAnoAnterior: d.curvaAnoAnterior,
-          dif: d.dif,
-          atingimentoAcumulado: d.atingimentoAcumulado,
-          atingimentoDiario: d.atingimentoDiario,
-          normalizedSales: d.normalizedSales,
-          cumulativeNormalized: d.cumulativeNormalized,
-          localMedian: d.localMedian,
-          outlierLimit: d.outlierLimit,
-          isOutlier: d.isOutlier,
-          excessRemoved: d.excessRemoved,
-          excessReceived: d.excessReceived
-        })),
-        commercialActions: (response as any).commercialActions?.map((a: any) => ({
-          id: a.id,
-          type: a.type,
-          description: a.description,
-          date: a.date,
-          impact: a.impact,
-          vendas_antes: a.vendas_antes,
-          vendas_depois: a.vendas_depois,
-          impacto_percentual: a.impacto_percentual,
-          status_impacto: a.status_impacto
-        }))
-      };
-      setEvent(eventWithData);
-      if ((response as any).projetos_vinculados) {
-        setProjetosVinculados((response as any).projetos_vinculados);
-      }
-      if ((response as any).comparacao_anual) {
-        setComparacaoAnual((response as any).comparacao_anual);
-      }
-      if ((response as any).anos_disponiveis) {
-        setAnosDisponiveis((response as any).anos_disponiveis);
-      }
-      setAvisos((response as any).avisos || []);
-      setIsStaleData(response._isStale === true);
+      const result = await marketingService.atualizarHoje(id, anoParam);
+      const todayStr = new Date().toISOString().split('T')[0];
+      setEvent(prev => {
+        if (!prev) return prev;
+        const updatedDailySales = prev.dailySales ? prev.dailySales.map(d => {
+          if (d.date === todayStr) {
+            return { ...d, sales: result.hoje_total };
+          }
+          return d;
+        }) : prev.dailySales;
+        const todayExists = prev.dailySales?.some(d => d.date === todayStr);
+        const finalDailySales = (!todayExists && result.hoje_total > 0 && prev.dailySales)
+          ? [...prev.dailySales, { date: todayStr, sales: result.hoje_total, expected: 0, cumulativeSales: result.hoje_total, cumulativeExpected: 0 }]
+          : updatedDailySales;
+        return {
+          ...prev,
+          currentSales: result.total_acumulado > 0 ? result.total_acumulado : prev.currentSales,
+          dailySales: finalDailySales
+        };
+      });
+      setIsStaleData(false);
       if (staleRetryTimerRef.current) {
         clearTimeout(staleRetryTimerRef.current);
         staleRetryTimerRef.current = null;
       }
     } catch (err: any) {
-      console.error('Erro ao atualizar:', err);
+      console.error('Erro ao atualizar vendas de hoje:', err);
     } finally {
       setRefreshing(false);
     }
@@ -749,10 +723,10 @@ const EventDetail: React.FC = () => {
           onClick={handleForceRefresh}
           disabled={refreshing}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
-          title="Buscar dados atualizados do banco de dados"
+          title="Buscar vendas de hoje do Ativo e Magento (consulta rápida)"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          <span className="text-sm font-medium">{refreshing ? 'Atualizando...' : 'Atualizar Dados'}</span>
+          <span className="text-sm font-medium">{refreshing ? 'Buscando hoje...' : 'Atualizar Hoje'}</span>
         </button>
       </div>
 

@@ -6032,7 +6032,7 @@ def get_marketing_event_by_id(
         
         detail_cache_key = f"{ano}_{evento_id}_detail"
         if not force_refresh:
-            cached_detail, is_stale = event_detail_cache.get_or_revalidate(detail_cache_key, refresh_fn=_swr_detail_refresh)
+            cached_detail, is_stale = event_detail_cache.get_or_revalidate(detail_cache_key, refresh_fn=None)
             if cached_detail is not None:
                 if response is not None:
                     response.headers["X-Data-Stale"] = "true" if is_stale else "false"
@@ -6409,7 +6409,7 @@ def get_marketing_event_by_id(
     
     standalone_cache_key = f"{ano}_{evento_id}_detail"
     if not force_refresh:
-        cached_standalone, is_stale = event_detail_cache.get_or_revalidate(standalone_cache_key, refresh_fn=_swr_detail_refresh)
+        cached_standalone, is_stale = event_detail_cache.get_or_revalidate(standalone_cache_key, refresh_fn=None)
         if cached_standalone is not None:
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if is_stale else "false"
@@ -6601,6 +6601,160 @@ def get_marketing_event_by_id(
     else:
         event_detail_cache.set(standalone_cache_key, standalone_result)
     return {k: v for k, v in standalone_result.items() if k != "__is_completed"}
+
+
+@router.post("/eventos/{evento_id}/atualizar-hoje")
+def atualizar_vendas_hoje(
+    evento_id: str,
+    ano: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Atualização leve: busca apenas as vendas de HOJE (data atual) do Ativo e Magento
+    para este evento, atualiza o snapshot e recalcula médias móveis.
+    Não toca no ISC global nem em dados históricos.
+    """
+    from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
+    from sqlalchemy import func as _sa_func
+
+    if ano is None:
+        ano = datetime.now().year
+
+    hoje = date.today()
+    is_grouped = evento_id.startswith("grp_")
+
+    # --- Collect IDs ---
+    if is_grouped:
+        grupo_nome = evento_id.replace("grp_", "")
+        mappings = db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == grupo_nome,
+            SkuMapping.ano == ano,
+            SkuMapping.ativo == True
+        ).all()
+    else:
+        try:
+            proj_id = int(evento_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="ID de evento inválido")
+        projeto = db.query(DimProjeto).filter(DimProjeto.id == proj_id).first()
+        if not projeto:
+            raise HTTPException(status_code=404, detail="Evento não encontrado")
+        grupo_nome = None
+        mappings = db.query(SkuMapping).filter(
+            SkuMapping.sku == str(projeto.codigo),
+            SkuMapping.ativo == True
+        ).all()
+        if not mappings and projeto.codigo:
+            mappings = db.query(SkuMapping).filter(
+                SkuMapping.sku == normalize_sku(str(projeto.codigo)),
+                SkuMapping.ativo == True
+            ).all()
+
+    if not mappings:
+        raise HTTPException(status_code=404, detail="Nenhum SKU mapeado para este evento")
+
+    ativo_ids = list(set(str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo))
+    magento_ids = list(set(str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo))
+
+    if is_grouped and not grupo_nome:
+        grupo_nome = mappings[0].evento_grupo if mappings[0].evento_grupo else None
+
+    # --- Fetch today's data from both sources (fast — date-filtered queries) ---
+    hoje_ativo = 0
+    hoje_magento = 0
+
+    if ativo_ids:
+        try:
+            ativo_today = _fetch_today_sales_ativo_by_ids(ativo_ids)
+            hoje_ativo = ativo_today.get(hoje, 0)
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
+
+    if magento_ids:
+        try:
+            magento_today = _fetch_today_sales_magento_by_ids(magento_ids)
+            hoje_magento = magento_today.get(hoje, 0)
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
+
+    hoje_total = hoje_ativo + hoje_magento
+
+    # --- Update snapshot for today ---
+    if grupo_nome:
+        try:
+            existing = db.query(_VDS).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.data_venda == hoje,
+                _VDS.ano == ano
+            ).first()
+
+            if existing:
+                existing.quantidade = hoje_total
+                existing.updated_at = datetime.now()
+            else:
+                new_row = _VDS(
+                    evento_grupo=grupo_nome,
+                    data_venda=hoje,
+                    quantidade=hoje_total,
+                    receita=0.0,
+                    ano=ano,
+                    updated_at=datetime.now()
+                )
+                db.add(new_row)
+            db.commit()
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro ao salvar snapshot para {grupo_nome}: {_e}")
+            db.rollback()
+
+    # --- Recalculate rolling averages from snapshot (no external DB) ---
+    media_7d = 0.0
+    media_14d = 0.0
+    media_30d = 0.0
+    total_acumulado = 0
+
+    if grupo_nome:
+        try:
+            cutoff_30 = hoje - timedelta(days=30)
+            snap_rows = db.query(_VDS).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.ano == ano,
+                _VDS.data_venda >= cutoff_30,
+                _VDS.data_venda <= hoje
+            ).order_by(_VDS.data_venda).all()
+
+            daily_map = {r.data_venda: r.quantidade for r in snap_rows}
+
+            def _avg_last_n(n: int) -> float:
+                cutoff = hoje - timedelta(days=n)
+                total = sum(v for d, v in daily_map.items() if d >= cutoff and d <= hoje)
+                return round(total / n, 2)
+
+            media_7d = _avg_last_n(7)
+            media_14d = _avg_last_n(14)
+            media_30d = _avg_last_n(30)
+
+            total_all = db.query(_sa_func.sum(_VDS.quantidade)).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.ano == ano
+            ).scalar() or 0
+            total_acumulado = int(total_all)
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro ao recalcular médias para {grupo_nome}: {_e}")
+
+    return {
+        "status": "ok",
+        "evento_id": evento_id,
+        "data": hoje.isoformat(),
+        "hoje_ativo": hoje_ativo,
+        "hoje_magento": hoje_magento,
+        "hoje_total": hoje_total,
+        "media_7d": media_7d,
+        "media_14d": media_14d,
+        "media_30d": media_30d,
+        "total_acumulado": total_acumulado,
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    }
 
 
 @router.post("/cache/refresh")

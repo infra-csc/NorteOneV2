@@ -756,6 +756,25 @@ export const marketingService = {
     data._isStale = response.headers?.['x-data-stale'] === 'true';
     return data;
   },
+  atualizarHoje: async (id: string, ano?: number): Promise<{
+    status: string;
+    evento_id: string;
+    data: string;
+    hoje_ativo: number;
+    hoje_magento: number;
+    hoje_total: number;
+    media_7d: number;
+    media_14d: number;
+    media_30d: number;
+    total_acumulado: number;
+    ultima_atualizacao: string;
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (ano) queryParams.append('ano', ano.toString());
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const response = await api.post(`/marketing/eventos/${id}/atualizar-hoje${queryString}`);
+    return response.data;
+  },
   getAcoesComerciais: async (projetoId: string): Promise<{ status: string; acoes: any[] }> => {
     const response = await api.get(`/marketing/acoes-comerciais/${projetoId}`);
     return response.data;

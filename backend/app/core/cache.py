@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 
 CURRENT_YEAR_TTL = 7200
 HISTORICAL_TTL = None
-MAX_STALE_AGE = 28800
+MAX_STALE_AGE = 86400
+NIGHTLY_CACHE_TTL = 79200
 
 _last_full_refresh_timestamp = None
 _full_refresh_in_progress = False
@@ -476,8 +477,8 @@ class SmartCache:
             return len(self._data)
 
 
-isc_cache = SmartCache("isc_pricing")
-event_detail_cache = SmartCache("event_detail", ttl=900)
+isc_cache = SmartCache("isc_pricing", ttl=NIGHTLY_CACHE_TTL)
+event_detail_cache = SmartCache("event_detail", ttl=NIGHTLY_CACHE_TTL)
 daily_sales_cache = SmartCache("daily_sales")
 curva_cache = SmartCache("curva_comparativa")
 medias_cache = SmartCache("medias_vendas")
