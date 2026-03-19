@@ -2142,7 +2142,7 @@ const EventDetail: React.FC = () => {
               </div>
 
               <div className="p-5">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-6">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full bg-gray-500" />
@@ -2202,73 +2202,6 @@ const EventDetail: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="border-t border-gray-200 dark:border-gray-700 md:border-t-0 md:border-l md:pl-6 pt-6 md:pt-0">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-green-500" />
-                      Margem Realizada
-                    </h3>
-                    {event.currentSales > 0 && ((event.ticketAtual ?? 0) > 0 || event.averageTicket > 0) ? (
-                      (() => {
-                        const ticketRef = (event.ticketAtual ?? 0) > 0 ? (event.ticketAtual as number) : event.averageTicket;
-                        const kitCost = event.kitCostPerUnit || 0;
-                        const margemUnit = Math.round((ticketRef - kitCost) * 100) / 100;
-                        const margemTotal = Math.round(margemUnit * event.currentSales * 100) / 100;
-                        const margemPct = ticketRef > 0 ? Math.round((margemUnit / ticketRef) * 1000) / 10 : 0;
-                        return (
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(ticketRef)}</span>
-                        </div>
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">(-) Custo Kit</span>
-                          <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(kitCost)}</span>
-                        </div>
-                        <div className="flex justify-between p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                          <span className="text-green-700 dark:text-green-300 font-medium">= Margem / Unidade</span>
-                          <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(margemUnit)}</span>
-                        </div>
-                        <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                          <span className="text-gray-500 dark:text-gray-400">(×) Inscrições Atuais</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.currentSales)}</span>
-                        </div>
-                        <button
-                          onClick={() => setShowReceitaRealizada(!showReceitaRealizada)}
-                          className="my-3 w-full flex items-center gap-2 group cursor-pointer"
-                        >
-                          <div className="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600" />
-                          <span className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500 group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors whitespace-nowrap">
-                            <DollarSign className="w-3 h-3" />
-                            Receita
-                            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showReceitaRealizada ? 'rotate-180' : ''}`} />
-                          </span>
-                          <div className="flex-1 border-t border-dashed border-gray-300 dark:border-gray-600" />
-                        </button>
-                        <div className={`space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${showReceitaRealizada ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
-                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                            <span className="text-gray-500 dark:text-gray-400">Receita Projetada (Kit × Inscrições)</span>
-                            <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(ticketRef * event.currentSales)}</span>
-                          </div>
-                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                            <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
-                            <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(kitCost * event.currentSales)}</span>
-                          </div>
-                        </div>
-                        <div className="flex justify-between p-2.5 bg-green-100 dark:bg-green-900/30 rounded-lg border border-green-300 dark:border-green-700">
-                          <span className="text-green-800 dark:text-green-200 font-semibold">= Margem Projetada Total</span>
-                          <div className="text-right">
-                            <span className="font-bold text-green-700 dark:text-green-300">{formatCurrency(margemTotal)}</span>
-                          </div>
-                        </div>
-                      </div>
-                        );
-                      })()
-                    ) : (
-                      <p className="text-sm text-gray-400 dark:text-gray-500 italic p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                        Dados insuficientes.
-                      </p>
-                    )}
-                  </div>
                 </div>
               </div>
 
