@@ -196,7 +196,7 @@ LEFT JOIN catalog_product_index_price pi_filho
       AND pi_filho.website_id = 1
       AND pi_filho.customer_group_id = 0
 
-JOIN catalog_product_entity_event_lot_price lote
+LEFT JOIN catalog_product_entity_event_lot_price lote
        ON lote.entity_id = cpev1.value
       AND lote.lot_id = (
             SELECT lot_id
