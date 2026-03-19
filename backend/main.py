@@ -205,7 +205,11 @@ def _full_cache_warmup():
         # --- Phase 1b: kick off event_detail pre-warm for ALL active events (background, parallel with ISC refresh) ---
         _detail_prewarm_futures = []
         if active_evento_ids:
-            from app.api.routes.marketing import get_marketing_event_by_id as _get_evt_detail
+            from app.api.routes.marketing import (
+                get_marketing_event_by_id as _get_evt_detail,
+                get_sales_averages as _get_medias,
+                get_curva_snapshot as _get_curva
+            )
             _detail_prewarm_executor = _TPE(max_workers=min(4, len(active_evento_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail(eid, _ano):
@@ -222,6 +226,30 @@ def _full_cache_warmup():
                 _detail_prewarm_futures.append(_detail_prewarm_executor.submit(_prewarm_detail, _eid, ano))
             _detail_prewarm_executor.shutdown(wait=False)
             logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active events (Tier1+Tier2)")
+
+            # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for Tier 1 events ---
+            if tier1_evento_ids:
+                _tier1_aux_executor = _TPE(max_workers=min(4, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
+
+                def _prewarm_tier1_aux(eid, _ano):
+                    _db3 = SessionLocal()
+                    try:
+                        _get_medias(evento_id=eid, periodo=30, ano=_ano, force_refresh=True, db=_db3, current_user=None, response=None)
+                        logger.info(f"[Warmup BG] medias pre-warm OK: {eid}")
+                    except Exception as _e:
+                        logger.warning(f"[Warmup BG] medias pre-warm failed for {eid}: {_e}")
+                    try:
+                        _get_curva(evento_id=eid, ano=_ano, db=_db3, current_user=None)
+                        logger.info(f"[Warmup BG] curva pre-warm OK: {eid}")
+                    except Exception as _e:
+                        logger.warning(f"[Warmup BG] curva pre-warm failed for {eid}: {_e}")
+                    finally:
+                        _db3.close()
+
+                for _eid in tier1_evento_ids:
+                    _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
+                _tier1_aux_executor.shutdown(wait=False)
+                logger.info(f"[Warmup] medias+curva Tier 1 background pre-warm started for {len(tier1_evento_ids)} events")
 
         # --- Phase 1c: ISC refresh (heavy, ~44s) — runs in parallel with event_detail pre-warm ---
         logger.info("[Warmup 1/4] Refreshing ISC pricing data...")

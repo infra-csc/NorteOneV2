@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-CURRENT_YEAR_TTL = 7200
+CURRENT_YEAR_TTL = 79200
 HISTORICAL_TTL = None
 MAX_STALE_AGE = 86400
 NIGHTLY_CACHE_TTL = 79200

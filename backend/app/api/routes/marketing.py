@@ -3145,7 +3145,7 @@ def get_marketing_events(
             finally:
                 _db.close()
 
-        cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
+        cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=None)
         if cached is not None:
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if is_stale else "false"
@@ -6657,8 +6657,8 @@ def atualizar_vendas_hoje(
     ativo_ids = list(set(str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo))
     magento_ids = list(set(str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo))
 
-    if is_grouped and not grupo_nome:
-        grupo_nome = mappings[0].evento_grupo if mappings[0].evento_grupo else None
+    if not grupo_nome and mappings:
+        grupo_nome = next((m.evento_grupo for m in mappings if m.evento_grupo), None)
 
     # --- Fetch today's data from both sources (fast — date-filtered queries) ---
     hoje_ativo = 0

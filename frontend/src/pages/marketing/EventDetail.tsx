@@ -110,6 +110,7 @@ const EventDetail: React.FC = () => {
   const [salesAvgLoading, setSalesAvgLoading] = useState(false);
   const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
@@ -339,6 +340,8 @@ const EventDetail: React.FC = () => {
         };
       });
       setIsStaleData(false);
+      setRefreshSuccess(true);
+      setTimeout(() => setRefreshSuccess(false), 4000);
       if (staleRetryTimerRef.current) {
         clearTimeout(staleRetryTimerRef.current);
         staleRetryTimerRef.current = null;
@@ -729,6 +732,12 @@ const EventDetail: React.FC = () => {
           <span className="text-sm font-medium">{refreshing ? 'Buscando hoje...' : 'Atualizar Hoje'}</span>
         </button>
       </div>
+
+      {refreshSuccess && (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 flex items-center gap-3">
+          <span className="text-sm text-green-700 dark:text-green-300 font-medium">Vendas de hoje atualizadas com sucesso.</span>
+        </div>
+      )}
 
       <ConnectionAlert
         avisos={avisos}
