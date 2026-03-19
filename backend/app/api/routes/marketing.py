@@ -6641,15 +6641,21 @@ def atualizar_vendas_hoje(
         if not projeto:
             raise HTTPException(status_code=404, detail="Evento não encontrado")
         grupo_nome = None
-        mappings = db.query(SkuMapping).filter(
-            SkuMapping.sku == str(projeto.codigo),
-            SkuMapping.ativo == True
-        ).all()
-        if not mappings and projeto.codigo:
+        _sku_raw = str(projeto.codigo) if projeto.codigo else None
+        _sku_norm = normalize_sku(_sku_raw) if _sku_raw else None
+        for _sku_q in filter(None, [_sku_raw, _sku_norm]):
             mappings = db.query(SkuMapping).filter(
-                SkuMapping.sku == normalize_sku(str(projeto.codigo)),
+                SkuMapping.sku == _sku_q,
+                SkuMapping.ano == ano,
                 SkuMapping.ativo == True
             ).all()
+            if not mappings:
+                mappings = db.query(SkuMapping).filter(
+                    SkuMapping.sku == _sku_q,
+                    SkuMapping.ativo == True
+                ).order_by(SkuMapping.ano.desc()).all()
+            if mappings:
+                break
 
     if not mappings:
         raise HTTPException(status_code=404, detail="Nenhum SKU mapeado para este evento")
@@ -6659,6 +6665,12 @@ def atualizar_vendas_hoje(
 
     if not grupo_nome and mappings:
         grupo_nome = next((m.evento_grupo for m in mappings if m.evento_grupo), None)
+
+    if not grupo_nome:
+        raise HTTPException(
+            status_code=422,
+            detail="Este evento não possui grupo mapeado. A atualização de hoje requer um grupo para persistir o snapshot."
+        )
 
     # --- Fetch today's data from both sources (fast — date-filtered queries) ---
     hoje_ativo = 0
