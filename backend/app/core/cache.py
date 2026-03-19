@@ -600,6 +600,9 @@ def get_warmup_summary() -> dict:
 _gap_detection_store: dict = {}
 _gap_detection_lock = threading.Lock()
 
+_known_tier1_ids: list = []
+_known_tier1_ids_lock = threading.Lock()
+
 
 def set_gap_detection_result(result: dict):
     with _gap_detection_lock:
@@ -610,6 +613,17 @@ def set_gap_detection_result(result: dict):
 def get_gap_detection_result() -> dict:
     with _gap_detection_lock:
         return dict(_gap_detection_store)
+
+
+def set_known_tier1_ids(ids: list):
+    with _known_tier1_ids_lock:
+        _known_tier1_ids.clear()
+        _known_tier1_ids.extend(ids)
+
+
+def get_known_tier1_ids() -> list:
+    with _known_tier1_ids_lock:
+        return list(_known_tier1_ids)
 
 
 def warm_all_caches_from_db():

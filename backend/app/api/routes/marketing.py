@@ -6832,7 +6832,7 @@ def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
 ):
     import time as _cst_time
-    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary, get_gap_detection_result
+    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary, get_gap_detection_result, get_known_tier1_ids
 
     current_year = datetime.now().year
     last_refresh = get_last_full_refresh()
@@ -6868,8 +6868,16 @@ def get_cache_status(
     newest_hours = round(min(current_year_ages.values()) / 3600, 1) if current_year_ages else None
     stale_event_ids = [_extract_event_id(k) for k, age in current_year_ages.items() if age > STALE_THRESHOLD]
 
-    missing_tier1 = gap_result.get("missing_tier1_events", [])
-    stale_tier1 = gap_result.get("stale_tier1_events", [])
+    known_tier1 = get_known_tier1_ids()
+    missing_tier1 = []
+    stale_tier1 = []
+    for eid in known_tier1:
+        key = f"{current_year}_{eid}_detail"
+        ts = all_timestamps.get(key)
+        if ts is None:
+            missing_tier1.append(eid)
+        elif (now_ts - ts) > STALE_THRESHOLD:
+            stale_tier1.append(eid)
 
     return {
         "status": "success",
@@ -6881,7 +6889,11 @@ def get_cache_status(
         "warmup_completed_at": warmup_summary.get("completed_at"),
         "warmup_summary": warmup_summary,
         "warmup_results": warmup_results,
-        "gap_detection": gap_result,
+        "gap_detection": {
+            **gap_result,
+            "missing_tier1_events": missing_tier1,
+            "stale_tier1_events": stale_tier1,
+        },
         "missing_tier1_events": missing_tier1,
         "stale_tier1_events": stale_tier1,
         "oldest_event_detail_age_hours": oldest_hours,

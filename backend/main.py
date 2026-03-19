@@ -15,7 +15,7 @@ from app.core.cache import (
     isc_cache, event_detail_cache, curva_cache, medias_cache,
     _full_refresh_lock,
     set_warmup_metadata_cache, clear_warmup_metadata_cache,
-    set_gap_detection_result
+    set_gap_detection_result, set_known_tier1_ids
 )
 import app.core.cache as _cache_module
 import logging
@@ -422,9 +422,8 @@ def _startup_tier1_gap_warmup():
 
         sku_to_grupo = _build_sku_to_grupo_map(db, ano)
 
-        tier1_ids = []
-        grupo_seen = set()
-        grupo_dm = {}
+        grupo_min_dm: dict = {}
+        standalone_dm: dict = {}
 
         for cad in all_cadastros:
             if not cad.projeto_id:
@@ -445,20 +444,18 @@ def _startup_tier1_gap_warmup():
 
             if grupo_nome:
                 eid = f"grp_{grupo_nome}"
-                if eid not in grupo_seen:
-                    grupo_seen.add(eid)
-                    grupo_dm[eid] = d_minus
-                    if d_minus <= GAP_TIER1_THRESHOLD:
-                        tier1_ids.append(eid)
-                else:
-                    grupo_dm[eid] = min(grupo_dm.get(eid, d_minus), d_minus)
+                grupo_min_dm[eid] = min(grupo_min_dm.get(eid, d_minus), d_minus)
             else:
                 eid = str(proj.id)
-                if d_minus <= GAP_TIER1_THRESHOLD:
-                    tier1_ids.append(eid)
+                standalone_dm[eid] = min(standalone_dm.get(eid, d_minus), d_minus)
+
+        all_event_dm = {**grupo_min_dm, **standalone_dm}
+        tier1_ids = [eid for eid, dm in all_event_dm.items() if dm <= GAP_TIER1_THRESHOLD]
 
         db.close()
         db = None
+
+        set_known_tier1_ids(tier1_ids)
 
         now_ts = _time.time()
         timestamps = event_detail_cache.get_all_timestamps()
@@ -728,8 +725,11 @@ async def lifespan(app: FastAPI):
     cache_scheduler.register_full_refresh(_full_cache_warmup)
 
     import threading
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor as _StartupTPE
 
-    def _startup_background_init():
+    def _critical_startup():
+        """Critical path: runs BEFORE server is ready to accept production traffic."""
         try:
             _startup_resync_projetos()
         except Exception as e:
@@ -753,16 +753,28 @@ async def lifespan(app: FastAPI):
         try:
             logger.info("Loading persistent cache from PostgreSQL...")
             warm_all_caches_from_db()
-            logger.info("Persistent cache loaded - users will see cached data immediately")
+            logger.info("Persistent cache loaded from PostgreSQL")
         except Exception as e:
-            logger.error(f"Persistent cache warmup failed: {e}")
+            logger.error(f"Persistent cache load failed: {e}")
 
         try:
-            logger.info("Running startup Tier1 gap detection (synchronous before full warmup)...")
+            logger.info("Running Tier1 gap detection (pre-readiness)...")
             _startup_tier1_gap_warmup()
+            logger.info("Tier1 gap detection complete - server is now ready for production traffic")
         except Exception as e:
             logger.error(f"Startup gap detection failed: {e}")
 
+    loop = asyncio.get_event_loop()
+    with _StartupTPE(max_workers=1, thread_name_prefix="critical-startup") as exe:
+        try:
+            await asyncio.wait_for(loop.run_in_executor(exe, _critical_startup), timeout=180)
+        except asyncio.TimeoutError:
+            logger.warning("Critical startup timed out (180s), proceeding to serve traffic anyway")
+
+    logger.info("=== Server ready to accept production requests ===")
+
+    def _startup_background_init():
+        """Non-critical background tasks: scheduler, snapshots, full warmup."""
         cache_scheduler.start(interval=1800)
         logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
 
@@ -788,7 +800,6 @@ async def lifespan(app: FastAPI):
 
     init_thread = threading.Thread(target=_startup_background_init, daemon=True, name="startup-bg-init")
     init_thread.start()
-    logger.info("Background initialization launched - server ready to accept requests")
 
     yield
     cache_scheduler.stop()
