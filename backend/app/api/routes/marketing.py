@@ -554,6 +554,7 @@ class MarketingEvent(BaseModel):
     margemPorKit: Optional[List[dict]] = None
     detalheVendasPorKit: Optional[List[dict]] = None
     detalheVendasAtivoKit: Optional[List[dict]] = None
+    kitQueryFailed: bool = False
     dataRegime: Optional[str] = None
 
 class DashboardSummary(BaseModel):
@@ -1961,8 +1962,10 @@ def get_detalhe_vendas_por_kit(
     db: Session,
     projeto_ids: list,
     ano: int = None,
-) -> list:
-    """Breakdown detalhado de vendas Magento por kit/canal/modalidade/distância."""
+) -> Optional[list]:
+    """Breakdown detalhado de vendas Magento por kit/canal/modalidade/distância.
+    Returns [] when query succeeds but no data; returns None when query fails (timeout/error).
+    """
     if not projeto_ids or db_module.engine_magento is None:
         return []
 
@@ -2025,7 +2028,7 @@ def get_detalhe_vendas_por_kit(
             return rows if rows else []
     except Exception as e:
         logger.error(f"Erro ao buscar detalhe de vendas por kit: {e}")
-        return []
+        return None
 
 
 def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int) -> str:
@@ -2037,7 +2040,7 @@ def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int) -> str:
     """
     ids_str = ", ".join(str(int(i)) for i in magento_event_ids)
     return f"""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(300000) */
     soi_parent.name                                                               AS kit,
     eaov_tipo.value                                                               AS tipo_categoria,
     soi_child.name                                                                AS distancia,
@@ -6225,8 +6228,12 @@ def get_marketing_event_by_id(
         if detail_regime == "consolidated":
             detail_detalhe_vendas = []
             detail_detalhe_ativo = []
+            detail_kit_query_failed = False
         else:
             detail_detalhe_vendas = get_detalhe_vendas_por_kit(db, grupo_projeto_ids, ano=ano)
+            detail_kit_query_failed = detail_detalhe_vendas is None
+            if detail_kit_query_failed:
+                detail_detalhe_vendas = []
             detail_detalhe_ativo = get_detalhe_vendas_ativo(db, grupo_projeto_ids, ano=ano)
         
         evento = MarketingEvent(
@@ -6250,6 +6257,7 @@ def get_marketing_event_by_id(
             sku=",".join(skus),
             ticketAtual=detail_ticket_atual,
             margemPorKit=detail_margem_por_kit if detail_margem_por_kit else None,
+            kitQueryFailed=detail_kit_query_failed,
             detalheVendasPorKit=detail_detalhe_vendas if detail_detalhe_vendas else None,
             detalheVendasAtivoKit=detail_detalhe_ativo if detail_detalhe_ativo else None,
             dataRegime=detail_regime,
@@ -6511,8 +6519,12 @@ def get_marketing_event_by_id(
     if standalone_detail_regime == "consolidated":
         sa_detalhe_vendas = []
         sa_detalhe_ativo = []
+        sa_kit_query_failed = False
     else:
         sa_detalhe_vendas = get_detalhe_vendas_por_kit(db, [projeto.id], ano=ano)
+        sa_kit_query_failed = sa_detalhe_vendas is None
+        if sa_kit_query_failed:
+            sa_detalhe_vendas = []
         sa_detalhe_ativo = get_detalhe_vendas_ativo(db, [projeto.id], ano=ano)
     
     evento = MarketingEvent(
@@ -6536,6 +6548,7 @@ def get_marketing_event_by_id(
         sku=sku,
         ticketAtual=sa_detail_ticket_atual,
         margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
+        kitQueryFailed=sa_kit_query_failed,
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,
         detalheVendasAtivoKit=sa_detalhe_ativo if sa_detalhe_ativo else None,
         dataRegime=standalone_detail_regime,

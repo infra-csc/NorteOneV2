@@ -555,6 +555,7 @@ export interface MarketingEvent {
     receitaLiquida: number;
     ticketMedio: number | null;
   }> | null;
+  kitQueryFailed?: boolean;
 }
 
 export interface MarketingDashboardSummary {

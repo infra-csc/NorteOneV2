@@ -2247,6 +2247,17 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
 
+              {event.kitQueryFailed && (
+                <div className="px-5 pb-4">
+                  <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 px-4 py-3">
+                    <span className="text-amber-500 mt-0.5 flex-shrink-0">⚠</span>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Dados de vendas detalhados por kit temporariamente indisponíveis — erro ao consultar o Magento. Serão atualizados na próxima recarga.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {event.margemPorKit && event.margemPorKit.length > 0 && (
                 <div className="px-5 pb-5">
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-5">
