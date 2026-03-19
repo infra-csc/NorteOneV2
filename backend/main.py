@@ -59,6 +59,9 @@ def _full_cache_warmup():
         else:
             _cache_module._full_refresh_in_progress = True
     set_last_refresh_error(None)
+    from app.core.cache import set_warmup_event_results as _clear_wer, set_warmup_summary as _clear_ws
+    _clear_wer({})
+    _clear_ws({})
     start = time.time()
     logger.info("=== FULL CACHE WARMUP STARTED ===")
 
