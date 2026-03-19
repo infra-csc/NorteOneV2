@@ -2220,12 +2220,6 @@ const EventDetail: React.FC = () => {
                           <span className="text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
                           <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(ticketRef)}</span>
                         </div>
-                        {event.averageTicket > 0 && (event.ticketAtual ?? 0) > 0 && (event.ticketAtual as number) !== event.averageTicket && (
-                          <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                            <span className="text-gray-500 dark:text-gray-400">Ticket Médio Realizado</span>
-                            <span className="font-medium text-gray-500 dark:text-gray-400 text-xs">{formatCurrency(event.averageTicket)}</span>
-                          </div>
-                        )}
                         <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                           <span className="text-gray-500 dark:text-gray-400">(-) Custo Kit</span>
                           <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency(kitCost)}</span>
