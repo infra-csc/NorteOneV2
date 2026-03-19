@@ -47,7 +47,6 @@ def _full_cache_warmup():
         _build_sku_to_grupo_map,
         set_warmup_daily_cache, clear_warmup_daily_cache,
         _fetch_daily_sales_ativo_by_ids_grouped, _fetch_daily_sales_magento_by_ids_grouped,
-        _fetch_category_sales_ativo_by_ids_grouped, _fetch_category_sales_magento_by_ids_grouped,
         register_warmup_thread, unregister_warmup_thread,
         _warmup_daily_cache, _warmup_daily_cache_lock,
         _hist_pattern_cache, _hist_pattern_cache_lock
@@ -222,17 +221,13 @@ def _full_cache_warmup():
 
         ativo_grouped = {}
         magento_grouped = {}
-        cat_ativo_grouped = {}
-        cat_magento_grouped = {}
 
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="prefetch") as pf_executor:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="prefetch") as pf_executor:
             pf_futures = {}
             if all_ativo_ids:
                 pf_futures["ativo_daily"] = pf_executor.submit(_fetch_daily_sales_ativo_by_ids_grouped, all_ativo_ids)
-                pf_futures["ativo_cat"] = pf_executor.submit(_fetch_category_sales_ativo_by_ids_grouped, all_ativo_ids)
             if all_magento_ids:
                 pf_futures["magento_daily"] = pf_executor.submit(_fetch_daily_sales_magento_by_ids_grouped, all_magento_ids)
-                pf_futures["magento_cat"] = pf_executor.submit(_fetch_category_sales_magento_by_ids_grouped, all_magento_ids)
 
             for name, fut in pf_futures.items():
                 try:
@@ -243,17 +238,11 @@ def _full_cache_warmup():
                     elif name == "magento_daily":
                         magento_grouped = result
                         logger.info(f"[Warmup 1/4] Magento daily pre-fetch: {len(result)} events")
-                    elif name == "ativo_cat":
-                        cat_ativo_grouped = result
-                        logger.info(f"[Warmup 1/4] Ativo category pre-fetch: {len(result)} events")
-                    elif name == "magento_cat":
-                        cat_magento_grouped = result
-                        logger.info(f"[Warmup 1/4] Magento category pre-fetch: {len(result)} events")
                 except Exception as e:
                     logger.error(f"[Warmup 1/4] Pre-fetch {name} FAILED: {e}")
                     partial_warnings.append(f"Pre-fetch {name} parcial: {str(e)[:80]}")
 
-        set_warmup_daily_cache(ativo_grouped, magento_grouped, cat_ativo_grouped, cat_magento_grouped)
+        set_warmup_daily_cache(ativo_grouped, magento_grouped)
         update_warmup_sub_progress(4)
         logger.info(f"[Warmup 1/4] Phase 1 complete in {time.time()-start:.1f}s")
 

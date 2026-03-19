@@ -261,8 +261,9 @@ def _load_all_from_db(cache_name: str) -> dict:
 
 
 class SmartCache:
-    def __init__(self, name: str):
+    def __init__(self, name: str, ttl: Optional[int] = None):
         self.name = name
+        self.ttl = ttl if ttl is not None else CURRENT_YEAR_TTL
         self._data = {}
         self._timestamps = {}
         self._lock = threading.Lock()
@@ -313,7 +314,7 @@ class SmartCache:
                     return self._data[cache_key]
 
                 elapsed = time.time() - ts
-                if elapsed < CURRENT_YEAR_TTL:
+                if elapsed < self.ttl:
                     return self._data[cache_key]
 
                 if stale_ok and elapsed < MAX_STALE_AGE:
@@ -354,7 +355,7 @@ class SmartCache:
                     return self._data[cache_key], False
 
                 elapsed = time.time() - ts
-                if elapsed < CURRENT_YEAR_TTL:
+                if elapsed < self.ttl:
                     return self._data[cache_key], False
 
                 if elapsed < MAX_STALE_AGE:
@@ -441,7 +442,7 @@ class SmartCache:
                     "cached": True,
                     "cached_at": datetime.fromtimestamp(ts).isoformat(),
                     "is_historical": is_hist,
-                    "ttl": "permanent" if is_hist else f"{CURRENT_YEAR_TTL}s",
+                    "ttl": "permanent" if is_hist else f"{self.ttl}s",
                     "age_seconds": round(time.time() - ts, 1)
                 }
             return {"cached": False}
@@ -456,7 +457,7 @@ class SmartCache:
 
 
 isc_cache = SmartCache("isc_pricing")
-event_detail_cache = SmartCache("event_detail")
+event_detail_cache = SmartCache("event_detail", ttl=300)
 daily_sales_cache = SmartCache("daily_sales")
 curva_cache = SmartCache("curva_comparativa")
 medias_cache = SmartCache("medias_vendas")

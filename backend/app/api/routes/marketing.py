@@ -3724,7 +3724,6 @@ SELECT
     ELSE 0 END) AS receita
 FROM sales_order AS so
 LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
-LEFT JOIN webpos_location AS wl ON so.location_pickup_id = wl.location_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
@@ -3896,19 +3895,27 @@ ORDER BY mes
         return []
 
 
-def _fetch_monthly_sales_magento_by_ids(location_ids: list) -> list:
-    if db_module.engine_magento is None or not location_ids:
+def _fetch_monthly_sales_magento_by_ids(magento_event_ids: list) -> list:
+    if db_module.engine_magento is None or not magento_event_ids:
         return []
     try:
-        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return []
         query = text("""
 SELECT
     MONTH(so.created_at) AS mes,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        THEN 1 END) AS qtd,
+    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%') THEN
         (soi.price - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
             WHEN soi.name LIKE '%%super%%' THEN 269.00
@@ -3920,19 +3927,21 @@ SELECT
             ELSE 0 END)
     ELSE 0 END) AS receita
 FROM sales_order AS so
-LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
+INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.increment_id NOT REGEXP '-[0-9]+$'
-    AND so.status IN ('Processing', 'Complete', 'approved')
-    AND soi.product_type = 'Bundle'
-    AND so.location_pickup_id IN :location_ids
+    so.increment_id NOT REGEXP '-[0-9]'
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND cpev1.value IN :magento_event_ids
 GROUP BY MONTH(so.created_at)
 ORDER BY mes
-""").bindparams(bindparam("location_ids", expanding=True))
+""").bindparams(bindparam("magento_event_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"location_ids": safe_ids})
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
             return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro monthly sales Magento by IDs: {e}")
@@ -4170,18 +4179,22 @@ GROUP BY DATE(c.dt_pedido)
         return {}
 
 
-def _fetch_today_sales_magento_by_ids(location_ids: list) -> dict:
-    if not location_ids or db_module.engine_magento is None:
+def _fetch_today_sales_magento_by_ids(magento_event_ids: list) -> dict:
+    if not magento_event_ids or db_module.engine_magento is None:
         return {}
     try:
-        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
@@ -4193,14 +4206,13 @@ INNER JOIN catalog_product_entity_varchar cpev1
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
-    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-    AND cpev1.value IN :location_ids
-    AND so.increment_id NOT REGEXP '-[0-9]+$'
+    AND cpev1.value IN :magento_event_ids
+    AND so.increment_id NOT REGEXP '-[0-9]'
     AND DATE(so.created_at) = CURDATE()
 GROUP BY DATE(so.created_at)
-""").bindparams(bindparam("location_ids", expanding=True))
+""").bindparams(bindparam("magento_event_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"location_ids": safe_ids})
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
             rows = result.fetchall()
             daily = {}
             for r in rows:
@@ -4212,14 +4224,14 @@ GROUP BY DATE(so.created_at)
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
-    if not location_ids:
+def _fetch_daily_sales_magento_by_ids(magento_event_ids: list) -> list:
+    if not magento_event_ids:
         return []
     if _is_warmup_thread():
         with _warmup_daily_cache_lock:
             magento_cache = _warmup_daily_cache.get("magento")
         if magento_cache is not None:
-            safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+            safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
             combined = {}
             for lid in safe_ids:
                 if lid in magento_cache:
@@ -4230,15 +4242,23 @@ def _fetch_daily_sales_magento_by_ids(location_ids: list) -> list:
     if db_module.engine_magento is None:
         return []
     try:
-        safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+        safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return []
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN 1 END) AS qtd,
+    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
         AND soi.price > 0 THEN
         soi.price
         - CASE WHEN soi.price = 0 THEN 0
@@ -4267,15 +4287,14 @@ LEFT JOIN (
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
-    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-    AND cpev1.value IN :location_ids
-    AND so.increment_id NOT REGEXP '-[0-9]+$'
+    AND cpev1.value IN :magento_event_ids
+    AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(so.created_at)
 ORDER BY dia
-""").bindparams(bindparam("location_ids", expanding=True))
+""").bindparams(bindparam("magento_event_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"location_ids": safe_ids})
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
             return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro daily sales Magento by IDs: {e}")
@@ -4377,34 +4396,37 @@ ORDER BY b.id_evento, qtd DESC
         return {}
 
 
-def _fetch_category_sales_magento_by_ids_grouped(location_ids: list) -> dict:
-    if db_module.engine_magento is None or not location_ids:
+def _fetch_category_sales_magento_by_ids_grouped(magento_event_ids: list) -> dict:
+    if db_module.engine_magento is None or not magento_event_ids:
         return {}
     try:
-        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
         query = text("""
 SELECT
-    cpev1.value AS location_id,
+    cpev1.value AS event_id,
     soi.name AS categoria,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 AND soi.price > 0 THEN 1 END) AS qtd
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order AS so
 INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
-    so.increment_id NOT REGEXP '-[0-9]+$'
+    so.increment_id NOT REGEXP '-[0-9]'
     AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
-    AND (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-    AND cpev1.value IN :location_ids
+    AND cpev1.value IN :magento_event_ids
 GROUP BY cpev1.value, soi.name
 ORDER BY cpev1.value, qtd DESC
-""").bindparams(bindparam("location_ids", expanding=True))
+""").bindparams(bindparam("magento_event_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"location_ids": safe_ids})
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
             grouped = {}
             for r in result.fetchall():
                 lid = str(r[0])
@@ -4419,14 +4441,14 @@ ORDER BY cpev1.value, qtd DESC
         return {}
 
 
-def _fetch_category_sales_magento_by_ids(location_ids: list) -> list:
-    if not location_ids:
+def _fetch_category_sales_magento_by_ids(magento_event_ids: list) -> list:
+    if not magento_event_ids:
         return []
     if _is_warmup_thread():
         with _warmup_daily_cache_lock:
             cat_cache = _warmup_daily_cache.get("cat_magento")
         if cat_cache is not None:
-            safe_ids = [str(int(i)) for i in location_ids if str(i).isdigit()]
+            safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
             combined = {}
             for lid in safe_ids:
                 if lid in cat_cache:
@@ -4437,42 +4459,33 @@ def _fetch_category_sales_magento_by_ids(location_ids: list) -> list:
     if db_module.engine_magento is None:
         return []
     try:
-        safe_ids = [int(i) for i in location_ids if str(i).isdigit()]
+        safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return []
         query = text("""
 SELECT
     soi.name AS categoria,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
-        AND so.base_grand_total > 0 THEN 1 END) AS qtd
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        THEN 1 END) AS qtd
 FROM sales_order AS so
-LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
+INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
-    so.increment_id NOT LIKE "%%-1%%"
-    AND so.increment_id NOT LIKE "%%-2%%"
-    AND so.increment_id NOT LIKE "%%-3%%"
-    AND so.increment_id NOT LIKE "%%-4%%"
-    AND so.increment_id NOT LIKE "%%-5%%"
-    AND so.increment_id NOT LIKE "%%-6%%"
-    AND so.increment_id NOT LIKE "%%-7%%"
-    AND so.increment_id NOT LIKE "%%-8%%"
-    AND so.increment_id NOT LIKE "%%-9%%"
-    AND so.increment_id NOT LIKE "%%-10%%"
-    AND so.increment_id NOT LIKE "%%-11%%"
-    AND so.increment_id NOT LIKE "%%-12%%"
-    AND so.increment_id NOT LIKE "%%-13%%"
-    AND so.increment_id NOT LIKE "%%-14%%"
-    AND so.increment_id NOT LIKE "%%-15%%"
-    AND so.increment_id NOT LIKE "%%-16%%"
-    AND so.status IN ('Processing', 'Complete', 'approved')
-    AND soi.product_type = 'Bundle'
-    AND so.location_pickup_id IN :location_ids
+    so.increment_id NOT REGEXP '-[0-9]'
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND cpev1.value IN :magento_event_ids
 GROUP BY soi.name
 ORDER BY qtd DESC
-""").bindparams(bindparam("location_ids", expanding=True))
+""").bindparams(bindparam("magento_event_ids", expanding=True))
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"location_ids": safe_ids})
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
             return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro category sales Magento by IDs: {e}")
