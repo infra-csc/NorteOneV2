@@ -6831,7 +6831,7 @@ def refresh_all_caches(
 def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
 ):
-    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error
+    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary
 
     current_year = datetime.now().year
     last_refresh = get_last_full_refresh()
@@ -6842,6 +6842,8 @@ def get_cache_status(
     in_progress = is_full_refresh_in_progress()
     progress = get_warmup_progress() if in_progress else None
     last_error = get_last_refresh_error()
+    warmup_summary = get_warmup_summary()
+    warmup_results = get_warmup_event_results()
 
     return {
         "status": "success",
@@ -6849,6 +6851,8 @@ def get_cache_status(
         "progress": progress,
         "last_error": last_error,
         "ultima_atualizacao_completa": last_refresh_str,
+        "warmup_summary": warmup_summary,
+        "warmup_results": warmup_results,
         "caches": {
             "isc_pricing": _smart_isc_cache.get_info(f"{current_year}_isc"),
             "event_detail": {
@@ -6867,7 +6871,7 @@ def get_cache_status(
             "historical_ttl": "permanent",
             "current_year_ttl_seconds": CURRENT_YEAR_TTL,
             "auto_refresh_interval_seconds": 1800,
-            "daily_refresh_time": "07:00 BRT"
+            "daily_refresh_time": "05:00 BRT"
         }
     }
 

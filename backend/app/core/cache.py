@@ -565,6 +565,33 @@ def get_warmup_all_dim_projetos() -> Optional[list]:
 
 ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache]
 
+_warmup_event_results_store: dict = {}
+_warmup_event_results_lock = threading.Lock()
+_warmup_summary_store: dict = {}
+_warmup_summary_lock = threading.Lock()
+
+
+def set_warmup_event_results(results: dict):
+    with _warmup_event_results_lock:
+        _warmup_event_results_store.clear()
+        _warmup_event_results_store.update(results)
+
+
+def get_warmup_event_results() -> dict:
+    with _warmup_event_results_lock:
+        return dict(_warmup_event_results_store)
+
+
+def set_warmup_summary(summary: dict):
+    with _warmup_summary_lock:
+        _warmup_summary_store.clear()
+        _warmup_summary_store.update(summary)
+
+
+def get_warmup_summary() -> dict:
+    with _warmup_summary_lock:
+        return dict(_warmup_summary_store)
+
 
 def warm_all_caches_from_db():
     logger.info("Warming all caches from PostgreSQL...")
@@ -602,7 +629,7 @@ class CacheRefreshScheduler:
         self._schedule(interval)
         self._schedule_daily_refresh()
         self._schedule_snapshot_consolidation()
-        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 06:00 BRT, daily refresh at 07:00 BRT)")
+        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 06:00 BRT, daily refresh at 05:00 BRT)")
 
     def _schedule(self, interval: int):
         with self._lock:
@@ -618,7 +645,7 @@ class CacheRefreshScheduler:
                 return
 
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
-        target = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        target = now.replace(hour=5, minute=0, second=0, microsecond=0)
         if now >= target:
             target += timedelta(days=1)
 
@@ -672,7 +699,7 @@ class CacheRefreshScheduler:
             if not self._running:
                 return
 
-        logger.info("=== DAILY FULL CACHE REFRESH STARTED (07:00 BRT) ===")
+        logger.info("=== DAILY FULL CACHE REFRESH STARTED (05:00 BRT) ===")
         if self._full_refresh_callback:
             try:
                 self._full_refresh_callback()

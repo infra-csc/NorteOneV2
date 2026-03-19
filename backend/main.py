@@ -203,33 +203,35 @@ def _full_cache_warmup():
         update_warmup_sub_progress(4)
 
         # --- Phase 1b: kick off event_detail pre-warm for ALL active events (background, parallel with ISC refresh) ---
-        _detail_prewarm_futures = []
+        _detail_futures: dict = {}
+        _prewarm_detail_fn = None
         if active_evento_ids:
             from app.api.routes.marketing import (
                 get_marketing_event_by_id as _get_evt_detail,
                 get_sales_averages as _get_medias,
                 get_curva_snapshot as _get_curva
             )
-            _detail_prewarm_executor = _TPE(max_workers=min(4, len(active_evento_ids)), thread_name_prefix="warmup_detail")
+            _detail_prewarm_executor = _TPE(max_workers=min(12, len(active_evento_ids)), thread_name_prefix="warmup_detail")
 
-            def _prewarm_detail(eid, _ano):
+            def _prewarm_detail_fn(eid, _ano):
                 _db2 = SessionLocal()
                 try:
                     _get_evt_detail(evento_id=eid, ano=_ano, force_refresh=True, db=_db2, current_user=None)
-                    logger.info(f"[Warmup BG] event_detail pre-warm OK: {eid}")
+                    return "ok"
                 except Exception as _e:
-                    logger.warning(f"[Warmup BG] event_detail pre-warm failed for {eid}: {_e}")
+                    logger.warning(f"[Warmup] event_detail failed for {eid}: {_e}")
+                    return "failed"
                 finally:
                     _db2.close()
 
             for _eid in active_evento_ids:
-                _detail_prewarm_futures.append(_detail_prewarm_executor.submit(_prewarm_detail, _eid, ano))
+                _detail_futures[_eid] = _detail_prewarm_executor.submit(_prewarm_detail_fn, _eid, ano)
             _detail_prewarm_executor.shutdown(wait=False)
-            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active events (Tier1+Tier2)")
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} events ({min(12, len(active_evento_ids))} workers)")
 
             # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for Tier 1 events ---
             if tier1_evento_ids:
-                _tier1_aux_executor = _TPE(max_workers=min(4, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
+                _tier1_aux_executor = _TPE(max_workers=min(8, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
 
                 def _prewarm_tier1_aux(eid, _ano):
                     _db3 = SessionLocal()
@@ -249,7 +251,7 @@ def _full_cache_warmup():
                 for _eid in tier1_evento_ids:
                     _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
                 _tier1_aux_executor.shutdown(wait=False)
-                logger.info(f"[Warmup] medias+curva Tier 1 background pre-warm started for {len(tier1_evento_ids)} events")
+                logger.info(f"[Warmup] medias+curva Tier 1 pre-warm started for {len(tier1_evento_ids)} events ({min(8, len(tier1_evento_ids))} workers)")
 
         # --- Phase 1c: ISC refresh (heavy, ~44s) — runs in parallel with event_detail pre-warm ---
         logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
@@ -262,6 +264,63 @@ def _full_cache_warmup():
             partial_warnings.append(f"Dados de inscrições parciais: {str(e)[:100]}")
 
         logger.info(f"[Warmup 1/4] Phase 1 complete in {time.time()-start:.1f}s")
+
+        # --- Phase 1d: collect event_detail futures with per-event timeout; retry failures ---
+        _warmup_event_results: dict = {}
+        if _detail_futures and _prewarm_detail_fn:
+            from concurrent.futures import TimeoutError as _FutureTimeout
+            _DETAIL_TIMEOUT = 300
+            _failed_eids: list = []
+            logger.info(f"[Warmup 1d] Collecting event_detail results for {len(_detail_futures)} events (timeout {_DETAIL_TIMEOUT}s each)...")
+            for _eid, _fut in _detail_futures.items():
+                try:
+                    _r = _fut.result(timeout=_DETAIL_TIMEOUT)
+                    _warmup_event_results[_eid] = _r
+                    if _r != "ok":
+                        _failed_eids.append(_eid)
+                except _FutureTimeout:
+                    logger.warning(f"[Warmup 1d] Timeout collecting event_detail for {_eid}")
+                    _warmup_event_results[_eid] = "timeout"
+                    _failed_eids.append(_eid)
+                except Exception as _ec:
+                    logger.warning(f"[Warmup 1d] Exception collecting event_detail for {_eid}: {_ec}")
+                    _warmup_event_results[_eid] = "error"
+                    _failed_eids.append(_eid)
+
+            if _failed_eids:
+                logger.info(f"[Warmup 1d] Second pass: retrying {len(_failed_eids)} failed/timeout events (4 workers, timeout 600s)...")
+                _retry_executor = _TPE(max_workers=min(4, len(_failed_eids)), thread_name_prefix="warmup_retry")
+                _retry_futs = {_eid: _retry_executor.submit(_prewarm_detail_fn, _eid, ano) for _eid in _failed_eids}
+                _retry_executor.shutdown(wait=False)
+                for _eid, _fut in _retry_futs.items():
+                    try:
+                        _r = _fut.result(timeout=600)
+                        _warmup_event_results[_eid] = "retried_ok" if _r == "ok" else "retry_failed"
+                        if _r == "ok":
+                            logger.info(f"[Warmup 1d] Retry OK: {_eid}")
+                    except _FutureTimeout:
+                        _warmup_event_results[_eid] = "retry_timeout"
+                        logger.warning(f"[Warmup 1d] Retry timeout: {_eid}")
+                    except Exception as _ec:
+                        _warmup_event_results[_eid] = "retry_error"
+                        logger.warning(f"[Warmup 1d] Retry exception for {_eid}: {_ec}")
+
+            _ok_cnt = sum(1 for v in _warmup_event_results.values() if v == "ok")
+            _retried_ok_cnt = sum(1 for v in _warmup_event_results.values() if v == "retried_ok")
+            _fail_cnt = len(_warmup_event_results) - _ok_cnt - _retried_ok_cnt
+            logger.info(f"[Warmup] event_detail summary: {_ok_cnt}/{len(_warmup_event_results)} OK, {_retried_ok_cnt} retried OK, {_fail_cnt} still failed")
+
+            from app.core.cache import set_warmup_event_results as _set_wer, set_warmup_summary as _set_ws
+            _set_wer(_warmup_event_results)
+            _warmup_elapsed = time.time() - start
+            _set_ws({
+                "total": len(_warmup_event_results),
+                "ok": _ok_cnt,
+                "retried_ok": _retried_ok_cnt,
+                "failed": _fail_cnt,
+                "duration_seconds": round(_warmup_elapsed, 1),
+                "completed_at": datetime.utcnow().isoformat() + "Z"
+            })
 
         set_warmup_progress(2, "Finalizando lista", 0, 1)
 
@@ -293,7 +352,7 @@ def _full_cache_warmup():
         elapsed = time.time() - start
         logger.info(f"=== FULL CACHE WARMUP COMPLETED in {elapsed:.1f}s ===")
         logger.info(f"    Active events identified: Tier1={len(tier1_evento_ids)}, Tier2={len(tier2_evento_ids)}")
-        logger.info(f"    Detail pre-warm: {len(_detail_prewarm_futures)} Tier 1 events warming in background")
+        logger.info(f"    Detail pre-warm: {len(_detail_futures)} events processed (ok={sum(1 for v in _warmup_event_results.values() if v=='ok')}, retried_ok={sum(1 for v in _warmup_event_results.values() if v=='retried_ok')}, failed={sum(1 for v in _warmup_event_results.values() if v not in ('ok','retried_ok'))})")
         update_warmup_sub_progress(1)
 
         if partial_warnings:
@@ -544,7 +603,7 @@ async def lifespan(app: FastAPI):
             logger.error(f"Persistent cache warmup failed: {e}")
 
         cache_scheduler.start(interval=1800)
-        logger.info("Cache auto-refresh scheduler started (30 min interval + daily 07:00 BRT)")
+        logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
 
         try:
             from app.core.database import SessionLocal
