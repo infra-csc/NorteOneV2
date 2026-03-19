@@ -422,6 +422,7 @@ def _startup_tier1_gap_warmup():
 
         sku_to_grupo = _build_sku_to_grupo_map(db, ano)
 
+        today = _date.today()
         grupo_min_dm: dict = {}
         standalone_dm: dict = {}
 
@@ -432,8 +433,11 @@ def _startup_tier1_gap_warmup():
             if not proj or not proj.data_evento:
                 continue
 
+            if proj.data_evento.year != ano or proj.data_evento < today:
+                continue
+
             reg_close = proj.data_evento - _td(days=2)
-            raw_dm = (reg_close - _date.today()).days
+            raw_dm = (reg_close - today).days
             regime = get_event_regime(raw_dm)
             if regime == "consolidated":
                 continue
