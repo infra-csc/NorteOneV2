@@ -719,13 +719,6 @@ def _run_column_migrations():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Fast, essential schema operations — run synchronously before serving traffic
-    if engine:
-        Base.metadata.create_all(bind=engine)
-    _run_column_migrations()
-    seed_admin_user()
-    _seed_kit_config()
-
     register_full_warmup_fn(_full_cache_warmup)
     cache_scheduler.register_full_refresh(_full_cache_warmup)
 
@@ -733,6 +726,16 @@ async def lifespan(app: FastAPI):
 
     def _all_background_init():
         """All startup work runs in background so the server starts immediately."""
+        # Phase 0: schema setup (idempotent, safe to run after yield)
+        try:
+            if engine:
+                Base.metadata.create_all(bind=engine)
+            _run_column_migrations()
+            seed_admin_user()
+            _seed_kit_config()
+        except Exception as e:
+            logger.error(f"Schema/seed setup failed: {e}")
+
         # Phase 1: connections & sync
         try:
             _startup_resync_projetos()
