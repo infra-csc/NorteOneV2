@@ -257,7 +257,7 @@ def _full_cache_warmup():
                 for _eid in tier1_evento_ids:
                     _tier1_aux_futures[_eid] = _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
                 _tier1_aux_executor.shutdown(wait=False)
-                logger.info(f"[Warmup] medias+curva Tier 1 pre-warm started for {len(tier1_evento_ids)} events ({min(8, len(tier1_evento_ids))} workers)")
+                logger.info(f"[Warmup] medias+curva Tier 1 pre-warm started for {len(tier1_evento_ids)} events ({min(3, len(tier1_evento_ids))} workers)")
 
         # --- Phase 1c: ISC refresh (heavy, ~44s) — runs in parallel with event_detail pre-warm ---
         logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
