@@ -149,17 +149,6 @@ const EventDetail: React.FC = () => {
 
         const stale = response._isStale === true;
         setIsStaleData(stale);
-        if (stale && !isStaleRetry) {
-          if (staleRetryTimerRef.current) clearTimeout(staleRetryTimerRef.current);
-          staleRetryTimerRef.current = setTimeout(() => {
-            if (!controller.signal.aborted) fetchEvent(true);
-          }, 60000);
-        } else if (!stale) {
-          if (staleRetryTimerRef.current) {
-            clearTimeout(staleRetryTimerRef.current);
-            staleRetryTimerRef.current = null;
-          }
-        }
 
         const eventWithData = {
           ...response.evento,
@@ -658,7 +647,9 @@ const EventDetail: React.FC = () => {
 
   const last30Days = (event.dailySales || []).slice(-30);
 
-  const dMinusCalc = event.dMinusInscricoes ?? Math.max(0, event.dMinus - 2);
+  const _rawDMinusCalc = event.dMinusInscricoes != null ? event.dMinusInscricoes : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
+  const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
+  const _safeDMinus = (event.dMinus != null && !isNaN(event.dMinus)) ? event.dMinus : 0;
   const volumeParaMeta = event.salesGoal - inscritosTotal;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
@@ -853,7 +844,7 @@ const EventDetail: React.FC = () => {
               </span>
               <span className="flex items-center gap-1">
                 <Users className="w-4 h-4" />
-                Meta total: {formatNumber(event.totalCapacity)}
+                Meta total: {event.totalCapacity != null && !isNaN(event.totalCapacity as number) ? formatNumber(event.totalCapacity) : '—'}
               </span>
             </div>
             {event.dataRegime === 'consolidated' ? (
@@ -1569,11 +1560,11 @@ const EventDetail: React.FC = () => {
           <span className="text-gray-300 dark:text-gray-600">|</span>
           <span className="text-sm text-gray-500 dark:text-gray-400">Evento</span>
           <span className={`text-sm font-medium ${
-            event.dMinus < 40 
+            _safeDMinus < 40 
               ? 'text-orange-500 dark:text-orange-400' 
               : 'text-gray-500 dark:text-gray-400'
           }`}>
-            D-{event.dMinus}
+            D-{_safeDMinus}
           </span>
           {dMinusCalc < 40 && (
             <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
@@ -1920,7 +1911,7 @@ const EventDetail: React.FC = () => {
               <p className={`text-xl font-bold ${dMinusCalc < 40 ? 'text-orange-600 dark:text-orange-400' : 'text-blue-600 dark:text-blue-400'}`}>
                 {dMinusCalc}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Evento: <span className="font-semibold text-gray-600 dark:text-gray-300">{event.dMinus}</span></p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Evento: <span className="font-semibold text-gray-600 dark:text-gray-300">{_safeDMinus}</span></p>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <p className="text-xs text-gray-500 dark:text-gray-400">Volume p/ Meta</p>
