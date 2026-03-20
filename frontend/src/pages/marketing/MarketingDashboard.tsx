@@ -137,6 +137,8 @@ const MarketingDashboard: React.FC = () => {
   });
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingTooLong, setLoadingTooLong] = useState(false);
+  const loadingTooLongTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null; sub_current?: number; sub_total?: number} | null>(null);
@@ -193,12 +195,16 @@ const MarketingDashboard: React.FC = () => {
     if (hasCachedData && !isRefresh && !forceRefresh) {
       applyResponse(cached.data);
       setLoading(false);
+      setLoadingTooLong(false);
       setFromCache(true);
       setRevalidating(true);
     } else if (isRefresh) {
       setRefreshing(true);
     } else {
       setLoading(true);
+      setLoadingTooLong(false);
+      if (loadingTooLongTimerRef.current) clearTimeout(loadingTooLongTimerRef.current);
+      loadingTooLongTimerRef.current = setTimeout(() => setLoadingTooLong(true), 12000);
     }
 
     try {
@@ -252,7 +258,12 @@ const MarketingDashboard: React.FC = () => {
       }
     } finally {
       if (!controller.signal.aborted) {
+        if (loadingTooLongTimerRef.current) {
+          clearTimeout(loadingTooLongTimerRef.current);
+          loadingTooLongTimerRef.current = null;
+        }
         setLoading(false);
+        setLoadingTooLong(false);
         setRefreshing(false);
         setRevalidating(false);
       }
@@ -632,6 +643,24 @@ const MarketingDashboard: React.FC = () => {
         onRetry={() => fetchData(true, true)}
         retrying={refreshing}
       />
+
+      {loadingTooLong && loading && (
+        <div className={`rounded-xl p-6 border flex flex-col items-center gap-4 text-center ${isDark ? 'bg-blue-950/40 border-blue-800/50' : 'bg-blue-50 border-blue-200'}`}>
+          <RefreshCw className={`w-8 h-8 animate-spin ${isDark ? 'text-blue-400' : 'text-blue-500'}`} />
+          <div>
+            <p className={`font-semibold text-base ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Preparando os dados do servidor...</p>
+            <p className={`text-sm mt-1 ${isDark ? 'text-blue-400/70' : 'text-blue-600/70'}`}>
+              O sistema está consolidando as informações de vendas e ISC. Isso pode levar alguns minutos na primeira carga do dia.
+            </p>
+          </div>
+          <button
+            onClick={() => fetchData(true)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-blue-800 hover:bg-blue-700 text-blue-100' : 'bg-blue-100 hover:bg-blue-200 text-blue-700'}`}
+          >
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {loading ? (

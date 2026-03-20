@@ -3203,7 +3203,7 @@ def get_marketing_events(
             finally:
                 _db.close()
 
-        cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=None)
+        cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
         if cached is not None:
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if is_stale else "false"

@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 CURRENT_YEAR_TTL = 79200
 HISTORICAL_TTL = None
-MAX_STALE_AGE = 86400
+MAX_STALE_AGE = 172800
 NIGHTLY_CACHE_TTL = 79200
 
 _last_full_refresh_timestamp = None
