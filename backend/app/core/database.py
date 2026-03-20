@@ -4,7 +4,10 @@ from sqlalchemy.orm import sessionmaker
 import io
 import socket
 import threading
+import logging
 from .config import settings
+
+_db_logger = logging.getLogger(__name__)
 
 engine = create_engine(
     settings.DATABASE_URL,
@@ -57,7 +60,7 @@ def _ssh_watchdog():
     import time as _time
     CHECK_INTERVAL = 15
     RECONNECT_DELAY = 5
-    print("SSH tunnel watchdog started")
+    _db_logger.info("SSH tunnel watchdog started")
     while True:
         global _watchdog_running
         if not _watchdog_running:
@@ -67,21 +70,21 @@ def _ssh_watchdog():
             break
         if _is_tunnel_alive():
             continue
-        print("SSH tunnel watchdog: tunnel is DOWN – reconnecting...")
+        _db_logger.warning("SSH tunnel watchdog: tunnel is DOWN – reconnecting...")
         try:
             close_ssh_tunnel()
         except Exception as _ce:
-            print(f"SSH watchdog: error closing old tunnel: {_ce}")
+            _db_logger.error(f"SSH watchdog: error closing old tunnel: {_ce}")
         _time.sleep(RECONNECT_DELAY)
         try:
             ok = _reconnect_ssh_tunnel()
             if ok:
-                print("SSH tunnel watchdog: reconnected successfully")
+                _db_logger.info("SSH tunnel reconnected")
             else:
-                print("SSH tunnel watchdog: reconnect failed, will retry next cycle")
+                _db_logger.warning("SSH tunnel watchdog: reconnect failed, will retry next cycle")
         except Exception as _re:
-            print(f"SSH watchdog: reconnect error: {_re}")
-    print("SSH tunnel watchdog stopped")
+            _db_logger.error(f"SSH watchdog: reconnect error: {_re}")
+    _db_logger.info("SSH tunnel watchdog stopped")
 
 
 def start_ssh_watchdog():
@@ -286,9 +289,9 @@ def get_db_ssh():
         db.close()
 
 def close_ssh_tunnel():
-    global ssh_tunnel, engine_ssh
-    if ssh_tunnel:
-        try:
+    global ssh_tunnel, engine_ssh, SessionLocalSSH
+    try:
+        if ssh_tunnel:
             if isinstance(ssh_tunnel, dict):
                 server = ssh_tunnel.get('server')
                 if server:
@@ -296,7 +299,7 @@ def close_ssh_tunnel():
                         server.close()
                     except Exception:
                         pass
-                
+
                 client = ssh_tunnel.get('client')
                 if client:
                     try:
@@ -304,16 +307,24 @@ def close_ssh_tunnel():
                     except Exception:
                         pass
             else:
-                ssh_tunnel.stop()
-            
-            if engine_ssh:
+                try:
+                    ssh_tunnel.stop()
+                except Exception:
+                    pass
+
+        if engine_ssh:
+            try:
                 engine_ssh.dispose()
-            
-            print("SSH tunnel closed successfully")
-        except Exception as e:
-            print(f"Error closing SSH tunnel: {e}")
-        finally:
-            ssh_tunnel = None
+            except Exception:
+                pass
+
+        _db_logger.info("SSH tunnel closed successfully")
+    except Exception as e:
+        _db_logger.error(f"Error closing SSH tunnel: {e}")
+    finally:
+        ssh_tunnel = None
+        engine_ssh = None
+        SessionLocalSSH = None
 
 def init_mysql_connections():
     global engine_ativo, SessionLocalAtivo, engine_magento, SessionLocalMagento
