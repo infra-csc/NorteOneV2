@@ -719,6 +719,7 @@ def _run_column_migrations():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fast, essential schema operations — run synchronously before serving traffic
     if engine:
         Base.metadata.create_all(bind=engine)
     _run_column_migrations()
@@ -729,11 +730,10 @@ async def lifespan(app: FastAPI):
     cache_scheduler.register_full_refresh(_full_cache_warmup)
 
     import threading
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor as _StartupTPE
 
-    def _critical_startup():
-        """Critical path: runs BEFORE server is ready to accept production traffic."""
+    def _all_background_init():
+        """All startup work runs in background so the server starts immediately."""
+        # Phase 1: connections & sync
         try:
             _startup_resync_projetos()
         except Exception as e:
@@ -754,6 +754,7 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"SSH tunnel init failed: {e}")
 
+        # Phase 2: load persistent cache from DB
         try:
             logger.info("Loading persistent cache from PostgreSQL...")
             warm_all_caches_from_db()
@@ -761,24 +762,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Persistent cache load failed: {e}")
 
+        # Phase 3: Tier1 gap detection
         try:
-            logger.info("Running Tier1 gap detection (pre-readiness)...")
+            logger.info("Running Tier1 gap detection...")
             _startup_tier1_gap_warmup()
-            logger.info("Tier1 gap detection complete - server is now ready for production traffic")
+            logger.info("Tier1 gap detection complete")
         except Exception as e:
             logger.error(f"Startup gap detection failed: {e}")
 
-    loop = asyncio.get_event_loop()
-    with _StartupTPE(max_workers=1, thread_name_prefix="critical-startup") as exe:
-        try:
-            await asyncio.wait_for(loop.run_in_executor(exe, _critical_startup), timeout=180)
-        except asyncio.TimeoutError:
-            logger.warning("Critical startup timed out (180s), proceeding to serve traffic anyway")
-
-    logger.info("=== Server ready to accept production requests ===")
-
-    def _startup_background_init():
-        """Non-critical background tasks: scheduler, snapshots, full warmup."""
+        # Phase 4: scheduler, snapshots, full warmup
         cache_scheduler.start(interval=1800)
         logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
 
@@ -802,8 +794,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Full cache warmup failed: {e}")
 
-    init_thread = threading.Thread(target=_startup_background_init, daemon=True, name="startup-bg-init")
+        logger.info("=== All background startup tasks completed ===")
+
+    init_thread = threading.Thread(target=_all_background_init, daemon=True, name="startup-bg-init")
     init_thread.start()
+
+    logger.info("=== Server ready to accept requests (background init running) ===")
 
     yield
     cache_scheduler.stop()
