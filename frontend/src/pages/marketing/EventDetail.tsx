@@ -2129,7 +2129,7 @@ const EventDetail: React.FC = () => {
                 </div>
                 <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
                   <div className="flex items-center justify-between">
-                    {event.margemPorKit && event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO' && r.custoKit != null).length > 0 ? (
+                    {event.margemPorKit && event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO').length > 0 ? (
                       <div className="group relative">
                         <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 cursor-help">
                           Custo Kit Básico

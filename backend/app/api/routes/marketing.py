@@ -3313,6 +3313,15 @@ def get_marketing_events(
                 if snap is not None:
                     current_sales = snap['qtd_site']
                     current_receita = snap['receita_liquida_site']
+                else:
+                    # Fallback: snapshot not yet built — use ISC cache data if available
+                    seen_grupo_norms_c = set()
+                    for p in proj_list:
+                        p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
+                        if p_sku and p_sku not in seen_grupo_norms_c and p_sku in isc_data:
+                            seen_grupo_norms_c.add(p_sku)
+                            current_sales += isc_data[p_sku].get('qtd_site', 0)
+                            current_receita += isc_data[p_sku].get('receita_liquida_site', 0.0)
         else:
             seen_grupo_norms = set()
             for p in proj_list:
@@ -6133,7 +6142,17 @@ def get_marketing_event_by_id(
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
         elif detail_regime == "consolidated" and ano == current_year:
-            logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated — pulando rebuild de snapshot")
+            _existing_snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            if not _existing_snap:
+                logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated sem snapshot — construindo")
+                try:
+                    from ...services.snapshot_service import consolidar_vendas_grupo
+                    consolidar_vendas_grupo(db, grupo_nome, ano)
+                    logger.info(f"Snapshot construído (consolidated, sem snapshot) para '{grupo_nome}' ano={ano}")
+                except Exception as _e:
+                    logger.warning(f"Falha ao construir snapshot consolidated para '{grupo_nome}': {_e}")
+            else:
+                logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated — snapshot existente, pulando rebuild")
 
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern, data_evento_real=projeto_data_evento)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
@@ -6737,20 +6756,23 @@ def atualizar_vendas_hoje(
     hoje_total = hoje_ativo + hoje_magento
 
     # --- Update snapshot for today ---
+    _HOJE_FONTE = 'CONSOLIDADO'
     if grupo_nome:
         try:
             existing = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == _HOJE_FONTE,
                 _VDS.data_venda == hoje,
-                _VDS.ano == ano
             ).first()
 
             if existing:
                 existing.quantidade = hoje_total
+                existing.ano = ano
                 existing.updated_at = datetime.now()
             else:
                 new_row = _VDS(
                     evento_grupo=grupo_nome,
+                    fonte=_HOJE_FONTE,
                     data_venda=hoje,
                     quantidade=hoje_total,
                     receita=0.0,
@@ -6774,12 +6796,13 @@ def atualizar_vendas_hoje(
             cutoff_30 = hoje - timedelta(days=30)
             snap_rows = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
-                _VDS.ano == ano,
                 _VDS.data_venda >= cutoff_30,
                 _VDS.data_venda <= hoje
             ).order_by(_VDS.data_venda).all()
 
-            daily_map = {r.data_venda: r.quantidade for r in snap_rows}
+            daily_map: dict = {}
+            for r in snap_rows:
+                daily_map[r.data_venda] = daily_map.get(r.data_venda, 0) + r.quantidade
 
             def _avg_last_n(n: int) -> float:
                 cutoff = hoje - timedelta(days=n)
@@ -6792,7 +6815,6 @@ def atualizar_vendas_hoje(
 
             total_all = db.query(_sa_func.sum(_VDS.quantidade)).filter(
                 _VDS.evento_grupo == grupo_nome,
-                _VDS.ano == ano
             ).scalar() or 0
             total_acumulado = int(total_all)
         except Exception as _e:

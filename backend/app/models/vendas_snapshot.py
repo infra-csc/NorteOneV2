@@ -12,6 +12,7 @@ class VendasDiariaSnapshot(Base):
     data_venda = Column(Date, nullable=False)
     quantidade = Column(Integer, nullable=False, default=0)
     receita = Column(Float, nullable=True, default=0)
+    ano = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 

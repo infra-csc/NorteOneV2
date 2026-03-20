@@ -687,6 +687,7 @@ def _run_column_migrations():
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS custo_kit DECIMAL(10,2)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
             "ALTER TABLE cadastro_kit_produto ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
+            "ALTER TABLE vendas_diaria_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

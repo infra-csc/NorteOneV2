@@ -1,0 +1,1 @@
+ALTER TABLE vendas_diaria_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER;
