@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot
 from ..models.dimensoes import SkuMapping, DimProjeto
 import logging
@@ -161,14 +162,17 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
         if d > yesterday:
             continue
 
-        entry = VendasDiariaSnapshot(
+        stmt = pg_insert(VendasDiariaSnapshot).values(
             evento_grupo=evento_grupo,
             fonte='CONSOLIDADO',
             data_venda=d,
             quantidade=data["qtd"],
             receita=data["receita"]
+        ).on_conflict_do_update(
+            index_elements=['evento_grupo', 'fonte', 'data_venda'],
+            set_={'quantidade': data["qtd"], 'receita': data["receita"]}
         )
-        db.add(entry)
+        db.execute(stmt)
         saved += 1
 
     db.commit()

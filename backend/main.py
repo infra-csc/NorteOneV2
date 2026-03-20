@@ -58,9 +58,9 @@ def _full_cache_warmup():
 
     with _full_refresh_lock:
         if _cache_module._full_refresh_in_progress:
-            logger.info("Full cache warmup flag already set, proceeding")
-        else:
-            _cache_module._full_refresh_in_progress = True
+            logger.warning("Full cache warmup already in progress — skipping duplicate run to prevent concurrent DB conflicts")
+            return
+        _cache_module._full_refresh_in_progress = True
     set_last_refresh_error(None)
     from app.core.cache import set_warmup_event_results as _clear_wer, set_warmup_summary as _clear_ws
     _clear_wer({})
