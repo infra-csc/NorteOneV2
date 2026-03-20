@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List
 from datetime import datetime, date
 from decimal import Decimal
@@ -21,6 +21,14 @@ from app.schemas.cadastro_evento import (
 )
 
 router = APIRouter(prefix="/cadastros", tags=["Cadastros"], dependencies=[Depends(get_current_user)])
+
+_CADASTRO_EAGER = [
+    selectinload(CadastroEvento.cortesias),
+    selectinload(CadastroEvento.taxas),
+    selectinload(CadastroEvento.kit_produtos).selectinload(CadastroKitProduto.produtos),
+    selectinload(CadastroEvento.faixas_preco_site),
+    selectinload(CadastroEvento.faixas_preco_grupos),
+]
 
 
 def _update_projeto_fields(projeto: DimProjeto, cadastro: CadastroEvento):
@@ -193,7 +201,7 @@ def listar_cadastros(
     db: Session = Depends(get_db)
 ):
     """Lista todos os cadastros de eventos"""
-    query = db.query(CadastroEvento)
+    query = db.query(CadastroEvento).options(*_CADASTRO_EAGER)
     
     if status:
         query = query.filter(CadastroEvento.status == status)
@@ -206,7 +214,7 @@ def listar_cadastros(
 @router.get("/{cadastro_id}", response_model=CadastroEventoResponse)
 def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
     """Obtém um cadastro específico"""
-    cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
+    cadastro = db.query(CadastroEvento).options(*_CADASTRO_EAGER).filter(CadastroEvento.id == cadastro_id).first()
     
     if not cadastro:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado")
