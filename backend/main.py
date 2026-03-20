@@ -15,7 +15,8 @@ from app.core.cache import (
     isc_cache, event_detail_cache, curva_cache, medias_cache,
     _full_refresh_lock,
     set_warmup_metadata_cache, clear_warmup_metadata_cache,
-    set_gap_detection_result, set_known_tier1_ids
+    set_gap_detection_result, set_known_tier1_ids,
+    get_gap_detection_result,
 )
 import app.core.cache as _cache_module
 import logging
@@ -868,11 +869,24 @@ async def lifespan(app: FastAPI):
         snapshot_thread = threading.Thread(target=_run_snapshot_consolidation, daemon=True, name="startup-snapshot")
         snapshot_thread.start()
 
-        logger.info("Starting full cache warmup in background (parallel with snapshot)...")
-        try:
-            _full_cache_warmup()
-        except Exception as e:
-            logger.error(f"Full cache warmup failed: {e}")
+        # Decide whether to run a full warmup on startup.
+        # If all Tier1 events have fresh cache (gap count == 0), skip the warmup —
+        # existing DB-loaded cache is good enough. Only run snapshot consolidation.
+        # If there are gaps, wait for snapshot to finish first (avoids zeroed ISC
+        # from a race where Phase 1d reads snapshot data before it's rebuilt).
+        _gap_result = get_gap_detection_result()
+        _gap_count = len(_gap_result.get("missing_tier1_events", [])) + len(_gap_result.get("stale_tier1_events", []))
+
+        if _gap_count == 0:
+            logger.info("[Startup] All Tier1 events have fresh cache — skipping full warmup. Snapshot running in background.")
+        else:
+            logger.info(f"[Startup] {_gap_count} Tier1 events need warmup — waiting for snapshot to complete before pre-warming...")
+            snapshot_thread.join(timeout=600)  # wait up to 10 min for snapshot
+            logger.info("Starting full cache warmup (post-snapshot)...")
+            try:
+                _full_cache_warmup()
+            except Exception as e:
+                logger.error(f"Full cache warmup failed: {e}")
 
         logger.info("=== All background startup tasks completed ===")
 
