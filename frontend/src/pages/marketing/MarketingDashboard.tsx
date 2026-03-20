@@ -603,7 +603,7 @@ const MarketingDashboard: React.FC = () => {
                     : refreshResult === 'timeout'
                       ? 'Tempo esgotado'
                       : fullRefreshing
-                        ? refreshProgress
+                        ? refreshProgress && refreshProgress.step > 0
                           ? `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
                           : 'Iniciando...'
                         : 'Atualizar'}

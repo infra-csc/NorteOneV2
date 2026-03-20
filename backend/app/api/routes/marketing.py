@@ -3205,6 +3205,13 @@ def get_marketing_events(
 
         cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
         if cached is not None:
+            from app.core.cache import get_last_full_refresh as _glf_eventos
+            _lfr_ev = _glf_eventos()
+            if _lfr_ev:
+                cached = dict(cached)
+                cached["ultima_atualizacao"] = datetime.fromtimestamp(
+                    _lfr_ev, tz=ZoneInfo('America/Sao_Paulo')
+                ).isoformat()
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if is_stale else "false"
             return cached
@@ -3568,12 +3575,19 @@ def get_marketing_events(
         eventsRed=events_red
     )
     
+    from app.core.cache import get_last_full_refresh as _eventos_get_lfr
+    _eventos_lfr = _eventos_get_lfr()
+    _eventos_ts = (
+        datetime.fromtimestamp(_eventos_lfr, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+        if _eventos_lfr
+        else datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    )
     result = MarketingEventsResponse(
         status="success",
         eventos=eventos,
         resumo=resumo,
         categorias=sorted(list(categorias_set)),
-        ultima_atualizacao=datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        ultima_atualizacao=_eventos_ts,
         avisos=get_isc_warnings()
     )
     eventos_list_cache.set(cache_key, result.model_dump(mode="json"))

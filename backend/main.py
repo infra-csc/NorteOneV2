@@ -61,6 +61,11 @@ def _full_cache_warmup():
             logger.warning("Full cache warmup already in progress — skipping duplicate run to prevent concurrent DB conflicts")
             return
         _cache_module._full_refresh_in_progress = True
+        _cache_module._warmup_progress["step"] = 1
+        _cache_module._warmup_progress["label"] = "Iniciando atualização..."
+        _cache_module._warmup_progress["started_at"] = time.time()
+        _cache_module._warmup_progress["sub_current"] = 0
+        _cache_module._warmup_progress["sub_total"] = 0
     set_last_refresh_error(None)
     from app.core.cache import set_warmup_event_results as _clear_wer, set_warmup_summary as _clear_ws
     _clear_wer({})
