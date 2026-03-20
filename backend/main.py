@@ -770,25 +770,29 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Startup gap detection failed: {e}")
 
-        # Phase 4: scheduler, snapshots, full warmup
+        # Phase 4: scheduler, then snapshot + warmup in parallel
         cache_scheduler.start(interval=1800)
         logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
 
-        try:
-            from app.core.database import SessionLocal
-            from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
-            logger.info("Starting snapshot consolidation...")
-            db = SessionLocal()
+        def _run_snapshot_consolidation():
             try:
-                snapshot_diario_batch(db)
-                consolidar_curvas_historicas_batch(db)
-                logger.info("Startup snapshot consolidation completed")
-            finally:
-                db.close()
-        except Exception as e:
-            logger.error(f"Startup snapshot consolidation failed: {e}")
+                from app.core.database import SessionLocal
+                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
+                logger.info("Starting snapshot consolidation (parallel)...")
+                db = SessionLocal()
+                try:
+                    snapshot_diario_batch(db)
+                    consolidar_curvas_historicas_batch(db)
+                    logger.info("Startup snapshot consolidation completed")
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Startup snapshot consolidation failed: {e}")
 
-        logger.info("Starting full cache warmup in background...")
+        snapshot_thread = threading.Thread(target=_run_snapshot_consolidation, daemon=True, name="startup-snapshot")
+        snapshot_thread.start()
+
+        logger.info("Starting full cache warmup in background (parallel with snapshot)...")
         try:
             _full_cache_warmup()
         except Exception as e:

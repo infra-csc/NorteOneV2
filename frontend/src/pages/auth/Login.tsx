@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { LogIn, AlertCircle, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Background3D from '../../components/3d/Background3D';
+
+const Background3D = lazy(() => import('../../components/3d/Background3D'));
+
+const StaticBackground = () => (
+  <div style={{
+    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 0,
+    background: 'linear-gradient(135deg, #0a0e27 0%, #0d1340 30%, #0a1628 60%, #050a18 100%)',
+  }} />
+);
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -32,7 +40,9 @@ const Login: React.FC = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-      <Background3D />
+      <Suspense fallback={<StaticBackground />}>
+        <Background3D />
+      </Suspense>
 
       <motion.div
         initial={{ opacity: 0, y: 40, scale: 0.95 }}
