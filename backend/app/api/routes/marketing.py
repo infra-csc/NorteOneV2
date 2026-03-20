@@ -403,8 +403,8 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     from ...models.cadastro_evento import CadastroEvento
     from ..routes.kit_config import MAGENTO_KITS_QUERY
 
-    basico_configs = db.query(KitConfig).filter(KitConfig.is_kit_basico == True).all()
-    if not basico_configs:
+    all_configs = db.query(KitConfig).filter(KitConfig.id_evento.isnot(None)).all()
+    if not all_configs:
         return {}
 
     if db_module.engine_magento is None:
@@ -419,25 +419,54 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
         return {}
 
-    special_price_base_by_bundle: dict = {}
+    # Build per-bundle: special_price_base and status_kit
+    bundle_data: dict = {}
     for row in rows:
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
         sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
         raw_mult = row_dict.get("multiplicador")
         mult_sugerido = int(raw_mult) if raw_mult and int(raw_mult) > 0 else 1
-        if sp is not None:
-            special_price_base_by_bundle[bundle_id] = sp / mult_sugerido
+        sp_base = (sp / mult_sugerido) if sp is not None else None
+        status_kit = row_dict.get("status_kit")
+        bundle_data[bundle_id] = {"sp_base": sp_base, "status_kit": status_kit}
 
-    evento_tickets: dict = {}
-    for cfg in basico_configs:
-        if cfg.id_evento is None:
-            continue
-        sp_base = special_price_base_by_bundle.get(cfg.bundle_entity_id)
-        if sp_base is None:
-            continue
+    # Separate basic configs and promo configs per event
+    basico_by_evento: dict = {}
+    promo_by_evento: dict = {}
+    for cfg in all_configs:
         evt_key = str(cfg.id_evento)
-        evento_tickets[evt_key] = round(sp_base * cfg.multiplicador, 2)
+        if cfg.is_kit_basico:
+            basico_by_evento[evt_key] = cfg
+        else:
+            promo_by_evento.setdefault(evt_key, []).append(cfg)
+
+    # Compute final ticket per event:
+    # If there is an active promotional kit mapped → use its ticket
+    # Otherwise → use the basic kit ticket
+    evento_tickets: dict = {}
+    all_evt_keys = set(basico_by_evento.keys()) | set(promo_by_evento.keys())
+    for evt_key in all_evt_keys:
+        ticket_final = None
+
+        # Check for active promotional kit first
+        promo_configs = promo_by_evento.get(evt_key, [])
+        for promo_cfg in promo_configs:
+            bd = bundle_data.get(promo_cfg.bundle_entity_id)
+            if bd and bd.get("status_kit") == "ativo" and bd.get("sp_base") is not None:
+                ticket_final = round(bd["sp_base"] * promo_cfg.multiplicador, 2)
+                break
+
+        # Fallback to basic kit if no active promo kit found
+        if ticket_final is None:
+            basico_cfg = basico_by_evento.get(evt_key)
+            if basico_cfg:
+                bd = bundle_data.get(basico_cfg.bundle_entity_id)
+                if bd and bd.get("sp_base") is not None:
+                    ticket_final = round(bd["sp_base"] * basico_cfg.multiplicador, 2)
+
+        if ticket_final is not None:
+            evento_tickets[evt_key] = ticket_final
 
     if not evento_tickets:
         return {}

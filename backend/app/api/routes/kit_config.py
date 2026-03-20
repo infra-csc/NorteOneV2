@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/kit-config", tags=["Kit Config"])
 
 MAGENTO_KITS_QUERY = """
-SELECT
+SELECT 
     cpev1.value                             AS id_evento,
     cpev_kit.value                          AS nome_evento,
     cpe_parent.entity_id                    AS bundle_entity_id,
@@ -143,7 +143,12 @@ SELECT
         WHEN 1700 THEN 2
         WHEN 1701 THEN 4
         ELSE 1
-    END                                     AS special_price
+    END                                     AS special_price,
+
+    CASE cpei_status.value
+        WHEN 1 THEN 'ativo'
+        WHEN 2 THEN 'inativo'
+    END                                     AS status_kit
 
 FROM catalog_product_entity cpe_parent
 
@@ -177,10 +182,10 @@ LEFT JOIN catalog_product_entity_int cpei_tipo
 LEFT JOIN eav_attribute_option_value eaov_tipo
        ON eaov_tipo.option_id = cpei_tipo.value
 
-LEFT JOIN catalog_product_bundle_option cpeo
+JOIN catalog_product_bundle_option cpeo
        ON cpeo.parent_id = cpe_parent.entity_id
 
-LEFT JOIN catalog_product_bundle_selection cpeos
+JOIN catalog_product_bundle_selection cpeos
        ON cpeos.option_id = cpeo.option_id
 
 LEFT JOIN catalog_product_entity_varchar cpev_simple
@@ -205,6 +210,20 @@ LEFT JOIN catalog_product_entity_event_lot_price lote
             ORDER BY record_id DESC
             LIMIT 1
       )
+
+LEFT JOIN catalog_product_entity_int cpei_status
+       ON cpei_status.entity_id = cpe_parent.entity_id
+      AND cpei_status.attribute_id = (
+            SELECT attribute_id 
+            FROM eav_attribute 
+            WHERE attribute_code = 'status'
+              AND entity_type_id = (
+                    SELECT entity_type_id 
+                    FROM eav_entity_type 
+                    WHERE entity_type_code = 'catalog_product'
+              )
+      )
+
 
 WHERE cpe_parent.type_id = 'bundle'
   AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
@@ -344,6 +363,7 @@ def get_kits_with_config(
             custo_cadastro=custo_cadastro,
             custo_kit=custo_kit_val,
             ativo_categoria=cfg.ativo_categoria if cfg else None,
+            status_kit=row_dict.get("status_kit"),
         ))
 
     return kits
