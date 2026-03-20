@@ -27,6 +27,7 @@ import {
 } from '../../types/marketingPerformance';
 import { marketingService, MarketingEvent, MarketingDashboardSummary, getMarketingDashboardCache } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
 
 const SkeletonPulse: React.FC<{ className?: string }> = ({ className = '' }) => (
   <div className={`animate-pulse bg-gray-200 dark:bg-gray-700 rounded ${className}`} />
@@ -117,6 +118,8 @@ function saveFilters(filters: { search: string; category: string; status: string
 const MarketingDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { isDark } = useTheme();
+  const { permissions } = usePermissions();
+  const isAdmin = permissions?.is_admin === true;
   const initialFilters = useMemo(() => loadFilters(), []);
   const [searchInput, setSearchInput] = useState(initialFilters.search);
   const [debouncedSearch, setDebouncedSearch] = useState(initialFilters.search);
@@ -556,11 +559,12 @@ const MarketingDashboard: React.FC = () => {
               </>
             )}
           </div>
+          {isAdmin && (
           <div className="flex items-center gap-2">
             <button
               onClick={handleFullRefresh}
               disabled={fullRefreshing || loading}
-              title="Atualiza todos os dados do servidor"
+              title="Atualiza todos os dados do servidor (somente admin)"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors text-sm ${
                 refreshResult === 'success'
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
@@ -618,6 +622,7 @@ const MarketingDashboard: React.FC = () => {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 

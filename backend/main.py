@@ -400,11 +400,11 @@ def _full_cache_warmup():
         clear_warmup_daily_cache()
         clear_warmup_metadata_cache()
 
-        _evt_list_cache.invalidate_all()
-        logger.info("[Warmup 2/4] Caches cleaned, eventos_list invalidated")
-
+        # Atomic cache swap: build fresh data FIRST, then clear stale filter entries.
+        # This ensures there is never a window where the main cache keys are empty,
+        # so users browsing the dashboard always see data during background refresh.
         try:
-            logger.info(f"[Warmup 2/4] Populating default dashboard list cache keys")
+            logger.info(f"[Warmup 2/4] Populating default dashboard list cache keys (atomic swap)")
             _warmup_db = SessionLocal()
             try:
                 get_marketing_events(ano=ano, status="active", categoria=None, busca=None, force_refresh=True, db=_warmup_db, current_user=None)
@@ -415,6 +415,12 @@ def _full_cache_warmup():
                 _warmup_db.close()
         except Exception as e:
             logger.warning(f"[Warmup 2/4] Failed to populate list cache: {e}")
+
+        # After new main keys are ready, purge any stale filter-specific entries
+        # (e.g., 2026_active_corrida_, 2026_all_trail_, etc.) but keep the fresh ones.
+        _keep_keys = {f"{ano}_active_all_", f"{ano}_all_all_"}
+        _evt_list_cache.invalidate_all_except(_keep_keys)
+        logger.info("[Warmup 2/4] Caches cleaned, stale filter entries purged (main keys preserved)")
 
         set_last_full_refresh(time.time())
         elapsed = time.time() - start

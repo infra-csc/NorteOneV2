@@ -454,6 +454,20 @@ class SmartCache:
             except Exception as e:
                 logger.warning(f"Failed to delete cache {self.name}/{k} from DB during invalidate_all: {e}")
 
+    def invalidate_all_except(self, keep_keys: set):
+        """Remove all cache entries except the ones listed in keep_keys.
+        Used for atomic cache refresh: populate new keys first, then purge stale others."""
+        with self._lock:
+            keys_to_remove = [k for k in self._data if k not in keep_keys]
+            for k in keys_to_remove:
+                self._data.pop(k, None)
+                self._timestamps.pop(k, None)
+        for k in keys_to_remove:
+            try:
+                _delete_from_db(self.name, k)
+            except Exception as e:
+                logger.warning(f"Failed to delete cache {self.name}/{k} from DB during invalidate_all_except: {e}")
+
     def get_info(self, cache_key: str = None) -> dict:
         with self._lock:
             if cache_key and cache_key in self._timestamps:
@@ -643,6 +657,7 @@ class CacheRefreshScheduler:
         self._timer = None
         self._daily_timer = None
         self._snapshot_timer = None
+        self._evening_timer = None
         self._refresh_callbacks = []
         self._full_refresh_callback = None
         self._running = False
@@ -662,7 +677,8 @@ class CacheRefreshScheduler:
         self._schedule(interval)
         self._schedule_daily_refresh()
         self._schedule_snapshot_consolidation()
-        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 04:00 BRT, daily refresh at 05:00 BRT)")
+        self._schedule_evening_refresh()
+        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 04:00 BRT, daily refresh at 05:00 BRT, evening refresh at 17:00 BRT)")
 
     def _schedule(self, interval: int):
         with self._lock:
@@ -748,6 +764,44 @@ class CacheRefreshScheduler:
 
         self._schedule_daily_refresh()
 
+    def _schedule_evening_refresh(self):
+        with self._lock:
+            if not self._running:
+                return
+
+        now = datetime.now(ZoneInfo('America/Sao_Paulo'))
+        target = now.replace(hour=17, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+
+        delay = (target - now).total_seconds()
+        logger.info(f"Next evening refresh scheduled in {delay:.0f}s ({target.isoformat()})")
+
+        self._evening_timer = threading.Timer(delay, self._run_evening_refresh)
+        self._evening_timer.daemon = True
+        self._evening_timer.start()
+
+    def _run_evening_refresh(self):
+        with self._lock:
+            if not self._running:
+                return
+
+        logger.info("=== EVENING BACKGROUND REFRESH STARTED (17:00 BRT) ===")
+        if self._full_refresh_callback:
+            try:
+                self._full_refresh_callback()
+                logger.info("=== EVENING BACKGROUND REFRESH COMPLETED ===")
+            except Exception as e:
+                logger.error(f"Evening background refresh error: {e}")
+        else:
+            for callback in self._refresh_callbacks:
+                try:
+                    callback()
+                except Exception as e:
+                    logger.error(f"Evening refresh callback error: {e}")
+
+        self._schedule_evening_refresh()
+
     def _run_refresh(self, interval: int):
         with self._lock:
             if not self._running:
@@ -769,6 +823,8 @@ class CacheRefreshScheduler:
             self._daily_timer.cancel()
         if self._snapshot_timer:
             self._snapshot_timer.cancel()
+        if self._evening_timer:
+            self._evening_timer.cancel()
 
 
 cache_scheduler = CacheRefreshScheduler()

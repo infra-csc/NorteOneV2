@@ -764,23 +764,6 @@ const EventDetail: React.FC = () => {
         </div>
       )}
 
-      {showDataStaleWarning && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-            <span className="text-sm text-amber-700 dark:text-amber-300">
-              Os dados deste evento têm mais de 24h. Use &quot;Atualizar Hoje&quot; para buscar as vendas do dia atual, ou aguarde o próximo warmup noturno.
-            </span>
-          </div>
-          <button
-            onClick={handleForceRefresh}
-            className="text-xs font-medium text-amber-600 dark:text-amber-400 hover:underline flex-shrink-0 whitespace-nowrap"
-          >
-            Atualizar agora
-          </button>
-        </div>
-      )}
-
       <ConnectionAlert
         avisos={avisos}
         onRetry={handleForceRefresh}
@@ -793,23 +776,6 @@ const EventDetail: React.FC = () => {
           <span className="text-sm text-blue-700 dark:text-blue-300">
             {previewEvent ? 'Atualizando dados do evento em tempo real...' : 'Carregando dados completos do evento...'}
           </span>
-        </div>
-      )}
-
-      {isStaleData && !refreshing && !detailsLoading && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl p-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <Loader2 className="w-4 h-4 animate-spin text-amber-600 dark:text-amber-400 flex-shrink-0" />
-            <span className="text-sm text-amber-700 dark:text-amber-300">
-              Dados sendo atualizados em background. Os números serão atualizados automaticamente em breve.
-            </span>
-          </div>
-          <button
-            onClick={handleForceRefresh}
-            className="text-xs text-amber-600 dark:text-amber-400 hover:underline flex-shrink-0"
-          >
-            Atualizar agora
-          </button>
         </div>
       )}
 
