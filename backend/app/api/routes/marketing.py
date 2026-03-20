@@ -2735,6 +2735,34 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                         (_isc_row.fonte, _isc_row.id_externo)
                     )
 
+            # For current-year eventos, data_evento is intentionally left blank in
+            # sku_mappings — the canonical date lives in dim_projeto (cadastro do evento).
+            # Resolve missing dates from dim_projeto using the same fuzzy-match logic
+            # used elsewhere, so regime classification (live vs consolidated) works
+            # correctly without requiring manual date entry in SKU mappings.
+            _grupos_sem_data = set(consolidated_grupo_skus.keys()) - set(_isc_grupo_latest.keys())
+            if _grupos_sem_data:
+                try:
+                    _dp_all = _wq_all_dim_projetos(db)
+                    _dp_yr = [p for p in _dp_all if p.data_evento and p.data_evento.year == current_year]
+                    for _gn_nd in _grupos_sem_data:
+                        _norm_gn = _normalize_name_for_match(_gn_nd)
+                        _best_sc, _best_dt = 0.0, None
+                        for _p in _dp_yr:
+                            _pn = _normalize_name_for_match(_p.evento or "")
+                            _gw = set(_norm_gn.split())
+                            _pw = set(_pn.split())
+                            if not _gw or not _pw:
+                                continue
+                            _sc = len(_gw & _pw) / max(len(_gw), len(_pw))
+                            if _sc > _best_sc:
+                                _best_sc = _sc
+                                _best_dt = _p.data_evento
+                        if _best_dt and _best_sc >= 0.5:
+                            _isc_grupo_latest[_gn_nd] = _best_dt
+                except Exception as _date_err:
+                    logger.warning(f"[Hybrid] ISC: failed to resolve dates from dim_projeto: {_date_err}")
+
             _live_count = 0
             for _gn, _evt_date in _isc_grupo_latest.items():
                 _rc = _evt_date - timedelta(days=2)
