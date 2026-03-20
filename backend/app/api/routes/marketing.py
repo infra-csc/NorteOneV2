@@ -6103,9 +6103,16 @@ def get_marketing_event_by_id(
             if cached_detail is not None:
                 if response is not None:
                     response.headers["X-Data-Stale"] = "true" if is_stale else "false"
-                if "__is_completed" in cached_detail:
-                    return {k: v for k, v in cached_detail.items() if k != "__is_completed"}
-                return cached_detail
+                # Always inject current ultima_atualizacao_completa so frontend can detect stale event caches
+                from app.core.cache import get_last_full_refresh as _get_lfr
+                _lfr_ts = _get_lfr()
+                _lfr_str = (
+                    datetime.fromtimestamp(_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+                    if _lfr_ts else None
+                )
+                result_hit = {k: v for k, v in cached_detail.items() if k != "__is_completed"}
+                result_hit["ultima_atualizacao_completa"] = _lfr_str
+                return result_hit
         
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         
@@ -6450,6 +6457,12 @@ def get_marketing_event_by_id(
         
         _today_now = date.today()
         _event_is_past = bool(projeto_data_evento and projeto_data_evento < _today_now)
+        from app.core.cache import get_last_full_refresh as _get_last_full_refresh
+        _last_full_ts = _get_last_full_refresh()
+        _last_full_str = (
+            datetime.fromtimestamp(_last_full_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+            if _last_full_ts else None
+        )
         grouped_result = {
             "status": "success",
             "evento": evento,
@@ -6459,6 +6472,7 @@ def get_marketing_event_by_id(
             "comparacao_anual": comparacao_anual,
             "anos_disponiveis": [a[0] for a in anos_disponiveis],
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+            "ultima_atualizacao_completa": _last_full_str,
             "avisos": get_isc_warnings()
         }
         if _event_is_past:

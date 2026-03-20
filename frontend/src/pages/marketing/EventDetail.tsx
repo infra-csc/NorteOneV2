@@ -121,6 +121,7 @@ const EventDetail: React.FC = () => {
   const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
   const [isStaleData, setIsStaleData] = useState(false);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
+  const silentRefetchDoneRef = useRef(false);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -128,10 +129,11 @@ const EventDetail: React.FC = () => {
   const staleRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    silentRefetchDoneRef.current = false;
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const fetchEvent = async (isStaleRetry = false) => {
+    const fetchEvent = async (forceRefresh = false) => {
       if (!id) {
         setError('ID do evento não fornecido');
         setLoading(false);
@@ -140,11 +142,11 @@ const EventDetail: React.FC = () => {
       }
       
       try {
-        if (!isStaleRetry) {
+        if (!forceRefresh) {
           if (!event) setLoading(true);
         }
         setDetailsLoading(true);
-        const response = await marketingService.getEventoById(id, controller.signal, anoParam);
+        const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
         if (controller.signal.aborted) return;
 
         const stale = response._isStale === true;
@@ -184,8 +186,21 @@ const EventDetail: React.FC = () => {
           }))
         };
         setEvent(eventWithData);
-        if ((response as any).ultima_atualizacao) {
-          setUltimaAtualizacao((response as any).ultima_atualizacao);
+        const cacheTime: string | undefined = (response as any).ultima_atualizacao;
+        const systemRefresh: string | undefined = (response as any).ultima_atualizacao_completa;
+        // Display uses last full-system refresh time for consistency with the dashboard
+        setUltimaAtualizacao(systemRefresh || cacheTime || null);
+        // If the event cache is older than the last full refresh, silently refetch once
+        if (
+          !forceRefresh &&
+          !silentRefetchDoneRef.current &&
+          cacheTime &&
+          systemRefresh &&
+          new Date(cacheTime) < new Date(systemRefresh)
+        ) {
+          silentRefetchDoneRef.current = true;
+          fetchEvent(true);
+          return;
         }
         if ((response as any).projetos_vinculados) {
           setProjetosVinculados((response as any).projetos_vinculados);
