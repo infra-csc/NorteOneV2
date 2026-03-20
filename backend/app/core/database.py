@@ -36,7 +36,77 @@ ssh_tunnel = None
 engine_ssh = None
 SessionLocalSSH = None
 
-def init_ssh_tunnel():
+_watchdog_running = False
+_watchdog_lock = threading.Lock()
+
+
+def _is_tunnel_alive() -> bool:
+    """Return True if the SSH transport is active."""
+    global ssh_tunnel
+    if ssh_tunnel is None:
+        return False
+    client = ssh_tunnel.get('client') if isinstance(ssh_tunnel, dict) else None
+    if client is None:
+        return False
+    transport = client.get_transport()
+    return transport is not None and transport.is_active()
+
+
+def _ssh_watchdog():
+    """Daemon thread: checks tunnel health every 15 s and reconnects if dead."""
+    import time as _time
+    CHECK_INTERVAL = 15
+    RECONNECT_DELAY = 5
+    print("SSH tunnel watchdog started")
+    while True:
+        global _watchdog_running
+        if not _watchdog_running:
+            break
+        _time.sleep(CHECK_INTERVAL)
+        if not _watchdog_running:
+            break
+        if _is_tunnel_alive():
+            continue
+        print("SSH tunnel watchdog: tunnel is DOWN – reconnecting...")
+        try:
+            close_ssh_tunnel()
+        except Exception as _ce:
+            print(f"SSH watchdog: error closing old tunnel: {_ce}")
+        _time.sleep(RECONNECT_DELAY)
+        try:
+            ok = _reconnect_ssh_tunnel()
+            if ok:
+                print("SSH tunnel watchdog: reconnected successfully")
+            else:
+                print("SSH tunnel watchdog: reconnect failed, will retry next cycle")
+        except Exception as _re:
+            print(f"SSH watchdog: reconnect error: {_re}")
+    print("SSH tunnel watchdog stopped")
+
+
+def start_ssh_watchdog():
+    """Start the watchdog daemon thread if not already running."""
+    global _watchdog_running
+    with _watchdog_lock:
+        if _watchdog_running:
+            return
+        _watchdog_running = True
+    t = threading.Thread(target=_ssh_watchdog, daemon=True, name="ssh-watchdog")
+    t.start()
+
+
+def stop_ssh_watchdog():
+    """Signal the watchdog to stop on next cycle."""
+    global _watchdog_running
+    _watchdog_running = False
+
+
+def _reconnect_ssh_tunnel():
+    """Re-run the SSH tunnel setup without starting a new watchdog."""
+    return init_ssh_tunnel(_start_watchdog=False)
+
+
+def init_ssh_tunnel(_start_watchdog: bool = True):
     global ssh_tunnel, engine_ssh, SessionLocalSSH
     import paramiko
     import tempfile
@@ -196,6 +266,8 @@ def init_ssh_tunnel():
         SessionLocalSSH = sessionmaker(autocommit=False, autoflush=False, bind=engine_ssh)
         
         print(f"Successfully connected to database '{settings.DB_NAME}' via SSH tunnel")
+        if _start_watchdog:
+            start_ssh_watchdog()
         return True
         
     except Exception as e:

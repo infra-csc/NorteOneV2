@@ -6,7 +6,7 @@ from sqlalchemy import text
 from contextlib import asynccontextmanager
 import os
 import time
-from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, engine_ssh
+from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, stop_ssh_watchdog, engine_ssh
 from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
@@ -22,6 +22,8 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+_no_grupo_event_ids: set = set()
 
 def _scheduled_isc_refresh():
     from app.core.database import SessionLocal
@@ -219,10 +221,21 @@ def _full_cache_warmup():
             _detail_prewarm_executor = _TPE(max_workers=min(4, len(active_evento_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail_fn(eid, _ano):
+                from fastapi import HTTPException as _HTTPEx
+                if eid in _no_grupo_event_ids:
+                    return "skipped_no_grupo"
                 _db2 = SessionLocal()
                 try:
                     _get_evt_detail(evento_id=eid, ano=_ano, force_refresh=True, db=_db2, current_user=None)
                     return "ok"
+                except _HTTPEx as _he:
+                    _detail = str(getattr(_he, 'detail', '')).lower()
+                    if "sem grupo" in _detail:
+                        _no_grupo_event_ids.add(eid)
+                        logger.info(f"[Warmup] Evento {eid} sem grupo configurado – ignorado nos próximos ciclos")
+                    else:
+                        logger.warning(f"[Warmup] event_detail failed for {eid}: {_he}")
+                    return "failed"
                 except Exception as _e:
                     logger.warning(f"[Warmup] event_detail failed for {eid}: {_e}")
                     return "failed"
@@ -239,6 +252,8 @@ def _full_cache_warmup():
                 _tier1_aux_executor = _TPE(max_workers=min(3, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
 
                 def _prewarm_tier1_aux(eid, _ano):
+                    if eid in _no_grupo_event_ids:
+                        return "skipped_no_grupo"
                     _db3 = SessionLocal()
                     try:
                         _get_medias(evento_id=eid, periodo=30, ano=_ano, force_refresh=True, db=_db3, current_user=None, response=None)
@@ -489,11 +504,21 @@ def _startup_tier1_gap_warmup():
         logger.info(f"[StartupGap] {len(needs_warmup)} Tier1 events need warmup: {len(missing_ids)} missing, {len(stale_ids)} stale. Starting targeted warmup with {GAP_WORKERS} workers...")
 
         def _gap_warm_one(eid):
+            from fastapi import HTTPException as _HTTPEx
+            if eid in _no_grupo_event_ids:
+                return eid, "skipped_no_grupo"
             _db = None
             try:
                 _db = SessionLocal()
                 get_marketing_event_by_id(evento_id=eid, ano=ano, force_refresh=True, db=_db, current_user=None, response=None)
                 return eid, "ok"
+            except _HTTPEx as _he:
+                _detail = str(getattr(_he, 'detail', '')).lower()
+                if "sem grupo" in _detail:
+                    _no_grupo_event_ids.add(eid)
+                    logger.info(f"[StartupGap] Evento {eid} sem grupo – ignorado nos próximos ciclos")
+                    return eid, "no_grupo"
+                return eid, f"error: {_he}"
             except Exception as ex:
                 return eid, f"error: {ex}"
             finally:
@@ -811,6 +836,7 @@ async def lifespan(app: FastAPI):
 
     yield
     cache_scheduler.stop()
+    stop_ssh_watchdog()
     close_ssh_tunnel()
 
 app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0", lifespan=lifespan)
