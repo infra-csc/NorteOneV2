@@ -2520,16 +2520,12 @@ const EventDetail: React.FC = () => {
                   {rows.map((row) => (
                     <tr
                       key={row.label}
-                      className={`border-b border-gray-100 dark:border-gray-700/50 ${
-                        row.isMeta
-                          ? 'bg-blue-50 dark:bg-blue-900/20 font-semibold'
-                          : 'hover:bg-gray-50 dark:hover:bg-gray-700/30'
-                      }`}
+                      className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30"
                     >
-                      <td className={`py-2.5 px-3 ${row.isMeta ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'} font-medium`}>
+                      <td className="py-2.5 px-3 text-gray-900 dark:text-white font-medium">
                         {row.label}
                       </td>
-                      <td className={`py-2.5 px-3 text-right ${row.isMeta ? 'text-blue-700 dark:text-blue-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
+                      <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
                         {formatNumber(row.volFuturo)}
                       </td>
                       <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
@@ -2544,10 +2540,10 @@ const EventDetail: React.FC = () => {
                       <td className={`py-2.5 px-3 text-right ${row.margemGlobal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {formatCurrency(row.margemGlobal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isMeta ? 'text-blue-600 dark:text-blue-400' : row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.margemNominal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {formatCurrency(row.margemNominal)}
                       </td>
-                      <td className={`py-2.5 px-3 text-right font-semibold ${row.isMeta ? 'text-blue-600 dark:text-blue-400' : row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      <td className={`py-2.5 px-3 text-right font-semibold ${row.margemPct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                         {`${row.margemPct >= 0 ? '+' : ''}${Math.round(row.margemPct * 10) / 10}%`}
                       </td>
                     </tr>
