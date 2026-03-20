@@ -449,9 +449,11 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     for evt_key in all_evt_keys:
         ticket_final = None
 
-        # Check for active promotional kit first
+        # Check for active promotional kit first (only kits whose tipo_kit contains "promo")
         promo_configs = promo_by_evento.get(evt_key, [])
         for promo_cfg in promo_configs:
+            if not promo_cfg.tipo_kit or 'promo' not in promo_cfg.tipo_kit.lower():
+                continue
             bd = bundle_data.get(promo_cfg.bundle_entity_id)
             if bd and bd.get("status_kit") == "ativo" and bd.get("sp_base") is not None:
                 ticket_final = round(bd["sp_base"] * promo_cfg.multiplicador, 2)
