@@ -216,7 +216,7 @@ def _full_cache_warmup():
                 get_sales_averages as _get_medias,
                 get_curva_snapshot as _get_curva
             )
-            _detail_prewarm_executor = _TPE(max_workers=min(12, len(active_evento_ids)), thread_name_prefix="warmup_detail")
+            _detail_prewarm_executor = _TPE(max_workers=min(4, len(active_evento_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail_fn(eid, _ano):
                 _db2 = SessionLocal()
@@ -232,11 +232,11 @@ def _full_cache_warmup():
             for _eid in active_evento_ids:
                 _detail_futures[_eid] = _detail_prewarm_executor.submit(_prewarm_detail_fn, _eid, ano)
             _detail_prewarm_executor.shutdown(wait=False)
-            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} events ({min(12, len(active_evento_ids))} workers)")
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} events ({min(4, len(active_evento_ids))} workers)")
 
             # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for Tier 1 events ---
             if tier1_evento_ids:
-                _tier1_aux_executor = _TPE(max_workers=min(8, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
+                _tier1_aux_executor = _TPE(max_workers=min(3, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
 
                 def _prewarm_tier1_aux(eid, _ano):
                     _db3 = SessionLocal()
