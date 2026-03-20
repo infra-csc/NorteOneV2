@@ -141,6 +141,7 @@ const MarketingDashboard: React.FC = () => {
   const [revalidating, setRevalidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serverLastUpdate, setServerLastUpdate] = useState<string | null>(null);
+  const [dataTimestamp, setDataTimestamp] = useState<string | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [fromCache, setFromCache] = useState(false);
   const [serverStale, setServerStale] = useState(false);
@@ -157,6 +158,9 @@ const MarketingDashboard: React.FC = () => {
     setSummary(response.resumo);
     setCategories(response.categorias);
     setAvisos((response as any).avisos || []);
+    if (response.ultima_atualizacao) {
+      setDataTimestamp(response.ultima_atualizacao);
+    }
   }, []);
 
   useEffect(() => {
@@ -514,30 +518,44 @@ const MarketingDashboard: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-3 flex-wrap">
-          {serverLastUpdate && !loading && (
-            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-              <Clock className="w-3 h-3" />
-              <span>
-                {(() => {
-                  const d = new Date(serverLastUpdate);
-                  const now = new Date();
-                  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-                  const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                  if (d >= todayStart) return `Última atualização: hoje às ${timeStr}`;
-                  if (d >= yesterdayStart) return `Última atualização: ontem às ${timeStr}`;
-                  return `Última atualização: ${d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
-                })()}
-                {summary.totalActiveEvents > 0 ? ` \u2022 ${summary.totalActiveEvents} evento${summary.totalActiveEvents !== 1 ? 's' : ''} ativo${summary.totalActiveEvents !== 1 ? 's' : ''}` : ''}
-              </span>
-              {serverStale && (
-                <span className="flex items-center gap-1 text-amber-500 dark:text-amber-400 ml-1">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  atualizando...
+          {/* Data freshness banner — always visible */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border ${
+            loading
+              ? isDark ? 'bg-gray-800/60 border-gray-700 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-400'
+              : serverStale
+                ? isDark ? 'bg-amber-900/30 border-amber-700/50 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'
+                : isDark ? 'bg-gray-800/60 border-gray-700/50 text-gray-300' : 'bg-gray-50 border-gray-200 text-gray-600'
+          }`}>
+            {loading ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin opacity-60" />
+                <span>Carregando dados...</span>
+              </>
+            ) : serverStale ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Atualizando dados do servidor...</span>
+              </>
+            ) : (
+              <>
+                <Clock className="w-3.5 h-3.5 opacity-70" />
+                <span>
+                  {(() => {
+                    const ts = dataTimestamp || serverLastUpdate;
+                    if (!ts) return 'Horário de atualização indisponível';
+                    const d = new Date(ts);
+                    const now = new Date();
+                    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+                    const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    if (d >= todayStart) return `Dados de hoje às ${timeStr}`;
+                    if (d >= yesterdayStart) return `Dados de ontem às ${timeStr}`;
+                    return `Dados de ${d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+                  })()}
                 </span>
-              )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleFullRefresh}
