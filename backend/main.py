@@ -274,6 +274,36 @@ def _full_cache_warmup():
                 _tier1_aux_executor.shutdown(wait=False)
                 logger.info(f"[Warmup] medias+curva Tier 1 pre-warm started for {len(tier1_evento_ids)} events ({min(3, len(tier1_evento_ids))} workers)")
 
+        # --- Phase 1b-early: pre-populate eventos_list with seeded ISC data ---
+        # This ensures users see data immediately even while the slow ISC Magento
+        # query (up to 8 minutes) is still running. After ISC refresh completes,
+        # Phase 2 will rebuild eventos_list with fresh data.
+        try:
+            from app.api.routes.marketing import (
+                get_marketing_events as _get_mkt_events_early,
+                eventos_list_cache as _evt_list_cache_early
+            )
+            _early_key_all = f"{ano}_all_all_"
+            _early_key_active = f"{ano}_active_all_"
+            _early_cached_all, _ = _evt_list_cache_early.get_or_revalidate(_early_key_all, refresh_fn=None)
+            _early_cached_active, _ = _evt_list_cache_early.get_or_revalidate(_early_key_active, refresh_fn=None)
+            if _early_cached_all is None or _early_cached_active is None:
+                logger.info("[Warmup 1b-early] eventos_list cache miss — pre-populating with seeded ISC data...")
+                _early_db = SessionLocal()
+                try:
+                    if _early_cached_active is None:
+                        _get_mkt_events_early(ano=ano, status="active", categoria=None, busca=None, force_refresh=True, db=_early_db, current_user=None)
+                        logger.info(f"[Warmup 1b-early] '{ano}_active_all_' pre-populated")
+                    if _early_cached_all is None:
+                        _get_mkt_events_early(ano=ano, status=None, categoria=None, busca=None, force_refresh=True, db=_early_db, current_user=None)
+                        logger.info(f"[Warmup 1b-early] '{ano}_all_all_' pre-populated")
+                finally:
+                    _early_db.close()
+            else:
+                logger.info("[Warmup 1b-early] eventos_list cache already warm — skipping early pre-populate")
+        except Exception as _early_err:
+            logger.warning(f"[Warmup 1b-early] Early eventos_list pre-populate failed (non-critical): {_early_err}")
+
         # --- Phase 1c: ISC refresh (heavy, ~44s) — runs in parallel with event_detail pre-warm ---
         logger.info("[Warmup 1/4] Refreshing ISC pricing data...")
         try:
