@@ -18,7 +18,7 @@ _last_full_refresh_timestamp = None
 _full_refresh_in_progress = False
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None
-_warmup_progress = {"step": 0, "total_steps": 3, "label": "", "started_at": None, "sub_current": 0, "sub_total": 0}
+_warmup_progress = {"step": 0, "total_steps": 4, "label": "", "started_at": None, "sub_current": 0, "sub_total": 0}
 _last_refresh_error = None
 
 _db_persist_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="cache_persist")

@@ -322,7 +322,10 @@ def _full_cache_warmup():
             from concurrent.futures import TimeoutError as _FutureTimeout
             _DETAIL_TIMEOUT = 300
             _failed_eids: list = []
-            logger.info(f"[Warmup 1d] Collecting event_detail results for {len(_detail_futures)} events (timeout {_DETAIL_TIMEOUT}s each)...")
+            _total_detail = len(_detail_futures)
+            logger.info(f"[Warmup 1d] Collecting event_detail results for {_total_detail} events (timeout {_DETAIL_TIMEOUT}s each)...")
+            set_warmup_progress(2, "Preparando detalhes dos eventos", 0, _total_detail)
+            _done_count = 0
             for _eid, _fut in _detail_futures.items():
                 try:
                     _r = _fut.result(timeout=_DETAIL_TIMEOUT)
@@ -337,6 +340,9 @@ def _full_cache_warmup():
                     logger.warning(f"[Warmup 1d] Exception collecting event_detail for {_eid}: {_ec}")
                     _warmup_event_results[_eid] = "failed"
                     _failed_eids.append(_eid)
+                finally:
+                    _done_count += 1
+                    update_warmup_sub_progress(_done_count)
 
             if _failed_eids:
                 logger.info(f"[Warmup 1d] Second pass: retrying {len(_failed_eids)} failed/timeout events (4 workers, timeout 600s)...")
@@ -390,7 +396,7 @@ def _full_cache_warmup():
                     _t1_fail += 1
             logger.info(f"[Warmup] medias+curva summary: {_t1_ok} OK, {_t1_fail} failed from {len(_tier1_aux_futures)} Tier1 events")
 
-        set_warmup_progress(2, "Finalizando lista", 0, 1)
+        set_warmup_progress(3, "Finalizando lista", 0, 1)
 
         from app.api.routes.marketing import (
             get_marketing_events,
