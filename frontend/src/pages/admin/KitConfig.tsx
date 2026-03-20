@@ -22,6 +22,7 @@ interface KitRow {
   custo_cadastro: number | null;
   custo_kit: number | null;
   ativo_categoria: string | null;
+  status_kit: string | null;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -47,14 +48,16 @@ const KitConfig: React.FC = () => {
   const [filterBasico, setFilterBasico] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterLote, setFilterLote] = useState('');
+  const [filterStatusKit, setFilterStatusKit] = useState('');
 
-  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '';
+  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '' || filterStatusKit !== '';
 
   const clearFilters = () => {
     setFilterTipo('');
     setFilterBasico('');
     setFilterStatus('');
     setFilterLote('');
+    setFilterStatusKit('');
   };
 
   const tipoOptions = useMemo(() => {
@@ -223,8 +226,12 @@ const KitConfig: React.FC = () => {
       result = result.filter((k) => k.lote_atual === filterLote);
     }
 
+    if (filterStatusKit) {
+      result = result.filter((k) => (k.status_kit ?? '') === filterStatusKit);
+    }
+
     return result;
-  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, basicoValues]);
+  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, filterStatusKit, basicoValues]);
 
   const handleExportCSV = useCallback(() => {
     const headers = ['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Multiplicador Sugerido', 'Multiplicador', 'Price', 'Special Price', 'Kit Básico', 'Configurado'];
@@ -409,6 +416,12 @@ const KitConfig: React.FC = () => {
           ))}
         </select>
 
+        <select value={filterStatusKit} onChange={(e) => setFilterStatusKit(e.target.value)} className={selectClass}>
+          <option value="">Status Kit: Todos</option>
+          <option value="ativo">Ativo</option>
+          <option value="inativo">Inativo</option>
+        </select>
+
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
@@ -444,13 +457,13 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Cat. Ativo', 'Tipo', 'Lote Atual', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', ''].map(
+                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Cat. Ativo', 'Tipo', 'Lote Atual', 'Status Site', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', ''].map(
                     (label, i) => (
                       <th
                         key={i}
                         className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
-                          i >= 6 ? 'text-right' : 'text-left'
-                        } ${i === 10 ? 'text-center' : ''} ${
+                          i >= 7 ? 'text-right' : 'text-left'
+                        } ${i === 11 ? 'text-center' : ''} ${
                           isDark
                             ? `${headerBg} text-blue-300 border-blue-500/50`
                             : `${headerBg} text-slate-700 border-slate-300`
@@ -549,6 +562,25 @@ const KitConfig: React.FC = () => {
                       </td>
                       <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
                         {kit.lote_atual || '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-left whitespace-nowrap">
+                        {kit.status_kit === 'ativo' ? (
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                            isDark ? 'bg-emerald-900/40 text-emerald-300' : 'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+                            Ativo
+                          </span>
+                        ) : kit.status_kit === 'inativo' ? (
+                          <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                            isDark ? 'bg-red-900/40 text-red-400' : 'bg-red-100 text-red-600'
+                          }`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+                            Inativo
+                          </span>
+                        ) : (
+                          <span className={`text-xs ${textSecondary}`}>—</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right whitespace-nowrap">
                         <input
