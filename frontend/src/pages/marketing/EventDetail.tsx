@@ -2366,8 +2366,18 @@ const EventDetail: React.FC = () => {
           const volRestante = Math.max(volumeParaMeta, 0);
           const margemRealizada = event.margemRealizadaTotal || 0;
           const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
+          const faltaMargemGap = metaMargem - margemRealizada;
+          const metaVolumeJaAtingida = volumeParaMeta <= 0;
+          const margemPorInscricao = ticketKitConfig - kitCost;
+
           const ticketConvergencia = volRestante > 0 && metaMargem > 0
-            ? Math.max(0, ((metaMargem - margemRealizada) / volRestante) + kitCost)
+            ? Math.max(0, (faltaMargemGap / volRestante) + kitCost)
+            : metaVolumeJaAtingida && margemPorInscricao > 0 && faltaMargemGap > 0
+            ? ticketKitConfig
+            : 0;
+
+          const volConvergenciaFallback = metaVolumeJaAtingida && margemPorInscricao > 0 && faltaMargemGap > 0
+            ? Math.max(0, faltaMargemGap / margemPorInscricao)
             : 0;
 
           const rows = [
@@ -2406,11 +2416,14 @@ const EventDetail: React.FC = () => {
                         </tr>
                       );
                     }
-                    const margemAdicional = (volRestante * row.ticket) - (kitCost * volRestante);
+                    const isConvergencia = row.label === 'Ticket p/ Meta';
+                    const volEfetivo = isConvergencia && metaVolumeJaAtingida
+                      ? volConvergenciaFallback
+                      : volRestante;
+                    const margemAdicional = (volEfetivo * row.ticket) - (kitCost * volEfetivo);
                     const margemGlobal = margemAdicional + margemRealizada;
                     const margemNominal = margemGlobal - metaMargem;
                     const margemPct = metaMargem > 0 ? (margemNominal / metaMargem) * 100 : 0;
-                    const isConvergencia = row.label === 'Ticket p/ Meta';
                     return (
                       <tr
                         key={row.label}
@@ -2422,12 +2435,15 @@ const EventDetail: React.FC = () => {
                       >
                         <td className={`py-2.5 px-3 ${isConvergencia ? 'text-purple-700 dark:text-purple-300' : 'text-gray-900 dark:text-white'} font-medium`}>
                           {row.label}
+                          {isConvergencia && metaVolumeJaAtingida && faltaMargemGap > 0 && (
+                            <span className="ml-1.5 text-[10px] font-normal text-purple-500 dark:text-purple-400">(vol. extra p/ fechar margem)</span>
+                          )}
                         </td>
                         <td className={`py-2.5 px-3 text-right ${isConvergencia ? 'text-purple-700 dark:text-purple-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
                           {formatCurrency(row.ticket)}
                         </td>
                         <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">
-                          {formatNumber(volRestante)}
+                          {formatNumber(volEfetivo)}
                         </td>
                         <td className={`py-2.5 px-3 text-right ${margemAdicional >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                           {formatCurrency(margemAdicional)}
