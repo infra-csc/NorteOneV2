@@ -2700,7 +2700,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     excluded_ativo_ids: list = []          # Ativo id_externo for consolidated grupos
     excluded_magento_ids: list = []        # Magento id_externo for consolidated grupos
     _isc_grupo_latest: dict = {}           # {grupo_nome: latest_event_date}
-    _need_external_queries: bool = True    # False only if db says all eventos are consolidated
+    _need_external_queries: bool = True    # Always True — SKU mappings cover only a subset of all events
 
     if db:
         try:
@@ -2757,14 +2757,17 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                     elif _fonte_norm == "MAGENTO" and _ext_id not in excluded_magento_ids:
                         excluded_magento_ids.append(_ext_id)
 
-            _need_external_queries = _live_count > 0 or not _isc_grupo_latest
+            # Always run external queries — SKU mappings only cover a subset of events.
+            # There are many events in Magento/Ativo without SKU mappings that would
+            # be lost if we skipped external queries based solely on mapped eventos.
+            _need_external_queries = True
 
             if consolidated_totals:
                 logger.info(
                     f"[Hybrid] ISC: {len(consolidated_totals)} consolidated grupos "
                     f"({len(consolidated_skus_set)} SKUs) excluded from external queries "
                     f"(ativo_ids={len(excluded_ativo_ids)}, magento_ids={len(excluded_magento_ids)}, "
-                    f"need_external={_need_external_queries})"
+                    f"live_count={_live_count})"
                 )
         except Exception as _cls_err:
             logger.warning(f"[Hybrid] Regime classification failed in ISC: {_cls_err}")
@@ -2791,15 +2794,8 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
             "Magento"
         )
 
-    if not _need_external_queries:
-        logger.info("[Hybrid] ISC: all eventos are consolidated — skipping external queries entirely")
-        dados_ativo = []
-        dados_magento = []
-        future_ativo = None
-        future_magento = None
-    else:
-        future_ativo = _rolling_avg_executor.submit(_fetch_ativo_filtered)
-        future_magento = _rolling_avg_executor.submit(_fetch_magento_filtered)
+    future_ativo = _rolling_avg_executor.submit(_fetch_ativo_filtered)
+    future_magento = _rolling_avg_executor.submit(_fetch_magento_filtered)
 
     if future_ativo is not None:
         try:
