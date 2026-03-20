@@ -11,8 +11,12 @@ from app.models.dimensoes import SkuMapping, DimProjeto
 from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse
 import app.core.database as db_module
 import logging
+import time as _time
 
 logger = logging.getLogger(__name__)
+
+_kits_cache: dict = {"data": None, "ts": 0.0}
+_KITS_TTL = 120
 
 router = APIRouter(prefix="/api/kit-config", tags=["Kit Config"])
 
@@ -201,15 +205,15 @@ LEFT JOIN catalog_product_index_price pi_filho
       AND pi_filho.website_id = 1
       AND pi_filho.customer_group_id = 0
 
-LEFT JOIN catalog_product_entity_event_lot_price lote
-       ON lote.entity_id = cpev1.value
-      AND lote.lot_id = (
-            SELECT lot_id
-            FROM catalog_product_entity_event_lot_price
-            WHERE entity_id = cpev1.value
-            ORDER BY record_id DESC
-            LIMIT 1
-      )
+LEFT JOIN (
+    SELECT l.entity_id, l.lot_id, l.lot_name, l.lot_value, l.lot_sell_ends
+    FROM catalog_product_entity_event_lot_price l
+    INNER JOIN (
+        SELECT entity_id, MAX(record_id) AS max_rid
+        FROM catalog_product_entity_event_lot_price
+        GROUP BY entity_id
+    ) lr ON l.entity_id = lr.entity_id AND l.record_id = lr.max_rid
+) lote ON lote.entity_id = cpev1.value
 
 LEFT JOIN catalog_product_entity_int cpei_status
        ON cpei_status.entity_id = cpe_parent.entity_id
@@ -249,8 +253,14 @@ ORDER BY
 @router.get("/kits", response_model=List[KitRow])
 def get_kits_with_config(
     db: Session = Depends(get_db),
+    force_refresh: bool = False,
     current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
+    now = _time.time()
+    if not force_refresh and _kits_cache["data"] is not None and (now - _kits_cache["ts"]) < _KITS_TTL:
+        logger.info(f"[KitConfig] Returning cached kit list (age={now - _kits_cache['ts']:.0f}s)")
+        return _kits_cache["data"]
+
     if db_module.engine_magento is None:
         raise HTTPException(
             status_code=503,
@@ -366,6 +376,9 @@ def get_kits_with_config(
             status_kit=row_dict.get("status_kit"),
         ))
 
+    _kits_cache["data"] = kits
+    _kits_cache["ts"] = _time.time()
+    logger.info(f"[KitConfig] Kit list refreshed and cached ({len(kits)} kits)")
     return kits
 
 
@@ -399,6 +412,7 @@ def upsert_kit_config(
             existing.ativo_categoria = body.ativo_categoria or None
             db.commit()
             db.refresh(existing)
+            _kits_cache["data"] = None
             clear_ticket_atual_cache()
             eventos_list_cache.invalidate_all()
             event_detail_cache.invalidate()
@@ -416,6 +430,7 @@ def upsert_kit_config(
         db.add(new_config)
         db.commit()
         db.refresh(new_config)
+        _kits_cache["data"] = None
         clear_ticket_atual_cache()
         eventos_list_cache.invalidate_all()
         event_detail_cache.invalidate()
