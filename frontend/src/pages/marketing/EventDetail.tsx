@@ -2461,7 +2461,7 @@ const EventDetail: React.FC = () => {
 
           const rows = multipliers.map((mult, i) => {
             const volFuturo = Math.round(volBase * mult);
-            const volGlobal = inscritosTotal + volFuturo;
+            const volGlobal = (event.currentSales || inscritosTotal) + volFuturo;
             const margemAdicional = (volFuturo * ticketKitConfig) - (volFuturo * kitCost);
             const margemGlobal = margemAdicional + margemReal;
             const margemNominal = margemGlobal - metaMargemGlobal;
