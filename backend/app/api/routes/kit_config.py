@@ -412,7 +412,6 @@ def upsert_kit_config(
             existing.ativo_categoria = body.ativo_categoria or None
             db.commit()
             db.refresh(existing)
-            _kits_cache["data"] = None
             clear_ticket_atual_cache()
             eventos_list_cache.invalidate_all()
             event_detail_cache.invalidate()
@@ -430,7 +429,6 @@ def upsert_kit_config(
         db.add(new_config)
         db.commit()
         db.refresh(new_config)
-        _kits_cache["data"] = None
         clear_ticket_atual_cache()
         eventos_list_cache.invalidate_all()
         event_detail_cache.invalidate()
