@@ -2453,7 +2453,10 @@ const EventDetail: React.FC = () => {
           const kitCost = event.kitCostPerUnit || 0;
           const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
           const volBase = Math.max(volumeParaMeta, 0);
-          const margemReal = event.margemRealizadaTotal || 0;
+          const kitRowsVol = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
+          const margemReal = kitRowsVol.length > 0
+            ? kitRowsVol.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
+            : (event.margemRealizadaTotal || 0);
           const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
           const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
