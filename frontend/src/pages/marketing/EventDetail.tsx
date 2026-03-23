@@ -2041,10 +2041,8 @@ const EventDetail: React.FC = () => {
                     (() => {
                       const kc = event.kitCostPerUnit || 0;
                       const metaM = (event.budgetTicket - kc) * event.salesGoal;
-                      const kitRowsLocal = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
-                      const margAcum = kitRowsLocal.length > 0
-                        ? kitRowsLocal.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
-                        : (event.margemRealizadaTotal || 0);
+                      const _cons = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
+                      const margAcum = _cons != null ? (_cons.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
                       const vr = Math.max(volumeParaMeta, 1);
                       return Math.max(0, ((metaM - margAcum) / vr) + kc);
                     })()
@@ -2073,9 +2071,9 @@ const EventDetail: React.FC = () => {
             const kitCost = event.kitCostPerUnit || 0;
             const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : (event.averageTicket || 0);
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-            const kitRows = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
-            const margemRealizadaTotal = kitRows.length > 0
-              ? kitRows.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
+            const _consAnalise = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
+            const margemRealizadaTotal = _consAnalise != null
+              ? (_consAnalise.margemTotal ?? 0)
               : (ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0);
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
@@ -2339,10 +2337,8 @@ const EventDetail: React.FC = () => {
           const ticketKitConfig = event.ticketAtual || 0;
           const ticketMedio = event.averageTicket || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
-          const kitRowsTabela = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
-          const margemRealizada = kitRowsTabela.length > 0
-            ? kitRowsTabela.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
-            : (event.margemRealizadaTotal || 0);
+          const _consTabela = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
+          const margemRealizada = _consTabela != null ? (_consTabela.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
           const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
           const faltaMargemGap = metaMargem - margemRealizada;
           const metaVolumeJaAtingida = volumeParaMeta <= 0;
@@ -2453,10 +2449,8 @@ const EventDetail: React.FC = () => {
           const kitCost = event.kitCostPerUnit || 0;
           const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
           const volBase = Math.max(volumeParaMeta, 0);
-          const kitRowsVol = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
-          const margemReal = kitRowsVol.length > 0
-            ? kitRowsVol.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
-            : (event.margemRealizadaTotal || 0);
+          const _consVol = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
+          const margemReal = _consVol != null ? (_consVol.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
           const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
           const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
