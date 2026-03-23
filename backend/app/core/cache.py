@@ -58,7 +58,21 @@ def set_last_full_refresh(ts=None):
 
 def is_full_refresh_in_progress():
     global _full_refresh_in_progress
-    return _full_refresh_in_progress
+    if not _full_refresh_in_progress:
+        return False
+    # Safety: auto-reset if the warmup flag has been stuck for more than 45 minutes.
+    # This prevents permanent "Iniciando" lockout if a warmup thread crashes without
+    # clearing the flag in its finally block.
+    _started = _warmup_progress.get("started_at")
+    if _started and (time.time() - _started) > 45 * 60:
+        logger.warning("[Cache] _full_refresh_in_progress stuck for >45min — auto-resetting flag")
+        with _full_refresh_lock:
+            _full_refresh_in_progress = False
+            _warmup_progress["step"] = 0
+            _warmup_progress["label"] = ""
+            _warmup_progress["started_at"] = None
+        return False
+    return True
 
 
 def set_full_refresh_in_progress(val: bool):

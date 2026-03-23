@@ -619,9 +619,11 @@ def _startup_tier1_gap_warmup():
                     logger.warning(f"[StartupGap] Failed to warm {eid}: {result}")
 
         logger.info(f"[StartupGap] Targeted warmup done: {ok_count} ok, {fail_count} failed")
+        return ok_count, fail_count
 
     except Exception as e:
         logger.error(f"[StartupGap] Startup gap detection failed: {e}", exc_info=True)
+        return 0, -1
     finally:
         if db:
             try:
@@ -870,23 +872,44 @@ async def lifespan(app: FastAPI):
             logger.error(f"Persistent cache load failed: {e}")
 
         # Phase 3: Tier1 gap detection + targeted warmup
+        _gap_warmup_ok = 0
+        _gap_warmup_fail = 0
         try:
             logger.info("Running Tier1 gap detection...")
-            _startup_tier1_gap_warmup()
+            _gap_result = _startup_tier1_gap_warmup()
+            if isinstance(_gap_result, tuple):
+                _gap_warmup_ok, _gap_warmup_fail = _gap_result
             logger.info("Tier1 gap detection complete")
         except Exception as e:
             logger.error(f"Startup gap detection failed: {e}")
 
-        # After targeted warmup, re-read gap count to decide if full warmup is still needed.
-        # _startup_tier1_gap_warmup() already refreshed any stale/missing events, so we
-        # reset the result now — Phase 4 will only trigger full warmup if gaps remain.
-        _gap_result_post = get_gap_detection_result()
-        _gap_count_post = len(_gap_result_post.get("missing_tier1_events", [])) + len(_gap_result_post.get("stale_tier1_events", []))
-        if _gap_count_post > 0:
-            logger.info(f"[Startup] Targeted warmup completed but {_gap_count_post} events still need full warmup (targeted warmup may have partially failed)")
-        else:
-            logger.info("[Startup] Targeted warmup resolved all gaps — resetting gap result so Phase 4 skips full warmup")
-            set_gap_detection_result({"missing_tier1_events": [], "stale_tier1_events": []})
+        # After targeted warmup, re-check cache timestamps DIRECTLY rather than
+        # relying on the pre-warmup gap result (which reflects state *before* warmup).
+        # This avoids spuriously triggering a full warmup when targeted warmup succeeded.
+        try:
+            import time as _ts_check
+            from app.core.cache import get_known_tier1_ids as _get_t1_ids
+            _known_t1 = _get_t1_ids()
+            _fresh_ts = event_detail_cache.get_all_timestamps()
+            _now_ts = _ts_check.time()
+            _ano_check = __import__('datetime').datetime.now().year
+            _still_missing = [eid for eid in _known_t1
+                              if f"{_ano_check}_{eid}_detail" not in _fresh_ts]
+            _still_stale = [eid for eid in _known_t1
+                            if f"{_ano_check}_{eid}_detail" in _fresh_ts
+                            and (_now_ts - _fresh_ts.get(f"{_ano_check}_{eid}_detail", 0)) > 25 * 3600]
+            _gap_count_post = len(_still_missing) + len(_still_stale)
+            if _gap_count_post == 0:
+                logger.info("[Startup] Direct cache check: all Tier1 events have fresh cache — clearing gap result")
+                set_gap_detection_result({"missing_tier1_events": [], "stale_tier1_events": []})
+            else:
+                logger.info(f"[Startup] Direct cache check: {_gap_count_post} Tier1 events still need warmup ({len(_still_missing)} missing, {len(_still_stale)} stale)")
+                set_gap_detection_result({"missing_tier1_events": _still_missing, "stale_tier1_events": _still_stale})
+        except Exception as _cache_check_err:
+            logger.warning(f"[Startup] Direct cache check failed: {_cache_check_err}")
+            # Fallback: use original gap result
+            _gap_result_post = get_gap_detection_result()
+            _gap_count_post = len(_gap_result_post.get("missing_tier1_events", [])) + len(_gap_result_post.get("stale_tier1_events", []))
 
         # Phase 4: scheduler, then snapshot + warmup in parallel
         cache_scheduler.start(interval=1800)
