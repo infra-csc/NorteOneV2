@@ -694,15 +694,6 @@ const EventDetail: React.FC = () => {
     };
   });
 
-  // Margem realizada usando breakdown por kit — fonte única para toda a página.
-  // Se margemPorKit estiver disponível, soma as margens de cada tipo de kit
-  // (receita_kit - custo_kit × qtd_kit), que é mais preciso do que usar um
-  // único kitCostPerUnit médio sobre todas as vendas.
-  const _kitRowsGlobal = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
-  const margemRealizadaCalculada: number = _kitRowsGlobal.length > 0
-    ? _kitRowsGlobal.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
-    : (event.margemRealizadaTotal ?? 0);
-
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
       return 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
@@ -2050,8 +2041,12 @@ const EventDetail: React.FC = () => {
                     (() => {
                       const kc = event.kitCostPerUnit || 0;
                       const metaM = (event.budgetTicket - kc) * event.salesGoal;
+                      const kitRowsLocal = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
+                      const margAcum = kitRowsLocal.length > 0
+                        ? kitRowsLocal.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
+                        : (event.margemRealizadaTotal || 0);
                       const vr = Math.max(volumeParaMeta, 1);
-                      return Math.max(0, ((metaM - margemRealizadaCalculada) / vr) + kc);
+                      return Math.max(0, ((metaM - margAcum) / vr) + kc);
                     })()
                   )}
                 </span>
@@ -2076,8 +2071,12 @@ const EventDetail: React.FC = () => {
           </h3>
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
+            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : (event.averageTicket || 0);
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-            const margemRealizadaTotal = margemRealizadaCalculada;
+            const kitRows = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
+            const margemRealizadaTotal = kitRows.length > 0
+              ? kitRows.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
+              : (ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0);
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
               <div className="space-y-3">
@@ -2340,8 +2339,9 @@ const EventDetail: React.FC = () => {
           const ticketKitConfig = event.ticketAtual || 0;
           const ticketMedio = event.averageTicket || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
+          const margemRealizada = event.margemRealizadaTotal || 0;
           const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-          const faltaMargemGap = metaMargem - margemRealizadaCalculada;
+          const faltaMargemGap = metaMargem - margemRealizada;
           const metaVolumeJaAtingida = volumeParaMeta <= 0;
           const margemPorInscricao = ticketKitConfig - kitCost;
 
