@@ -295,8 +295,10 @@ class SmartCache:
                         data = val["data"]
                         is_completed = isinstance(data, dict) and data.get("__is_completed", False)
                         db_age = now - val["updated_at"]
-                        # Reject event_detail entries with empty evento.date — they cause
-                        # NaN/zero values on the frontend and must be recomputed.
+                        # event_detail: reject entries with empty evento.date (corrupt data),
+                        # but load ALL entries with a valid date regardless of age — SWR will
+                        # refresh stale data in the background. This prevents a cold-start after
+                        # any restart where entries happen to be older than MAX_STALE_AGE.
                         if self.name == "event_detail" and isinstance(data, dict):
                             _evt = data.get("evento", {})
                             _evt_date = (
@@ -306,6 +308,15 @@ class SmartCache:
                             if not _evt_date:
                                 expired_count += 1
                                 continue
+                            # Valid date → always load (bypass MAX_STALE_AGE for event_detail).
+                            # Timestamp reset to now so get() serves it immediately; the
+                            # normal TTL + SWR cycle will refresh it in the background.
+                            self._data[key] = data
+                            self._timestamps[key] = now
+                            if is_completed:
+                                self._permanent_keys.add(key)
+                            loaded_count += 1
+                            continue
                         if is_hist or is_completed or db_age < MAX_STALE_AGE:
                             self._data[key] = data
                             self._timestamps[key] = val["updated_at"]
