@@ -2339,7 +2339,10 @@ const EventDetail: React.FC = () => {
           const ticketKitConfig = event.ticketAtual || 0;
           const ticketMedio = event.averageTicket || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
-          const margemRealizada = event.margemRealizadaTotal || 0;
+          const kitRowsTabela = event.margemPorKit ? event.margemPorKit.filter(r => r.tipoKit !== 'CONSOLIDADO') : [];
+          const margemRealizada = kitRowsTabela.length > 0
+            ? kitRowsTabela.reduce((acc, r) => acc + (r.margemTotal ?? 0), 0)
+            : (event.margemRealizadaTotal || 0);
           const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
           const faltaMargemGap = metaMargem - margemRealizada;
           const metaVolumeJaAtingida = volumeParaMeta <= 0;
