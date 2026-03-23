@@ -295,6 +295,17 @@ class SmartCache:
                         data = val["data"]
                         is_completed = isinstance(data, dict) and data.get("__is_completed", False)
                         db_age = now - val["updated_at"]
+                        # Reject event_detail entries with empty evento.date — they cause
+                        # NaN/zero values on the frontend and must be recomputed.
+                        if self.name == "event_detail" and isinstance(data, dict):
+                            _evt = data.get("evento", {})
+                            _evt_date = (
+                                _evt.get("date", "") if isinstance(_evt, dict)
+                                else getattr(_evt, "date", "")
+                            )
+                            if not _evt_date:
+                                expired_count += 1
+                                continue
                         if is_hist or is_completed or db_age < MAX_STALE_AGE:
                             self._data[key] = data
                             self._timestamps[key] = val["updated_at"]

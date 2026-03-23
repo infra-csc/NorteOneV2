@@ -2381,6 +2381,11 @@ _isc_cache_timestamp = None
 
 from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL
 
+# Global set to track cache keys currently being refreshed in a SWR background thread.
+# Prevents multiple concurrent threads for the same event when the recompute takes >16s
+# and several requests arrive before the first thread finishes.
+_swr_recompute_in_progress: set = set()
+
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
     if excluded_ids:
@@ -6094,13 +6099,14 @@ def get_marketing_event_by_id(
     isc_cfg = _get_isc_settings(db)
     is_grouped = evento_id.startswith("grp_")
 
-    def _swr_detail_refresh():
+    def _swr_detail_refresh(_swr_key: str):
         from ...core.database import SessionLocal
         _db = SessionLocal()
         try:
             get_marketing_event_by_id(evento_id=evento_id, ano=ano, force_refresh=True, db=_db, current_user=None)
         finally:
             _db.close()
+            _swr_recompute_in_progress.discard(_swr_key)
 
     if is_grouped:
         grupo_nome = evento_id.replace("grp_", "")
@@ -6128,9 +6134,13 @@ def get_marketing_event_by_id(
                 )
                 _needs_recompute = not _cached_date
                 if _needs_recompute:
-                    logger.info(f"[Cache] event_detail '{detail_cache_key}' has empty date — serving stale + triggering background recompute")
-                    import threading as _threading
-                    _threading.Thread(target=_swr_detail_refresh, daemon=True).start()
+                    if detail_cache_key not in _swr_recompute_in_progress:
+                        logger.info(f"[Cache] event_detail '{detail_cache_key}' has empty date — serving stale + triggering background recompute")
+                        _swr_recompute_in_progress.add(detail_cache_key)
+                        import threading as _threading
+                        _threading.Thread(target=_swr_detail_refresh, args=(detail_cache_key,), daemon=True).start()
+                    else:
+                        logger.info(f"[Cache] event_detail '{detail_cache_key}' SWR already in progress — skipping duplicate thread")
                     is_stale = True  # force stale header
 
                 if response is not None:
@@ -6550,9 +6560,13 @@ def get_marketing_event_by_id(
             )
             _sa_needs_recompute = not _cached_date_sa
             if _sa_needs_recompute:
-                logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' has empty date — serving stale + triggering background recompute")
-                import threading as _threading
-                _threading.Thread(target=_swr_detail_refresh, daemon=True).start()
+                if standalone_cache_key not in _swr_recompute_in_progress:
+                    logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' has empty date — serving stale + triggering background recompute")
+                    _swr_recompute_in_progress.add(standalone_cache_key)
+                    import threading as _threading
+                    _threading.Thread(target=_swr_detail_refresh, args=(standalone_cache_key,), daemon=True).start()
+                else:
+                    logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' SWR already in progress — skipping duplicate thread")
                 is_stale = True
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if is_stale else "false"
