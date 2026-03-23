@@ -839,13 +839,24 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Persistent cache load failed: {e}")
 
-        # Phase 3: Tier1 gap detection
+        # Phase 3: Tier1 gap detection + targeted warmup
         try:
             logger.info("Running Tier1 gap detection...")
             _startup_tier1_gap_warmup()
             logger.info("Tier1 gap detection complete")
         except Exception as e:
             logger.error(f"Startup gap detection failed: {e}")
+
+        # After targeted warmup, re-read gap count to decide if full warmup is still needed.
+        # _startup_tier1_gap_warmup() already refreshed any stale/missing events, so we
+        # reset the result now — Phase 4 will only trigger full warmup if gaps remain.
+        _gap_result_post = get_gap_detection_result()
+        _gap_count_post = len(_gap_result_post.get("missing_tier1_events", [])) + len(_gap_result_post.get("stale_tier1_events", []))
+        if _gap_count_post > 0:
+            logger.info(f"[Startup] Targeted warmup completed but {_gap_count_post} events still need full warmup (targeted warmup may have partially failed)")
+        else:
+            logger.info("[Startup] Targeted warmup resolved all gaps — resetting gap result so Phase 4 skips full warmup")
+            set_gap_detection_result({"missing_tier1_events": [], "stale_tier1_events": []})
 
         # Phase 4: scheduler, then snapshot + warmup in parallel
         cache_scheduler.start(interval=1800)
@@ -870,9 +881,8 @@ async def lifespan(app: FastAPI):
         snapshot_thread.start()
 
         # Decide whether to run a full warmup on startup.
-        # If all Tier1 events have fresh cache (gap count == 0), skip the warmup —
-        # existing DB-loaded cache is good enough. Only run snapshot consolidation.
-        # If there are gaps, wait for snapshot to finish first (avoids zeroed ISC
+        # If targeted warmup resolved all gaps (gap count == 0 now), skip the full warmup.
+        # If there are still gaps, wait for snapshot to finish first (avoids zeroed ISC
         # from a race where Phase 1d reads snapshot data before it's rebuilt).
         _gap_result = get_gap_detection_result()
         _gap_count = len(_gap_result.get("missing_tier1_events", [])) + len(_gap_result.get("stale_tier1_events", []))

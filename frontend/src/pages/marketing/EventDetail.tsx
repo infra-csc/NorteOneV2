@@ -1774,11 +1774,11 @@ const EventDetail: React.FC = () => {
             <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
               <div 
                 className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
+                style={{ width: `${event.salesGoal > 0 ? Math.min((event.currentSales / event.salesGoal) * 100, 100) : 0}%` }}
               />
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-              {Math.round((event.currentSales / event.salesGoal) * 100)}% da meta
+              {event.salesGoal > 0 ? Math.round((event.currentSales / event.salesGoal) * 100) : 0}% da meta
             </p>
           </div>
         )}
