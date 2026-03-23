@@ -6115,18 +6115,30 @@ def get_marketing_event_by_id(
         if not force_refresh:
             cached_detail, is_stale = event_detail_cache.get_or_revalidate(detail_cache_key, refresh_fn=None)
             if cached_detail is not None:
-                if response is not None:
-                    response.headers["X-Data-Stale"] = "true" if is_stale else "false"
-                # Always inject current ultima_atualizacao_completa so frontend can detect stale event caches
-                from app.core.cache import get_last_full_refresh as _get_lfr
-                _lfr_ts = _get_lfr()
-                _lfr_str = (
-                    datetime.fromtimestamp(_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
-                    if _lfr_ts else None
+                # Validate that cached data has a non-empty event date.
+                # Entries cached before DimProjeto was synced may have date="" which
+                # causes NaN/missing info on the frontend — recompute them immediately.
+                _cached_evt = cached_detail.get("evento", {})
+                _cached_date = (
+                    _cached_evt.get("date", "") if isinstance(_cached_evt, dict)
+                    else getattr(_cached_evt, "date", "")
                 )
-                result_hit = {k: v for k, v in cached_detail.items() if k != "__is_completed"}
-                result_hit["ultima_atualizacao_completa"] = _lfr_str
-                return result_hit
+                if not _cached_date:
+                    logger.info(f"[Cache] event_detail '{detail_cache_key}' has empty date — invalidating and recomputing")
+                    # Fall through to fresh computation (cache will be overwritten)
+                else:
+                    if response is not None:
+                        response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+                    # Always inject current ultima_atualizacao_completa so frontend can detect stale event caches
+                    from app.core.cache import get_last_full_refresh as _get_lfr
+                    _lfr_ts = _get_lfr()
+                    _lfr_str = (
+                        datetime.fromtimestamp(_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+                        if _lfr_ts else None
+                    )
+                    result_hit = {k: v for k, v in cached_detail.items() if k != "__is_completed"}
+                    result_hit["ultima_atualizacao_completa"] = _lfr_str
+                    return result_hit
         
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         
@@ -6521,11 +6533,21 @@ def get_marketing_event_by_id(
     if not force_refresh:
         cached_standalone, is_stale = event_detail_cache.get_or_revalidate(standalone_cache_key, refresh_fn=None)
         if cached_standalone is not None:
-            if response is not None:
-                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
-            if "__is_completed" in cached_standalone:
-                return {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
-            return cached_standalone
+            # Validate that cached data has a non-empty event date.
+            _cached_evt_sa = cached_standalone.get("evento", {})
+            _cached_date_sa = (
+                _cached_evt_sa.get("date", "") if isinstance(_cached_evt_sa, dict)
+                else getattr(_cached_evt_sa, "date", "")
+            )
+            if not _cached_date_sa:
+                logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' has empty date — invalidating and recomputing")
+                # Fall through to fresh computation
+            else:
+                if response is not None:
+                    response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+                if "__is_completed" in cached_standalone:
+                    return {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
+                return cached_standalone
     
     standalone_evento_grupo = None
     if sku:
