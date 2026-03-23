@@ -6117,28 +6117,37 @@ def get_marketing_event_by_id(
             if cached_detail is not None:
                 # Validate that cached data has a non-empty event date.
                 # Entries cached before DimProjeto was synced may have date="" which
-                # causes NaN/missing info on the frontend — recompute them immediately.
+                # causes NaN/missing info on the frontend.
+                # Strategy: return stale data immediately (avoids long blocking load)
+                # and trigger a background refresh so the frontend re-fetches with
+                # correct data in a few seconds (stale-while-revalidate pattern).
                 _cached_evt = cached_detail.get("evento", {})
                 _cached_date = (
                     _cached_evt.get("date", "") if isinstance(_cached_evt, dict)
                     else getattr(_cached_evt, "date", "")
                 )
-                if not _cached_date:
-                    logger.info(f"[Cache] event_detail '{detail_cache_key}' has empty date — invalidating and recomputing")
-                    # Fall through to fresh computation (cache will be overwritten)
-                else:
-                    if response is not None:
-                        response.headers["X-Data-Stale"] = "true" if is_stale else "false"
-                    # Always inject current ultima_atualizacao_completa so frontend can detect stale event caches
-                    from app.core.cache import get_last_full_refresh as _get_lfr
-                    _lfr_ts = _get_lfr()
-                    _lfr_str = (
-                        datetime.fromtimestamp(_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
-                        if _lfr_ts else None
-                    )
-                    result_hit = {k: v for k, v in cached_detail.items() if k != "__is_completed"}
-                    result_hit["ultima_atualizacao_completa"] = _lfr_str
-                    return result_hit
+                _needs_recompute = not _cached_date
+                if _needs_recompute:
+                    logger.info(f"[Cache] event_detail '{detail_cache_key}' has empty date — serving stale + triggering background recompute")
+                    import threading as _threading
+                    _threading.Thread(target=_swr_detail_refresh, daemon=True).start()
+                    is_stale = True  # force stale header
+
+                if response is not None:
+                    response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+                # Always inject current ultima_atualizacao_completa so frontend can detect stale event caches
+                from app.core.cache import get_last_full_refresh as _get_lfr
+                _lfr_ts = _get_lfr()
+                _lfr_str = (
+                    datetime.fromtimestamp(_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+                    if _lfr_ts else None
+                )
+                result_hit = {k: v for k, v in cached_detail.items() if k != "__is_completed"}
+                result_hit["ultima_atualizacao_completa"] = _lfr_str
+                # Force cacheTime < systemRefresh so frontend's stale check triggers a silent re-fetch
+                if _needs_recompute:
+                    result_hit["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
+                return result_hit
         
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         
@@ -6539,15 +6548,18 @@ def get_marketing_event_by_id(
                 _cached_evt_sa.get("date", "") if isinstance(_cached_evt_sa, dict)
                 else getattr(_cached_evt_sa, "date", "")
             )
-            if not _cached_date_sa:
-                logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' has empty date — invalidating and recomputing")
-                # Fall through to fresh computation
-            else:
-                if response is not None:
-                    response.headers["X-Data-Stale"] = "true" if is_stale else "false"
-                if "__is_completed" in cached_standalone:
-                    return {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
-                return cached_standalone
+            _sa_needs_recompute = not _cached_date_sa
+            if _sa_needs_recompute:
+                logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' has empty date — serving stale + triggering background recompute")
+                import threading as _threading
+                _threading.Thread(target=_swr_detail_refresh, daemon=True).start()
+                is_stale = True
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+            result_sa = {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
+            if _sa_needs_recompute:
+                result_sa["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
+            return result_sa
     
     standalone_evento_grupo = None
     if sku:
