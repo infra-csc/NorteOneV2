@@ -129,6 +129,23 @@ def _stringify_keys(obj):
     return obj
 
 
+def _make_json_safe(obj):
+    """Recursively convert Pydantic models and other non-JSON-native objects to dicts/primitives.
+    This is essential before json.dumps — without this, Pydantic models get serialized as
+    their string representation (via default=str), making them unreadable when loaded back."""
+    # Pydantic v2
+    if hasattr(obj, 'model_dump'):
+        return _make_json_safe(obj.model_dump(mode='json'))
+    # Pydantic v1
+    elif hasattr(obj, 'dict') and callable(obj.dict) and not isinstance(obj, dict):
+        return _make_json_safe(obj.dict())
+    elif isinstance(obj, dict):
+        return {str(k): _make_json_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_safe(i) for i in obj]
+    return obj
+
+
 def _persist_to_db(cache_name: str, cache_key: str, data: Any):
     # Guard: for event_detail, refuse to persist entries with empty evento.date
     # to prevent corrupt records from accumulating in the DB.
@@ -150,7 +167,9 @@ def _persist_to_db(cache_name: str, cache_key: str, data: Any):
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from app.models.cache_entry import CacheEntry
 
-        safe_data = _stringify_keys(data)
+        # Use _make_json_safe (not _stringify_keys) so Pydantic models are properly
+        # converted to dicts instead of being serialized as their string representation.
+        safe_data = _make_json_safe(data)
         serialized = json.dumps(safe_data, default=str, ensure_ascii=False)
 
         now = datetime.utcnow()

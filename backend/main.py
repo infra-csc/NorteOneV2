@@ -892,6 +892,31 @@ async def lifespan(app: FastAPI):
         cache_scheduler.start(interval=1800)
         logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
 
+        # Check if snapshots are fresh enough to skip consolidation at startup.
+        # If snapshots were updated within the last 2 hours (e.g. after "Atualizar Tudo" or
+        # the previous 05:00/17:00 warmup), skip the expensive snapshot rebuild entirely.
+        SNAPSHOT_FRESH_SECONDS = 2 * 3600
+        _snapshot_is_fresh = False
+        try:
+            from app.core.database import SessionLocal as _SnapSL
+            from app.models.vendas_snapshot import VendasDiariaSnapshot as _VDS_check
+            from sqlalchemy import func as _sfunc
+            from datetime import datetime as _dt_startup
+            _snap_db = _SnapSL()
+            try:
+                _last_snap_ts = _snap_db.query(_sfunc.max(_VDS_check.updated_at)).scalar()
+                if _last_snap_ts:
+                    _snap_age = (_dt_startup.utcnow() - _last_snap_ts).total_seconds()
+                    if _snap_age < SNAPSHOT_FRESH_SECONDS:
+                        _snapshot_is_fresh = True
+                        logger.info(f"[Startup] Snapshots are fresh (updated {_snap_age/60:.1f}min ago) — skipping startup consolidation")
+                    else:
+                        logger.info(f"[Startup] Snapshots are stale ({_snap_age/3600:.1f}h ago) — will run consolidation")
+            finally:
+                _snap_db.close()
+        except Exception as _snap_check_err:
+            logger.warning(f"[Startup] Could not check snapshot freshness: {_snap_check_err}")
+
         def _run_snapshot_consolidation():
             try:
                 from app.core.database import SessionLocal
@@ -908,17 +933,29 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Startup snapshot consolidation failed: {e}")
 
         snapshot_thread = threading.Thread(target=_run_snapshot_consolidation, daemon=True, name="startup-snapshot")
-        snapshot_thread.start()
+        if not _snapshot_is_fresh:
+            snapshot_thread.start()
+        else:
+            # Snapshots are fresh — mark thread as not started (join will return immediately)
+            snapshot_thread = threading.Thread(target=lambda: None, daemon=True)
+            snapshot_thread.start()
 
         # Decide whether to run a full warmup on startup.
         # If targeted warmup resolved all gaps (gap count == 0 now), skip the full warmup.
-        # If there are still gaps, wait for snapshot to finish first (avoids zeroed ISC
-        # from a race where Phase 1d reads snapshot data before it's rebuilt).
+        # If there are still gaps AND snapshots are fresh, run warmup immediately (no wait).
+        # If gaps remain AND snapshots are stale, wait for snapshot before warmup to avoid
+        # a race where Phase 1d reads snapshot data before it's rebuilt.
         _gap_result = get_gap_detection_result()
         _gap_count = len(_gap_result.get("missing_tier1_events", [])) + len(_gap_result.get("stale_tier1_events", []))
 
         if _gap_count == 0:
             logger.info("[Startup] All Tier1 events have fresh cache — skipping full warmup. Snapshot running in background.")
+        elif _snapshot_is_fresh:
+            logger.info(f"[Startup] {_gap_count} Tier1 events need warmup — snapshots fresh, running warmup immediately (no snapshot wait)...")
+            try:
+                _full_cache_warmup()
+            except Exception as e:
+                logger.error(f"Full cache warmup failed: {e}")
         else:
             logger.info(f"[Startup] {_gap_count} Tier1 events need warmup — waiting for snapshot to complete before pre-warming...")
             snapshot_thread.join(timeout=600)  # wait up to 10 min for snapshot
