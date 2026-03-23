@@ -133,7 +133,7 @@ const EventDetail: React.FC = () => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const fetchEvent = async (forceRefresh = false) => {
+    const fetchEvent = async (forceRefresh = false, silent = false) => {
       if (!id) {
         setError('ID do evento não fornecido');
         setLoading(false);
@@ -145,7 +145,7 @@ const EventDetail: React.FC = () => {
         if (!forceRefresh) {
           if (!event) setLoading(true);
         }
-        setDetailsLoading(true);
+        if (!silent) setDetailsLoading(true);
         const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
         if (controller.signal.aborted) return;
 
@@ -199,7 +199,7 @@ const EventDetail: React.FC = () => {
           new Date(cacheTime) < new Date(systemRefresh)
         ) {
           silentRefetchDoneRef.current = true;
-          fetchEvent(true);
+          fetchEvent(true, true);
           return;
         }
         if ((response as any).projetos_vinculados) {

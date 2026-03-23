@@ -130,6 +130,18 @@ def _stringify_keys(obj):
 
 
 def _persist_to_db(cache_name: str, cache_key: str, data: Any):
+    # Guard: for event_detail, refuse to persist entries with empty evento.date
+    # to prevent corrupt records from accumulating in the DB.
+    if cache_name == "event_detail" and isinstance(data, dict):
+        _evt = data.get("evento", {})
+        _evt_date = (
+            _evt.get("date", "") if isinstance(_evt, dict)
+            else getattr(_evt, "date", "")
+        )
+        if not _evt_date:
+            logger.warning(f"_persist_to_db: refusing to persist {cache_name}/{cache_key} — evento.date is empty")
+            return
+
     db = None
     try:
         db = _get_db_session()
@@ -307,6 +319,11 @@ class SmartCache:
                             )
                             if not _evt_date:
                                 expired_count += 1
+                                # Purge the corrupt entry from DB so it cannot accumulate
+                                try:
+                                    _db_persist_executor.submit(_delete_from_db, self.name, key)
+                                except RuntimeError:
+                                    pass
                                 continue
                             # Valid date → always load (bypass MAX_STALE_AGE for event_detail).
                             # Timestamp reset to now so get() serves it immediately; the
