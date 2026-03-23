@@ -2072,54 +2072,50 @@ def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int) -> str:
     ids_str = ", ".join(str(int(i)) for i in magento_event_ids)
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(300000) */
-    soi_parent.name                                                               AS kit,
-    eaov_tipo.value                                                               AS tipo_categoria,
-    soi_child.name                                                                AS distancia,
+    soi_parent.name                                                                     AS kit,
+    eaov_tipo.value                                                                     AS tipo_categoria,
+    soi_child.name                                                                      AS distancia,
     CASE
-        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 'Cortesia'
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%CORTESIA%%'
-         AND so.base_grand_total < 50                                   THEN 'Cortesia'
-        WHEN so.discount_description = 'GRUPOS_NORTECORP'               THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRP%%'                                THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GR%%'                                 THEN 'Grupos/B2B'
-        ELSE                                                                'Site'
-    END                                                                           AS canal,
-    lote_atual.lot_name                                                           AS lote_atual,
-    soi_prices.price                                                              AS price,
-    soi_prices.special_price                                                      AS special_price,
-    COUNT(DISTINCT soi_parent.item_id)                                            AS inscritos,
+        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Grupos/B2B'
+        ELSE                                                                 'Site'
+    END                                                                                 AS canal,
+    lote_atual.lot_name                                                                 AS lote_atual,
+    soi_prices.price                                                                    AS price,
+    soi_prices.special_price                                                            AS special_price,
+    COUNT(DISTINCT soi_parent.item_id)                                                  AS inscritos,
     SUM(CASE
-        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 0
         WHEN so.base_grand_total = 0                                    THEN 0
         WHEN so.discount_description LIKE '%%CORTESIA%%'
          AND so.base_grand_total < 50                                   THEN 0
         ELSE soi_child.price
-    END)                                                                          AS receita_bruta,
+    END)                                                                                AS receita_bruta,
     SUM(CASE
-        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 0
         WHEN so.base_grand_total = 0                                    THEN 0
         WHEN so.discount_description LIKE '%%CORTESIA%%'
          AND so.base_grand_total < 50                                   THEN 0
         ELSE soi_child.price - soi_child.discount_amount
-    END)                                                                          AS receita_liquida,
+    END)                                                                                AS receita_liquida,
     SUM(CASE
-        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 0
         WHEN so.base_grand_total = 0                                    THEN 0
         WHEN so.discount_description LIKE '%%CORTESIA%%'
          AND so.base_grand_total < 50                                   THEN 0
         ELSE soi_child.price - soi_child.discount_amount
     END) / NULLIF(COUNT(DISTINCT CASE
-        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN NULL
         WHEN so.base_grand_total = 0                                    THEN NULL
         WHEN so.discount_description LIKE '%%CORTESIA%%'
          AND so.base_grand_total < 50                                   THEN NULL
         ELSE soi_parent.item_id
-    END), 0)                                                                      AS ticket_medio
+    END), 0)                                                                            AS ticket_medio
+
 FROM sales_order so
+
 JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
+
 JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -2130,6 +2126,7 @@ JOIN sales_order_item soi_child
          OR soi_child.name LIKE '%%Distâncias%%'
          OR soi_child.name LIKE '%%Modalidade%%'
       )
+
 JOIN (
     SELECT cpev.entity_id, cpev.value
     FROM catalog_product_entity_varchar cpev
@@ -2139,12 +2136,14 @@ JOIN (
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+
 JOIN (
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
     WHERE attribute_id = 195
     GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
+
 LEFT JOIN (
     SELECT attribute_id
     FROM eav_attribute
@@ -2159,6 +2158,7 @@ LEFT JOIN catalog_product_entity_int cpei_tipo
       AND cpei_tipo.attribute_id = attr_tipo.attribute_id
 LEFT JOIN eav_attribute_option_value eaov_tipo
        ON eaov_tipo.option_id = cpei_tipo.value
+
 LEFT JOIN (
     SELECT lp.entity_id, lp.lot_name
     FROM catalog_product_entity_event_lot_price lp
@@ -2166,86 +2166,156 @@ LEFT JOIN (
         SELECT entity_id, MAX(record_id) AS max_record_id
         FROM catalog_product_entity_event_lot_price
         GROUP BY entity_id
-    ) lp_max ON lp_max.entity_id = lp.entity_id AND lp_max.max_record_id = lp.record_id
+    ) lp_max
+          ON lp_max.entity_id     = lp.entity_id
+         AND lp_max.max_record_id = lp.record_id
 ) AS lote_atual ON lote_atual.entity_id = cpev1.value
+
 LEFT JOIN (
     SELECT
         cpeos.parent_product_id,
         (
-            MAX(CASE WHEN cpev_s.value LIKE '%%Distancia%%' OR cpev_s.value LIKE '%%Distância%%' OR cpev_s.value LIKE '%%Modalidade%%' THEN cpep.value ELSE NULL END)
+            MAX(CASE
+                WHEN cpev_s.value LIKE '%%Distancia%%'
+                  OR cpev_s.value LIKE '%%Distância%%'
+                  OR cpev_s.value LIKE '%%Modalidade%%'
+                THEN cpep.value ELSE NULL
+            END)
             + COALESCE(MAX(CASE
                 WHEN cpep.value > 0
-                 AND cpev_s.value NOT LIKE '%%Distancia%%' AND cpev_s.value NOT LIKE '%%Distância%%' AND cpev_s.value NOT LIKE '%%Modalidade%%'
-                 AND cpev_s.value NOT LIKE '%%Personaliz%%' AND cpev_s.value NOT LIKE '%%Aceite%%' AND cpev_s.value NOT LIKE '%%aceito%%'
-                 AND cpev_s.value NOT LIKE '%%Treinão%%' AND cpev_s.value NOT LIKE '%%Horário%%' AND cpev_s.value NOT LIKE '%%Bateria%%'
-                 AND cpev_s.value NOT LIKE '%%Doar%%' AND cpev_s.value NOT LIKE '%%Tênis%%' AND cpev_s.value NOT LIKE '%%Tenis%%'
-                 AND cpev_s.value NOT LIKE '%%Bike%%' AND cpev_s.value NOT LIKE '%%Biciclet%%' AND cpev_s.value NOT LIKE '%%Festival%%'
-                 AND cpev_s.value NOT LIKE '%%Bag%%' AND cpev_s.value NOT LIKE '%%Inscrição%%' AND cpev_s.value NOT LIKE '%%Declaro%%'
-                 AND cpev_s.value NOT LIKE '%%Pochete%%' AND cpev_s.value NOT LIKE '%%Tarifa%%' AND cpev_s.value NOT LIKE '%%Skate%%'
-                 AND cpev_s.value NOT LIKE '%%Obstáculo%%' AND cpev_s.value NOT LIKE '%%Bravinhos%%' AND cpev_s.value NOT LIKE '%%teste%%'
-                 AND cpev_s.value NOT LIKE '%%Porta%%' AND cpev_s.value NOT LIKE '%%Luva%%' AND cpev_s.value NOT LIKE '%%Toalha%%'
+                 AND cpev_s.value NOT LIKE '%%Distancia%%'
+                 AND cpev_s.value NOT LIKE '%%Distância%%'
+                 AND cpev_s.value NOT LIKE '%%Modalidade%%'
+                 AND cpev_s.value NOT LIKE '%%Personaliz%%'
+                 AND cpev_s.value NOT LIKE '%%Aceite%%'
+                 AND cpev_s.value NOT LIKE '%%aceito%%'
+                 AND cpev_s.value NOT LIKE '%%Treinão%%'
+                 AND cpev_s.value NOT LIKE '%%Horário%%'
+                 AND cpev_s.value NOT LIKE '%%Bateria%%'
+                 AND cpev_s.value NOT LIKE '%%Doar%%'
+                 AND cpev_s.value NOT LIKE '%%Tênis%%'
+                 AND cpev_s.value NOT LIKE '%%Tenis%%'
+                 AND cpev_s.value NOT LIKE '%%Bike%%'
+                 AND cpev_s.value NOT LIKE '%%Biciclet%%'
+                 AND cpev_s.value NOT LIKE '%%Festival%%'
+                 AND cpev_s.value NOT LIKE '%%Bag%%'
+                 AND cpev_s.value NOT LIKE '%%Inscrição%%'
+                 AND cpev_s.value NOT LIKE '%%Declaro%%'
+                 AND cpev_s.value NOT LIKE '%%Pochete%%'
+                 AND cpev_s.value NOT LIKE '%%Tarifa%%'
+                 AND cpev_s.value NOT LIKE '%%Skate%%'
+                 AND cpev_s.value NOT LIKE '%%Obstáculo%%'
+                 AND cpev_s.value NOT LIKE '%%Bravinhos%%'
+                 AND cpev_s.value NOT LIKE '%%teste%%'
+                 AND cpev_s.value NOT LIKE '%%Porta%%'
+                 AND cpev_s.value NOT LIKE '%%Luva%%'
+                 AND cpev_s.value NOT LIKE '%%Toalha%%'
                  AND cpev_s.value NOT LIKE '%%Corrida +%%'
                 THEN cpep.value ELSE NULL
             END), 0)
-        ) * COALESCE(mult.multiplicador, 1) AS price,
+        ) * COALESCE(mult.multiplicador, 1)             AS price,
         (
-            MAX(CASE WHEN cpev_s.value LIKE '%%Distancia%%' OR cpev_s.value LIKE '%%Distância%%' OR cpev_s.value LIKE '%%Modalidade%%' THEN pi.final_price ELSE NULL END)
+            MAX(CASE
+                WHEN cpev_s.value LIKE '%%Distancia%%'
+                  OR cpev_s.value LIKE '%%Distância%%'
+                  OR cpev_s.value LIKE '%%Modalidade%%'
+                THEN pi.final_price ELSE NULL
+            END)
             + COALESCE(MAX(CASE
                 WHEN pi.final_price > 0
-                 AND cpev_s.value NOT LIKE '%%Distancia%%' AND cpev_s.value NOT LIKE '%%Distância%%' AND cpev_s.value NOT LIKE '%%Modalidade%%'
-                 AND cpev_s.value NOT LIKE '%%Personaliz%%' AND cpev_s.value NOT LIKE '%%Aceite%%' AND cpev_s.value NOT LIKE '%%aceito%%'
-                 AND cpev_s.value NOT LIKE '%%Treinão%%' AND cpev_s.value NOT LIKE '%%Horário%%' AND cpev_s.value NOT LIKE '%%Bateria%%'
-                 AND cpev_s.value NOT LIKE '%%Doar%%' AND cpev_s.value NOT LIKE '%%Tênis%%' AND cpev_s.value NOT LIKE '%%Tenis%%'
-                 AND cpev_s.value NOT LIKE '%%Bike%%' AND cpev_s.value NOT LIKE '%%Biciclet%%' AND cpev_s.value NOT LIKE '%%Festival%%'
-                 AND cpev_s.value NOT LIKE '%%Bag%%' AND cpev_s.value NOT LIKE '%%Inscrição%%' AND cpev_s.value NOT LIKE '%%Declaro%%'
-                 AND cpev_s.value NOT LIKE '%%Pochete%%' AND cpev_s.value NOT LIKE '%%Tarifa%%' AND cpev_s.value NOT LIKE '%%Skate%%'
-                 AND cpev_s.value NOT LIKE '%%Obstáculo%%' AND cpev_s.value NOT LIKE '%%Bravinhos%%' AND cpev_s.value NOT LIKE '%%teste%%'
-                 AND cpev_s.value NOT LIKE '%%Porta%%' AND cpev_s.value NOT LIKE '%%Luva%%' AND cpev_s.value NOT LIKE '%%Toalha%%'
+                 AND cpev_s.value NOT LIKE '%%Distancia%%'
+                 AND cpev_s.value NOT LIKE '%%Distância%%'
+                 AND cpev_s.value NOT LIKE '%%Modalidade%%'
+                 AND cpev_s.value NOT LIKE '%%Personaliz%%'
+                 AND cpev_s.value NOT LIKE '%%Aceite%%'
+                 AND cpev_s.value NOT LIKE '%%aceito%%'
+                 AND cpev_s.value NOT LIKE '%%Treinão%%'
+                 AND cpev_s.value NOT LIKE '%%Horário%%'
+                 AND cpev_s.value NOT LIKE '%%Bateria%%'
+                 AND cpev_s.value NOT LIKE '%%Doar%%'
+                 AND cpev_s.value NOT LIKE '%%Tênis%%'
+                 AND cpev_s.value NOT LIKE '%%Tenis%%'
+                 AND cpev_s.value NOT LIKE '%%Bike%%'
+                 AND cpev_s.value NOT LIKE '%%Biciclet%%'
+                 AND cpev_s.value NOT LIKE '%%Festival%%'
+                 AND cpev_s.value NOT LIKE '%%Bag%%'
+                 AND cpev_s.value NOT LIKE '%%Inscrição%%'
+                 AND cpev_s.value NOT LIKE '%%Declaro%%'
+                 AND cpev_s.value NOT LIKE '%%Pochete%%'
+                 AND cpev_s.value NOT LIKE '%%Tarifa%%'
+                 AND cpev_s.value NOT LIKE '%%Skate%%'
+                 AND cpev_s.value NOT LIKE '%%Obstáculo%%'
+                 AND cpev_s.value NOT LIKE '%%Bravinhos%%'
+                 AND cpev_s.value NOT LIKE '%%teste%%'
+                 AND cpev_s.value NOT LIKE '%%Porta%%'
+                 AND cpev_s.value NOT LIKE '%%Luva%%'
+                 AND cpev_s.value NOT LIKE '%%Toalha%%'
                  AND cpev_s.value NOT LIKE '%%Corrida +%%'
                 THEN pi.final_price ELSE NULL
             END), 0)
-        ) * COALESCE(mult.multiplicador, 1) AS special_price
+        ) * COALESCE(mult.multiplicador, 1)             AS special_price
+
     FROM catalog_product_bundle_selection cpeos
-    JOIN catalog_product_bundle_option cpeo ON cpeo.option_id = cpeos.option_id
-    LEFT JOIN catalog_product_entity_varchar cpev_s ON cpev_s.entity_id = cpeos.product_id AND cpev_s.attribute_id = 73 AND cpev_s.store_id = 0
-    LEFT JOIN catalog_product_entity_decimal cpep ON cpep.entity_id = cpeos.product_id AND cpep.attribute_id = 77
-    LEFT JOIN catalog_product_index_price pi ON pi.entity_id = cpeos.product_id AND pi.website_id = 1 AND pi.customer_group_id = 0
+    JOIN catalog_product_bundle_option cpeo
+          ON cpeo.option_id = cpeos.option_id
+    LEFT JOIN catalog_product_entity_varchar cpev_s
+          ON cpev_s.entity_id    = cpeos.product_id
+         AND cpev_s.attribute_id = 73
+         AND cpev_s.store_id     = 0
+    LEFT JOIN catalog_product_entity_decimal cpep
+          ON cpep.entity_id    = cpeos.product_id
+         AND cpep.attribute_id = 77
+    LEFT JOIN catalog_product_index_price pi
+          ON pi.entity_id         = cpeos.product_id
+         AND pi.website_id        = 1
+         AND pi.customer_group_id = 0
     LEFT JOIN (
-        SELECT cpe.entity_id,
-               CASE cpei.value WHEN 1606 THEN 2 WHEN 1607 THEN 3 WHEN 1608 THEN 4 WHEN 1609 THEN 2 WHEN 1700 THEN 2 WHEN 1701 THEN 4 ELSE 1 END AS multiplicador
+        SELECT
+            cpe.entity_id,
+            CASE cpei.value
+                WHEN 1606 THEN 2 WHEN 1607 THEN 3 WHEN 1608 THEN 4
+                WHEN 1609 THEN 2 WHEN 1700 THEN 2 WHEN 1701 THEN 4
+                ELSE 1
+            END                                         AS multiplicador
         FROM catalog_product_entity cpe
-        JOIN catalog_product_entity_int cpei ON cpei.entity_id = cpe.entity_id
+        JOIN catalog_product_entity_int cpei
+              ON cpei.entity_id    = cpe.entity_id
              AND cpei.attribute_id = (
-                    SELECT attribute_id FROM eav_attribute WHERE attribute_code = 'tipo_categoria'
-                      AND entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = 'catalog_product')
+                    SELECT attribute_id FROM eav_attribute
+                    WHERE attribute_code = 'tipo_categoria'
+                      AND entity_type_id = (
+                            SELECT entity_type_id FROM eav_entity_type
+                            WHERE entity_type_code = 'catalog_product'
+                      )
              )
         WHERE cpe.type_id = 'bundle'
     ) AS mult ON mult.entity_id = cpeo.parent_id
     GROUP BY cpeos.parent_product_id
 ) AS soi_prices ON soi_prices.parent_product_id = soi_parent.product_id
+
 WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
   AND so.state          != 'canceled'
   AND so.increment_id   NOT REGEXP '-[0-9]'
   AND cpev1.value IN ({ids_str})
   AND cped.value >= MAKEDATE({ano}, 1)
   AND cped.value <  MAKEDATE({ano + 1}, 1)
+
 GROUP BY
     soi_parent.name,
     eaov_tipo.value,
     soi_child.name,
     CASE
-        WHEN soi_parent.sku LIKE '%%CORTESIA%%'                         THEN 'Cortesia'
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN so.discount_description LIKE '%%CORTESIA%%'
          AND so.base_grand_total < 50                                   THEN 'Cortesia'
-        WHEN so.discount_description = 'GRUPOS_NORTECORP'               THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRP%%'                                THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GR%%'                                 THEN 'Grupos/B2B'
-        ELSE                                                                'Site'
+        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Grupos/B2B'
+        ELSE                                                                 'Site'
     END,
     lote_atual.lot_name,
     soi_prices.price,
     soi_prices.special_price
+
 ORDER BY soi_parent.name, canal, inscritos DESC
 """
 
