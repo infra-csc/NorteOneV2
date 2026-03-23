@@ -2456,6 +2456,12 @@ from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, dai
 # and several requests arrive before the first thread finishes.
 _swr_recompute_in_progress: set = set()
 
+# Concurrent computation guard: prevents cache stampede when multiple requests hit
+# the same uncached event simultaneously. Only one thread computes; others wait.
+import threading as _threading_module
+_event_computing_events: dict = {}   # cache_key -> threading.Event (set when done)
+_event_computing_lock = _threading_module.Lock()
+
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
     if excluded_ids:
@@ -6228,7 +6234,38 @@ def get_marketing_event_by_id(
                 if _needs_recompute:
                     result_hit["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
                 return result_hit
-        
+
+        # Concurrent computation guard: if another request is already computing this
+        # event detail, wait for it instead of launching a duplicate Magento query.
+        _should_compute = True
+        _wait_computing_event = None
+        if not force_refresh:
+            with _event_computing_lock:
+                if detail_cache_key in _event_computing_events:
+                    _wait_computing_event = _event_computing_events[detail_cache_key]
+                else:
+                    _compute_done_event = _threading_module.Event()
+                    _event_computing_events[detail_cache_key] = _compute_done_event
+
+        if _wait_computing_event is not None:
+            logger.info(f"[Cache] event_detail '{detail_cache_key}' being computed by another thread — waiting (max 5min)")
+            _wait_computing_event.wait(timeout=300)
+            # Try cache now that the other thread finished
+            _cached2, _ = event_detail_cache.get_or_revalidate(detail_cache_key, refresh_fn=None)
+            if _cached2 is not None:
+                from app.core.cache import get_last_full_refresh as _get_lfr2
+                _lfr_ts2 = _get_lfr2()
+                _lfr_str2 = datetime.fromtimestamp(_lfr_ts2, tz=ZoneInfo('America/Sao_Paulo')).isoformat() if _lfr_ts2 else None
+                _res2 = {k: v for k, v in _cached2.items() if k != "__is_completed"}
+                _res2["ultima_atualizacao_completa"] = _lfr_str2
+                return _res2
+            # Computing thread failed or timed out — fall through to compute ourselves
+            with _event_computing_lock:
+                if detail_cache_key not in _event_computing_events:
+                    _compute_done_event = _threading_module.Event()
+                    _event_computing_events[detail_cache_key] = _compute_done_event
+            _should_compute = True
+
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         
         skus = [m.sku for m in mappings]
@@ -6596,6 +6633,11 @@ def get_marketing_event_by_id(
             logger.info(f"Event '{grupo_nome}' ({projeto_data_evento}) cached permanently (completed event)")
         else:
             event_detail_cache.set(detail_cache_key, grouped_result)
+        # Signal any waiting threads that computation is done
+        with _event_computing_lock:
+            _done_evt = _event_computing_events.pop(detail_cache_key, None)
+        if _done_evt is not None:
+            _done_evt.set()
         response_result = {k: v for k, v in grouped_result.items() if k != "__is_completed"}
         return response_result
     

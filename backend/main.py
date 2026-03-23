@@ -214,17 +214,47 @@ def _full_cache_warmup():
         logger.info(f"[Warmup] Found {len(active_evento_ids)} active events: Tier 1 (d-≤{TIER1_D_MINUS_THRESHOLD}): {len(tier1_evento_ids)}, Tier 2 (d->{TIER1_D_MINUS_THRESHOLD}): {len(tier2_evento_ids)}")
         update_warmup_sub_progress(4)
 
-        # --- Phase 1b: kick off event_detail pre-warm for ALL active events (background, parallel with ISC refresh) ---
+        # --- Collect recently-completed events (last 14 days) for warmup ---
+        RECENTLY_COMPLETED_DAYS = 14
+        recently_completed_ids = []
+        _recent_grupo_seen = set()
+        for _rcad in all_cadastros:
+            if not _rcad.projeto_id:
+                continue
+            _rproj = proj_by_id.get(_rcad.projeto_id)
+            if not _rproj or not _rproj.data_evento:
+                continue
+            _rreg_close = _rproj.data_evento - _warmup_timedelta(days=2)
+            _rraw_dm = (_rreg_close - _warmup_date.today()).days
+            if _rraw_dm >= -1 or _rraw_dm < -RECENTLY_COMPLETED_DAYS:
+                continue  # Only want events 2–14 days in the past
+            _rsku_norm = normalize_sku(str(_rproj.codigo)) if _rproj.codigo else None
+            _rgrupo_nome = sku_to_grupo.get(_rsku_norm) if _rsku_norm else None
+            if _rgrupo_nome:
+                _reid = f"grp_{_rgrupo_nome}"
+                if _reid not in _recent_grupo_seen and _reid not in active_evento_ids:
+                    _recent_grupo_seen.add(_reid)
+                    recently_completed_ids.append(_reid)
+            else:
+                _reid = str(_rproj.id)
+                if _reid not in _recent_grupo_seen and _reid not in active_evento_ids:
+                    _recent_grupo_seen.add(_reid)
+                    recently_completed_ids.append(_reid)
+        if recently_completed_ids:
+            logger.info(f"[Warmup] Found {len(recently_completed_ids)} recently-completed events (last {RECENTLY_COMPLETED_DAYS} days) — will pre-warm in background")
+
+        # --- Phase 1b: kick off event_detail pre-warm for ALL active + recently-completed events ---
+        _all_prewarm_ids = active_evento_ids + recently_completed_ids
         _detail_futures: dict = {}
         _tier1_aux_futures: dict = {}
         _prewarm_detail_fn = None
-        if active_evento_ids:
+        if _all_prewarm_ids:
             from app.api.routes.marketing import (
                 get_marketing_event_by_id as _get_evt_detail,
                 get_sales_averages as _get_medias,
                 get_curva_snapshot as _get_curva
             )
-            _detail_prewarm_executor = _TPE(max_workers=min(4, len(active_evento_ids)), thread_name_prefix="warmup_detail")
+            _detail_prewarm_executor = _TPE(max_workers=min(4, len(_all_prewarm_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail_fn(eid, _ano):
                 from fastapi import HTTPException as _HTTPEx
@@ -248,10 +278,10 @@ def _full_cache_warmup():
                 finally:
                     _db2.close()
 
-            for _eid in active_evento_ids:
+            for _eid in _all_prewarm_ids:
                 _detail_futures[_eid] = _detail_prewarm_executor.submit(_prewarm_detail_fn, _eid, ano)
             _detail_prewarm_executor.shutdown(wait=False)
-            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} events ({min(4, len(active_evento_ids))} workers)")
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active + {len(recently_completed_ids)} recent events ({min(4, len(_all_prewarm_ids))} workers)")
 
             # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for Tier 1 events ---
             if tier1_evento_ids:
