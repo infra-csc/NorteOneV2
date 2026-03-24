@@ -670,9 +670,13 @@ const EventDetail: React.FC = () => {
   const _kitTotalReceita = _kitRowsRealizado.reduce((s, r) => s + (r.receitaLiquida || 0), 0);
   const _kitTotalQtd = _kitRowsRealizado.reduce((s, r) => s + (r.qtd || 0), 0);
   const ticketMedioRealizado = _kitTotalQtd > 0 ? Math.round((_kitTotalReceita / _kitTotalQtd) * 100) / 100 : (event.averageTicket || 0);
-  const margemRealizadaKits = _kitRowsRealizado.length > 0
-    ? _kitRowsRealizado.reduce((s, r) => s + (r.margemTotal || 0), 0)
-    : null;
+  // Use individual kits when they have data (qtd > 0), otherwise fall back to CONSOLIDADO row.
+  // This prevents divergence when CONSOLIDADO has real data but individual kits are zeroed out.
+  const _consRowMargem = (event.margemPorKit ?? []).find(r => r.tipoKit === 'CONSOLIDADO')?.margemTotal ?? null;
+  const _kitSumMargem = _kitRowsRealizado.reduce((s, r) => s + (r.margemTotal || 0), 0);
+  const margemRealizadaKits = _kitRowsRealizado.length > 0 && _kitTotalQtd > 0
+    ? _kitSumMargem
+    : _consRowMargem ?? null;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
@@ -2048,8 +2052,7 @@ const EventDetail: React.FC = () => {
                     (() => {
                       const kc = event.kitCostPerUnit || 0;
                       const metaM = (event.budgetTicket - kc) * event.salesGoal;
-                      const _cons = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
-                      const margAcum = _cons != null ? (_cons.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
+                      const margAcum = margemRealizadaKits != null ? margemRealizadaKits : (event.margemRealizadaTotal || 0);
                       const vr = Math.max(volumeParaMeta, 1);
                       return Math.max(0, ((metaM - margAcum) / vr) + kc);
                     })()
