@@ -1730,6 +1730,7 @@ AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 {_year_filter}
 GROUP BY soi_parent.product_id
@@ -1831,6 +1832,7 @@ AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY
 GROUP BY soi_parent.name
@@ -1899,9 +1901,10 @@ FROM (
         b.id_evento,
         h.ds_categoria,
         CASE
-            WHEN a.nr_preco = 0               THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-            ELSE                                   'Site'
+            WHEN a.nr_preco = 0                    THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%'    THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%ortesia%%' THEN 'Cortesia'
+            ELSE                                        'Site'
         END                                            AS canal,
         COUNT(DISTINCT a.id_pedido_evento)             AS qtd,
         SUM(a.nr_preco)
@@ -2528,7 +2531,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "3"  # v3: ISC components frozen at registration close date
+_DETAIL_CACHE_VERSION = "4"  # v4: Margem por Kit aligned to Site-only channel (coupon GR + ortesia excluded)
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
