@@ -858,7 +858,13 @@ def _interpolate_hist_pattern(hist_pattern: dict, d_minus: int) -> float:
 def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int, 
                               media_14d: float = None, daily_sales_dict: dict = None,
                               media_7d: float = None, media_30d: float = None,
-                              hist_pattern: dict = None) -> ISCComponents:
+                              hist_pattern: dict = None,
+                              registration_close_date=None) -> ISCComponents:
+    """
+    registration_close_date: date of last day registrations were open (event_date - dias_enc).
+    When provided and d_minus < 0 (past event), all rolling windows are anchored to this date
+    so components are frozen at their final state rather than collapsing to zero.
+    """
     if sales_goal == 0:
         return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0)
     
@@ -866,20 +872,32 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
         daily_sales_dict = {(date.fromisoformat(k) if isinstance(k, str) else k): v for k, v in daily_sales_dict.items()}
     
     from datetime import timedelta
-    yesterday = date.today() - timedelta(days=1)
+
+    # For past events (d_minus < 0), anchor calculations to the registration close date.
+    # This freezes components at the state they were when the event ended.
+    is_past_event = d_minus < 0
+    if is_past_event and registration_close_date is not None:
+        anchor_date = registration_close_date - timedelta(days=1)
+        d_minus_effective = 0  # treat as D-0 for curvaDPercent and rolling window
+    else:
+        anchor_date = date.today() - timedelta(days=1)
+        d_minus_effective = d_minus
+
     if daily_sales_dict and len(daily_sales_dict) > 0:
-        current_sales = sum(v for k, v in daily_sales_dict.items() if k <= yesterday)
+        # For past events anchor to close date; for live events anchor to yesterday
+        cutoff = anchor_date if is_past_event and registration_close_date else date.today()
+        current_sales = sum(v for k, v in daily_sales_dict.items() if k <= cutoff)
     
     progress_percent = current_sales / sales_goal
 
     if hist_pattern and len(hist_pattern) > 0:
-        expected_progress = _interpolate_hist_pattern(hist_pattern, d_minus)
+        expected_progress = _interpolate_hist_pattern(hist_pattern, d_minus_effective)
         if expected_progress <= 0:
             expected_progress = 0.01
         curva_d_percent = progress_percent / expected_progress
     else:
         total_days = 90
-        elapsed_days = max(1, total_days - d_minus)
+        elapsed_days = max(1, total_days - d_minus_effective)
         expected_progress = elapsed_days / total_days
         if expected_progress == 0:
             expected_progress = 0.01
@@ -890,9 +908,9 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     real_30d = None
     sum_14d_raw = None
     if daily_sales_dict and len(daily_sales_dict) > 0:
-        s7 = sum(daily_sales_dict.get(yesterday - timedelta(days=i), 0) for i in range(7))
-        s14 = sum(daily_sales_dict.get(yesterday - timedelta(days=i), 0) for i in range(14))
-        s30 = sum(daily_sales_dict.get(yesterday - timedelta(days=i), 0) for i in range(30))
+        s7 = sum(daily_sales_dict.get(anchor_date - timedelta(days=i), 0) for i in range(7))
+        s14 = sum(daily_sales_dict.get(anchor_date - timedelta(days=i), 0) for i in range(14))
+        s30 = sum(daily_sales_dict.get(anchor_date - timedelta(days=i), 0) for i in range(30))
         sum_14d_raw = s14
         real_7d = s7 / 7.0
         real_14d = s14 / 14.0
@@ -914,13 +932,14 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     if not ia730_calculated:
         ia730 = curva_d_percent
 
-    d_minus_yesterday = d_minus + 1
+    # Use d_minus_effective (clamped to 0 for past events) so expected window is meaningful
+    d_minus_anchor = d_minus_effective + 1
 
     expected_14d_sales = None
     if hist_pattern and len(hist_pattern) > 0 and sales_goal > 0:
-        expected_at_yesterday = _interpolate_hist_pattern(hist_pattern, d_minus_yesterday)
-        expected_14d_ago = _interpolate_hist_pattern(hist_pattern, d_minus_yesterday + 14)
-        expected_14d_sales = (expected_at_yesterday - expected_14d_ago) * sales_goal
+        expected_at_anchor = _interpolate_hist_pattern(hist_pattern, d_minus_anchor)
+        expected_14d_ago = _interpolate_hist_pattern(hist_pattern, d_minus_anchor + 14)
+        expected_14d_sales = (expected_at_anchor - expected_14d_ago) * sales_goal
     elif sales_goal > 0:
         total_days = 90
         expected_14d_sales = (14 / total_days) * sales_goal
@@ -3504,13 +3523,15 @@ def get_marketing_events(
         budget_ticket = round(budget_ticket_total_receita / budget_ticket_total_qtd, 2) if budget_ticket_total_qtd > 0 else 0.0
 
         grupo_hist_pattern = hist_patterns_prefetch.get(grupo_nome)
+        grupo_reg_close = (projeto_data_evento - timedelta(days=dias_enc)) if projeto_data_evento else None
 
         isc_components = calculate_isc_components(
             current_sales, sales_goal, d_minus_inscricoes,
             media_7d=grupo_m7d,
             media_14d=grupo_m14d,
             media_30d=grupo_m30d,
-            hist_pattern=grupo_hist_pattern
+            hist_pattern=grupo_hist_pattern,
+            registration_close_date=grupo_reg_close
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -3632,13 +3653,15 @@ def get_marketing_events(
         standalone_budget_ticket = round(float(cad.atletas_site_tkt_medio), 2) if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0 else 0.0
         
         standalone_hist = hist_patterns_prefetch.get(standalone_eg) if standalone_eg else None
+        standalone_reg_close = (projeto_data_evento - timedelta(days=dias_enc)) if projeto_data_evento else None
 
         isc_components = calculate_isc_components(
             current_sales, sales_goal, d_minus_inscricoes,
             media_7d=standalone_m7d,
             media_14d=standalone_m14d,
             media_30d=standalone_m30d,
-            hist_pattern=standalone_hist
+            hist_pattern=standalone_hist,
+            registration_close_date=standalone_reg_close
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -6472,7 +6495,8 @@ def get_marketing_event_by_id(
         
         isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                    daily_sales_dict=daily_sales_dict,
-                                                   hist_pattern=detail_hist_pattern)
+                                                   hist_pattern=detail_hist_pattern,
+                                                   registration_close_date=data_fim_inscricoes)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
@@ -6803,7 +6827,8 @@ def get_marketing_event_by_id(
     
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                daily_sales_dict=daily_sales_dict,
-                                               hist_pattern=standalone_detail_hist)
+                                               hist_pattern=standalone_detail_hist,
+                                               registration_close_date=data_fim_inscricoes_standalone)
     isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
     isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
     suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
@@ -7852,12 +7877,14 @@ def get_pricing_analysis(
         except Exception:
             pass
 
+        pricing_grupo_reg_close = (projeto_data_evento - timedelta(days=dias_enc)) if projeto_data_evento else None
         isc_components = calculate_isc_components(
             current_sales, sales_goal, d_minus,
             media_7d=combined_m7d,
             media_14d=combined_rolling_14d,
             media_30d=combined_m30d,
-            hist_pattern=pricing_hist_pattern
+            hist_pattern=pricing_hist_pattern,
+            registration_close_date=pricing_grupo_reg_close
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -7978,12 +8005,14 @@ def get_pricing_analysis(
         standalone_rolling_14d = standalone_sales_info.get('media_14d', 0.0)
         standalone_m30d = standalone_sales_info.get('media_30d', 0.0)
 
+        pricing_standalone_reg_close = (projeto_data_evento - timedelta(days=dias_enc)) if projeto_data_evento else None
         isc_components = calculate_isc_components(
             current_sales, sales_goal, d_minus,
             media_7d=standalone_m7d,
             media_14d=standalone_rolling_14d,
             media_30d=standalone_m30d,
-            hist_pattern=standalone_pricing_hist
+            hist_pattern=standalone_pricing_hist,
+            registration_close_date=pricing_standalone_reg_close
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
