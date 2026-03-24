@@ -2132,7 +2132,7 @@ JOIN (
       AND cpev.store_id     = 0
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 
-JOIN (
+LEFT JOIN (
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 73

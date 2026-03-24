@@ -5,6 +5,7 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    dedupe: ['three'],
     alias: {
       '@assets': path.resolve(__dirname, '../attached_assets')
     }
