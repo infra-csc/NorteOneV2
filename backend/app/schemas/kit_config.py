@@ -6,6 +6,7 @@ from datetime import datetime
 class KitConfigUpsert(BaseModel):
     multiplicador: int = Field(default=1, ge=1, le=100)
     is_kit_basico: bool = False
+    is_promo_principal: bool = False
     id_evento: Optional[int] = None
     tipo_kit: Optional[str] = None
     custo_kit: Optional[float] = None
@@ -20,6 +21,7 @@ class KitConfigResponse(BaseModel):
     tipo: str = "multiplier"
     multiplicador: int = 1
     is_kit_basico: bool = False
+    is_promo_principal: bool = False
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
     created_at: Optional[datetime] = None
@@ -45,6 +47,7 @@ class KitRow(BaseModel):
     special_price: Optional[float] = None
     is_configured: bool = False
     is_kit_basico: bool = False
+    is_promo_principal: bool = False
     custo_cadastro: Optional[float] = None
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None

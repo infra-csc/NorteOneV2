@@ -346,6 +346,7 @@ def get_kits_with_config(
         multiplicador = cfg.multiplicador if cfg else mult_sugerido
         is_configured = cfg is not None
         is_kit_basico = cfg.is_kit_basico if cfg else False
+        is_promo_principal = cfg.is_promo_principal if cfg else False
         tipo_kit = cfg.tipo_kit if cfg else None
 
         custo_cadastro = _get_custo_for_event(row_dict.get("id_evento"), tipo_kit)
@@ -370,6 +371,7 @@ def get_kits_with_config(
             special_price=special_price_final,
             is_configured=is_configured,
             is_kit_basico=is_kit_basico,
+            is_promo_principal=is_promo_principal,
             custo_cadastro=custo_cadastro,
             custo_kit=custo_kit_val,
             ativo_categoria=cfg.ativo_categoria if cfg else None,
@@ -399,11 +401,19 @@ def upsert_kit_config(
             KitConfig.is_kit_basico == True,
         ).update({"is_kit_basico": False})
 
+    if body.is_promo_principal and body.id_evento is not None:
+        db.query(KitConfig).filter(
+            KitConfig.id_evento == body.id_evento,
+            KitConfig.bundle_entity_id != bundle_entity_id,
+            KitConfig.is_promo_principal == True,
+        ).update({"is_promo_principal": False})
+
     existing = db.query(KitConfig).filter(KitConfig.bundle_entity_id == bundle_entity_id).first()
     try:
         if existing:
             existing.multiplicador = body.multiplicador
             existing.is_kit_basico = body.is_kit_basico
+            existing.is_promo_principal = body.is_promo_principal
             if body.id_evento is not None:
                 existing.id_evento = body.id_evento
             existing.tipo_kit = body.tipo_kit
@@ -421,6 +431,7 @@ def upsert_kit_config(
             bundle_entity_id=bundle_entity_id,
             multiplicador=body.multiplicador,
             is_kit_basico=body.is_kit_basico,
+            is_promo_principal=body.is_promo_principal,
             id_evento=body.id_evento,
             tipo_kit=body.tipo_kit,
             custo_kit=body.custo_kit,

@@ -419,7 +419,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
         return {}
 
-    # Build per-bundle: special_price_base and status_kit
+    # Build per-bundle: special_price_base, status_kit and nome_kit
     bundle_data: dict = {}
     for row in rows:
         row_dict = dict(zip(columns, row))
@@ -429,46 +429,63 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         mult_sugerido = int(raw_mult) if raw_mult and int(raw_mult) > 0 else 1
         sp_base = (sp / mult_sugerido) if sp is not None else None
         status_kit = row_dict.get("status_kit")
-        bundle_data[bundle_id] = {"sp_base": sp_base, "status_kit": status_kit}
+        nome_kit = row_dict.get("nome_kit")
+        bundle_data[bundle_id] = {"sp_base": sp_base, "status_kit": status_kit, "nome_kit": nome_kit}
 
     # Separate basic configs and promo configs per event
+    # promo_principal_by_evento: explicit flag takes top priority
+    # promo_by_evento: fallback detection via tipo_kit containing "promo"
     basico_by_evento: dict = {}
+    promo_principal_by_evento: dict = {}
     promo_by_evento: dict = {}
     for cfg in all_configs:
         evt_key = str(cfg.id_evento)
         if cfg.is_kit_basico:
             basico_by_evento[evt_key] = cfg
-        else:
+        if getattr(cfg, 'is_promo_principal', False):
+            promo_principal_by_evento[evt_key] = cfg
+        elif cfg.tipo_kit and 'promo' in cfg.tipo_kit.lower():
             promo_by_evento.setdefault(evt_key, []).append(cfg)
 
     # Compute final ticket per event:
-    # If there is an active promotional kit mapped → use its ticket
-    # Otherwise → use the basic kit ticket
-    evento_tickets: dict = {}
-    all_evt_keys = set(basico_by_evento.keys()) | set(promo_by_evento.keys())
+    # 1. Explicit promo principal flag (is_promo_principal) → highest priority
+    # 2. Active kit with tipo_kit containing "promo" → second priority
+    # 3. Basic kit (is_kit_basico) → fallback
+    evento_tickets: dict = {}  # evt_key -> {"value": float, "nome_kit": str}
+    all_evt_keys = set(basico_by_evento.keys()) | set(promo_principal_by_evento.keys()) | set(promo_by_evento.keys())
     for evt_key in all_evt_keys:
         ticket_final = None
+        nome_kit_final = None
 
-        # Check for active promotional kit first (only kits whose tipo_kit contains "promo")
-        promo_configs = promo_by_evento.get(evt_key, [])
-        for promo_cfg in promo_configs:
-            if not promo_cfg.tipo_kit or 'promo' not in promo_cfg.tipo_kit.lower():
-                continue
-            bd = bundle_data.get(promo_cfg.bundle_entity_id)
-            if bd and bd.get("status_kit") == "ativo" and bd.get("sp_base") is not None:
-                ticket_final = round(bd["sp_base"] * promo_cfg.multiplicador, 2)
-                break
+        # 1. Explicit promo principal
+        promo_principal_cfg = promo_principal_by_evento.get(evt_key)
+        if promo_principal_cfg:
+            bd = bundle_data.get(promo_principal_cfg.bundle_entity_id)
+            if bd and bd.get("sp_base") is not None:
+                ticket_final = round(bd["sp_base"] * promo_principal_cfg.multiplicador, 2)
+                nome_kit_final = bd.get("nome_kit")
 
-        # Fallback to basic kit if no active promo kit found
+        # 2. Fallback: active kit whose tipo_kit contains "promo"
+        if ticket_final is None:
+            promo_configs = promo_by_evento.get(evt_key, [])
+            for promo_cfg in promo_configs:
+                bd = bundle_data.get(promo_cfg.bundle_entity_id)
+                if bd and bd.get("status_kit") == "ativo" and bd.get("sp_base") is not None:
+                    ticket_final = round(bd["sp_base"] * promo_cfg.multiplicador, 2)
+                    nome_kit_final = bd.get("nome_kit")
+                    break
+
+        # 3. Fallback: basic kit
         if ticket_final is None:
             basico_cfg = basico_by_evento.get(evt_key)
             if basico_cfg:
                 bd = bundle_data.get(basico_cfg.bundle_entity_id)
                 if bd and bd.get("sp_base") is not None:
                     ticket_final = round(bd["sp_base"] * basico_cfg.multiplicador, 2)
+                    nome_kit_final = bd.get("nome_kit")
 
         if ticket_final is not None:
-            evento_tickets[evt_key] = ticket_final
+            evento_tickets[evt_key] = {"value": ticket_final, "nome_kit": nome_kit_final}
 
     if not evento_tickets:
         return {}
@@ -492,12 +509,12 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     sku_to_projeto = {c.sku: c.projeto_id for c in cad_rows}
 
     projeto_tickets: dict = {}
-    for evt_id, ticket_final in evento_tickets.items():
+    for evt_id, ticket_data in evento_tickets.items():
         sku = evt_id_to_sku.get(evt_id)
         if sku:
             pid = sku_to_projeto.get(sku)
             if pid:
-                projeto_tickets[pid] = ticket_final
+                projeto_tickets[pid] = ticket_data
 
     return projeto_tickets
 
@@ -525,9 +542,29 @@ def _get_ticket_atual_for_event(ticket_map: dict, projeto_ids) -> float:
 
     for pid in projeto_ids:
         if pid is not None and pid in ticket_map:
-            return ticket_map[pid]
+            val = ticket_map[pid]
+            if isinstance(val, dict):
+                return val.get("value", 0.0) or 0.0
+            return float(val) if val is not None else 0.0
 
     return 0.0
+
+
+def _get_ticket_atual_kit_nome_for_event(ticket_map: dict, projeto_ids) -> Optional[str]:
+    if not ticket_map:
+        return None
+
+    if not isinstance(projeto_ids, list):
+        projeto_ids = [projeto_ids] if projeto_ids is not None else []
+
+    for pid in projeto_ids:
+        if pid is not None and pid in ticket_map:
+            val = ticket_map[pid]
+            if isinstance(val, dict):
+                return val.get("nome_kit")
+            return None
+
+    return None
 
 
 router = APIRouter(prefix="/marketing", tags=["Marketing ISC"])
@@ -582,6 +619,7 @@ class MarketingEvent(BaseModel):
     margemRealizadaTotal: float = 0.0
     margemRealizadaPct: float = 0.0
     ticketAtual: float = 0.0
+    ticketKitNome: Optional[str] = None
     margemPorKit: Optional[List[dict]] = None
     detalheVendasPorKit: Optional[List[dict]] = None
     detalheVendasAtivoKit: Optional[List[dict]] = None
@@ -3514,6 +3552,7 @@ def get_marketing_events(
                                             avg_ticket, current_sales, current_receita)
         
         grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, [p.id for p in proj_list])
+        grupo_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(ticket_atual_map, [p.id for p in proj_list])
         
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
@@ -3536,6 +3575,7 @@ def get_marketing_events(
             isActive=is_active,
             sku=",".join(skus_list),
             ticketAtual=grupo_ticket_atual,
+            ticketKitNome=grupo_ticket_kit_nome,
             dataRegime=grupo_regime,
             **grupo_margin
         )
@@ -3627,6 +3667,7 @@ def get_marketing_events(
                                                  avg_ticket, current_sales, current_receita)
         
         standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, projeto.id)
+        standalone_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(ticket_atual_map, projeto.id)
         
         evento = MarketingEvent(
             id=str(projeto.id),
@@ -3649,6 +3690,7 @@ def get_marketing_events(
             isActive=is_active,
             sku=sku,
             ticketAtual=standalone_ticket_atual,
+            ticketKitNome=standalone_ticket_kit_nome,
             dataRegime=standalone_regime,
             **standalone_margin
         )
@@ -6455,6 +6497,7 @@ def get_marketing_event_by_id(
         
         detail_ticket_atual_map = _get_ticket_atual_map(db)
         detail_ticket_atual = _get_ticket_atual_for_event(detail_ticket_atual_map, [p.id for p in projetos])
+        detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         grupo_projeto_ids = [p.id for p in projetos]
         detail_margem_por_kit = get_margem_por_kit(
@@ -6496,6 +6539,7 @@ def get_marketing_event_by_id(
             isActive=is_active,
             sku=",".join(skus),
             ticketAtual=detail_ticket_atual,
+            ticketKitNome=detail_ticket_kit_nome,
             margemPorKit=detail_margem_por_kit if detail_margem_por_kit else None,
             kitQueryFailed=detail_kit_query_failed,
             detalheVendasPorKit=detail_detalhe_vendas if detail_detalhe_vendas else None,
@@ -6776,6 +6820,7 @@ def get_marketing_event_by_id(
     
     sa_ticket_atual_map = _get_ticket_atual_map(db)
     sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
+    sa_detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(sa_ticket_atual_map, projeto.id)
     
     sa_margem_por_kit = get_margem_por_kit(
         db,
@@ -6816,6 +6861,7 @@ def get_marketing_event_by_id(
         isActive=is_active,
         sku=sku,
         ticketAtual=sa_detail_ticket_atual,
+        ticketKitNome=sa_detail_ticket_kit_nome,
         margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
         kitQueryFailed=sa_kit_query_failed,
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,

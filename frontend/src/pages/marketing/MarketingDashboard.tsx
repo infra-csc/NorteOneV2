@@ -999,7 +999,17 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-4 py-4 text-center text-sm font-medium text-gray-900 dark:text-white">
-                    {event.ticketAtual && event.ticketAtual > 0 ? formatCurrency(event.ticketAtual) : '—'}
+                    {event.ticketAtual && event.ticketAtual > 0 ? (
+                      <span
+                        className="inline-flex items-center gap-1"
+                        title={event.ticketKitNome ? `Kit: ${event.ticketKitNome}` : undefined}
+                      >
+                        {formatCurrency(event.ticketAtual)}
+                        {event.ticketKitNome && (
+                          <Info className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                        )}
+                      </span>
+                    ) : '—'}
                   </td>
                   <td className="px-4 py-4 text-center">
                     <div className="flex items-center justify-center gap-2">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star, Download, Filter, X } from 'lucide-react';
+import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star, Zap, Download, Filter, X } from 'lucide-react';
 
 interface KitRow {
   id_evento: string | null;
@@ -19,6 +19,7 @@ interface KitRow {
   special_price: number | null;
   is_configured: boolean;
   is_kit_basico: boolean;
+  is_promo_principal: boolean;
   custo_cadastro: number | null;
   custo_kit: number | null;
   ativo_categoria: string | null;
@@ -37,6 +38,7 @@ const KitConfig: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<number, number>>({});
   const [basicoValues, setBasicoValues] = useState<Record<number, boolean>>({});
+  const [promoValues, setPromoValues] = useState<Record<number, boolean>>({});
   const [tipoKitValues, setTipoKitValues] = useState<Record<number, string>>({});
   const [custoKitValues, setCustoKitValues] = useState<Record<number, string>>({});
   const [ativoCategValues, setAtivoCategValues] = useState<Record<number, string>>({});
@@ -78,18 +80,21 @@ const KitConfig: React.FC = () => {
       setKits(res.data);
       const edits: Record<number, number> = {};
       const basicos: Record<number, boolean> = {};
+      const promos: Record<number, boolean> = {};
       const tipoKits: Record<number, string> = {};
       const custoKits: Record<number, string> = {};
       const ativoCats: Record<number, string> = {};
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
         basicos[k.bundle_entity_id] = k.is_kit_basico;
+        promos[k.bundle_entity_id] = k.is_promo_principal;
         tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
         custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
         ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
       });
       setEditValues(edits);
       setBasicoValues(basicos);
+      setPromoValues(promos);
       setTipoKitValues(tipoKits);
       setCustoKitValues(custoKits);
       setAtivoCategValues(ativoCats);
@@ -108,6 +113,7 @@ const KitConfig: React.FC = () => {
   const handleSave = async (bundleId: number) => {
     const mult = editValues[bundleId] ?? 1;
     const isBasico = basicoValues[bundleId] ?? false;
+    const isPromoPrincipal = promoValues[bundleId] ?? false;
     const tipoKit = (tipoKitValues[bundleId] ?? '').trim() || null;
     const kit = kits.find((k) => k.bundle_entity_id === bundleId);
     const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
@@ -120,6 +126,7 @@ const KitConfig: React.FC = () => {
       await api.post(`/kit-config/${bundleId}`, {
         multiplicador: mult,
         is_kit_basico: isBasico,
+        is_promo_principal: isPromoPrincipal,
         id_evento: idEvento,
         tipo_kit: tipoKit,
         custo_kit: custoKit,
@@ -138,6 +145,7 @@ const KitConfig: React.FC = () => {
               special_price: k.special_price_base != null ? k.special_price_base * mult : null,
               is_configured: true,
               is_kit_basico: isBasico,
+              is_promo_principal: isPromoPrincipal,
               custo_kit: custoKit,
               tipo_kit: tipoKit,
               ativo_categoria: ativoCateg,
@@ -146,12 +154,28 @@ const KitConfig: React.FC = () => {
           if (isBasico && k.id_evento === kit?.id_evento && k.is_kit_basico) {
             return { ...k, is_kit_basico: false };
           }
+          if (isPromoPrincipal && k.id_evento === kit?.id_evento && k.is_promo_principal) {
+            return { ...k, is_promo_principal: false };
+          }
           return k;
         }),
       );
 
       if (isBasico && kit?.id_evento) {
         setBasicoValues((prev) => {
+          const updated = { ...prev };
+          kits.forEach((k) => {
+            if (k.id_evento === kit.id_evento && k.bundle_entity_id !== bundleId) {
+              updated[k.bundle_entity_id] = false;
+            }
+          });
+          updated[bundleId] = true;
+          return updated;
+        });
+      }
+
+      if (isPromoPrincipal && kit?.id_evento) {
+        setPromoValues((prev) => {
           const updated = { ...prev };
           kits.forEach((k) => {
             if (k.id_evento === kit.id_evento && k.bundle_entity_id !== bundleId) {
@@ -178,6 +202,22 @@ const KitConfig: React.FC = () => {
 
   const handleBasicoToggle = (bundleId: number, idEvento: string | null) => {
     setBasicoValues((prev) => {
+      const updated = { ...prev };
+      const newVal = !prev[bundleId];
+      if (newVal && idEvento) {
+        kits.forEach((k) => {
+          if (k.id_evento === idEvento) {
+            updated[k.bundle_entity_id] = false;
+          }
+        });
+      }
+      updated[bundleId] = newVal;
+      return updated;
+    });
+  };
+
+  const handlePromoToggle = (bundleId: number, idEvento: string | null) => {
+    setPromoValues((prev) => {
       const updated = { ...prev };
       const newVal = !prev[bundleId];
       if (newVal && idEvento) {
@@ -457,13 +497,13 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Cat. Ativo', 'Tipo', 'Lote Atual', 'Status Site', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', ''].map(
+                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Cat. Ativo', 'Tipo', 'Lote Atual', 'Status Site', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', 'Promo', ''].map(
                     (label, i) => (
                       <th
                         key={i}
                         className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
                           i >= 7 ? 'text-right' : 'text-left'
-                        } ${i === 11 ? 'text-center' : ''} ${
+                        } ${i === 11 || i === 12 ? 'text-center' : ''} ${
                           isDark
                             ? `${headerBg} text-blue-300 border-blue-500/50`
                             : `${headerBg} text-slate-700 border-slate-300`
@@ -488,13 +528,14 @@ const KitConfig: React.FC = () => {
                   const hoverBg = isDark ? 'hover:bg-slate-600' : 'hover:bg-blue-50';
                   const editMult = editValues[kit.bundle_entity_id] ?? kit.multiplicador;
                   const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
+                  const isPromoPrincipal = promoValues[kit.bundle_entity_id] ?? kit.is_promo_principal;
                   const editTipoKit = tipoKitValues[kit.bundle_entity_id] ?? (kit.tipo_kit || '');
                   const editAtivoCateg = ativoCategValues[kit.bundle_entity_id] ?? (kit.ativo_categoria || '');
                   const custoKitStr = (custoKitValues[kit.bundle_entity_id] ?? '').trim();
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
                   const custoKitChanged = kit.custo_cadastro == null && custoKitStr !== '' && parseFloat(custoKitStr) !== (kit.custo_kit ?? 0);
-                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '');
+                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '');
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
@@ -649,6 +690,21 @@ const KitConfig: React.FC = () => {
                         </button>
                       </td>
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => handlePromoToggle(kit.bundle_entity_id, kit.id_evento)}
+                          className={`p-1 rounded transition-colors ${
+                            isPromoPrincipal
+                              ? 'text-purple-500 hover:text-purple-400'
+                              : isDark
+                              ? 'text-gray-600 hover:text-gray-400'
+                              : 'text-gray-300 hover:text-gray-500'
+                          }`}
+                          title={isPromoPrincipal ? 'Promo Principal para ticket (clique para desmarcar)' : 'Marcar como Promo Principal para cálculo do ticket'}
+                        >
+                          <Zap className={`w-5 h-5 ${isPromoPrincipal ? 'fill-current' : ''}`} />
+                        </button>
+                      </td>
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         {showSaved ? (
                           <span className="inline-flex items-center gap-1 text-emerald-500 text-xs font-medium">
                             <Check className="w-3.5 h-3.5" /> Salvo
@@ -677,7 +733,7 @@ const KitConfig: React.FC = () => {
                 })}
                 {filteredKits.length === 0 && (
                   <tr>
-                    <td colSpan={12} className={`px-3 py-12 text-center ${textSecondary}`}>
+                    <td colSpan={14} className={`px-3 py-12 text-center ${textSecondary}`}>
                       {search || hasActiveFilters ? 'Nenhum kit encontrado para os filtros aplicados.' : 'Nenhum kit encontrado.'}
                     </td>
                   </tr>
