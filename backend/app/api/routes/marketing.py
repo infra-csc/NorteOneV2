@@ -2293,8 +2293,8 @@ LEFT JOIN (
     GROUP BY cpeos.parent_product_id
 ) AS soi_prices ON soi_prices.parent_product_id = soi_parent.product_id
 
-WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
-  AND so.state          != 'canceled'
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state NOT IN ('canceled')
   AND so.increment_id   NOT REGEXP '-[0-9]'
   AND cpev1.value IN ({ids_str})
   AND cped.value >= MAKEDATE({ano}, 1)
@@ -2308,8 +2308,9 @@ GROUP BY
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN so.discount_description LIKE '%%CORTESIA%%'
          AND so.base_grand_total < 50                                   THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Grupos/B2B'
+        WHEN so.discount_description = 'GRUPOS_NORTECORP'              THEN 'Grupos/B2B'
         WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GR%%'                                 THEN 'Grupos/B2B'
         ELSE                                                                 'Site'
     END,
     lote_atual.lot_name,
