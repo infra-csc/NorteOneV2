@@ -2526,6 +2526,10 @@ import threading as _threading_module
 _event_computing_events: dict = {}   # cache_key -> threading.Event (set when done)
 _event_computing_lock = _threading_module.Lock()
 
+# Bump this when ISC calculation logic changes so old permanent cache entries
+# are automatically detected as stale and recomputed in background (SWR pattern).
+_DETAIL_CACHE_VERSION = "3"  # v3: ISC components frozen at registration close date
+
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
     if excluded_ids:
@@ -6280,10 +6284,12 @@ def get_marketing_event_by_id(
                     _cached_evt.get("date", "") if isinstance(_cached_evt, dict)
                     else getattr(_cached_evt, "date", "")
                 )
-                _needs_recompute = not _cached_date
+                _cached_version = cached_detail.get("_cache_version", "")
+                _needs_recompute = (not _cached_date) or (_cached_version != _DETAIL_CACHE_VERSION)
                 if _needs_recompute:
                     if detail_cache_key not in _swr_recompute_in_progress:
-                        logger.info(f"[Cache] event_detail '{detail_cache_key}' has empty date — serving stale + triggering background recompute")
+                        reason = "empty date" if not _cached_date else f"stale version ({_cached_version!r} != {_DETAIL_CACHE_VERSION!r})"
+                        logger.info(f"[Cache] event_detail '{detail_cache_key}' {reason} — serving stale + triggering background recompute")
                         _swr_recompute_in_progress.add(detail_cache_key)
                         import threading as _threading
                         _threading.Thread(target=_swr_detail_refresh, args=(detail_cache_key,), daemon=True).start()
@@ -6700,7 +6706,8 @@ def get_marketing_event_by_id(
             "anos_disponiveis": [a[0] for a in anos_disponiveis],
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
             "ultima_atualizacao_completa": _last_full_str,
-            "avisos": get_isc_warnings()
+            "avisos": get_isc_warnings(),
+            "_cache_version": _DETAIL_CACHE_VERSION
         }
         if _event_is_past:
             grouped_result["__is_completed"] = True
@@ -6745,10 +6752,12 @@ def get_marketing_event_by_id(
                 _cached_evt_sa.get("date", "") if isinstance(_cached_evt_sa, dict)
                 else getattr(_cached_evt_sa, "date", "")
             )
-            _sa_needs_recompute = not _cached_date_sa
+            _cached_version_sa = cached_standalone.get("_cache_version", "")
+            _sa_needs_recompute = (not _cached_date_sa) or (_cached_version_sa != _DETAIL_CACHE_VERSION)
             if _sa_needs_recompute:
                 if standalone_cache_key not in _swr_recompute_in_progress:
-                    logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' has empty date — serving stale + triggering background recompute")
+                    sa_reason = "empty date" if not _cached_date_sa else f"stale version ({_cached_version_sa!r} != {_DETAIL_CACHE_VERSION!r})"
+                    logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' {sa_reason} — serving stale + triggering background recompute")
                     _swr_recompute_in_progress.add(standalone_cache_key)
                     import threading as _threading
                     _threading.Thread(target=_swr_detail_refresh, args=(standalone_cache_key,), daemon=True).start()
@@ -6943,7 +6952,8 @@ def get_marketing_event_by_id(
         "dailySales": daily_sales,
         "commercialActions": commercial_actions,
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
-        "avisos": get_isc_warnings()
+        "avisos": get_isc_warnings(),
+        "_cache_version": _DETAIL_CACHE_VERSION
     }
     _sa_today = date.today()
     _sa_event_is_past = bool(projeto_data_evento and projeto_data_evento < _sa_today)
