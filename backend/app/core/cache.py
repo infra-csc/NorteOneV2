@@ -54,6 +54,11 @@ def get_last_full_refresh():
 def set_last_full_refresh(ts=None):
     global _last_full_refresh_timestamp
     _last_full_refresh_timestamp = ts or time.time()
+    # Persist to DB so the timestamp survives server restarts and deploys.
+    try:
+        _persist_to_db("__meta__", "last_full_refresh", {"ts": _last_full_refresh_timestamp})
+    except Exception as _lfr_err:
+        logger.warning(f"set_last_full_refresh: could not persist to DB: {_lfr_err}")
 
 
 def is_full_refresh_in_progress():
@@ -713,6 +718,7 @@ def get_known_tier1_ids() -> list:
 
 
 def warm_all_caches_from_db():
+    global _last_full_refresh_timestamp
     logger.info("Warming all caches from PostgreSQL...")
     start = time.time()
     for cache in ALL_CACHES:
@@ -720,6 +726,24 @@ def warm_all_caches_from_db():
             cache.warm_from_db()
         except Exception as e:
             logger.error(f"Failed to warm cache '{cache.name}' from DB: {e}")
+    # Restore the last_full_refresh timestamp from DB so it survives restarts.
+    try:
+        db = _get_db_session()
+        if db is not None:
+            try:
+                from app.models.cache_entry import CacheEntry
+                row = db.query(CacheEntry).filter_by(cache_name="__meta__", cache_key="last_full_refresh").first()
+                if row:
+                    data = json.loads(row.data) if isinstance(row.data, str) else row.data
+                    _last_full_refresh_timestamp = float(data.get("ts", 0)) or None
+                    if _last_full_refresh_timestamp:
+                        from datetime import datetime as _dt_lfr
+                        _hr = _dt_lfr.fromtimestamp(_last_full_refresh_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                        logger.info(f"Restored last_full_refresh from DB: {_hr}")
+            finally:
+                db.close()
+    except Exception as _lfr_load_err:
+        logger.warning(f"warm_all_caches_from_db: could not load last_full_refresh: {_lfr_load_err}")
     elapsed = time.time() - start
     logger.info(f"All caches warmed from DB in {elapsed:.1f}s")
 
@@ -844,6 +868,21 @@ class CacheRefreshScheduler:
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
         target = now.replace(hour=17, minute=0, second=0, microsecond=0)
         if now >= target:
+            # 17:00 BRT already passed today — check if the refresh was missed.
+            # A missed refresh means: it's still "today evening" (before midnight)
+            # AND the last full refresh happened before 17:00 today.
+            today_17h = target  # already set to today 17:00
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            if now < midnight:  # still today evening (17:00–23:59)
+                _lfr = _last_full_refresh_timestamp
+                _lfr_dt = datetime.fromtimestamp(_lfr, tz=ZoneInfo('America/Sao_Paulo')) if _lfr else None
+                if _lfr_dt is None or _lfr_dt < today_17h:
+                    # Evening refresh was missed — run a catch-up in 60s (let startup settle)
+                    logger.info(f"[Scheduler] Evening refresh was missed (last refresh: {_lfr_dt or 'never'}) — scheduling catch-up in 60s")
+                    self._evening_timer = threading.Timer(60, self._run_evening_refresh)
+                    self._evening_timer.daemon = True
+                    self._evening_timer.start()
+                    return
             target += timedelta(days=1)
 
         delay = (target - now).total_seconds()
