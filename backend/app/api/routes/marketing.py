@@ -923,8 +923,15 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     ia730_calculated = False
     if effective_7d is not None and effective_30d is not None:
         if effective_30d > 0:
-            ia730 = effective_7d / effective_30d
-            ia730_calculated = True
+            raw_ia730 = effective_7d / effective_30d
+            # For past events, ia730=0 means zero sales in the 7-day window before
+            # registration close — use curva_d_percent fallback so the indicator
+            # never shows a misleading 0 when there IS historical sales activity.
+            if raw_ia730 == 0 and is_past_event:
+                ia730_calculated = False  # fall through to curva_d_percent
+            else:
+                ia730 = raw_ia730
+                ia730_calculated = True
         elif effective_7d > 0:
             ia730 = 1.2
             ia730_calculated = True
@@ -2531,7 +2538,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "4"  # v4: Margem por Kit aligned to Site-only channel (coupon GR + ortesia excluded)
+_DETAIL_CACHE_VERSION = "5"  # v5: fix ia730=0 fallback for consolidated past events
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
