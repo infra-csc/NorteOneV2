@@ -2044,17 +2044,17 @@ def get_detalhe_vendas_por_kit(
             rows = []
             for row in result.fetchall():
                 rows.append({
-                    "kit":            row[0],
-                    "tipoCategoria":  row[1],
-                    "distancia":      row[2],
-                    "canal":          row[3],
-                    "loteAtual":      row[4],
-                    "price":          float(row[5]) if row[5] is not None else None,
-                    "specialPrice":   float(row[6]) if row[6] is not None else None,
-                    "inscritos":      int(row[7] or 0),
-                    "receitaBruta":   round(float(row[8] or 0), 2),
-                    "receitaLiquida": round(float(row[9] or 0), 2),
-                    "ticketMedio":    round(float(row[10]), 2) if row[10] else None,
+                    "kit":            row[2],
+                    "tipoCategoria":  row[3],
+                    "distancia":      row[4],
+                    "canal":          row[5],
+                    "loteAtual":      row[6],
+                    "price":          float(row[7]) if row[7] is not None else None,
+                    "specialPrice":   float(row[8]) if row[8] is not None else None,
+                    "inscritos":      int(row[9] or 0),
+                    "receitaBruta":   round(float(row[10] or 0), 2),
+                    "receitaLiquida": round(float(row[11] or 0), 2),
+                    "ticketMedio":    round(float(row[12]), 2) if row[12] else None,
                 })
             return rows if rows else []
     except Exception as e:
@@ -2065,13 +2065,16 @@ def get_detalhe_vendas_por_kit(
 def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int) -> str:
     """Returns SQL for detailed Magento sales by kit/canal/modalidade (V6).
 
-    Returns rows grouped by: kit, tipo_categoria, distancia, canal, lote_atual, price, special_price.
-    Columns: kit, tipoCategoria, distancia, canal, loteAtual, price, specialPrice,
-             inscritos, receitaBruta, receitaLiquida, ticketMedio.
+    Returns rows grouped by: id_evento, evento, kit, tipo_categoria, distancia, canal, lote_atual, price, special_price.
+    Columns (by index): 0=id_evento, 1=evento, 2=kit, 3=tipoCategoria, 4=distancia, 5=canal,
+                        6=loteAtual, 7=price, 8=specialPrice, 9=inscritos,
+                        10=receitaBruta, 11=receitaLiquida, 12=ticketMedio.
     """
     ids_str = ", ".join(str(int(i)) for i in magento_event_ids)
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(300000) */
+    cpev1.value                                                                         AS id_evento,
+    cpev2.value                                                                         AS evento,
     soi_parent.name                                                                     AS kit,
     eaov_tipo.value                                                                     AS tipo_categoria,
     soi_child.name                                                                      AS distancia,
@@ -2088,25 +2091,17 @@ SELECT /*+ MAX_EXECUTION_TIME(300000) */
     COUNT(DISTINCT soi_parent.item_id)                                                  AS inscritos,
     SUM(CASE
         WHEN so.base_grand_total = 0                                    THEN 0
-        WHEN so.discount_description LIKE '%%CORTESIA%%'
-         AND so.base_grand_total < 50                                   THEN 0
         ELSE soi_child.price
     END)                                                                                AS receita_bruta,
     SUM(CASE
         WHEN so.base_grand_total = 0                                    THEN 0
-        WHEN so.discount_description LIKE '%%CORTESIA%%'
-         AND so.base_grand_total < 50                                   THEN 0
         ELSE soi_child.price - soi_child.discount_amount
     END)                                                                                AS receita_liquida,
     SUM(CASE
         WHEN so.base_grand_total = 0                                    THEN 0
-        WHEN so.discount_description LIKE '%%CORTESIA%%'
-         AND so.base_grand_total < 50                                   THEN 0
         ELSE soi_child.price - soi_child.discount_amount
     END) / NULLIF(COUNT(DISTINCT CASE
         WHEN so.base_grand_total = 0                                    THEN NULL
-        WHEN so.discount_description LIKE '%%CORTESIA%%'
-         AND so.base_grand_total < 50                                   THEN NULL
         ELSE soi_parent.item_id
     END), 0)                                                                            AS ticket_medio
 
@@ -2136,6 +2131,14 @@ JOIN (
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+
+JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73
+      AND store_id     = 0
+    GROUP BY entity_id
+) AS cpev2 ON cpev2.entity_id = cpev1.value
 
 JOIN (
     SELECT entity_id, MIN(value) AS value
@@ -2301,23 +2304,26 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
   AND cped.value <  MAKEDATE({ano + 1}, 1)
 
 GROUP BY
+    cpev1.value,
+    cpev2.value,
     soi_parent.name,
     eaov_tipo.value,
     soi_child.name,
     CASE
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%%CORTESIA%%'
-         AND so.base_grand_total < 50                                   THEN 'Cortesia'
-        WHEN so.discount_description = 'GRUPOS_NORTECORP'              THEN 'Grupos/B2B'
+        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%%GRUPOS%%'                  THEN 'Grupos/B2B'
         WHEN so.coupon_code LIKE 'GRUP%%'                               THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GR%%'                                 THEN 'Grupos/B2B'
         ELSE                                                                 'Site'
     END,
     lote_atual.lot_name,
     soi_prices.price,
     soi_prices.special_price
 
-ORDER BY soi_parent.name, canal, inscritos DESC
+ORDER BY
+    cpev1.value,
+    canal,
+    inscritos DESC
 """
 
 
