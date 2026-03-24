@@ -873,9 +873,13 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     
     from datetime import timedelta
 
-    # For past events (d_minus < 0), anchor calculations to the registration close date.
+    # For past events, anchor calculations to the registration close date.
     # This freezes components at the state they were when the event ended.
-    is_past_event = d_minus < 0
+    # NOTE: d_minus may arrive clamped to 0 for consolidated events (dMinusInscricoes=0),
+    # so we also check registration_close_date to correctly identify past events.
+    is_past_event = d_minus < 0 or (
+        registration_close_date is not None and registration_close_date < date.today()
+    )
     if is_past_event and registration_close_date is not None:
         anchor_date = registration_close_date - timedelta(days=1)
         d_minus_effective = 0  # treat as D-0 for curvaDPercent and rolling window
@@ -2538,7 +2542,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "5"  # v5: fix ia730=0 fallback for consolidated past events
+_DETAIL_CACHE_VERSION = "6"  # v6: fix ia730 anchor date for consolidated events with clamped d_minus
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
