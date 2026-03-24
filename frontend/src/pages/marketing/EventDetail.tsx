@@ -666,6 +666,10 @@ const EventDetail: React.FC = () => {
   const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
   const _safeDMinus = (event.dMinus != null && !isNaN(event.dMinus)) ? event.dMinus : 0;
   const volumeParaMeta = event.salesGoal - (event.currentSales ?? inscritosTotal);
+  const _kitRowsRealizado = (event.margemPorKit ?? []).filter(r => r.tipoKit !== 'CONSOLIDADO');
+  const _kitTotalReceita = _kitRowsRealizado.reduce((s, r) => s + (r.receitaLiquida || 0), 0);
+  const _kitTotalQtd = _kitRowsRealizado.reduce((s, r) => s + (r.qtd || 0), 0);
+  const ticketMedioRealizado = _kitTotalQtd > 0 ? Math.round((_kitTotalReceita / _kitTotalQtd) * 100) / 100 : (event.averageTicket || 0);
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
@@ -2009,10 +2013,10 @@ const EventDetail: React.FC = () => {
               <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
               <span className="text-lg font-bold text-gray-900 dark:text-white">{ticketRef > 0 ? formatCurrency(ticketRef) : '—'}</span>
             </div>
-            {event.averageTicket > 0 && (
+            {ticketMedioRealizado > 0 && (
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Médio Realizado</span>
-                <span className="text-base font-medium text-gray-600 dark:text-gray-300">{formatCurrency(event.averageTicket)}</span>
+                <span className="text-base font-medium text-gray-600 dark:text-gray-300">{formatCurrency(ticketMedioRealizado)}</span>
               </div>
             )}
             <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
@@ -2335,7 +2339,7 @@ const EventDetail: React.FC = () => {
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
           const ticketKitConfig = event.ticketAtual || 0;
-          const ticketMedio = event.averageTicket || 0;
+          const ticketMedio = ticketMedioRealizado || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
           const _consTabela = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
           const margemRealizada = _consTabela != null ? (_consTabela.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
