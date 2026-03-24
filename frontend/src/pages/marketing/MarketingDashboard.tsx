@@ -141,6 +141,7 @@ const MarketingDashboard: React.FC = () => {
   const loadingTooLongTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
+  const [bgRefreshing, setBgRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null; sub_current?: number; sub_total?: number} | null>(null);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | 'timeout' | null>(null);
   const [revalidating, setRevalidating] = useState(false);
@@ -388,10 +389,9 @@ const MarketingDashboard: React.FC = () => {
         if (status.ultima_atualizacao_completa) {
           setServerLastUpdate(status.ultima_atualizacao_completa);
         }
-        setFullRefreshing(status.refresh_in_progress);
-        if (status.refresh_in_progress && status.progress) {
-          setRefreshProgress(status.progress);
-        } else if (!status.refresh_in_progress) {
+        setBgRefreshing(status.refresh_in_progress);
+        if (!status.refresh_in_progress) {
+          setFullRefreshing(false);
           setRefreshProgress(null);
         }
       } catch {}
@@ -613,6 +613,12 @@ const MarketingDashboard: React.FC = () => {
               {fullRefreshing && refreshProgress && refreshProgress.elapsed_seconds != null && (
                 <span className="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">
                   {Math.round(refreshProgress.elapsed_seconds)}s
+                </span>
+              )}
+              {!fullRefreshing && bgRefreshing && (
+                <span className="flex items-center gap-1 text-[10px] text-amber-500 dark:text-amber-400 whitespace-nowrap">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  Atualizando em 2º plano
                 </span>
               )}
             </div>
