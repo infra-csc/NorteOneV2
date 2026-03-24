@@ -2137,6 +2137,12 @@ const EventDetail: React.FC = () => {
                     <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(kitCost)}</span>
                   </div>
                 </div>
+                {_kitTotalReceita > 0 && (
+                  <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Receita Líquida Total</span>
+                    <span className="text-base font-semibold text-gray-900 dark:text-white">{formatCurrency(_kitTotalReceita)}</span>
+                  </div>
+                )}
               </div>
             );
           })()}
