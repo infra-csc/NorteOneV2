@@ -670,6 +670,9 @@ const EventDetail: React.FC = () => {
   const _kitTotalReceita = _kitRowsRealizado.reduce((s, r) => s + (r.receitaLiquida || 0), 0);
   const _kitTotalQtd = _kitRowsRealizado.reduce((s, r) => s + (r.qtd || 0), 0);
   const ticketMedioRealizado = _kitTotalQtd > 0 ? Math.round((_kitTotalReceita / _kitTotalQtd) * 100) / 100 : (event.averageTicket || 0);
+  const margemRealizadaKits = _kitRowsRealizado.length > 0
+    ? _kitRowsRealizado.reduce((s, r) => s + (r.margemTotal || 0), 0)
+    : null;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = (event.dailySales || []).slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
@@ -2075,9 +2078,8 @@ const EventDetail: React.FC = () => {
             const kitCost = event.kitCostPerUnit || 0;
             const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : (event.averageTicket || 0);
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
-            const _consAnalise = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
-            const margemRealizadaTotal = _consAnalise != null
-              ? (_consAnalise.margemTotal ?? 0)
+            const margemRealizadaTotal = margemRealizadaKits != null
+              ? margemRealizadaKits
               : (ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0);
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
@@ -2253,7 +2255,6 @@ const EventDetail: React.FC = () => {
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Qtd Vendida</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Receita Líquida</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket Médio</th>
-                            <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Ticket Atual</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Custo Kit</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Margem/Un</th>
                             <th className="text-right py-2 px-2 font-semibold text-gray-500 dark:text-gray-400">Margem Total</th>
@@ -2298,11 +2299,6 @@ const EventDetail: React.FC = () => {
                                       ? displayTicketMedio.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                                       : '—'}
                                   </td>
-                                  <td className="text-right py-2 px-2 text-blue-600 dark:text-blue-400">
-                                    {row.ticketAtual != null
-                                      ? row.ticketAtual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                                      : '—'}
-                                  </td>
                                   <td className="text-right py-2 px-2 text-red-600 dark:text-red-400">
                                     {row.custoKit != null
                                       ? row.custoKit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -2341,8 +2337,7 @@ const EventDetail: React.FC = () => {
           const ticketKitConfig = event.ticketAtual || 0;
           const ticketMedio = ticketMedioRealizado || 0;
           const volRestante = Math.max(volumeParaMeta, 0);
-          const _consTabela = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
-          const margemRealizada = _consTabela != null ? (_consTabela.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
+          const margemRealizada = margemRealizadaKits != null ? margemRealizadaKits : (event.margemRealizadaTotal || 0);
           const metaMargem = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
           const faltaMargemGap = metaMargem - margemRealizada;
           const metaVolumeJaAtingida = volumeParaMeta <= 0;
@@ -2453,8 +2448,7 @@ const EventDetail: React.FC = () => {
           const kitCost = event.kitCostPerUnit || 0;
           const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
           const volBase = Math.max(volumeParaMeta, 0);
-          const _consVol = event.margemPorKit?.find(r => r.tipoKit === 'CONSOLIDADO');
-          const margemReal = _consVol != null ? (_consVol.margemTotal ?? 0) : (event.margemRealizadaTotal || 0);
+          const margemReal = margemRealizadaKits != null ? margemRealizadaKits : (event.margemRealizadaTotal || 0);
           const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
 
           const multipliers = [0.90, 1.00, 1.05, 1.10, 1.15, 1.20];
