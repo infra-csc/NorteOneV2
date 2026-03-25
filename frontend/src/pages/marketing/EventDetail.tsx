@@ -664,29 +664,6 @@ const EventDetail: React.FC = () => {
   const inscritosTotalReal = event.currentSales != null
     ? Math.round(event.currentSales)
     : (lastRealCumData ? Math.round(lastRealCumData.cumulative) : 0);
-  const volumeParaMetaReal = event.salesGoal - inscritosTotalReal;
-  const mediaDiariaNecessariaReal = dMinusCalc > 0 ? Math.max(volumeParaMetaReal, 0) / dMinusCalc : 0;
-  const pctMediasReal = mediaDiariaNecessariaReal > 0
-    ? ((mediaSemanaAtual / mediaDiariaNecessariaReal) * 100) - 100
-    : (mediaSemanaAtual > 0 ? 100 : 0);
-  const indicadoresVolumeReal = [3, 7, 14, 30].map(dias => {
-    const vendas = (event.dailySales || []).slice(-dias);
-    const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
-    const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
-    const potencial = media * dMinusCalc;
-    const atingimento = inscritosTotalReal + potencial;
-    const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
-    return {
-      periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
-      media: Math.round(media * 10) / 10,
-      dMinus: dMinusCalc,
-      potencial: Math.round(potencial),
-      vendasAcumuladas: inscritosTotalReal,
-      atingimento: Math.round(atingimento),
-      meta: event.salesGoal,
-      alvo: Math.round(alvo * 1000) / 10,
-    };
-  });
 
   const last30Days = (event.dailySales || []).slice(-30);
 
@@ -732,6 +709,12 @@ const EventDetail: React.FC = () => {
       alvo: Math.round(alvo * 1000) / 10,
     };
   });
+
+  const volumeParaMetaReal = event.salesGoal - inscritosTotalReal;
+  const mediaDiariaNecessariaReal = dMinusCalc > 0 ? Math.max(volumeParaMetaReal, 0) / dMinusCalc : 0;
+  const pctMediasReal = mediaDiariaNecessariaReal > 0
+    ? ((mediaSemanaAtual / mediaDiariaNecessariaReal) * 100) - 100
+    : (mediaSemanaAtual > 0 ? 100 : 0);
 
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
