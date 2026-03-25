@@ -1891,9 +1891,9 @@ const EventDetail: React.FC = () => {
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas (até ontem) / Meta Global</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Totais / Meta Global</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(inscritosTotal)} / {formatNumber(event.salesGoal)}
+            {formatNumber(event.currentSales ?? inscritosTotal)} / {formatNumber(event.salesGoal)}
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
