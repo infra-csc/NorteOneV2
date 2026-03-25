@@ -660,11 +660,6 @@ const EventDetail: React.FC = () => {
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
 
-  const lastRealCumData = cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
-  const inscritosTotalReal = event.currentSales != null
-    ? Math.round(event.currentSales)
-    : (lastRealCumData ? Math.round(lastRealCumData.cumulative) : 0);
-
   const last30Days = (event.dailySales || []).slice(-30);
 
   const _rawDMinusCalc = event.dMinusInscricoes != null ? event.dMinusInscricoes : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
@@ -709,12 +704,6 @@ const EventDetail: React.FC = () => {
       alvo: Math.round(alvo * 1000) / 10,
     };
   });
-
-  const volumeParaMetaReal = event.salesGoal - inscritosTotalReal;
-  const mediaDiariaNecessariaReal = dMinusCalc > 0 ? Math.max(volumeParaMetaReal, 0) / dMinusCalc : 0;
-  const pctMediasReal = mediaDiariaNecessariaReal > 0
-    ? ((mediaSemanaAtual / mediaDiariaNecessariaReal) * 100) - 100
-    : (mediaSemanaAtual > 0 ? 100 : 0);
 
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
@@ -1902,9 +1891,9 @@ const EventDetail: React.FC = () => {
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Reais Totais / Meta Global</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas (até ontem) / Meta Global</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(inscritosTotalReal)} / {formatNumber(event.salesGoal)}
+            {formatNumber(inscritosTotal)} / {formatNumber(event.salesGoal)}
           </p>
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1918,14 +1907,14 @@ const EventDetail: React.FC = () => {
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <p className="text-xs text-gray-500 dark:text-gray-400">Volume p/ Meta</p>
-              <p className={`text-xl font-bold ${volumeParaMetaReal <= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
-                {formatNumber(Math.max(volumeParaMetaReal, 0))}
+              <p className={`text-xl font-bold ${volumeParaMeta <= 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'}`}>
+                {formatNumber(Math.max(volumeParaMeta, 0))}
               </p>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <p className="text-xs text-gray-500 dark:text-gray-400">Média Diária Necessária</p>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {mediaDiariaNecessariaReal.toFixed(1)}
+                {mediaDiariaNecessaria.toFixed(1)}
               </p>
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
@@ -1936,8 +1925,8 @@ const EventDetail: React.FC = () => {
             </div>
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg col-span-2 sm:col-span-2">
               <p className="text-xs text-gray-500 dark:text-gray-400">% Média Atual vs Necessária</p>
-              <p className={`text-xl font-bold ${pctMediasReal >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {pctMediasReal > 0 ? '+' : ''}{pctMediasReal.toFixed(1)}%
+              <p className={`text-xl font-bold ${pctMedias >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                {pctMedias > 0 ? '+' : ''}{pctMedias.toFixed(1)}%
               </p>
             </div>
           </div>
