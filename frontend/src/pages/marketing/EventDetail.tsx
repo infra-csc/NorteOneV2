@@ -2338,8 +2338,14 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-          Por variação de ticket (no volume da meta)
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+          Simulação por Ticket (volume fixo)
+          <span className="group relative inline-flex items-center">
+            <Info className="w-4 h-4 text-gray-400 cursor-help" />
+            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 rounded-lg bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+              Simula o impacto de mudanças no ticket médio mantendo o volume necessário para atingir a meta.
+            </span>
+          </span>
         </h3>
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
@@ -2450,8 +2456,14 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6">
-          Por variação de volume (no ticket atual)
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">
+          Simulação por Volume (ticket fixo)
+          <span className="group relative inline-flex items-center">
+            <Info className="w-4 h-4 text-gray-400 cursor-help" />
+            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-72 rounded-lg bg-gray-800 text-white text-xs px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+              Simula o impacto de mudanças no volume de vendas mantendo o ticket atual.
+            </span>
+          </span>
         </h3>
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
