@@ -656,8 +656,11 @@ const EventDetail: React.FC = () => {
   const lastCumData = yesterdayCumIdx >= 0
     ? cumulativeData[yesterdayCumIdx]
     : cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
-  const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
-  const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
+  const lastRealCumData = cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
+  const metaAcumulada = lastRealCumData ? Math.round(lastRealCumData.cumulativeExpected) : 0;
+  const inscritosTotal = event.currentSales != null
+    ? Math.round(event.currentSales)
+    : (lastRealCumData ? Math.round(lastRealCumData.cumulative) : 0);
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
 
   const last30Days = (event.dailySales || []).slice(-30);
@@ -1891,7 +1894,7 @@ const EventDetail: React.FC = () => {
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas (até ontem) / Meta Global</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Reais Totais / Meta Global</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
             {formatNumber(inscritosTotal)} / {formatNumber(event.salesGoal)}
           </p>
