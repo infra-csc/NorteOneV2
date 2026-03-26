@@ -1,3 +1,16 @@
+export interface PlaybookEntry {
+  letter: string;
+  name: string;
+  stage: string;
+  stageName: string;
+  iscLabel: string;
+  objective: string;
+  narrative: string;
+  actions: string[];
+  kpis: string[];
+  cutoffs: string[];
+}
+
 export interface DailySales {
   date: string;
   sales: number;
@@ -43,7 +56,7 @@ export interface Event {
   isc: number;
   iscComponents: ISCComponents;
   iscStatus: ISCStatus;
-  suggestedAction: string;
+  suggestedAction: PlaybookEntry;
   lastAction?: CommercialAction;
   dailySales: DailySales[];
   commercialActions: CommercialAction[];
@@ -93,25 +106,13 @@ export function getISCEmoji(status: ISCStatus): string {
   }
 }
 
-export function getSuggestedAction(isc: number, dMinus: number): string {
-  const status = getISCStatus(isc);
-  
-  if (status === 'accelerating') {
-    return 'Evento forte. Considere ajuste de preço para cima.';
+export function getPlaybookColor(stage: string): string {
+  switch (stage) {
+    case 'analitico': return '#6366f1';
+    case 'estrategico': return '#f59e0b';
+    case 'operacional': return '#ef4444';
+    default: return '#6b7280';
   }
-  
-  if (status === 'stable') {
-    if (dMinus >= 40) {
-      return 'Evento estável. Monitore e reforce comunicação.';
-    }
-    return 'Evento estável. Apenas ajustes de comunicação.';
-  }
-  
-  if (dMinus >= 40) {
-    return 'Evento fraco. Janela aberta para ação promocional.';
-  }
-  
-  return '⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação.';
 }
 
 export function isInCriticalWindow(dMinus: number): boolean {

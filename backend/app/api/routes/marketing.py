@@ -588,6 +588,18 @@ class ActiveActionInfo(BaseModel):
     data_acao: str
     dias_restantes: int
 
+class PlaybookEntry(BaseModel):
+    letter: str
+    name: str
+    stage: str
+    stageName: str
+    iscLabel: str
+    objective: str
+    narrative: str
+    actions: List[str]
+    kpis: List[str]
+    cutoffs: List[str]
+
 class MarketingEvent(BaseModel):
     id: str
     name: str
@@ -604,7 +616,7 @@ class MarketingEvent(BaseModel):
     isc: float
     iscComponents: ISCComponents
     iscStatus: str
-    suggestedAction: str
+    suggestedAction: PlaybookEntry
     lastAction: Optional[CommercialAction] = None
     activeAction: Optional[ActiveActionInfo] = None
     isActive: bool
@@ -679,21 +691,118 @@ def get_isc_status(isc: float, green_threshold: float = 1.10, yellow_threshold: 
         return "stable"
     return "decelerating"
 
-def get_suggested_action(isc: float, d_minus: int, green_threshold: float = 1.10, yellow_threshold: float = 0.90, promotion_deadline: int = 40) -> str:
+_PLAYBOOK: dict = {
+    # (stage_key, isc_key) -> PlaybookEntry dict
+    ("analitico", "forte"): {
+        "letter": "A", "name": "Subida Micro / Âncora de Valor",
+        "stage": "analitico", "stageName": "D-90 → D-50 | Analítico",
+        "iscLabel": "ISC Forte (>1,12)",
+        "objective": "Fixar percepção de valor cedo sem gerar rejeição.",
+        "narrative": "\"Quem se antecipa, vive a experiência completa.\"",
+        "actions": ["Subir +R$2 a +R$3", "Conteúdo de experiência (vibe, percurso)", "Prova social leve e orgânica", "Zero urgência / zero cupom"],
+        "kpis": ["Rolling 14 estável ou crescente"],
+        "cutoffs": ["D-70", "D-50"],
+    },
+    ("analitico", "estavel"): {
+        "letter": "B", "name": "Consolidação de Narrativa",
+        "stage": "analitico", "stageName": "D-90 → D-50 | Analítico",
+        "iscLabel": "ISC Estável (0,90–1,12)",
+        "objective": "Construir desejo antes de mexer em preço.",
+        "narrative": "\"Esse é o evento que representa a cidade / comunidade.\"",
+        "actions": ["Conteúdo de cultura, percurso e pertencimento", "Ativação com assessorias", "Presença consistente nos canais"],
+        "kpis": ["IA 7/30 > 1,00"],
+        "cutoffs": ["D-70", "D-50"],
+    },
+    ("analitico", "fraco"): {
+        "letter": "C", "name": "Socorro Precoce (sem desconto público)",
+        "stage": "analitico", "stageName": "D-90 → D-50 | Analítico",
+        "iscLabel": "ISC Fraco (<0,90)",
+        "objective": "Reativar demanda sem educar o público a esperar desconto.",
+        "narrative": "\"Você faz parte desse movimento.\"",
+        "actions": ["Ativação com grupos / assessorias locais", "Embaixadores reais", "Incentivo privado (CRM / grupos)"],
+        "kpis": ["IA 7/30 reage (>1,00)"],
+        "cutoffs": ["D-70", "D-50"],
+    },
+    ("estrategico", "forte"): {
+        "letter": "D", "name": "Confirmação de Valor / Escala Moderada",
+        "stage": "estrategico", "stageName": "D-50 → D-32 | Estratégico",
+        "iscLabel": "ISC Forte (>1,12)",
+        "objective": "Consolidar evento como premium e preparar rentabilização.",
+        "narrative": "\"Esse é o evento referência. Quem corre, corre aqui.\"",
+        "actions": ["Subir +R$4 a +R$8", "Prova social forte (vídeo, depoimentos)", "Amplificação com assessorias"],
+        "kpis": ["Rolling 14 mantém ou sobe"],
+        "cutoffs": ["D-45", "D-35"],
+    },
+    ("estrategico", "estavel"): {
+        "letter": "E", "name": "Ajuste Fino (sem preço)",
+        "stage": "estrategico", "stageName": "D-50 → D-32 | Estratégico",
+        "iscLabel": "ISC Estável (0,90–1,12)",
+        "objective": "Melhorar conversão antes de mexer no preço.",
+        "narrative": "\"Você está no momento certo para decidir.\"",
+        "actions": ["Ajuste de mídia (segmentação)", "Otimização de copy e criativos", "Melhorias no site / checkout"],
+        "kpis": ["IA 7/30 > 1,05"],
+        "cutoffs": ["D-45", "D-35"],
+    },
+    ("estrategico", "fraco"): {
+        "letter": "F", "name": "Promoção Privada Controlada (última janela)",
+        "stage": "estrategico", "stageName": "D-50 → D-32 | Estratégico",
+        "iscLabel": "ISC Fraco (<0,90)",
+        "objective": "Destravar vendas rápido sem quebrar percepção de valor.",
+        "narrative": "\"Condição especial para quem está próximo do movimento.\"",
+        "actions": ["Cupom privado (CRM / grupos / assessorias)", "Janela curta (24–72h)", "Nunca público", "Execução preferencial entre D-45 e D-40"],
+        "kpis": ["IA 7/30 sobe forte em 48h"],
+        "cutoffs": ["D-45", "D-35"],
+    },
+    ("operacional", "forte"): {
+        "letter": "G", "name": "Rentabilização Máxima",
+        "stage": "operacional", "stageName": "D-32 → D-0 | Operacional",
+        "iscLabel": "ISC Forte (>1,12)",
+        "objective": "Maximizar margem (inclusive acima da meta).",
+        "narrative": "\"Últimas vagas. Quem decidiu, já garantiu.\"",
+        "actions": ["Subir +R$8 até +R$20", "Comunicação de escassez real", "Urgência legítima"],
+        "kpis": ["Ticket Atual sobe sem queda relevante de volume"],
+        "cutoffs": ["D-30", "D-15"],
+    },
+    ("operacional", "estavel"): {
+        "letter": "H", "name": "Conversão Final",
+        "stage": "operacional", "stageName": "D-32 → D-0 | Operacional",
+        "iscLabel": "ISC Estável (0,90–1,12)",
+        "objective": "Converter indecisos sem distorcer preço.",
+        "narrative": "\"Ainda dá tempo. Esse é o momento.\"",
+        "actions": ["Remarketing forte", "Melhorias de conversão (checkout)", "Bundles (kit premium, experiência)"],
+        "kpis": ["Taxa de conversão sobe"],
+        "cutoffs": ["D-30", "D-15"],
+    },
+    ("operacional", "fraco"): {
+        "letter": "I", "name": "Giro Final Controlado (sem desconto aberto)",
+        "stage": "operacional", "stageName": "D-32 → D-0 | Operacional",
+        "iscLabel": "ISC Fraco (<0,90)",
+        "objective": "Fechar volume sem destruir posicionamento.",
+        "narrative": "\"Seu grupo estará lá. Não fique de fora.\"",
+        "actions": ["Ação com grupos / empresas / assessorias", "Incentivos direcionados (não públicos)", "Foco em pertencimento"],
+        "kpis": ["Volume sobe sem colapsar Ticket Atual"],
+        "cutoffs": ["D-30", "D-15"],
+    },
+}
+
+def get_suggested_action(isc: float, d_minus: int, green_threshold: float = 1.10, yellow_threshold: float = 0.90, promotion_deadline: int = 40) -> dict:
     status = get_isc_status(isc, green_threshold, yellow_threshold)
     
+    if d_minus >= 50:
+        stage_key = "analitico"
+    elif d_minus >= 32:
+        stage_key = "estrategico"
+    else:
+        stage_key = "operacional"
+
     if status == "accelerating":
-        return "Evento forte. Considere ajuste de preço para cima."
-    
-    if status == "stable":
-        if d_minus >= promotion_deadline:
-            return "Evento estável. Monitore e reforce comunicação."
-        return "Evento estável. Apenas ajustes de comunicação."
-    
-    if d_minus >= promotion_deadline:
-        return "Evento fraco. Janela aberta para ação promocional."
-    
-    return "⚠️ Evento fraco, mas fora da janela de promoção. Apenas reforço de comunicação."
+        isc_key = "forte"
+    elif status == "stable":
+        isc_key = "estavel"
+    else:
+        isc_key = "fraco"
+
+    return _PLAYBOOK[(stage_key, isc_key)]
 
 def get_active_actions_for_projects(db: Session, projeto_ids: list) -> dict:
     """
@@ -3338,6 +3447,26 @@ def _aggregate_grupo_sales(sales_data: dict, sku_to_grupo: dict) -> dict:
         grupo_sales[grupo]['valor_magento'] += sales.get('valor_magento', 0.0)
     return grupo_sales
 
+
+@router.get("/playbook")
+def get_playbook():
+    """Retorna o playbook completo com todas as 9 entradas (3 estágios × 3 estados ISC)."""
+    stages = [
+        {"key": "analitico", "label": "D-90 → D-50", "sublabel": "Analítico", "description": "Fase de análise antecipada. Ações de percepção de valor e construção de demanda."},
+        {"key": "estrategico", "label": "D-50 → D-32", "sublabel": "Estratégico", "description": "Fase de decisão estratégica. Janela para ajustes de preço ou promoções privadas."},
+        {"key": "operacional", "label": "D-32 → D-0", "sublabel": "Operacional", "description": "Fase de execução final. Foco em conversão, escassez e fechamento de volume."},
+    ]
+    isc_states = [
+        {"key": "forte", "label": "ISC Forte", "threshold": ">1,12", "color": "green"},
+        {"key": "estavel", "label": "ISC Estável", "threshold": "0,90–1,12", "color": "yellow"},
+        {"key": "fraco", "label": "ISC Fraco", "threshold": "<0,90", "color": "red"},
+    ]
+    entries = []
+    for stage in stages:
+        for isc in isc_states:
+            entry = _PLAYBOOK.get((stage["key"], isc["key"]), {})
+            entries.append({**entry, "stageInfo": stage, "iscInfo": isc})
+    return {"stages": stages, "iscStates": isc_states, "entries": entries}
 
 @router.get("/eventos", response_model=MarketingEventsResponse)
 def get_marketing_events(

@@ -130,7 +130,7 @@ Evento: {event.get('name', 'N/A')}
 - IA 7/30: {event.get('iscComponents', {}).get('ia730', 0):.2f}
 - Curva D-%: {event.get('iscComponents', {}).get('curvaDPercent', 0):.2f}
 - Rolling 14d: {event.get('iscComponents', {}).get('rolling14d', 0):.2f}
-- Ação Sugerida: {event.get('suggestedAction', 'N/A')}
+- Playbook Sugerido: {event.get('suggestedAction', {}).get('letter', '?')} — {event.get('suggestedAction', {}).get('name', 'N/A')} | Objetivo: {event.get('suggestedAction', {}).get('objective', 'N/A')}
 """)
     
     return "\n".join(lines)

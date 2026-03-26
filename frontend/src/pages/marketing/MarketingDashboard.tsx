@@ -18,7 +18,8 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Archive
+  Archive,
+  BookOpen
 } from 'lucide-react';
 import { 
   getISCColor, 
@@ -523,9 +524,18 @@ const MarketingDashboard: React.FC = () => {
       <div className="relative z-10 p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            Marketing Performance
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Marketing Performance
+            </h1>
+            <button
+              onClick={() => navigate('/marketing/playbook')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors border border-indigo-200 dark:border-indigo-700"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Playbook
+            </button>
+          </div>
           <p className={`mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
             Acompanhamento de vendas e ISC dos eventos
           </p>

@@ -39,7 +39,7 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Authentication:** Standard email/password login.
 - **Master Data Management:** CRUD operations for Cost Centers, Athlete Categories, and Users; "Projetos" integrated into "Eventos".
 - **Consolidated Dashboard:** Interactive dashboard with KPIs, charts, tables, and insights, globally filterable.
-- **Marketing Performance (ISC Dashboard):** Displays Commercial Health Index (ISC) based on Acceleration Index, D-% Curve, and rolling 14-day sales average. Features detailed event pages with multiple tabs (Dashboard, Simulador, Precificação, Projeção, Complementares) including comparative curves and insights. ISC uses a `desvio+cap` model for calculation.
+- **Marketing Performance (ISC Dashboard):** Displays Commercial Health Index (ISC) based on Acceleration Index, D-% Curve, and rolling 14-day sales average. Features detailed event pages with multiple tabs (Dashboard, Simulador, Precificação, Projeção, Complementares) including comparative curves and insights. ISC uses a `desvio+cap` model for calculation. Each event has a **Playbook** (A–I) based on stage (D-90→D-50 Analítico, D-50→D-32 Estratégico, D-32→D-0 Operacional) × ISC state (Forte/Estável/Fraco). Playbook is a structured object with name, objective, narrative, actions, KPIs, and cutoffs. Full playbook visualization available at `/marketing/playbook`.
 - **Pricing Analysis:** Analyzes pricing strategies with metrics like "Rolling Index," "IED," "IA," "Pace de Segurança," and "FEM," including elasticity simulation.
 - **External Athlete Data:** Real-time fetching and in-memory caching of athlete data from external MySQL.
 - **Commercial Actions Timeline:** Manages and tracks the impact of commercial actions.

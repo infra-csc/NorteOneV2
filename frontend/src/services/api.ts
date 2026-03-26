@@ -955,6 +955,10 @@ export const marketingService = {
     const response = await api.put(`/marketing/settings/${key}`, { value });
     return response.data;
   },
+  getPlaybook: async (): Promise<any> => {
+    const response = await api.get('/marketing/playbook');
+    return response.data;
+  },
 };
 
 export default api;

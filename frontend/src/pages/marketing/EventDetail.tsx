@@ -1581,9 +1581,22 @@ const EventDetail: React.FC = () => {
           ) : (
             <TrendingDown className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
           )}
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
+            event.iscStatus === 'accelerating' ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' :
+            event.iscStatus === 'stable' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300' :
+            'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
+          }`}>
+            Playbook {event.suggestedAction.letter}
+          </span>
           <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-            {event.suggestedAction}
+            {event.suggestedAction.name}
           </p>
+          <Link
+            to="/marketing/playbook"
+            className="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline ml-auto"
+          >
+            Ver completo →
+          </Link>
         </div>
       </div>
 
@@ -1713,6 +1726,92 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {event.suggestedAction && (
+        <div className={`rounded-xl p-5 border-2 ${
+          event.iscStatus === 'accelerating'
+            ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+            : event.iscStatus === 'stable'
+              ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+              : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
+        }`}>
+          <div className="flex items-start gap-4 mb-4">
+            <div className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black ${
+              event.iscStatus === 'accelerating'
+                ? 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'
+                : event.iscStatus === 'stable'
+                  ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200'
+                  : 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200'
+            }`}>
+              {event.suggestedAction.letter}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Playbook Ativo</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  event.iscStatus === 'accelerating'
+                    ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'
+                    : event.iscStatus === 'stable'
+                      ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'
+                      : 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200'
+                }`}>{event.suggestedAction.stageName}</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">{event.suggestedAction.iscLabel}</span>
+              </div>
+              <p className={`font-bold text-base ${
+                event.iscStatus === 'accelerating'
+                  ? 'text-green-800 dark:text-green-200'
+                  : event.iscStatus === 'stable'
+                    ? 'text-amber-800 dark:text-amber-200'
+                    : 'text-red-800 dark:text-red-200'
+              }`}>{event.suggestedAction.name}</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 italic">{event.suggestedAction.narrative}</p>
+            </div>
+            <Link to="/marketing/playbook" className="shrink-0 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap">
+              Ver Playbook Completo →
+            </Link>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="sm:col-span-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Ações Operacionais</p>
+              <ul className="space-y-1.5">
+                {event.suggestedAction.actions.map((action, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+                    <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
+                      event.iscStatus === 'accelerating' ? 'bg-green-500' : event.iscStatus === 'stable' ? 'bg-amber-400' : 'bg-red-500'
+                    }`} />
+                    {action}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">KPIs (48–72h)</p>
+                {event.suggestedAction.kpis.map((kpi, i) => (
+                  <div key={i} className="text-sm text-gray-700 dark:text-gray-300 bg-white/60 dark:bg-black/20 rounded-lg px-3 py-1.5 font-medium">
+                    {kpi}
+                  </div>
+                ))}
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Pontos de Corte</p>
+                <div className="flex gap-2 flex-wrap">
+                  {event.suggestedAction.cutoffs.map((c, i) => (
+                    <span key={i} className={`text-sm font-bold px-3 py-1 rounded-lg ${
+                      event.iscStatus === 'accelerating'
+                        ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'
+                        : event.iscStatus === 'stable'
+                          ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'
+                          : 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200'
+                    }`}>{c}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div>
         {isConsolidated && cumulativeData.length > 0 ? (

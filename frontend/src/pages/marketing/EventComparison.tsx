@@ -367,7 +367,7 @@ const EventComparison: React.FC = () => {
                   </td>
                   {compareEvents.map(event => (
                     <td key={event.id} className="px-4 py-3 text-center text-sm text-gray-700 dark:text-gray-300">
-                      {event.suggestedAction}
+                      <span className="font-medium">Playbook {event.suggestedAction.letter}</span> — {event.suggestedAction.name}
                     </td>
                   ))}
                 </tr>
