@@ -790,7 +790,28 @@ class CacheRefreshScheduler:
                 return
 
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
-        target = now.replace(hour=5, minute=0, second=0, microsecond=0)
+        today_target = now.replace(hour=5, minute=0, second=0, microsecond=0)
+
+        # Detect missed daily refresh: past 05:00 BRT today but last_full_refresh predates it
+        if now >= today_target:
+            last_refresh = _last_full_refresh_timestamp
+            if last_refresh:
+                last_refresh_dt = datetime.fromtimestamp(last_refresh, tz=ZoneInfo('America/Sao_Paulo'))
+            else:
+                last_refresh_dt = None
+
+            if last_refresh_dt is None or last_refresh_dt < today_target:
+                logger.warning(
+                    f"[Scheduler] Missed daily refresh detected "
+                    f"(last={last_refresh_dt}, today_target={today_target.isoformat()}). "
+                    f"Triggering catch-up refresh in 90s."
+                )
+                self._daily_timer = threading.Timer(90, self._run_daily_refresh)
+                self._daily_timer.daemon = True
+                self._daily_timer.start()
+                return
+
+        target = today_target
         if now >= target:
             target += timedelta(days=1)
 
