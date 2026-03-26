@@ -501,6 +501,19 @@ export interface MarketingISCComponents {
   rolling14d: number;
 }
 
+export interface PlaybookEntry {
+  letter: string;
+  name: string;
+  stageName: string;
+  iscLabel: string;
+  iscState: 'forte' | 'estável' | 'fraco';
+  objective: string;
+  narrative: string;
+  actions: string[];
+  kpis: string[];
+  cutoffs: string[];
+}
+
 export interface MarketingEvent {
   id: string;
   name: string;
@@ -517,7 +530,7 @@ export interface MarketingEvent {
   isc: number;
   iscComponents: MarketingISCComponents;
   iscStatus: 'accelerating' | 'stable' | 'decelerating';
-  suggestedAction: string;
+  suggestedAction: PlaybookEntry;
   isActive: boolean;
   sku?: string;
   activeAction?: { id: number; tipo: string; descricao: string; data_acao: string; dias_restantes: number } | null;
