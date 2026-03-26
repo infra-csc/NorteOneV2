@@ -1022,17 +1022,18 @@ const MarketingDashboard: React.FC = () => {
                   </td>
                   <td className="px-4 py-4 text-center">
                     {event.suggestedAction ? (
-                      <div className="inline-flex flex-col items-center gap-0.5">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                      <div className="inline-flex flex-col items-center gap-1">
+                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-sm font-bold ${
                           event.suggestedAction.iscState === 'forte'
                             ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                             : event.suggestedAction.iscState === 'estável'
                             ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
                             : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                         }`}>
-                          <span className="font-bold">{event.suggestedAction.letter}</span>
-                          <span className="hidden lg:inline">·</span>
-                          <span className="hidden lg:inline truncate max-w-[90px]">{event.suggestedAction.name}</span>
+                          {event.suggestedAction.letter}
+                        </span>
+                        <span className="text-[11px] text-gray-600 dark:text-gray-400 leading-tight text-center max-w-[110px] break-words">
+                          {event.suggestedAction.name}
                         </span>
                       </div>
                     ) : '—'}
