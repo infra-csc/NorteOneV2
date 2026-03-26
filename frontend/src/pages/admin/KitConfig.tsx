@@ -31,6 +31,11 @@ const fmtBRL = (v: number | null | undefined): string => {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
+const isParticipacaoOuMeia = (nome: string | null): boolean => {
+  const n = (nome || '').toLowerCase();
+  return n.includes('participação') || n.includes('participacao') || n.includes('meia');
+};
+
 const KitConfig: React.FC = () => {
   const { isDark } = useTheme();
   const [kits, setKits] = useState<KitRow[]>([]);
@@ -45,6 +50,8 @@ const KitConfig: React.FC = () => {
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [savingMany, setSavingMany] = useState(false);
 
   const [filterTipo, setFilterTipo] = useState('');
   const [filterBasico, setFilterBasico] = useState('');
@@ -84,6 +91,7 @@ const KitConfig: React.FC = () => {
       const tipoKits: Record<number, string> = {};
       const custoKits: Record<number, string> = {};
       const ativoCats: Record<number, string> = {};
+
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
         basicos[k.bundle_entity_id] = k.is_kit_basico;
@@ -92,6 +100,26 @@ const KitConfig: React.FC = () => {
         custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
         ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
       });
+
+      // Custo do Kit Básico por evento (para auto-preenchimento)
+      const basicoCostByEvento: Record<string, number> = {};
+      res.data.forEach((k: KitRow) => {
+        if (k.is_kit_basico && k.id_evento) {
+          const cost = k.custo_cadastro ?? k.custo_kit ?? null;
+          if (cost != null) basicoCostByEvento[k.id_evento] = cost;
+        }
+      });
+
+      // Auto-preenchimento: kits sem custo definido
+      res.data.forEach((k: KitRow) => {
+        if (k.custo_kit != null || k.custo_cadastro != null) return;
+        if (isParticipacaoOuMeia(k.nome_kit)) {
+          custoKits[k.bundle_entity_id] = '10';
+        } else if (k.id_evento && basicoCostByEvento[k.id_evento] != null) {
+          custoKits[k.bundle_entity_id] = String(basicoCostByEvento[k.id_evento]);
+        }
+      });
+
       setEditValues(edits);
       setBasicoValues(basicos);
       setPromoValues(promos);
@@ -193,11 +221,12 @@ const KitConfig: React.FC = () => {
     }
   };
 
-  const handleMultChange = (bundleId: number, val: string) => {
-    const num = parseInt(val, 10);
-    if (!isNaN(num) && num >= 1) {
-      setEditValues((prev) => ({ ...prev, [bundleId]: num }));
-    }
+  const handleSaveMany = async () => {
+    setSavingMany(true);
+    const ids = Array.from(selectedIds);
+    await Promise.all(ids.map((id) => handleSave(id)));
+    setSavingMany(false);
+    setSelectedIds(new Set());
   };
 
   const handleBasicoToggle = (bundleId: number, idEvento: string | null) => {
@@ -273,8 +302,36 @@ const KitConfig: React.FC = () => {
     return result;
   }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, filterStatusKit, basicoValues]);
 
+  const allSelected = filteredKits.length > 0 && filteredKits.every((k) => selectedIds.has(k.bundle_entity_id));
+  const someSelected = !allSelected && filteredKits.some((k) => selectedIds.has(k.bundle_entity_id));
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredKits.forEach((k) => next.delete(k.bundle_entity_id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        filteredKits.forEach((k) => next.add(k.bundle_entity_id));
+        return next;
+      });
+    }
+  };
+
+  const handleSelectRow = (bundleId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(bundleId)) next.delete(bundleId);
+      else next.add(bundleId);
+      return next;
+    });
+  };
+
   const handleExportCSV = useCallback(() => {
-    const headers = ['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Multiplicador Sugerido', 'Multiplicador', 'Price', 'Special Price', 'Kit Básico', 'Configurado'];
+    const headers = ['Evento', 'Kit', 'Tipo', 'Lote Atual', 'Price', 'Special Price', 'Custo (R$)', 'Kit Básico', 'Configurado'];
 
     const escapeCSV = (val: string): string => {
       if (val.includes(';') || val.includes('"') || val.includes('\n')) {
@@ -288,16 +345,16 @@ const KitConfig: React.FC = () => {
       const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
       const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
       const isBasico = basicoValues[kit.bundle_entity_id] ?? kit.is_kit_basico;
+      const custoStr = (custoKitValues[kit.bundle_entity_id] ?? '').trim();
 
       return [
         escapeCSV(kit.nome_evento || ''),
         escapeCSV(kit.nome_kit || ''),
         escapeCSV(kit.tipo_categoria || ''),
         escapeCSV(kit.lote_atual || ''),
-        String(kit.multiplicador_sugerido),
-        String(editMult),
         computedPrice != null ? computedPrice.toFixed(2) : '',
         computedSpecialPrice != null ? computedSpecialPrice.toFixed(2) : '',
+        custoStr,
         isBasico ? 'Sim' : 'Não',
         kit.is_configured ? 'Sim' : 'Não',
       ].join(';');
@@ -314,7 +371,7 @@ const KitConfig: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [filteredKits, editValues, basicoValues]);
+  }, [filteredKits, editValues, basicoValues, custoKitValues]);
 
   const unconfiguredCount = kits.filter((k) => !k.is_configured).length;
 
@@ -337,13 +394,15 @@ const KitConfig: React.FC = () => {
       : 'bg-white border-gray-300 text-gray-900'
   }`;
 
+  const checkboxClass = `w-4 h-4 rounded cursor-pointer accent-blue-500`;
+
   return (
     <div className={`min-h-screen ${bg} p-0`}>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className={`text-2xl font-bold ${textPrimary}`}>Mapeamento de Kits</h1>
           <p className={`text-sm mt-1 ${textSecondary}`}>
-            Configure o multiplicador e marque o Kit Básico de cada evento.
+            Configure o custo e marque o Kit Básico de cada evento.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -386,7 +445,7 @@ const KitConfig: React.FC = () => {
             >
               <AlertCircle className="w-5 h-5 flex-shrink-0" />
               <span className="text-sm">
-                <strong>{unconfiguredCount}</strong> kit(s) ainda sem configuração de multiplicador.
+                <strong>{unconfiguredCount}</strong> kit(s) ainda sem configuração salva.
               </span>
             </div>
           )}
@@ -422,6 +481,20 @@ const KitConfig: React.FC = () => {
           <Package className={`w-4 h-4 ${textSecondary}`} />
           <span className={`text-sm font-medium ${textPrimary}`}>{filteredKits.length} kits</span>
         </div>
+        {selectedIds.size > 0 && (
+          <button
+            onClick={handleSaveMany}
+            disabled={savingMany}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+              isDark
+                ? 'bg-indigo-600 text-white hover:bg-indigo-500 disabled:bg-gray-600 disabled:text-gray-400'
+                : 'bg-indigo-500 text-white hover:bg-indigo-600 disabled:bg-gray-300 disabled:text-gray-500'
+            }`}
+          >
+            <Save className="w-4 h-4" />
+            {savingMany ? 'Salvando...' : `Salvar ${selectedIds.size} selecionado${selectedIds.size !== 1 ? 's' : ''}`}
+          </button>
+        )}
       </div>
 
       <div className={`flex items-center gap-3 mb-4 flex-wrap`}>
@@ -497,22 +570,49 @@ const KitConfig: React.FC = () => {
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr>
-                  {['Evento', 'Kit', 'Tipo Kit (Cadastro)', 'Cat. Ativo', 'Tipo', 'Lote Atual', 'Status Site', 'Mult.', 'Price', 'Special Price', 'Custo (R$)', 'Básico', 'Promo', ''].map(
-                    (label, i) => (
-                      <th
-                        key={i}
-                        className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
-                          i >= 7 ? 'text-right' : 'text-left'
-                        } ${i === 11 || i === 12 ? 'text-center' : ''} ${
-                          isDark
-                            ? `${headerBg} text-blue-300 border-blue-500/50`
-                            : `${headerBg} text-slate-700 border-slate-300`
-                        }`}
-                      >
-                        {label}
-                      </th>
-                    ),
-                  )}
+                  {/* Checkbox select-all */}
+                  <th
+                    className={`px-3 py-3 text-center text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${
+                      isDark
+                        ? `${headerBg} text-blue-300 border-blue-500/50`
+                        : `${headerBg} text-slate-700 border-slate-300`
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className={checkboxClass}
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                      onChange={handleSelectAll}
+                      title="Selecionar todos os visíveis"
+                    />
+                  </th>
+                  {[
+                    { label: 'Evento', align: 'text-left' },
+                    { label: 'Kit', align: 'text-left' },
+                    { label: 'Tipo Kit (Cadastro)', align: 'text-left' },
+                    { label: 'Cat. Ativo', align: 'text-left' },
+                    { label: 'Tipo', align: 'text-left' },
+                    { label: 'Lote Atual', align: 'text-left' },
+                    { label: 'Status Site', align: 'text-left' },
+                    { label: 'Price', align: 'text-right' },
+                    { label: 'Special Price', align: 'text-right' },
+                    { label: 'Custo (R$)', align: 'text-right' },
+                    { label: 'Básico', align: 'text-center' },
+                    { label: 'Promo', align: 'text-center' },
+                    { label: '', align: 'text-center' },
+                  ].map(({ label, align }, i) => (
+                    <th
+                      key={i}
+                      className={`px-3 py-3 text-xs font-bold uppercase tracking-wider whitespace-nowrap sticky top-0 z-10 border-b-2 ${align} ${
+                        isDark
+                          ? `${headerBg} text-blue-300 border-blue-500/50`
+                          : `${headerBg} text-slate-700 border-slate-300`
+                      }`}
+                    >
+                      {label}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -535,15 +635,16 @@ const KitConfig: React.FC = () => {
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
                   const custoKitChanged = kit.custo_cadastro == null && custoKitStr !== '' && parseFloat(custoKitStr) !== (kit.custo_kit ?? 0);
-                  const hasChanged = editMult !== kit.multiplicador || isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '');
+                  const hasChanged = isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '');
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
+                  const isSelected = selectedIds.has(kit.bundle_entity_id);
 
                   return (
                     <tr
                       key={kit.bundle_entity_id}
-                      className={`${rowBg} ${hoverBg} transition-colors border-b ${borderColor} ${
+                      className={`${isSelected ? (isDark ? 'bg-indigo-900/30' : 'bg-indigo-50') : rowBg} ${hoverBg} transition-colors border-b ${borderColor} ${
                         !kit.is_configured
                           ? isDark
                             ? 'border-l-4 border-l-amber-500'
@@ -551,6 +652,17 @@ const KitConfig: React.FC = () => {
                           : ''
                       }`}
                     >
+                      {/* Checkbox */}
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          className={checkboxClass}
+                          checked={isSelected}
+                          onChange={() => handleSelectRow(kit.bundle_entity_id)}
+                        />
+                      </td>
+
+                      {/* Evento */}
                       <td className={`px-3 py-2.5 text-left ${textPrimary}`}>
                         <div className="flex items-start gap-2">
                           {!kit.is_configured && (
@@ -567,11 +679,15 @@ const KitConfig: React.FC = () => {
                           </span>
                         </div>
                       </td>
+
+                      {/* Kit */}
                       <td className={`px-3 py-2.5 text-left ${textSecondary}`}>
                         <span title={kit.nome_kit || ''}>
                           {kit.nome_kit || '—'}
                         </span>
                       </td>
+
+                      {/* Tipo Kit (Cadastro) */}
                       <td className="px-3 py-2.5 text-left whitespace-nowrap">
                         <input
                           type="text"
@@ -585,6 +701,8 @@ const KitConfig: React.FC = () => {
                           } outline-none ${editTipoKit !== (kit.tipo_kit || '') ? (isDark ? 'ring-1 ring-purple-400' : 'ring-1 ring-purple-500') : ''}`}
                         />
                       </td>
+
+                      {/* Cat. Ativo */}
                       <td className="px-3 py-2.5 text-left whitespace-nowrap">
                         <input
                           type="text"
@@ -598,12 +716,18 @@ const KitConfig: React.FC = () => {
                           } outline-none ${editAtivoCateg !== (kit.ativo_categoria || '') ? (isDark ? 'ring-1 ring-teal-400' : 'ring-1 ring-teal-500') : ''}`}
                         />
                       </td>
+
+                      {/* Tipo */}
                       <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
                         {kit.tipo_categoria || '—'}
                       </td>
+
+                      {/* Lote Atual */}
                       <td className={`px-3 py-2.5 text-left whitespace-nowrap ${textSecondary}`}>
                         {kit.lote_atual || '—'}
                       </td>
+
+                      {/* Status Site */}
                       <td className="px-3 py-2.5 text-left whitespace-nowrap">
                         {kit.status_kit === 'ativo' ? (
                           <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
@@ -623,22 +747,13 @@ const KitConfig: React.FC = () => {
                           <span className={`text-xs ${textSecondary}`}>—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                        <input
-                          type="number"
-                          min={1}
-                          value={editMult}
-                          onChange={(e) => handleMultChange(kit.bundle_entity_id, e.target.value)}
-                          className={`w-16 text-right px-2 py-1 rounded border text-sm font-bold ${
-                            isDark
-                              ? 'bg-gray-700 border-gray-600 text-white focus:border-blue-400'
-                              : 'bg-white border-gray-300 text-gray-900 focus:border-blue-500'
-                          } outline-none ${hasChanged ? (isDark ? 'ring-1 ring-blue-400' : 'ring-1 ring-blue-500') : ''}`}
-                        />
-                      </td>
+
+                      {/* Price */}
                       <td className={`px-3 py-2.5 text-right whitespace-nowrap font-medium ${textPrimary}`}>
                         {fmtBRL(computedPrice)}
                       </td>
+
+                      {/* Special Price */}
                       <td
                         className={`px-3 py-2.5 text-right whitespace-nowrap font-bold ${
                           editMult > 1
@@ -650,6 +765,8 @@ const KitConfig: React.FC = () => {
                       >
                         {fmtBRL(computedSpecialPrice)}
                       </td>
+
+                      {/* Custo (R$) */}
                       <td className="px-3 py-2.5 text-right whitespace-nowrap">
                         {kit.custo_cadastro != null ? (
                           <div className="flex flex-col items-end gap-0.5">
@@ -674,6 +791,8 @@ const KitConfig: React.FC = () => {
                           />
                         )}
                       </td>
+
+                      {/* Básico */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <button
                           onClick={() => handleBasicoToggle(kit.bundle_entity_id, kit.id_evento)}
@@ -689,6 +808,8 @@ const KitConfig: React.FC = () => {
                           <Star className={`w-5 h-5 ${isBasico ? 'fill-current' : ''}`} />
                         </button>
                       </td>
+
+                      {/* Promo */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <button
                           onClick={() => handlePromoToggle(kit.bundle_entity_id, kit.id_evento)}
@@ -704,6 +825,8 @@ const KitConfig: React.FC = () => {
                           <Zap className={`w-5 h-5 ${isPromoPrincipal ? 'fill-current' : ''}`} />
                         </button>
                       </td>
+
+                      {/* Salvar */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         {showSaved ? (
                           <span className="inline-flex items-center gap-1 text-emerald-500 text-xs font-medium">
