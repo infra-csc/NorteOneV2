@@ -804,8 +804,8 @@ const Cadastro: React.FC = () => {
 
   const calcularTotalizadorFaixa = (faixas: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>) => {
     const totalQtd = faixas.reduce((acc, f) => acc + (f.qtd || 0), 0);
-    const totalValor = faixas.reduce((acc, f) => acc + (f.total || 0), 0);
-    const ticketMedioReal = totalQtd > 0 ? totalValor / totalQtd : 0;
+    const totalValor = Math.round(faixas.reduce((acc, f) => acc + (f.total || 0), 0) * 100) / 100;
+    const ticketMedioReal = totalQtd > 0 ? Math.round((totalValor / totalQtd) * 100) / 100 : 0;
     return { totalQtd, totalValor, ticketMedioReal };
   };
 
@@ -858,7 +858,7 @@ const Cadastro: React.FC = () => {
               <FormattedInput
                 value={faixa.qtd || 0}
                 onChange={(qtd) => {
-                  const total = qtd * (faixa.tkt_medio || 0);
+                  const total = Math.round(qtd * (faixa.tkt_medio || 0) * 100) / 100;
                   updateFaixaSiteByKit(kitType, index, 'qtd', qtd);
                   updateFaixaSiteByKit(kitType, index, 'total', total);
                 }}
@@ -869,7 +869,7 @@ const Cadastro: React.FC = () => {
               <FormattedInput
                 value={faixa.tkt_medio || 0}
                 onChange={(tkt_medio) => {
-                  const total = (faixa.qtd || 0) * tkt_medio;
+                  const total = Math.round((faixa.qtd || 0) * tkt_medio * 100) / 100;
                   updateFaixaSiteByKit(kitType, index, 'tkt_medio', tkt_medio);
                   updateFaixaSiteByKit(kitType, index, 'total', total);
                 }}
@@ -1226,7 +1226,7 @@ const Cadastro: React.FC = () => {
               <FormattedInput
                 value={faixa.qtd || 0}
                 onChange={(qtd) => {
-                  const total = qtd * (faixa.tkt_medio || 0);
+                  const total = Math.round(qtd * (faixa.tkt_medio || 0) * 100) / 100;
                   updateFaixaGruposByKit(kitType, index, 'qtd', qtd);
                   updateFaixaGruposByKit(kitType, index, 'total', total);
                 }}
@@ -1237,7 +1237,7 @@ const Cadastro: React.FC = () => {
               <FormattedInput
                 value={faixa.tkt_medio || 0}
                 onChange={(tkt_medio) => {
-                  const total = (faixa.qtd || 0) * tkt_medio;
+                  const total = Math.round((faixa.qtd || 0) * tkt_medio * 100) / 100;
                   updateFaixaGruposByKit(kitType, index, 'tkt_medio', tkt_medio);
                   updateFaixaGruposByKit(kitType, index, 'total', total);
                 }}
@@ -3230,7 +3230,7 @@ const Cadastro: React.FC = () => {
                                     <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
-                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(Math.round((f.total || 0) * 100) / 100)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -3257,7 +3257,7 @@ const Cadastro: React.FC = () => {
                                     <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
-                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(Math.round((f.total || 0) * 100) / 100)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -3298,7 +3298,7 @@ const Cadastro: React.FC = () => {
                                     <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
-                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(Math.round((f.total || 0) * 100) / 100)}</td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -3325,7 +3325,7 @@ const Cadastro: React.FC = () => {
                                     <td className={`px-4 py-2 text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{f.faixa}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(f.qtd || 0) || '0'}</td>
                                     <td className={`px-4 py-2 text-sm text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.tkt_medio || 0) || '0'}</td>
-                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>R$ {formatNumber(f.total || 0) || '0'}</td>
+                                    <td className={`px-4 py-2 text-sm text-right font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(Math.round((f.total || 0) * 100) / 100)}</td>
                                   </tr>
                                 ))}
                               </tbody>
