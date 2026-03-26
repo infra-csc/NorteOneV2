@@ -125,6 +125,15 @@ const kitOptions = ['Kit Básico', 'Kit Participação', 'Kit Vip', 'Kit Plus', 
 const faixaOptions = ['1', '2', '3', '4', '5'];
 const coresPeitoOptions = ['Branco', 'Amarelo', 'Laranja', 'Verde', 'Azul', 'Vermelho', 'Rosa', 'Roxo', 'Preto'];
 const modalidadesOptions = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
+
+const mesesOptions = [
+  { value: '01', label: 'Janeiro' }, { value: '02', label: 'Fevereiro' },
+  { value: '03', label: 'Março' },   { value: '04', label: 'Abril' },
+  { value: '05', label: 'Maio' },    { value: '06', label: 'Junho' },
+  { value: '07', label: 'Julho' },   { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Setembro' },{ value: '10', label: 'Outubro' },
+  { value: '11', label: 'Novembro' },{ value: '12', label: 'Dezembro' },
+];
 const tiposEventoOptions = ['Próprio', 'Incentivado', 'Organização', 'Licenciado'];
 const leisOptions = ['', 'LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'];
 const statusOptions = ['Em andamento', 'Concluído', 'Cancelado'];
@@ -238,6 +247,11 @@ const Cadastro: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState('info_geral');
   const [busca, setBusca] = useState('');
+  const [filterMes, setFilterMes] = useState('');
+  const [filterModalidade, setFilterModalidade] = useState('');
+  const [filterTipoEvento, setFilterTipoEvento] = useState('');
+  const [filterLei, setFilterLei] = useState('');
+  const [filterLocalizacao, setFilterLocalizacao] = useState('');
   
   const [circuitos, setCircuitos] = useState<{id: number; nome: string}[]>([]);
   const [localizacoes, setLocalizacoes] = useState<{id: number; nome: string}[]>([]);
@@ -492,12 +506,53 @@ const Cadastro: React.FC = () => {
   const excedeCortesias = getTotalCortesiasAlocadas() > maxCortesias;
 
   const filteredCadastros = useMemo(() => {
-    if (!busca) return cadastros;
-    return cadastros.filter(c => 
-      c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-      c.info_geral.local.toLowerCase().includes(busca.toLowerCase())
-    );
-  }, [cadastros, busca]);
+    let result = [...cadastros].sort((a, b) => {
+      const da = (a.info_geral.data || '').split('T')[0];
+      const db = (b.info_geral.data || '').split('T')[0];
+      return db.localeCompare(da);
+    });
+
+    if (busca) {
+      const q = busca.toLowerCase();
+      result = result.filter(c =>
+        c.nome.toLowerCase().includes(q) ||
+        (c.info_geral.local || '').toLowerCase().includes(q)
+      );
+    }
+    if (filterMes) {
+      result = result.filter(c => {
+        const data = (c.info_geral.data || '').split('T')[0];
+        return data.split('-')[1] === filterMes;
+      });
+    }
+    if (filterModalidade) {
+      result = result.filter(c => c.modalidade === filterModalidade);
+    }
+    if (filterTipoEvento) {
+      result = result.filter(c => c.tipo_evento === filterTipoEvento);
+    }
+    if (filterLei) {
+      result = result.filter(c => (c.lei || '') === filterLei);
+    }
+    if (filterLocalizacao) {
+      result = result.filter(c =>
+        (c.localizacao_evento || '').toLowerCase().includes(filterLocalizacao.toLowerCase())
+      );
+    }
+    return result;
+  }, [cadastros, busca, filterMes, filterModalidade, filterTipoEvento, filterLei, filterLocalizacao]);
+
+  const activeFilterCount = [filterMes, filterModalidade, filterTipoEvento, filterLei, filterLocalizacao].filter(Boolean).length;
+  const hasActiveFilters = !!(busca || activeFilterCount);
+
+  const clearAllFilters = () => {
+    setBusca('');
+    setFilterMes('');
+    setFilterModalidade('');
+    setFilterTipoEvento('');
+    setFilterLei('');
+    setFilterLocalizacao('');
+  };
 
   const totalEventos = cadastros.length;
   const emAndamento = cadastros.filter(c => c.status === 'Em andamento').length;
@@ -2556,7 +2611,7 @@ const Cadastro: React.FC = () => {
         </div>
 
         <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-          <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex flex-col md:flex-row gap-3">
             <div className="flex-1 relative">
               <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               <input
@@ -2568,9 +2623,26 @@ const Cadastro: React.FC = () => {
               />
             </div>
 
-            {busca && (
+            <button
+              onClick={() => setShowFilters(f => !f)}
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl border font-medium transition-all ${
+                showFilters || activeFilterCount > 0
+                  ? isDark ? 'border-purple-500 bg-purple-500/20 text-purple-300' : 'border-purple-500 bg-purple-50 text-purple-700'
+                  : isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              <span>Filtros</span>
+              {activeFilterCount > 0 && (
+                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500 text-white text-[10px] font-bold">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
+            {hasActiveFilters && (
               <button
-                onClick={() => setBusca('')}
+                onClick={clearAllFilters}
                 className={`flex items-center gap-2 px-4 py-3 rounded-xl border ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'} transition-all`}
               >
                 <RotateCcw className="w-4 h-4" />
@@ -2578,6 +2650,72 @@ const Cadastro: React.FC = () => {
               </button>
             )}
           </div>
+
+          {showFilters && (
+            <div className={`mt-3 pt-3 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div>
+                  <label className={`block text-[11px] font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Mês do Evento</label>
+                  <select
+                    value={filterMes}
+                    onChange={(e) => setFilterMes(e.target.value)}
+                    className={`w-full px-2 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Todos</option>
+                    {mesesOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`block text-[11px] font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Modalidade</label>
+                  <select
+                    value={filterModalidade}
+                    onChange={(e) => setFilterModalidade(e.target.value)}
+                    className={`w-full px-2 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Todas</option>
+                    {modalidadesOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`block text-[11px] font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tipo Evento</label>
+                  <select
+                    value={filterTipoEvento}
+                    onChange={(e) => setFilterTipoEvento(e.target.value)}
+                    className={`w-full px-2 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Todos</option>
+                    {tiposEventoOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`block text-[11px] font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Lei</label>
+                  <select
+                    value={filterLei}
+                    onChange={(e) => setFilterLei(e.target.value)}
+                    className={`w-full px-2 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Todas</option>
+                    {leisOptions.filter(l => l).map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={`block text-[11px] font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Localização</label>
+                  <select
+                    value={filterLocalizacao}
+                    onChange={(e) => setFilterLocalizacao(e.target.value)}
+                    className={`w-full px-2 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:ring-2 focus:ring-purple-500`}
+                  >
+                    <option value="">Todas</option>
+                    {localizacoes.map(l => <option key={l.id} value={l.nome}>{l.nome}</option>)}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -2649,10 +2787,10 @@ const Cadastro: React.FC = () => {
                 <Trophy className="w-12 h-12 text-purple-400" />
               </div>
               <p className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                {busca ? 'Nenhum cadastro encontrado' : 'Nenhum cadastro encontrado'}
+                Nenhum cadastro encontrado
               </p>
               <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                {busca ? 'Tente ajustar a busca' : 'Crie seu primeiro cadastro clicando no botão acima'}
+                {hasActiveFilters ? 'Tente ajustar os filtros ou limpar a busca' : 'Crie seu primeiro cadastro clicando no botão acima'}
               </p>
             </div>
           ) : filteredCadastros.map((cadastro, index) => {
