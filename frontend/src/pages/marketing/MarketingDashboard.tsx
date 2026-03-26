@@ -486,26 +486,6 @@ const MarketingDashboard: React.FC = () => {
     });
   };
 
-  const getActionChipStyle = (isc: number, dMinusInscricoes: number) => {
-    if (isc > 1.10) {
-      return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
-    }
-    if (isc >= 0.90) {
-      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
-    }
-    if (dMinusInscricoes < 40) {
-      return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400';
-    }
-    return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
-  };
-
-  const getActionText = (isc: number, dMinusInscricoes: number) => {
-    if (isc > 1.10) return 'Subir Preço';
-    if (isc >= 0.90) return 'Monitorar';
-    if (dMinusInscricoes < 40) return 'Só Comunicação';
-    return 'Ação Promocional';
-  };
-
   return (
     <div className="min-h-screen">
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -1041,9 +1021,21 @@ const MarketingDashboard: React.FC = () => {
                     {event.iscComponents.curvaDPercent.toFixed(2)}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span className={`px-3 py-1 text-xs font-medium rounded-full ${getActionChipStyle(event.isc, event.dMinusInscricoes)}`}>
-                      {getActionText(event.isc, event.dMinusInscricoes)}
-                    </span>
+                    {event.suggestedAction ? (
+                      <div className="inline-flex flex-col items-center gap-0.5">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                          event.suggestedAction.iscState === 'forte'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                            : event.suggestedAction.iscState === 'estável'
+                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                        }`}>
+                          <span className="font-bold">{event.suggestedAction.letter}</span>
+                          <span className="hidden lg:inline">·</span>
+                          <span className="hidden lg:inline truncate max-w-[90px]">{event.suggestedAction.name}</span>
+                        </span>
+                      </div>
+                    ) : '—'}
                   </td>
                   <td className="px-4 py-4 text-center">
                     {event.activeAction ? (

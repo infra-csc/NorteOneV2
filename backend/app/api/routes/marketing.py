@@ -2653,7 +2653,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "6"  # v6: fix ia730 anchor date for consolidated events with clamped d_minus
+_DETAIL_CACHE_VERSION = "7"  # v7: use ISC cache medias for ISC components in detail (consistent with list view)
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
@@ -6591,6 +6591,10 @@ def get_marketing_event_by_id(
         elif ano == current_year:
             isc_data = fetch_isc_pricing_data(db=db)
             current_receita = 0.0
+            current_sales_isc = 0  # from ISC cache, same source as list view
+            grupo_media_14d = 0.0
+            grupo_media_7d = 0.0
+            grupo_media_30d = 0.0
             seen_norms = set()
             for s_sku in skus:
                 s_norm = normalize_sku(s_sku)
@@ -6599,20 +6603,13 @@ def get_marketing_event_by_id(
                 seen_norms.add(s_norm)
                 info = isc_data.get(s_norm, {})
                 current_receita += info.get('receita_liquida_site', 0.0)
-            
-            grupo_media_14d = 0.0
-            grupo_media_7d = 0.0
-            grupo_media_30d = 0.0
-            seen_media_norms = set()
-            for s_sku in skus:
-                s_norm = normalize_sku(s_sku)
-                if s_norm in seen_media_norms:
-                    continue
-                seen_media_norms.add(s_norm)
-                info = isc_data.get(s_norm, {})
+                current_sales_isc += info.get('qtd_site', 0)
                 grupo_media_14d += info.get('media_14d', 0.0)
                 grupo_media_7d += info.get('media_7d', 0.0)
                 grupo_media_30d += info.get('media_30d', 0.0)
+            # Align current_sales with ISC cache so ISC calc is identical to list view
+            if current_sales_isc > 0:
+                current_sales = current_sales_isc
         else:
             ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
             magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
@@ -6644,10 +6641,23 @@ def get_marketing_event_by_id(
                 detail_bt_total_qtd += int(detail_cad.atletas_site_pago)
         detail_budget_ticket = round(detail_bt_total_receita / detail_bt_total_qtd, 2) if detail_bt_total_qtd > 0 else 0.0
         
-        isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
-                                                   daily_sales_dict=daily_sales_dict,
-                                                   hist_pattern=detail_hist_pattern,
-                                                   registration_close_date=data_fim_inscricoes)
+        # Use ISC cache medias for the ISC component calculation so that the
+        # detail view produces the same ISC value as the list view (consistency).
+        # daily_sales_dict is still included in the response payload for charts.
+        _has_cache_medias = (grupo_media_14d > 0 or grupo_media_7d > 0)
+        if _has_cache_medias:
+            isc_components = calculate_isc_components(
+                current_sales, sales_goal, d_minus_inscricoes,
+                media_7d=grupo_media_7d if grupo_media_7d > 0 else None,
+                media_14d=grupo_media_14d if grupo_media_14d > 0 else None,
+                media_30d=grupo_media_30d if grupo_media_30d > 0 else None,
+                hist_pattern=detail_hist_pattern,
+                registration_close_date=data_fim_inscricoes)
+        else:
+            isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
+                                                       daily_sales_dict=daily_sales_dict,
+                                                       hist_pattern=detail_hist_pattern,
+                                                       registration_close_date=data_fim_inscricoes)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
