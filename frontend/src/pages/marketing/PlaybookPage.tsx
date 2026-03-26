@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, BookOpen, Target, MessageSquare, CheckSquare, BarChart2, Clock, ChevronDown, ChevronRight } from 'lucide-react';
-import { marketingApi } from '../../services/api';
+import { marketingService } from '../../services/api';
 
 interface PlaybookEntry {
   letter: string;
@@ -160,7 +160,7 @@ export default function PlaybookPage() {
   const [filterIsc, setFilterIsc] = useState<string>('all');
 
   useEffect(() => {
-    marketingApi.getPlaybook()
+    marketingService.getPlaybook()
       .then(data => { setPlaybook(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
