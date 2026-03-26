@@ -1031,7 +1031,7 @@ const MarketingDashboard: React.FC = () => {
                       }`}>
                         <span className="text-base font-bold leading-none">{event.suggestedAction.letter}</span>
                         <span className="text-[10px] font-medium leading-tight text-center max-w-[100px] break-words opacity-90">
-                          {event.suggestedAction.name}
+                          {event.suggestedAction.actions?.[0] ?? event.suggestedAction.name}
                         </span>
                       </div>
                     ) : '—'}
