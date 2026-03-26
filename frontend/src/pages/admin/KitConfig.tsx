@@ -169,8 +169,6 @@ const KitConfig: React.FC = () => {
             return {
               ...k,
               multiplicador: mult,
-              price: k.price_base != null ? k.price_base * mult : null,
-              special_price: k.special_price_base != null ? k.special_price_base * mult : null,
               is_configured: true,
               is_kit_basico: isBasico,
               is_promo_principal: isPromoPrincipal,
@@ -225,8 +223,9 @@ const KitConfig: React.FC = () => {
     setSavingMany(true);
     const ids = Array.from(selectedIds);
     await Promise.all(ids.map((id) => handleSave(id)));
-    setSavingMany(false);
     setSelectedIds(new Set());
+    setSavingMany(false);
+    await fetchKits();
   };
 
   const handleBasicoToggle = (bundleId: number, idEvento: string | null) => {
