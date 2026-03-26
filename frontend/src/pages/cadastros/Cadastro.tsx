@@ -11,7 +11,7 @@ import {
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
   TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
-  Box, Flag, Activity
+  Box, Flag, Activity, Scale
 } from 'lucide-react';
 
 interface CortesiaItem {
@@ -286,7 +286,20 @@ const Cadastro: React.FC = () => {
     try {
       setLoading(true);
       const data = await cadastrosService.list();
-      setCadastros(data);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const processed = data.map((item: CadastroEvento) => {
+        if (item.status !== 'Cancelado' && item.status !== 'Concluído' && item.info_geral?.data) {
+          const parts = item.info_geral.data.split('T')[0].split('-');
+          const eventDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+          if (eventDate < today) {
+            cadastrosService.update(item.id!, { ...item, status: 'Concluído' }).catch(() => {});
+            return { ...item, status: 'Concluído' };
+          }
+        }
+        return item;
+      });
+      setCadastros(processed);
     } catch (error) {
       console.error('Erro ao carregar cadastros:', error);
     } finally {
@@ -1876,16 +1889,6 @@ const Cadastro: React.FC = () => {
                     {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Capacidade Máxima</label>
-                  <input
-                    type="number"
-                    value={form.capacidade_maxima || ''}
-                    onChange={(e) => setForm(prev => ({ ...prev, capacidade_maxima: e.target.value ? Number(e.target.value) : null }))}
-                    placeholder="Ex: 5000"
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                  />
-                </div>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-4">
@@ -2869,20 +2872,14 @@ const Cadastro: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 py-3 border-t border-gray-700/50">
-                    <div className="text-center">
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total</p>
-                      <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalAtletasCad) || '0'}</p>
+                  {cadastro.lei && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-3 py-1 rounded-full bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border border-yellow-500/30 text-yellow-400 text-xs font-bold flex items-center gap-1">
+                        <Scale className="w-3 h-3" />
+                        {cadastro.lei}
+                      </span>
                     </div>
-                    <div className="text-center">
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Site</p>
-                      <p className={`text-lg font-bold text-blue-400`}>{formatNumber(cadastro.atletas.site.pago || 0) || '0'}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Grupos</p>
-                      <p className={`text-lg font-bold text-orange-400`}>{formatNumber(cadastro.atletas.grupos.pago || 0) || '0'}</p>
-                    </div>
-                  </div>
+                  )}
 
                   <div className="flex gap-2">
                     <button
