@@ -594,6 +594,7 @@ class PlaybookEntry(BaseModel):
     stage: str
     stageName: str
     iscLabel: str
+    iscState: Optional[str] = None
     objective: str
     narrative: str
     actions: List[str]
