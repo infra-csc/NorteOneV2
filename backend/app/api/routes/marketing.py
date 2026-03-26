@@ -802,7 +802,10 @@ def get_suggested_action(isc: float, d_minus: int, green_threshold: float = 1.10
     else:
         isc_key = "fraco"
 
-    return _PLAYBOOK[(stage_key, isc_key)]
+    entry = dict(_PLAYBOOK[(stage_key, isc_key)])
+    # iscState is used by the frontend for color-coding; "estável" uses accent to match TS type
+    entry["iscState"] = "forte" if isc_key == "forte" else ("estável" if isc_key == "estavel" else "fraco")
+    return entry
 
 def get_active_actions_for_projects(db: Session, projeto_ids: list) -> dict:
     """
