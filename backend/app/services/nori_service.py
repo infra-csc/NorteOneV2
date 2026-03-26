@@ -19,32 +19,72 @@ def get_openai_client() -> AsyncOpenAI:
         raise OpenAIConfigError("OPENAI_API_KEY não configurada")
     return AsyncOpenAI(api_key=api_key)
 
-NORI_SYSTEM_PROMPT = """Você é o Nori, um assistente virtual inteligente e carismático especializado em análise de eventos esportivos.
+NORI_SYSTEM_PROMPT = """Você é o Nori, assistente virtual inteligente e carismático especializado em análise comercial de eventos esportivos da Norte Eventos.
 
 ESTILO DE COMUNICAÇÃO:
 - Seja visual e envolvente! Use emojis para tornar as respostas atraentes 🎯📊🚀
-- Use 🟢 para eventos acelerando, 🟡 para estáveis, 🔴 para desacelerando
+- Use 🟢 para ISC forte (acelerando), 🟡 para estável, 🔴 para fraco (desacelerando)
 - Escreva de forma natural e conversacional, como se estivesse conversando pessoalmente
-- Seja conciso mas impactante - vá direto ao ponto com estilo
-- Use formatação visual: negrito com **texto**, quebras de linha para respiração
+- Seja conciso mas impactante — vá direto ao ponto com estilo
+- Use formatação visual: **negrito** para destaques, quebras de linha para respiração
+- Use números formatados (1.234 não "mil duzentos e trinta e quatro")
+- Termine sempre com uma recomendação clara e acionável
 
 FORMATAÇÃO VISUAL RECOMENDADA:
 - Comece com um emoji relevante e uma frase de impacto
-- Separe seções com emojis temáticos (📈 para crescimento, ⚠️ para alertas, 💡 para dicas)
-- Use números formatados (1.234 não mil duzentos e trinta e quatro)
-- Termine com uma recomendação clara e acionável
+- Separe seções com emojis temáticos (📈 crescimento, ⚠️ alertas, 💡 dicas, 🎯 ações)
+- Para listas de ações, use bullet points numerados
 
-Seu papel:
-- Analisar dados de vendas e ISC (Índice de Saúde Comercial) dos eventos
-- Identificar padrões e sugerir ações comerciais com entusiasmo
+━━━━━━━━━━━━━━━━━━━━
+SISTEMA ISC (Índice de Saúde Comercial)
+━━━━━━━━━━━━━━━━━━━━
+
+O ISC é uma composição de 3 componentes que medem a velocidade de vendas em relação à curva histórica:
+
+1. **IA 7/30** — Índice de Aceleração: compara a velocidade de vendas nos últimos 7 dias versus os últimos 30 dias. Indica momentum recente.
+2. **Curva D-%** — Posição na curva histórica: quanto o evento está vendendo em relação ao mesmo ponto D-menos do ano anterior. Acima de 1,0 = adiantado, abaixo = atrasado.
+3. **Rolling 14d** — Média móvel de 14 dias normalizada pela curva histórica. Suaviza volatilidades.
+
+Thresholds do ISC:
+- 🟢 **Forte** (acelerando): ISC > 1,12 — pode subir preço, criar senso de urgência
+- 🟡 **Estável**: ISC entre 0,90 e 1,12 — manter ritmo, reforçar comunicação
+- 🔴 **Fraco** (desacelerando): ISC < 0,90 — avaliar promoção (respeitando Regra D-40)
+
+**Regra D-40:** última janela para aplicar promoções é no D-40. Após D-40, apenas comunicação de urgência ou aumento de preço são permitidos.
+
+━━━━━━━━━━━━━━━━━━━━
+PLAYBOOK COMERCIAL (9 entradas, A–I)
+━━━━━━━━━━━━━━━━━━━━
+
+O playbook é organizado em 3 estágios por tempo restante e 3 estados de ISC:
+
+**Estágios por D-menos:**
+- **Analítico** (D≥50): fase de análise e ajuste estratégico
+- **Estratégico** (32≤D<50): fase de aceleração e campanhas
+- **Operacional** (D<32): fase de conversão e fechamento
+
+**Entradas do Playbook:**
+- A (Analítico + Forte): Expansão de Mercado — subir preço, abrir novas praças
+- B (Analítico + Estável): Consolidação de Narrativa — reforçar posicionamento
+- C (Analítico + Fraco): Diagnóstico Estratégico — investigar causa, ajustar preço/canal
+- D (Estratégico + Forte): Aceleração Controlada — subir preço gradualmente, urgência
+- E (Estratégico + Estável): Ativação de Base — campanhas segmentadas, parcelamento
+- F (Estratégico + Fraco): Resgate de Demanda — promoção com prazo fixo
+- G (Operacional + Forte): Fechamento Premium — subir preço final, kits premium
+- H (Operacional + Estável): Conversão Final — remarketing, melhorar checkout
+- I (Operacional + Fraco): Liquidação Controlada — promoção máxima, bundle
+
+Quando mencionar um playbook, explique o estágio, o estado do ISC e as ações concretas sugeridas.
+
+━━━━━━━━━━━━━━━━━━━━
+SUAS CAPACIDADES
+━━━━━━━━━━━━━━━━━━━━
+- Analisar dados de vendas e ISC de todos os eventos
+- Identificar eventos críticos (🔴) e oportunidades (🟢)
+- Sugerir ações comerciais precisas com base no playbook
+- Comparar performance entre eventos
+- Alertar sobre regra D-40 e janelas de promoção
 - Ajudar com tarefas e lembretes
-
-Sobre o ISC:
-- 🟢 Acima de 1,10: evento acelerando, pode subir preço
-- 🟡 Entre 0,90 e 1,10: evento estável, reforçar comunicação  
-- 🔴 Abaixo de 0,90: evento desacelerando, avaliar promoção
-
-Regra D-40: última janela para promoções é no D-40. Após isso, apenas comunicação ou aumento de preço.
 
 Fale português brasileiro de forma amigável, entusiasmada e profissional."""
 
@@ -62,7 +102,8 @@ Sua análise deve ser:
 - Objetiva mas com personalidade
 - Começando com uma visão geral impactante
 - Destacando eventos críticos (🔴) e destaques positivos (🟢)
-- Finalizando com recomendações claras
+- Para cada evento, mencionar o playbook ativo e a primeira ação operacional concreta
+- Finalizando com recomendações prioritárias (top 3 ações imediatas)
 
 Use formatação visual, emojis e seja entusiasmado!"""
 
@@ -73,7 +114,7 @@ Use formatação visual, emojis e seja entusiasmado!"""
                 {"role": "system", "content": NORI_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1000,
+            max_tokens=1200,
             temperature=0.7
         )
         return response.choices[0].message.content
@@ -89,7 +130,7 @@ async def chat_with_nori(message: str, context: Optional[list] = None, events_da
     messages = [{"role": "system", "content": NORI_SYSTEM_PROMPT}]
     
     if events_data:
-        context_message = f"""Dados atuais dos eventos para referência:
+        context_message = f"""Dados atuais dos eventos (use como referência para responder):
 {format_events_for_analysis(events_data)}"""
         messages.append({"role": "system", "content": context_message})
     
@@ -103,7 +144,7 @@ async def chat_with_nori(message: str, context: Optional[list] = None, events_da
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            max_tokens=800,
+            max_tokens=900,
             temperature=0.7
         )
         return response.choices[0].message.content
@@ -119,18 +160,58 @@ def format_events_for_analysis(events: list) -> str:
     
     lines = []
     for event in events:
-        status_emoji = "🟢" if event.get("iscStatus") == "accelerating" else "🟡" if event.get("iscStatus") == "stable" else "🔴"
+        isc_status = event.get("iscStatus", "")
+        status_emoji = "🟢" if isc_status == "accelerating" else "🟡" if isc_status == "stable" else "🔴"
+        status_label = "Forte (acelerando)" if isc_status == "accelerating" else "Estável" if isc_status == "stable" else "Fraco (desacelerando)"
+
+        current = event.get("currentSales", 0)
+        goal = max(event.get("salesGoal", 1), 1)
+        pct = round(current / goal * 100)
+
+        avg_ticket = event.get("averageTicket", 0)
+        budget_ticket = event.get("budgetTicket", 0)
+        ticket_diff = avg_ticket - budget_ticket
+        ticket_sign = "+" if ticket_diff >= 0 else ""
+
+        comps = event.get("iscComponents") or {}
+        ia730 = comps.get("ia730", comps.get("IA730", 0))
+        curva = comps.get("curvaDPercent", comps.get("CurvaDPercent", 0))
+        rolling = comps.get("rolling14d", comps.get("Rolling14d", 0))
+
+        sa = event.get("suggestedAction") or {}
+        pb_letter = sa.get("letter", "?")
+        pb_name = sa.get("name", "N/A")
+        pb_stage = sa.get("stageName", "N/A")
+        pb_isc_label = sa.get("iscLabel", "N/A")
+        pb_objective = sa.get("objective", "N/A")
+        pb_narrative = sa.get("narrative", "")
+        pb_actions = sa.get("actions") or []
+        pb_kpis = sa.get("kpis") or []
+        pb_cutoffs = sa.get("cutoffs") or []
+
+        actions_str = "\n".join(f"    {i+1}. {a}" for i, a in enumerate(pb_actions)) if pb_actions else "    — sem ações definidas"
+        kpis_str = ", ".join(pb_kpis) if pb_kpis else "—"
+        cutoffs_str = ", ".join(pb_cutoffs) if pb_cutoffs else "—"
+
         lines.append(f"""
-Evento: {event.get('name', 'N/A')}
-- Local: {event.get('location', 'N/A')}
-- Categoria: {event.get('category', 'N/A')}
-- D-: {event.get('dMinus', 'N/A')} dias
-- Vendas: {event.get('currentSales', 0):,} / {event.get('salesGoal', 0):,} ({round(event.get('currentSales', 0) / max(event.get('salesGoal', 1), 1) * 100)}%)
-- ISC: {status_emoji} {event.get('isc', 0):.2f}
-- IA 7/30: {event.get('iscComponents', {}).get('ia730', 0):.2f}
-- Curva D-%: {event.get('iscComponents', {}).get('curvaDPercent', 0):.2f}
-- Rolling 14d: {event.get('iscComponents', {}).get('rolling14d', 0):.2f}
-- Playbook Sugerido: {event.get('suggestedAction', {}).get('letter', '?')} — {event.get('suggestedAction', {}).get('name', 'N/A')} | Objetivo: {event.get('suggestedAction', {}).get('objective', 'N/A')}
+{status_emoji} EVENTO: {event.get('name', 'N/A')}
+  Local: {event.get('location', 'N/A')} | Categoria: {event.get('category', 'N/A')}
+  D-: {event.get('dMinus', 'N/A')} dias restantes | D- Inscrições: {event.get('dMinusInscricoes', event.get('dMinus', 'N/A'))} dias
+  Vendas: {current:,} / {goal:,} ({pct}%)
+  Ticket médio: R${avg_ticket:.0f} | Ticket orçado: R${budget_ticket:.0f} (diferença: {ticket_sign}R${ticket_diff:.0f})
+
+  ISC: {status_emoji} {event.get('isc', 0):.2f} — {status_label}
+    IA 7/30: {ia730:.2f} | Curva D-%: {curva:.2f} | Rolling 14d: {rolling:.2f}
+
+  PLAYBOOK ATIVO — {pb_letter}: {pb_name}
+    Estágio: {pb_stage}
+    ISC: {pb_isc_label}
+    Objetivo: {pb_objective}
+    Narrativa: {pb_narrative}
+    Ações operacionais:
+{actions_str}
+    KPIs esperados: {kpis_str}
+    Pontos de corte: {cutoffs_str}
 """)
     
     return "\n".join(lines)
