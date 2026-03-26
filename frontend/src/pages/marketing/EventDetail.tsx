@@ -1591,12 +1591,6 @@ const EventDetail: React.FC = () => {
           <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
             {event.suggestedAction.name}
           </p>
-          <Link
-            to="/marketing/playbook"
-            className="shrink-0 text-xs text-indigo-600 dark:text-indigo-400 hover:underline ml-auto"
-          >
-            Ver completo →
-          </Link>
         </div>
       </div>
 
