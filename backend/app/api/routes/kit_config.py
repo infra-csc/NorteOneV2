@@ -29,16 +29,6 @@ SELECT
     eaov_tipo.value                         AS tipo_categoria,
     lote.lot_name                           AS lote_atual,
 
-    CASE cpei_tipo.value
-        WHEN 1606 THEN 2
-        WHEN 1607 THEN 3
-        WHEN 1608 THEN 4
-        WHEN 1609 THEN 2
-        WHEN 1700 THEN 2
-        WHEN 1701 THEN 4
-        ELSE 1
-    END                                     AS multiplicador,
-
     (
         MAX(CASE 
             WHEN (
@@ -82,17 +72,7 @@ SELECT
              AND cpev_simple.value NOT LIKE '%Corrida +%'
             THEN cpep.value ELSE NULL 
         END), 0)
-    )
-    *
-    CASE cpei_tipo.value
-        WHEN 1606 THEN 2
-        WHEN 1607 THEN 3
-        WHEN 1608 THEN 4
-        WHEN 1609 THEN 2
-        WHEN 1700 THEN 2
-        WHEN 1701 THEN 4
-        ELSE 1
-    END                                     AS price,
+    )                                       AS price,
 
     (
         MAX(CASE 
@@ -137,17 +117,7 @@ SELECT
              AND cpev_simple.value NOT LIKE '%Corrida +%'
             THEN pi_filho.final_price ELSE NULL 
         END), 0)
-    )
-    *
-    CASE cpei_tipo.value
-        WHEN 1606 THEN 2
-        WHEN 1607 THEN 3
-        WHEN 1608 THEN 4
-        WHEN 1609 THEN 2
-        WHEN 1700 THEN 2
-        WHEN 1701 THEN 4
-        ELSE 1
-    END                                     AS special_price,
+    )                                       AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
@@ -205,15 +175,15 @@ LEFT JOIN catalog_product_index_price pi_filho
       AND pi_filho.website_id = 1
       AND pi_filho.customer_group_id = 0
 
-LEFT JOIN (
-    SELECT l.entity_id, l.lot_id, l.lot_name, l.lot_value, l.lot_sell_ends
-    FROM catalog_product_entity_event_lot_price l
-    INNER JOIN (
-        SELECT entity_id, MAX(record_id) AS max_rid
-        FROM catalog_product_entity_event_lot_price
-        GROUP BY entity_id
-    ) lr ON l.entity_id = lr.entity_id AND l.record_id = lr.max_rid
-) lote ON lote.entity_id = cpev1.value
+LEFT JOIN catalog_product_entity_event_lot_price lote
+       ON lote.entity_id = cpev1.value
+      AND lote.lot_id = (
+            SELECT lot_id
+            FROM catalog_product_entity_event_lot_price
+            WHERE entity_id = cpev1.value
+            ORDER BY record_id DESC
+            LIMIT 1
+      )
 
 LEFT JOIN catalog_product_entity_int cpei_status
        ON cpei_status.entity_id = cpe_parent.entity_id
@@ -228,7 +198,6 @@ LEFT JOIN catalog_product_entity_int cpei_status
               )
       )
 
-
 WHERE cpe_parent.type_id = 'bundle'
   AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
   AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
@@ -239,7 +208,6 @@ GROUP BY
     cpe_parent.entity_id,
     cpev_kit_name.value,
     eaov_tipo.value,
-    cpei_tipo.value,
     lote.lot_name,
     lote.lot_value,
     lote.lot_sell_ends
@@ -335,15 +303,11 @@ def get_kits_with_config(
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
 
-        mult_sugerido = int(row_dict.get("multiplicador") or 1)
         price_raw = float(row_dict["price"]) if row_dict.get("price") is not None else None
         special_price_raw = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
 
-        price_base = (price_raw / mult_sugerido) if price_raw is not None and mult_sugerido > 0 else price_raw
-        special_price_base = (special_price_raw / mult_sugerido) if special_price_raw is not None and mult_sugerido > 0 else special_price_raw
-
         cfg = config_map.get(bundle_id)
-        multiplicador = cfg.multiplicador if cfg else mult_sugerido
+        multiplicador = cfg.multiplicador if cfg else 1
         is_configured = cfg is not None
         is_kit_basico = cfg.is_kit_basico if cfg else False
         is_promo_principal = cfg.is_promo_principal if cfg else False
@@ -351,9 +315,6 @@ def get_kits_with_config(
 
         custo_cadastro = _get_custo_for_event(row_dict.get("id_evento"), tipo_kit)
         custo_kit_val = float(cfg.custo_kit) if cfg and cfg.custo_kit is not None else None
-
-        price_final = (price_base * multiplicador) if price_base is not None else None
-        special_price_final = (special_price_base * multiplicador) if special_price_base is not None else None
 
         kits.append(KitRow(
             id_evento=str(row_dict.get("id_evento")) if row_dict.get("id_evento") is not None else None,
@@ -363,12 +324,12 @@ def get_kits_with_config(
             tipo_kit=tipo_kit,
             tipo_categoria=row_dict.get("tipo_categoria"),
             lote_atual=row_dict.get("lote_atual"),
-            multiplicador_sugerido=mult_sugerido,
+            multiplicador_sugerido=1,
             multiplicador=multiplicador,
-            price_base=price_base,
-            special_price_base=special_price_base,
-            price=price_final,
-            special_price=special_price_final,
+            price_base=price_raw,
+            special_price_base=special_price_raw,
+            price=price_raw,
+            special_price=special_price_raw,
             is_configured=is_configured,
             is_kit_basico=is_kit_basico,
             is_promo_principal=is_promo_principal,
