@@ -660,7 +660,8 @@ const EventDetail: React.FC = () => {
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
 
-  const last30Days = (event.dailySales || []).slice(-30);
+  const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
+  const last30Days = completeDailySales.slice(-30);
 
   const _rawDMinusCalc = event.dMinusInscricoes != null ? event.dMinusInscricoes : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
   const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
@@ -678,7 +679,7 @@ const EventDetail: React.FC = () => {
     ? _kitSumMargem
     : _consRowMargem ?? null;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
-  const last7DaysSales = (event.dailySales || []).slice(-7);
+  const last7DaysSales = completeDailySales.slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
     ? last7DaysSales.reduce((sum, d) => sum + d.sales, 0) / last7DaysSales.length
     : 0;
@@ -687,7 +688,7 @@ const EventDetail: React.FC = () => {
     : (mediaSemanaAtual > 0 ? 100 : 0);
 
   const indicadoresVolume = [3, 7, 14, 30].map(dias => {
-    const vendas = (event.dailySales || []).slice(-dias);
+    const vendas = completeDailySales.slice(-dias);
     const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
     const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
     const potencial = media * dMinusCalc;

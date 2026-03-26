@@ -1715,6 +1715,7 @@ INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
       AND soi_child.price          > 0
+      AND soi_child.price - soi_child.discount_amount > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -1817,6 +1818,7 @@ INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
       AND soi_child.price          > 0
+      AND soi_child.price - soi_child.discount_amount > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
