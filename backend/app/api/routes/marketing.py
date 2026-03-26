@@ -1008,10 +1008,20 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     progress_percent = current_sales / sales_goal
 
     if hist_pattern and len(hist_pattern) > 0:
-        expected_progress = _interpolate_hist_pattern(hist_pattern, d_minus_effective)
-        if expected_progress <= 0:
-            expected_progress = 0.01
-        curva_d_percent = progress_percent / expected_progress
+        hist_max_dm = max(hist_pattern.keys())
+        if d_minus_effective > hist_max_dm:
+            # Current D-minus is beyond the historical data range (campaign hadn't started
+            # that early in the reference year). Fall back to linear 90-day ramp so we
+            # don't divide by a near-zero historical percentage and inflate the component.
+            total_days = 90
+            elapsed_days = max(1, total_days - d_minus_effective)
+            expected_progress = max(elapsed_days / total_days, 0.01)
+            curva_d_percent = progress_percent / expected_progress
+        else:
+            expected_progress = _interpolate_hist_pattern(hist_pattern, d_minus_effective)
+            if expected_progress <= 0:
+                expected_progress = 0.01
+            curva_d_percent = progress_percent / expected_progress
     else:
         total_days = 90
         elapsed_days = max(1, total_days - d_minus_effective)
@@ -1338,7 +1348,17 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
             if dm in hist_pattern:
                 pct = hist_pattern[dm]
             elif dm > hist_max_known:
-                pct = 0.0
+                # Beyond the historical range: linearly extrapolate from 0% at D-90
+                # to hist_pattern[hist_max_known] at D-hist_max_known so the expected
+                # curve is populated even when the current campaign started earlier
+                # than the reference year's campaign.
+                anchor_pct = hist_pattern[hist_max_known]
+                linear_ref = 90
+                if dm >= linear_ref or linear_ref == hist_max_known:
+                    pct = 0.0
+                else:
+                    pct = anchor_pct * (linear_ref - dm) / (linear_ref - hist_max_known)
+                    pct = max(0.0, pct)
             elif dm <= hist_min_known:
                 pct = hist_pattern[hist_min_known]
             else:
@@ -1371,7 +1391,13 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
             if lookup_dm in hist_pattern:
                 curva_pct = round(hist_pattern[lookup_dm] * 100, 1)
             elif lookup_dm > hist_max_known:
-                curva_pct = 0.0
+                anchor_pct2 = hist_pattern[hist_max_known]
+                linear_ref2 = 90
+                if lookup_dm >= linear_ref2 or linear_ref2 == hist_max_known:
+                    curva_pct = 0.0
+                else:
+                    extrapolated = anchor_pct2 * (linear_ref2 - lookup_dm) / (linear_ref2 - hist_max_known)
+                    curva_pct = round(max(0.0, extrapolated) * 100, 1)
             elif lookup_dm <= hist_min_known:
                 curva_pct = round(hist_pattern[hist_min_known] * 100, 1)
             else:
