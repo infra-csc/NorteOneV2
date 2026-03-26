@@ -705,10 +705,11 @@ const KitConfig: React.FC = () => {
                       <td className="px-3 py-2.5 text-left whitespace-nowrap">
                         <input
                           type="text"
-                          placeholder="Ex: Kit Básico"
+                          placeholder="Ex: Kit Amador, Kit Olímpico"
+                          title="Para múltiplos, separe por vírgula. Ex: Kit Amador - Olímpico, Kit Amador - Short"
                           value={editAtivoCateg}
                           onChange={(e) => setAtivoCategValues((prev) => ({ ...prev, [kit.bundle_entity_id]: e.target.value }))}
-                          className={`w-32 text-left px-2 py-1 rounded border text-xs ${
+                          className={`w-44 text-left px-2 py-1 rounded border text-xs ${
                             isDark
                               ? 'bg-gray-700 border-gray-600 text-white focus:border-teal-400 placeholder-gray-500'
                               : 'bg-white border-gray-300 text-gray-900 focus:border-teal-500 placeholder-gray-400'

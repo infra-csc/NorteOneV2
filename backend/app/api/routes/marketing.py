@@ -2009,8 +2009,11 @@ GROUP BY soi_parent.name
                 for _kn, _kd in kit_map.items():
                     _ac = (_kd.get("ativo_categoria") or "").strip()
                     if _ac:
-                        # ativo_categoria explicitly configured — this is the authoritative key
-                        _cat_to_kit[_ac.lower()] = _kn
+                        # ativo_categoria explicitly configured — supports comma-separated values
+                        for _ac_part in _ac.split(","):
+                            _ac_part = _ac_part.strip()
+                            if _ac_part:
+                                _cat_to_kit[_ac_part.lower()] = _kn
                     else:
                         # No explicit mapping: exact case-insensitive kit name fallback
                         _cat_to_kit.setdefault(_kn.lower(), _kn)

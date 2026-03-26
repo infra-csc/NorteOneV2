@@ -792,6 +792,7 @@ def _run_column_migrations():
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS custo_kit DECIMAL(10,2)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
             "ALTER TABLE cadastro_kit_produto ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
+            "ALTER TABLE kit_config ALTER COLUMN ativo_categoria TYPE VARCHAR(500)",
             "ALTER TABLE vendas_diaria_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
         ]
         kit_basico_idx = [
