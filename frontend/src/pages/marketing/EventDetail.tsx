@@ -1586,10 +1586,10 @@ const EventDetail: React.FC = () => {
             event.iscStatus === 'stable' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300' :
             'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300'
           }`}>
-            Playbook {event.suggestedAction.letter}
+            Playbook {event.suggestedAction?.letter}
           </span>
           <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-            {event.suggestedAction.name}
+            {event.suggestedAction?.name}
           </p>
         </div>
       </div>
@@ -1769,7 +1769,7 @@ const EventDetail: React.FC = () => {
             <div className="sm:col-span-2">
               <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Ações Operacionais</p>
               <ul className="space-y-1.5">
-                {event.suggestedAction.actions.map((action, i) => (
+                {(event.suggestedAction.actions ?? []).map((action, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
                     <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
                       event.iscStatus === 'accelerating' ? 'bg-green-500' : event.iscStatus === 'stable' ? 'bg-amber-400' : 'bg-red-500'
@@ -1782,7 +1782,7 @@ const EventDetail: React.FC = () => {
             <div className="space-y-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">KPIs (48–72h)</p>
-                {event.suggestedAction.kpis.map((kpi, i) => (
+                {(event.suggestedAction.kpis ?? []).map((kpi, i) => (
                   <div key={i} className="text-sm text-gray-700 dark:text-gray-300 bg-white/60 dark:bg-black/20 rounded-lg px-3 py-1.5 font-medium">
                     {kpi}
                   </div>
@@ -1791,7 +1791,7 @@ const EventDetail: React.FC = () => {
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Pontos de Corte</p>
                 <div className="flex gap-2 flex-wrap">
-                  {event.suggestedAction.cutoffs.map((c, i) => (
+                  {(event.suggestedAction.cutoffs ?? []).map((c, i) => (
                     <span key={i} className={`text-sm font-bold px-3 py-1 rounded-lg ${
                       event.iscStatus === 'accelerating'
                         ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'
