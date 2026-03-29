@@ -4854,12 +4854,12 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(c.dt_pedido) AS dia,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-        AND c.nr_total > 0 THEN 1 END) AS qtd,
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND a.nr_preco > 0 THEN 1 END) AS qtd,
     SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-        AND c.nr_total > 0 THEN 
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND a.nr_preco > 0 THEN
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)
     ELSE 0 END) AS receita
 FROM sa_pedido_evento AS a
@@ -4897,8 +4897,8 @@ SELECT /*+ MAX_EXECUTION_TIME(30000) */
     DATE(c.dt_pedido) AS dia,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
-        AND c.nr_total > 0 THEN 1 END) AS qtd
+        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+        AND a.nr_preco > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
 INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
