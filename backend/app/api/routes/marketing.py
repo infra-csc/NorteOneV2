@@ -4851,31 +4851,38 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
             return []
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
-              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
-        AND a.nr_preco > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
-              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
-        AND a.nr_preco > 0 THEN
-        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)
-    ELSE 0 END) AS receita
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
-LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (1, 2)
-    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-    AND b.id_evento IN :id_eventos
-    AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
-GROUP BY DATE(c.dt_pedido)
-ORDER BY dia
+    sub.dia,
+    SUM(sub.qtd)     AS qtd,
+    SUM(sub.receita) AS receita
+FROM (
+    SELECT
+        DATE(c.dt_pedido) AS dia,
+        CASE
+            WHEN a.nr_preco = 0                THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE                                    'Site'
+        END AS canal,
+        COUNT(DISTINCT a.id_pedido_evento) AS qtd,
+        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)) AS receita
+    FROM sa_pedido_evento AS a
+    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+    INNER JOIN sa_pedido AS c
+        ON c.id_pedido = a.id_pedido
+       AND c.fl_local_inscricao = '1'
+       AND c.id_pedido_status IN (1, 2)
+    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    WHERE
+        b.id_evento IN :id_eventos
+        AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+        AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
+    GROUP BY DATE(c.dt_pedido),
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+                  ELSE 'Site' END
+) AS sub
+WHERE sub.canal = 'Site'
+GROUP BY sub.dia
+ORDER BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(query, {"id_eventos": safe_ids})
@@ -4894,24 +4901,35 @@ def _fetch_today_sales_ativo_by_ids(id_eventos: list) -> dict:
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
-    DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
-              OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
-        AND a.nr_preco > 0 THEN 1 END) AS qtd
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
-LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (1, 2)
-    AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-    AND b.id_evento IN :id_eventos
-    AND DATE(c.dt_pedido) = CURDATE()
-GROUP BY DATE(c.dt_pedido)
+    sub.dia,
+    SUM(sub.qtd) AS qtd
+FROM (
+    SELECT
+        DATE(c.dt_pedido) AS dia,
+        CASE
+            WHEN a.nr_preco = 0                THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE                                    'Site'
+        END AS canal,
+        COUNT(DISTINCT a.id_pedido_evento) AS qtd
+    FROM sa_pedido_evento AS a
+    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+    INNER JOIN sa_pedido AS c
+        ON c.id_pedido = a.id_pedido
+       AND c.fl_local_inscricao = '1'
+       AND c.id_pedido_status IN (1, 2)
+    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    WHERE
+        b.id_evento IN :id_eventos
+        AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+        AND DATE(c.dt_pedido) = CURDATE()
+    GROUP BY DATE(c.dt_pedido),
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+                  ELSE 'Site' END
+) AS sub
+WHERE sub.canal = 'Site'
+GROUP BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(query, {"id_eventos": safe_ids})
