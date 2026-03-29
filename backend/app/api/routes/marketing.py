@@ -4717,35 +4717,38 @@ def _fetch_daily_sales_ativo_by_ids_grouped(id_eventos: list) -> dict:
             return {}
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    b.id_evento,
-    DATE(c.dt_pedido) AS dia,
-    COUNT(CASE WHEN a.nr_preco > 0
-        AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
-        THEN 1 END) AS qtd
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c
-    ON c.id_pedido = a.id_pedido
-   AND c.fl_local_inscricao = '1'
-   AND c.id_pedido_status IN (1, 2)
-   AND c.nr_total > 0
-LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
-LEFT JOIN (
-    SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
-    FROM sa_cupom_desconto_item AS e
-    INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
-) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
-WHERE
-    (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-    AND b.id_evento IN :id_eventos
-    AND c.nr_total > 0
-    AND (cupom.en_cupom_classificacao IS NULL
-         OR cupom.en_cupom_classificacao NOT IN (
-             'Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'
-         ))
-    AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
-GROUP BY b.id_evento, DATE(c.dt_pedido)
-ORDER BY b.id_evento, dia
+    sub.id_evento,
+    sub.dia,
+    SUM(sub.qtd) AS qtd
+FROM (
+    SELECT
+        b.id_evento,
+        DATE(c.dt_pedido) AS dia,
+        CASE
+            WHEN a.nr_preco = 0                THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE                                    'Site'
+        END AS canal,
+        COUNT(DISTINCT a.id_pedido_evento) AS qtd
+    FROM sa_pedido_evento AS a
+    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+    INNER JOIN sa_pedido AS c
+        ON c.id_pedido = a.id_pedido
+       AND c.fl_local_inscricao = '1'
+       AND c.id_pedido_status IN (1, 2)
+    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    WHERE
+        (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+        AND b.id_evento IN :id_eventos
+        AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
+    GROUP BY b.id_evento, DATE(c.dt_pedido),
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+                  ELSE 'Site' END
+) AS sub
+WHERE sub.canal = 'Site'
+GROUP BY sub.id_evento, sub.dia
+ORDER BY sub.id_evento, sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(query, {"id_eventos": [int(i) for i in safe_ids]})
