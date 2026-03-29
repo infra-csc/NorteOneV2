@@ -346,6 +346,11 @@ def _full_cache_warmup():
             fetch_isc_pricing_data(db=db, force_refresh=True)
             logger.info("[Warmup 1/4] ISC pricing data refreshed")
             update_warmup_sub_progress(1)
+            # Atualiza o timestamp logo após o ISC ser renovado, sem aguardar o warmup
+            # completo de 300+ eventos (~43 min). Assim, se o servidor reiniciar durante
+            # a fase de event_detail, o dashboard não exibirá uma data obsoleta.
+            set_last_full_refresh(time.time())
+            logger.info("[Warmup 1/4] last_full_refresh atualizado após ISC refresh")
         except Exception as e:
             logger.error(f"[Warmup 1/4] ISC pricing data FAILED: {e}")
             partial_warnings.append(f"Dados de inscrições parciais: {str(e)[:100]}")
