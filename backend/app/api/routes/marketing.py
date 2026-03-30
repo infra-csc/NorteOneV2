@@ -4641,9 +4641,14 @@ FROM (
         b.id_evento,
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN a.nr_preco = 0                THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-            ELSE                                    'Site'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao IN (
+                     'Funcionário', 'Cortesia Faturada',
+                     'Coligados', 'Eventos Terceiros'
+                 )                                                     THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
+            ELSE                                                           'Site'
         END AS canal,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd
     FROM sa_pedido_evento AS a
@@ -4653,12 +4658,19 @@ FROM (
        AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (1, 2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    LEFT JOIN (
+        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+        FROM sa_cupom_desconto_item AS e
+        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
     WHERE
         (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND b.id_evento IN :id_eventos
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     GROUP BY b.id_evento, DATE(c.dt_pedido),
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
@@ -4777,12 +4789,24 @@ FROM (
     SELECT
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN a.nr_preco = 0                THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-            ELSE                                    'Site'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao IN (
+                     'Funcionário', 'Cortesia Faturada',
+                     'Coligados', 'Eventos Terceiros'
+                 )                                                     THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
+            ELSE                                                           'Site'
         END AS canal,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)) AS receita
+        SUM(GREATEST(
+            CASE
+                WHEN a.nr_preco = 0 OR cupom.en_cupom_classificacao IN (
+                         'Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros'
+                     ) THEN 0
+                ELSE a.nr_preco - COALESCE(a.nr_desconto_individual, 0)
+            END
+        , 0)) AS receita
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
@@ -4790,12 +4814,19 @@ FROM (
        AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (1, 2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    LEFT JOIN (
+        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+        FROM sa_cupom_desconto_item AS e
+        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
     WHERE
         b.id_evento IN :id_eventos
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     GROUP BY DATE(c.dt_pedido),
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
@@ -4826,9 +4857,14 @@ FROM (
     SELECT
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN a.nr_preco = 0                THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-            ELSE                                    'Site'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao IN (
+                     'Funcionário', 'Cortesia Faturada',
+                     'Coligados', 'Eventos Terceiros'
+                 )                                                     THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
+            ELSE                                                           'Site'
         END AS canal,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd
     FROM sa_pedido_evento AS a
@@ -4838,12 +4874,19 @@ FROM (
        AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (1, 2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    LEFT JOIN (
+        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+        FROM sa_cupom_desconto_item AS e
+        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
     WHERE
         b.id_evento IN :id_eventos
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND DATE(c.dt_pedido) = CURDATE()
     GROUP BY DATE(c.dt_pedido),
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
@@ -4928,12 +4971,24 @@ FROM (
     SELECT
         b.id_evento,
         CASE
-            WHEN a.nr_preco = 0                THEN 'Cortesia'
-            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-            ELSE                                    'Site'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao IN (
+                     'Funcionário', 'Cortesia Faturada',
+                     'Coligados', 'Eventos Terceiros'
+                 )                                                     THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
+            ELSE                                                           'Site'
         END AS canal,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)) AS receita
+        SUM(GREATEST(
+            CASE
+                WHEN a.nr_preco = 0 OR cupom.en_cupom_classificacao IN (
+                         'Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros'
+                     ) THEN 0
+                ELSE a.nr_preco - COALESCE(a.nr_desconto_individual, 0)
+            END
+        , 0)) AS receita
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
@@ -4941,12 +4996,19 @@ FROM (
        AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (1, 2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    LEFT JOIN (
+        SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+        FROM sa_cupom_desconto_item AS e
+        INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+    ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
     WHERE
         b.id_evento IN :id_eventos
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND DATE(c.dt_pedido) = CURDATE()
     GROUP BY b.id_evento,
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+                  WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
