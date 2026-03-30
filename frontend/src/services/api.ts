@@ -920,6 +920,15 @@ export const marketingService = {
     const response = await api.post('/marketing/cache/refresh-all');
     return response.data;
   },
+  syncHoje: async (): Promise<{
+    status: string;
+    synced: number;
+    message: string;
+    ultima_atualizacao: string;
+  }> => {
+    const response = await api.post('/marketing/cache/sync-hoje', null, { timeout: 120000 });
+    return response.data;
+  },
   getCacheStatus: async (): Promise<{
     status: string;
     refresh_in_progress: boolean;

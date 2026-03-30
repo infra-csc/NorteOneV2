@@ -7478,6 +7478,37 @@ def refresh_cache(
     }
 
 
+@router.post("/cache/sync-hoje")
+def sync_hoje_todos(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    """Sincroniza apenas os dados de HOJE do MySQL para o snapshot PostgreSQL de todos os
+    eventos ativos, depois reconstrói o ISC cache. Muito mais rápido que o refresh completo."""
+    from app.services.snapshot_service import sincronizar_hoje_batch
+
+    try:
+        synced = sincronizar_hoje_batch(db)
+    except Exception as e:
+        logger.error(f"sync-hoje: erro em sincronizar_hoje_batch: {e}")
+        return {"status": "error", "message": str(e), "synced": 0}
+
+    _smart_isc_cache.invalidate()
+    eventos_list_cache.invalidate()
+
+    try:
+        fetch_isc_pricing_data(db=db, force_refresh=True)
+    except Exception as e:
+        logger.warning(f"sync-hoje: erro ao reconstruir ISC cache: {e}")
+
+    return {
+        "status": "ok",
+        "synced": synced,
+        "message": f"Dados de hoje sincronizados para {synced} grupos. Tabela principal atualizada.",
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    }
+
+
 @router.post("/cache/refresh-all")
 def refresh_all_caches(
     current_user: Usuario = Depends(get_current_user)

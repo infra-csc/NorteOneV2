@@ -19,14 +19,15 @@ import {
   XCircle,
   AlertCircle,
   Archive,
-  BookOpen
+  BookOpen,
+  Zap
 } from 'lucide-react';
 import { 
   getISCColor, 
   getISCEmoji, 
   isInCriticalWindow 
 } from '../../types/marketingPerformance';
-import { marketingService, MarketingEvent, MarketingDashboardSummary, getMarketingDashboardCache } from '../../services/api';
+import { marketingService, MarketingEvent, MarketingDashboardSummary, getMarketingDashboardCache, clearMarketingDashboardCache } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 
@@ -142,6 +143,8 @@ const MarketingDashboard: React.FC = () => {
   const loadingTooLongTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
+  const [syncingHoje, setSyncingHoje] = useState(false);
+  const [syncHojeResult, setSyncHojeResult] = useState<'success' | 'error' | null>(null);
   const [bgRefreshing, setBgRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null; sub_current?: number; sub_total?: number} | null>(null);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | 'timeout' | null>(null);
@@ -310,6 +313,27 @@ const MarketingDashboard: React.FC = () => {
       setRefreshResult(null);
       refreshResultRef.current = null;
     }, 5000);
+  };
+
+  const handleSyncHoje = async () => {
+    if (syncingHoje || fullRefreshing) return;
+    setSyncingHoje(true);
+    setSyncHojeResult(null);
+    try {
+      const result = await marketingService.syncHoje();
+      if (result.status === 'ok') {
+        setSyncHojeResult('success');
+        clearMarketingDashboardCache();
+        fetchData(true, false);
+      } else {
+        setSyncHojeResult('error');
+      }
+    } catch {
+      setSyncHojeResult('error');
+    } finally {
+      setSyncingHoje(false);
+      setTimeout(() => setSyncHojeResult(null), 5000);
+    }
   };
 
   const handleFullRefresh = async () => {
@@ -598,6 +622,35 @@ const MarketingDashboard: React.FC = () => {
                             ? refreshProgress.label || `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
                             : 'Iniciando...'
                           : 'Atualizar'}
+                </span>
+              </button>
+              <button
+                onClick={handleSyncHoje}
+                disabled={syncingHoje || fullRefreshing || loading}
+                title="Sincroniza apenas os dados de hoje do MySQL para todos os eventos (~1 min)"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                  syncHojeResult === 'success'
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                    : syncHojeResult === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                      : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+                } ${(syncingHoje || fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {syncHojeResult === 'success' ? (
+                  <CheckCircle className="w-3.5 h-3.5" />
+                ) : syncHojeResult === 'error' ? (
+                  <XCircle className="w-3.5 h-3.5" />
+                ) : (
+                  <Zap className={`w-3.5 h-3.5 ${syncingHoje ? 'animate-pulse' : ''}`} />
+                )}
+                <span className="font-medium">
+                  {syncHojeResult === 'success'
+                    ? 'Sincronizado!'
+                    : syncHojeResult === 'error'
+                      ? 'Falha'
+                      : syncingHoje
+                        ? 'Sincronizando...'
+                        : 'Sincronizar Hoje'}
                 </span>
               </button>
               {fullRefreshing && refreshProgress && refreshProgress.elapsed_seconds != null && (
