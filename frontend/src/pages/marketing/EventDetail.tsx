@@ -357,8 +357,9 @@ const EventDetail: React.FC = () => {
         staleRetryTimerRef.current = null;
       }
       // Re-busca o detalhe completo do evento (silencioso) para atualizar
-      // dados como margemPorKit que não fazem parte da resposta rápida acima.
-      fetchEventRef.current?.(true, true);
+      // dados como margemPorKit. O cache já foi invalidado pelo backend,
+      // então uma chamada normal recomputa sem forçar bypass extra.
+      fetchEventRef.current?.(false, true);
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
     } finally {

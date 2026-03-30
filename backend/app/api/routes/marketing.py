@@ -1842,27 +1842,29 @@ def get_margem_por_kit(
                 f"AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY"
             )
             magento_bundle_query = text(f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     soi_parent.product_id                                                              AS bundle_entity_id,
     COUNT(DISTINCT soi_parent.item_id)                                                 AS qtd,
-    ROUND(SUM(CASE WHEN soi_child.item_id IS NOT NULL
-                   THEN soi_child.price - soi_child.discount_amount
-                   ELSE 0 END), 2)                                                     AS receita_liquida
+    ROUND(COALESCE(SUM(child_agg.rev), 0), 2)                                         AS receita_liquida
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-LEFT JOIN sales_order_item soi_child
-       ON soi_child.parent_item_id = soi_parent.item_id
-      AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
-      AND soi_child.price - soi_child.discount_amount > 0
-      AND (
-            soi_child.name LIKE '%%Distância%%'
-         OR soi_child.name LIKE '%%Distancia%%'
-         OR soi_child.name LIKE '%%Distâncias%%'
-         OR soi_child.name LIKE '%%Modalidade%%'
-      )
+LEFT JOIN (
+    SELECT parent_item_id,
+           SUM(price - discount_amount) AS rev
+    FROM   sales_order_item
+    WHERE  product_type = 'simple'
+      AND  price > 0
+      AND  (price - discount_amount) > 0
+      AND  (
+                name LIKE '%%Distância%%'
+             OR name LIKE '%%Distancia%%'
+             OR name LIKE '%%Distâncias%%'
+             OR name LIKE '%%Modalidade%%'
+           )
+    GROUP BY parent_item_id
+) AS child_agg ON child_agg.parent_item_id = soi_parent.item_id
 INNER JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
@@ -1947,27 +1949,29 @@ GROUP BY soi_parent.product_id
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
             ev_ids_fb = list(seen_magento_events)
             fb_query = text(f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     soi_parent.name                                                                    AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)                                                 AS qtd,
-    ROUND(SUM(CASE WHEN soi_child.item_id IS NOT NULL
-                   THEN soi_child.price - soi_child.discount_amount
-                   ELSE 0 END), 2)                                                     AS receita_liquida
+    ROUND(COALESCE(SUM(child_agg.rev), 0), 2)                                         AS receita_liquida
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-LEFT JOIN sales_order_item soi_child
-       ON soi_child.parent_item_id = soi_parent.item_id
-      AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
-      AND soi_child.price - soi_child.discount_amount > 0
-      AND (
-            soi_child.name LIKE '%%Distância%%'
-         OR soi_child.name LIKE '%%Distancia%%'
-         OR soi_child.name LIKE '%%Distâncias%%'
-         OR soi_child.name LIKE '%%Modalidade%%'
-      )
+LEFT JOIN (
+    SELECT parent_item_id,
+           SUM(price - discount_amount) AS rev
+    FROM   sales_order_item
+    WHERE  product_type = 'simple'
+      AND  price > 0
+      AND  (price - discount_amount) > 0
+      AND  (
+                name LIKE '%%Distância%%'
+             OR name LIKE '%%Distancia%%'
+             OR name LIKE '%%Distâncias%%'
+             OR name LIKE '%%Modalidade%%'
+           )
+    GROUP BY parent_item_id
+) AS child_agg ON child_agg.parent_item_id = soi_parent.item_id
 INNER JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
