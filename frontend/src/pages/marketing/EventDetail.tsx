@@ -600,7 +600,7 @@ const EventDetail: React.FC = () => {
   const hasValidEventDate = parsedEventDate && !isNaN(parsedEventDate.getTime());
 
   const goalAttainmentData = cumulativeData
-    .filter(d => d.cumulativeExpected > 0 && d.date < todayStr)
+    .filter(d => d.cumulativeExpected > 0)
     .map(d => {
       let dMinusInsc = 0;
       if (hasValidEventDate) {
