@@ -662,7 +662,9 @@ const EventDetail: React.FC = () => {
     : null;
   const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
-  const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
+  // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
+  const totalInscritos = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
+  const acumuladoGap = metaAcumulada > 0 ? Math.round(((totalInscritos - metaAcumulada) / metaAcumulada) * 100) : (totalInscritos > 0 ? 100 : 0);
 
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
   const last30Days = completeDailySales.slice(-30);
@@ -670,7 +672,7 @@ const EventDetail: React.FC = () => {
   const _rawDMinusCalc = event.dMinusInscricoes != null ? event.dMinusInscricoes : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
   const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
   const _safeDMinus = (event.dMinus != null && !isNaN(event.dMinus)) ? event.dMinus : 0;
-  const volumeParaMeta = event.salesGoal - (event.currentSales ?? inscritosTotal);
+  const volumeParaMeta = event.salesGoal - totalInscritos;
   const _kitRowsRealizado = (event.margemPorKit ?? []).filter(r => r.tipoKit !== 'CONSOLIDADO');
   const _kitTotalReceita = _kitRowsRealizado.reduce((s, r) => s + (r.receitaLiquida || 0), 0);
   const _kitTotalQtd = _kitRowsRealizado.reduce((s, r) => s + (r.qtd || 0), 0);
@@ -696,14 +698,14 @@ const EventDetail: React.FC = () => {
     const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
     const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
     const potencial = media * dMinusCalc;
-    const atingimento = inscritosTotal + potencial;
+    const atingimento = totalInscritos + potencial;
     const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
     return {
       periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
       media: Math.round(media * 10) / 10,
       dMinus: dMinusCalc,
       potencial: Math.round(potencial),
-      vendasAcumuladas: inscritosTotal,
+      vendasAcumuladas: totalInscritos,
       atingimento: Math.round(atingimento),
       meta: event.salesGoal,
       alvo: Math.round(alvo * 1000) / 10,
@@ -853,15 +855,15 @@ const EventDetail: React.FC = () => {
               </div>
             ) : event.dataRegime === 'hybrid' ? (
               <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-400 dark:text-gray-500">
-                {inscritosTotal > 0 && (
+                {totalInscritos > 0 && (
                   <>
                     <CheckCircle className="w-3.5 h-3.5 text-green-500 dark:text-green-400" />
-                    <span>{formatNumber(inscritosTotal)} consolidados até ontem</span>
+                    <span>{formatNumber(totalInscritos)} consolidados</span>
                   </>
                 )}
                 {hasTodayData && todaySales > 0 && (
                   <>
-                    {inscritosTotal > 0 && <span className="text-gray-300 dark:text-gray-600">·</span>}
+                    {totalInscritos > 0 && <span className="text-gray-300 dark:text-gray-600">·</span>}
                     <Clock className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
                     <span>+{formatNumber(todaySales)} de hoje (parcial)</span>
                   </>
@@ -1853,11 +1855,11 @@ const EventDetail: React.FC = () => {
               </div>
 
               <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total (ontem)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total</p>
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Inscritos</p>
-                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(inscritosTotal)}</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalInscritos)}</p>
                   </div>
                   <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
                   <div className="text-right">
@@ -2575,7 +2577,7 @@ const EventDetail: React.FC = () => {
 
           const rows = multipliers.map((mult, i) => {
             const volFuturo = Math.round(volBase * mult);
-            const volGlobal = (event.currentSales || inscritosTotal) + volFuturo;
+            const volGlobal = totalInscritos + volFuturo;
             const margemAdicional = (volFuturo * ticketKitConfig) - (volFuturo * kitCost);
             const margemGlobal = margemAdicional + margemReal;
             const margemNominal = margemGlobal - metaMargemGlobal;

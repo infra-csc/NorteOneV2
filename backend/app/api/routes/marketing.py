@@ -6754,8 +6754,10 @@ def get_marketing_event_by_id(
                 grupo_media_14d += info.get('media_14d', 0.0)
                 grupo_media_7d += info.get('media_7d', 0.0)
                 grupo_media_30d += info.get('media_30d', 0.0)
-            # Align current_sales with ISC cache so ISC calc is identical to list view
-            if current_sales_isc > 0:
+            # Align current_sales with ISC cache so ISC calc is identical to list view.
+            # Only override snapshot total when ISC data is strictly higher — this prevents
+            # a partial ISC read (e.g. Magento timeout) from replacing a correct snapshot total.
+            if current_sales_isc > current_sales:
                 current_sales = current_sales_isc
         else:
             ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
