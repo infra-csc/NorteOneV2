@@ -3131,7 +3131,20 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
         try:
             from ...services.snapshot_service import get_isc_totals_from_snapshot
             snapshot_totals = get_isc_totals_from_snapshot(db, current_year)
-            logger.info(f"[ISC] PostgreSQL snapshot: {len(snapshot_totals)} grupos com dados")
+            # Coverage check: warn about active grupos not yet in snapshot so ops team can
+            # trigger a manual sync or verify SkuMapping completeness.
+            mapped_grupos = set(consolidated_grupo_skus.keys())
+            covered_grupos = set(snapshot_totals.keys())
+            uncovered = mapped_grupos - covered_grupos
+            if uncovered:
+                logger.warning(
+                    f"[ISC] {len(uncovered)}/{len(mapped_grupos)} grupos sem dados no snapshot "
+                    f"(auto-sync não rodou ou sem vendas em {current_year}): {sorted(uncovered)}"
+                )
+            logger.info(
+                f"[ISC] PostgreSQL snapshot: {len(snapshot_totals)} grupos com dados, "
+                f"{len(mapped_grupos) - len(uncovered)}/{len(mapped_grupos)} mapeados cobertos"
+            )
         except Exception as e:
             logger.error(f"[ISC] Erro ao ler snapshot PostgreSQL: {e}")
             warnings.append("⚠️ Erro ao ler dados do PostgreSQL. Dashboard pode exibir valores desatualizados.")
@@ -6550,11 +6563,14 @@ def get_marketing_event_by_id(
                     _cached_evt.get("date", "") if isinstance(_cached_evt, dict)
                     else getattr(_cached_evt, "date", "")
                 )
-                _cached_version = cached_detail.get("_cache_version", "")
-                _needs_recompute = (not _cached_date) or (_cached_version != _DETAIL_CACHE_VERSION)
+                # SWR trigger: recompute only when _computed_at_date is missing.
+                # Version-based invalidation was removed; freshness is now owned by:
+                #   (a) event_detail_cache.invalidate() called by sincronizar_hoje_batch after sync
+                #   (b) SmartCache TTL-based SWR for natural expiry
+                _needs_recompute = not _cached_date
                 if _needs_recompute:
                     if detail_cache_key not in _swr_recompute_in_progress:
-                        reason = "empty date" if not _cached_date else f"stale version ({_cached_version!r} != {_DETAIL_CACHE_VERSION!r})"
+                        reason = "empty date"
                         logger.info(f"[Cache] event_detail '{detail_cache_key}' {reason} — serving stale + triggering background recompute")
                         _swr_recompute_in_progress.add(detail_cache_key)
                         import threading as _threading
@@ -7032,11 +7048,12 @@ def get_marketing_event_by_id(
                 _cached_evt_sa.get("date", "") if isinstance(_cached_evt_sa, dict)
                 else getattr(_cached_evt_sa, "date", "")
             )
-            _cached_version_sa = cached_standalone.get("_cache_version", "")
-            _sa_needs_recompute = (not _cached_date_sa) or (_cached_version_sa != _DETAIL_CACHE_VERSION)
+            # SWR trigger: recompute only when _computed_at_date is missing.
+            # Freshness is owned by event_detail_cache.invalidate() (called after sync) + SmartCache TTL.
+            _sa_needs_recompute = not _cached_date_sa
             if _sa_needs_recompute:
                 if standalone_cache_key not in _swr_recompute_in_progress:
-                    sa_reason = "empty date" if not _cached_date_sa else f"stale version ({_cached_version_sa!r} != {_DETAIL_CACHE_VERSION!r})"
+                    sa_reason = "empty date"
                     logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' {sa_reason} — serving stale + triggering background recompute")
                     _swr_recompute_in_progress.add(standalone_cache_key)
                     import threading as _threading
