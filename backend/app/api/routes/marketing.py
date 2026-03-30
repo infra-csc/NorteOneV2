@@ -5161,6 +5161,8 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
+    Uses the same revenue formula as _fetch_daily_sales_magento_by_ids
+    (kit-type adjustments + persona discount + group filter) for consistency.
     """
     if not magento_event_ids or db_module.engine_magento is None:
         return {}
@@ -5176,7 +5178,24 @@ SELECT /*+ MAX_EXECUTION_TIME(30000) */
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
-        AND soi.price > 0 THEN 1 END) AS qtd
+        AND soi.price > 0 THEN 1 END) AS qtd,
+    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN
+        soi.price
+        - CASE WHEN soi.price = 0 THEN 0
+            WHEN soi.name LIKE '%%plus%%' THEN 69.00
+            WHEN soi.name LIKE '%%super%%' THEN 269.00
+            WHEN soi.name LIKE '%%vip%%' THEN 199.99
+            ELSE 0 END
+        + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
+        - CASE WHEN cg.customer_group_id = 4 THEN 0
+            WHEN COALESCE(soiaa.price, 0) = 14.90 AND cg.customer_group_id IN (0, 1, 2, 3, 5, 7) THEN 14.90
+            ELSE 0 END
+    ELSE 0 END) AS receita
 FROM sales_order so
 INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
@@ -5185,6 +5204,11 @@ INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id
       AND cpev1.attribute_id = 321
       AND cpev1.store_id = 0
+LEFT JOIN customer_group cg
+       ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
+) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
@@ -5197,11 +5221,7 @@ GROUP BY cpev1.value
             result = conn.execute(query, {"magento_event_ids": safe_ids})
             grouped = {}
             for r in result.fetchall():
-                # receita=0.0 is intentional: Magento revenue is not tracked in
-                # historical consolidation either (_fetch_daily_sales_magento_by_ids
-                # also returns receita=0), so keeping 0 ensures today's row is
-                # consistent with the rest of the snapshot table.
-                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": 0.0}
+                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
             return grouped
     except Exception as e:
         logger.error(f"Erro today sales Magento grouped: {e}")
