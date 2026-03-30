@@ -653,12 +653,11 @@ const EventDetail: React.FC = () => {
   const todaySales = todayDailySale?.sales ?? 0;
   const todayExpectedRounded = Math.round(todayDailySale?.expected ?? 0);
   const todayPct = todayExpectedRounded > 0 ? Math.round((todaySales / todayExpectedRounded) * 100) : (todaySales > 0 ? 100 : 0);
-  const yesterdayCumIdx = cumulativeData.length > 0
-    ? cumulativeData.reduce((bestIdx, d, idx) => d.date < todayStr ? idx : bestIdx, -1)
-    : -1;
-  const lastCumData = yesterdayCumIdx >= 0
-    ? cumulativeData[yesterdayCumIdx]
-    : cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
+  // Usa o último ponto do cumulativo (incluindo hoje se houver dados),
+  // para alinhar com o gráfico Atingimento que também inclui hoje.
+  const lastCumData = cumulativeData.length > 0
+    ? cumulativeData[cumulativeData.length - 1]
+    : null;
   const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
