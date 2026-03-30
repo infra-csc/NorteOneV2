@@ -11,7 +11,7 @@ import {
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
   TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
-  Box, Flag, Activity, Scale
+  Box, Flag, Activity, Scale, Download
 } from 'lucide-react';
 
 interface CortesiaItem {
@@ -2573,6 +2573,75 @@ const Cadastro: React.FC = () => {
     }
   };
 
+  const exportToCSV = () => {
+    const headers = [
+      'Nome', 'SKU', 'Status', 'Modalidade', 'Tipo Evento', 'Lei',
+      'Data Evento', 'Horário Largada', 'Local', 'Cidade', 'Estado',
+      'Distâncias', 'Circuito', 'Localização',
+      'Capacidade Máxima', 'Atletas Site (Pago)', 'TKT Médio Site',
+      'Atletas Grupos (Pago)', 'TKT Médio Grupos',
+      'Atletas APPAI (Pago)', 'TKT Médio APPAI',
+      'Cortesias', 'Total Atletas',
+      'Retirada Kit - Local', 'Retirada Kit - Data/Horário',
+      'Dias Encerramento Inscrição'
+    ];
+
+    const rows = filteredCadastros.map(c => {
+      const total = getTotalAtletasCadastro(c);
+      const distancias = (c.info_geral.distancias || []).join('; ');
+      return [
+        c.nome,
+        c.sku || '',
+        c.status || '',
+        c.modalidade || '',
+        c.tipo_evento || '',
+        c.lei || '',
+        c.info_geral.data ? c.info_geral.data.split('T')[0] : '',
+        c.info_geral.horario_largada || '',
+        c.info_geral.local || '',
+        c.cidade || '',
+        c.estado || '',
+        distancias,
+        c.circuito_produto || '',
+        c.localizacao_evento || '',
+        c.capacidade_maxima ?? '',
+        c.atletas.site.pago || 0,
+        c.atletas.site.tkt_medio || 0,
+        c.atletas.grupos.pago || 0,
+        c.atletas.grupos.tkt_medio || 0,
+        c.atletas.appai?.pago || 0,
+        c.atletas.appai?.tkt_medio || 0,
+        c.atletas.cortesia || 0,
+        total,
+        c.retirada_kit?.local || '',
+        c.retirada_kit?.data_horario || '',
+        c.info_geral.dias_encerramento_inscricao ?? ''
+      ];
+    });
+
+    const escape = (val: any) => {
+      const str = String(val ?? '');
+      if (str.includes(';') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(escape).join(';'))
+      .join('\n');
+
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const today = new Date().toISOString().split('T')[0];
+    link.download = `cadastro_eventos_${today}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen">
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -2600,17 +2669,32 @@ const Cadastro: React.FC = () => {
             </div>
           </div>
 
-          <button 
-            onClick={openNewModal} 
-            className="group relative px-6 py-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white rounded-2xl font-semibold shadow-xl shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
-          >
-            <div className="absolute inset-0 bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-            <span className="relative flex items-center gap-2">
-              <Plus className="w-5 h-5" />
-              Novo Cadastro
-              <Sparkles className="w-4 h-4" />
-            </span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={exportToCSV}
+              title={`Exportar ${filteredCadastros.length} evento(s) para CSV`}
+              className={`flex items-center gap-2 px-4 py-3 rounded-2xl border font-semibold transition-all duration-300 hover:scale-105 ${
+                isDark
+                  ? 'border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-500'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400'
+              }`}
+            >
+              <Download className="w-5 h-5" />
+              Exportar
+            </button>
+
+            <button 
+              onClick={openNewModal} 
+              className="group relative px-6 py-3 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 text-white rounded-2xl font-semibold shadow-xl shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <span className="relative flex items-center gap-2">
+                <Plus className="w-5 h-5" />
+                Novo Cadastro
+                <Sparkles className="w-4 h-4" />
+              </span>
+            </button>
+          </div>
         </div>
 
         <div className={`p-4 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
