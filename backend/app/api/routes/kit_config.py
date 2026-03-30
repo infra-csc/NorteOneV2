@@ -285,10 +285,13 @@ def get_kits_with_config(
 
     # cadastro_id -> {kit_name -> custo}
     cadastro_kit_costs: dict = {}
+    # cadastro_id -> [CadastroKitProduto] — pre-indexed to avoid O(n*m) scans later
+    kps_by_cadastro_id: dict = {}
     for kp in all_kit_produtos:
         kit_name = (kp.kit or "").strip()
         cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kp.id, []))
         cadastro_kit_costs.setdefault(kp.cadastro_id, {})[kit_name] = cost
+        kps_by_cadastro_id.setdefault(kp.cadastro_id, []).append(kp)
 
     def _get_custo_for_event(id_evento_raw, tipo_kit: str | None) -> float | None:
         """Retorna custo do kit para o evento específico vinculado ao bundle."""
@@ -404,7 +407,7 @@ def get_kits_with_config(
         if cadastro.ano_evento and cadastro.ano_evento != current_year:
             continue
 
-        kps = [kp for kp in all_kit_produtos if kp.cadastro_id == cadastro_id]
+        kps = kps_by_cadastro_id.get(cadastro_id, [])
         if not kps:
             continue
 
