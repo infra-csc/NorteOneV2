@@ -354,8 +354,30 @@ def get_kits_with_config(
     # --- Ativo-only events ---
     # Find events that exist only in Ativo (no corresponding Magento bundle).
     # Path: SkuMapping(fonte='ATIVO') → DimProjeto → CadastroEvento → CadastroKitProduto
+    #
+    # Exclusion is based on SKUs that actually appeared in the current Magento query
+    # results (not all historical MAGENTO SkuMappings), to avoid hiding Ativo events
+    # that share a SKU with a Magento mapping from a different year.
     current_year = date.today().year
-    magento_skus: set = set(externo_to_sku.values())
+
+    # Build SKU set from the actual Magento rows returned by this request
+    current_magento_event_ids: set = set()
+    for row in magento_rows:
+        row_d = dict(zip(columns, row))
+        ev_id = row_d.get("id_evento")
+        if ev_id is not None:
+            try:
+                current_magento_event_ids.add(int(ev_id))
+            except (ValueError, TypeError):
+                pass
+    current_magento_skus: set = {
+        externo_to_sku[eid]
+        for eid in current_magento_event_ids
+        if eid in externo_to_sku
+    }
+
+    # Build lookup: cadastro_id → CadastroEvento (for year filtering)
+    cadastro_by_id: dict = {c.id: c for c in all_cadastros}
 
     ativo_maps = db.query(SkuMapping).filter(
         SkuMapping.fonte == 'ATIVO',
@@ -365,7 +387,7 @@ def get_kits_with_config(
 
     for sm in ativo_maps:
         sku = (sm.sku or "").upper().strip()
-        if not sku or sku in magento_skus:
+        if not sku or sku in current_magento_skus:
             continue
 
         projeto_id = sku_to_projeto_id.get(sku)
@@ -373,6 +395,13 @@ def get_kits_with_config(
             continue
         cadastro_id = projeto_to_cadastro_id.get(projeto_id)
         if not cadastro_id:
+            continue
+
+        # Year guard: require CadastroEvento.ano_evento to match current year
+        cadastro = cadastro_by_id.get(cadastro_id)
+        if not cadastro:
+            continue
+        if cadastro.ano_evento and cadastro.ano_evento != current_year:
             continue
 
         kps = [kp for kp in all_kit_produtos if kp.cadastro_id == cadastro_id]
