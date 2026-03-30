@@ -13,8 +13,8 @@ engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=15,
+    max_overflow=35,
     pool_timeout=30
 ) if settings.DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None

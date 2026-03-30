@@ -269,7 +269,7 @@ def _full_cache_warmup():
                 get_sales_averages as _get_medias,
                 get_curva_snapshot as _get_curva
             )
-            _detail_prewarm_executor = _TPE(max_workers=min(4, len(_all_prewarm_ids)), thread_name_prefix="warmup_detail")
+            _detail_prewarm_executor = _TPE(max_workers=min(3, len(_all_prewarm_ids)), thread_name_prefix="warmup_detail")
 
             def _prewarm_detail_fn(eid, _ano):
                 from fastapi import HTTPException as _HTTPEx
@@ -296,11 +296,11 @@ def _full_cache_warmup():
             for _eid in _all_prewarm_ids:
                 _detail_futures[_eid] = _detail_prewarm_executor.submit(_prewarm_detail_fn, _eid, ano)
             _detail_prewarm_executor.shutdown(wait=False)
-            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active + {len(recently_completed_ids)} recent events ({min(4, len(_all_prewarm_ids))} workers)")
+            logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active + {len(recently_completed_ids)} recent events ({min(3, len(_all_prewarm_ids))} workers)")
 
             # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for Tier 1 events ---
             if tier1_evento_ids:
-                _tier1_aux_executor = _TPE(max_workers=min(3, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
+                _tier1_aux_executor = _TPE(max_workers=min(2, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
 
                 def _prewarm_tier1_aux(eid, _ano):
                     if eid in _no_grupo_event_ids:
@@ -522,7 +522,7 @@ def _startup_tier1_gap_warmup():
 
     GAP_STALE_SECONDS = 25 * 3600
     GAP_TIER1_THRESHOLD = 60
-    GAP_WORKERS = 4
+    GAP_WORKERS = 2
     GAP_TIMEOUT = 180
 
     db = None
@@ -817,6 +817,7 @@ def _run_column_migrations():
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
+            "CREATE INDEX IF NOT EXISTS ix_snapshot_data_venda ON vendas_diaria_snapshot (data_venda)",
         ]
         migrations.extend(kit_basico_idx)
         for sql in migrations:
