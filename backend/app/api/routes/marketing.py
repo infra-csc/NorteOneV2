@@ -1837,12 +1837,11 @@ def get_margem_por_kit(
 
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            _year_filter = (
-                f"AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) "
-                f"AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY"
-            )
+            # Note: bundle_ids is already scoped to this event's SKU mapping (ano=_ano),
+            # so no year filter is needed — removing the cped/cpev1 INNER JOINs that
+            # previously excluded bundles whose event entity lacked attribute 195.
             # Query 1: conta todos os bundles (sem join com filhos — corrige sub-contagem)
-            magento_count_query = text(f"""
+            magento_count_query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     soi_parent.product_id                  AS bundle_entity_id,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
@@ -1850,17 +1849,6 @@ FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-INNER JOIN (
-    SELECT entity_id, value
-    FROM catalog_product_entity_varchar
-    WHERE attribute_id = 321 AND store_id = 0
-) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
-INNER JOIN (
-    SELECT entity_id, MIN(value) AS value
-    FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195
-    GROUP BY entity_id
-) AS cped ON cped.entity_id = cpev1.value
 WHERE
     soi_parent.product_id IN :bundle_ids
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
@@ -1872,12 +1860,11 @@ AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
-{_year_filter}
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
             # Query 2: receita líquida via INNER JOIN nos itens de distância/modalidade (rápido)
-            magento_bundle_query = text(f"""
+            magento_bundle_query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     soi_parent.product_id                                                              AS bundle_entity_id,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -1896,17 +1883,6 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE '%%Distâncias%%'
          OR soi_child.name LIKE '%%Modalidade%%'
       )
-INNER JOIN (
-    SELECT entity_id, value
-    FROM catalog_product_entity_varchar
-    WHERE attribute_id = 321 AND store_id = 0
-) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
-INNER JOIN (
-    SELECT entity_id, MIN(value) AS value
-    FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195
-    GROUP BY entity_id
-) AS cped ON cped.entity_id = cpev1.value
 WHERE
     soi_parent.product_id IN :bundle_ids
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
@@ -1918,7 +1894,6 @@ AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
-{_year_filter}
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
@@ -1990,7 +1965,9 @@ GROUP BY soi_parent.product_id
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
             ev_ids_fb = list(seen_magento_events)
             # Fallback query 1: contagem por nome de bundle (sem join com filhos)
-            fb_count_query = text(f"""
+            # ev_ids_fb (Magento event entity IDs from 2026 SkuMappings) already scopes
+            # to the correct year — no cped year filter needed.
+            fb_count_query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     soi_parent.name                        AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
@@ -2003,12 +1980,6 @@ INNER JOIN (
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 321 AND store_id = 0
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
-INNER JOIN (
-    SELECT entity_id, MIN(value) AS value
-    FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195
-    GROUP BY entity_id
-) AS cped ON cped.entity_id = cpev1.value
 WHERE
     cpev1.value IN :ev_ids_fb
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
@@ -2020,12 +1991,11 @@ AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
-AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY
 GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
 
             # Fallback query 2: receita por nome de bundle (INNER JOIN nos filhos, rápido)
-            fb_query = text(f"""
+            fb_query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     soi_parent.name                                                                    AS bundle_name,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -2049,12 +2019,6 @@ INNER JOIN (
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 321 AND store_id = 0
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
-INNER JOIN (
-    SELECT entity_id, MIN(value) AS value
-    FROM catalog_product_entity_datetime
-    WHERE attribute_id = 195
-    GROUP BY entity_id
-) AS cped ON cped.entity_id = cpev1.value
 WHERE
     cpev1.value IN :ev_ids_fb
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
@@ -2066,7 +2030,6 @@ AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
-AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY
 GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
             try:
