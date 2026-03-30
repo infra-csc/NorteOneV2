@@ -2779,7 +2779,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "7"  # v7: use ISC cache medias for ISC components in detail (consistent with list view)
+_DETAIL_CACHE_VERSION = "9"  # v9: ISC merge no longer downgrades qtd_site on partial failure
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
@@ -3387,7 +3387,23 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
     )
     if _db_partial_failure and _isc_last_known_data:
         merged = dict(_isc_last_known_data)
-        merged.update(all_data)   # sobrescreve com novos dados onde existem
+        for _mk, _mv in all_data.items():
+            if _mk == '_consolidated_totals':
+                merged[_mk] = _mv
+                continue
+            _prev = merged.get(_mk)
+            if _prev is None:
+                # new entry not seen before — always add
+                merged[_mk] = _mv
+            elif isinstance(_mv, dict) and isinstance(_prev, dict):
+                # Only overwrite if new data has equal or more registrations.
+                # This prevents a partial Ativo-only read (e.g. 649) from
+                # replacing a previously correct Ativo+Magento total (e.g. 2514).
+                if _mv.get('qtd_site', 0) >= _prev.get('qtd_site', 0):
+                    merged[_mk] = _mv
+                # else: keep previous higher value
+            else:
+                merged[_mk] = _mv
         # _consolidated_totals já veio atualizado no all_data; garante presença
         if '_consolidated_totals' not in merged:
             merged['_consolidated_totals'] = {}
@@ -6755,9 +6771,11 @@ def get_marketing_event_by_id(
                 grupo_media_7d += info.get('media_7d', 0.0)
                 grupo_media_30d += info.get('media_30d', 0.0)
             # Align current_sales with ISC cache so ISC calc is identical to list view.
-            # Only override snapshot total when ISC data is strictly higher — this prevents
-            # a partial ISC read (e.g. Magento timeout) from replacing a correct snapshot total.
-            if current_sales_isc > current_sales:
+            # The ISC cache is always the canonical source for live events — it handles the
+            # year-specific aggregation that snapshot data cannot (snapshot mixes all years).
+            # The ISC merge logic (above in fetch_isc_pricing_data) ensures partial failures
+            # never produce a lower value than the previous good read.
+            if current_sales_isc > 0:
                 current_sales = current_sales_isc
         else:
             ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]

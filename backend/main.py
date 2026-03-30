@@ -979,6 +979,41 @@ async def lifespan(app: FastAPI):
 
         if _gap_count == 0:
             logger.info("[Startup] All Tier1 events have fresh cache — skipping full warmup. Snapshot running in background.")
+            # Even when skipping full warmup, always rebuild ISC data in background so
+            # the in-memory ISC is fresh (the DB-loaded copy may be from a prior run
+            # where Magento timed out and only Ativo data was stored).
+            def _bg_isc_refresh():
+                try:
+                    from app.core.database import SessionLocal as _SL
+                    from app.api.routes.marketing import fetch_isc_pricing_data as _fetch_isc
+                    from app.core.cache import event_detail_cache as _edc, isc_cache as _isc_c
+                    _db = _SL()
+                    try:
+                        # Snapshot total for comparison — sum qtd_site of all live ISC entries
+                        # (excludes _consolidated_totals which is for completed events only)
+                        def _isc_total_qtd(isc_dict):
+                            if not isinstance(isc_dict, dict):
+                                return 0
+                            return sum(
+                                v.get('qtd_site', 0)
+                                for k, v in isc_dict.items()
+                                if k != '_consolidated_totals' and isinstance(v, dict)
+                            )
+                        _before_total = _isc_total_qtd(_isc_c.get("2026_isc") or {})
+                        _fetch_isc(db=_db, force_refresh=True)
+                        _after_total = _isc_total_qtd(_isc_c.get("2026_isc") or {})
+                        # If ISC totals improved (Magento succeeded), clear live event_detail
+                        # cache so they recompute with the fresh data. Completed/historical events
+                        # are marked permanent and will NOT be cleared.
+                        if _after_total > _before_total:
+                            _edc.invalidate()  # clears non-permanent (live) entries only
+                            logger.info(f"[Startup] ISC improved ({_before_total} → {_after_total}) — cleared live event_detail cache for recompute")
+                        logger.info("[Startup] Background ISC refresh completed")
+                    finally:
+                        _db.close()
+                except Exception as _e:
+                    logger.warning(f"[Startup] Background ISC refresh failed: {_e}")
+            threading.Thread(target=_bg_isc_refresh, daemon=True, name="startup-isc-refresh").start()
         elif _snapshot_is_fresh:
             logger.info(f"[Startup] {_gap_count} Tier1 events need warmup — snapshots fresh, running warmup immediately (no snapshot wait)...")
             try:
