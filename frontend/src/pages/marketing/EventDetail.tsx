@@ -669,6 +669,9 @@ const EventDetail: React.FC = () => {
 
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
   const last30Days = completeDailySales.slice(-30);
+  // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
+  // Usado nos cards que devem refletir somente inscrições consolidadas até ontem.
+  const totalInscritosConsolidado = completeDailySales.reduce((sum, d) => sum + d.sales, 0);
 
   const _rawDMinusCalc = event.dMinusInscricoes != null ? event.dMinusInscricoes : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
   const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
@@ -706,7 +709,7 @@ const EventDetail: React.FC = () => {
       media: Math.round(media * 10) / 10,
       dMinus: dMinusCalc,
       potencial: Math.round(potencial),
-      vendasAcumuladas: totalInscritos,
+      vendasAcumuladas: totalInscritosConsolidado,
       atingimento: Math.round(atingimento),
       meta: event.salesGoal,
       alvo: Math.round(alvo * 1000) / 10,
@@ -1860,7 +1863,7 @@ const EventDetail: React.FC = () => {
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Inscritos</p>
-                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalInscritos)}</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalInscritosConsolidado)}</p>
                   </div>
                   <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
                   <div className="text-right">
