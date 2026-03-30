@@ -168,10 +168,10 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             data_venda=d,
             quantidade=data["qtd"],
             receita=data["receita"],
-            ano=d.year,
+            ano=ano,
         ).on_conflict_do_update(
             index_elements=['evento_grupo', 'fonte', 'data_venda'],
-            set_={'quantidade': data["qtd"], 'receita': data["receita"], 'ano': d.year}
+            set_={'quantidade': data["qtd"], 'receita': data["receita"], 'ano': ano}
         )
         db.execute(stmt)
         saved += 1
@@ -456,10 +456,15 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
     d14 = today - timedelta(days=14)
     d30 = today - timedelta(days=30)
 
-    # Filter by year from data_venda (robust: handles rows with NULL ano from older
-    # consolidar_vendas_grupo runs that didn't set the ano column).
-    year_start = date(ano, 1, 1)
-    year_end   = date(ano + 1, 1, 1)
+    # Filter by event edition year using the `ano` column (written as event edition year,
+    # not calendar year of the order). Falls back to a broad data_venda range that
+    # includes typical pre-sale windows (up to 4 months before Jan 1) for rows written
+    # by older code that stored ano=d.year instead of ano=event_edition_year.
+    year_start     = date(ano, 1, 1)
+    year_end       = date(ano + 1, 1, 1)
+    presale_start  = date(ano - 1, 9, 1)   # Sep 1 of previous year covers ~4-month pre-sale
+
+    from sqlalchemy import or_, and_
 
     rows = db.query(
         VendasDiariaSnapshot.evento_grupo,
@@ -478,8 +483,13 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
             else_=0
         )).label("qtd_30d"),
     ).filter(
-        VendasDiariaSnapshot.data_venda >= year_start,
-        VendasDiariaSnapshot.data_venda <  year_end,
+        or_(
+            VendasDiariaSnapshot.ano == ano,
+            and_(
+                VendasDiariaSnapshot.data_venda >= presale_start,
+                VendasDiariaSnapshot.data_venda <  year_end,
+            )
+        )
     ).group_by(VendasDiariaSnapshot.evento_grupo).all()
 
     result = {}
