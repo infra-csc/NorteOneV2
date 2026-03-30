@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from typing import List
+from datetime import date
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
 from app.models.kit_config import KitConfig
@@ -347,7 +348,73 @@ def get_kits_with_config(
             custo_kit=custo_kit_val,
             ativo_categoria=cfg.ativo_categoria if cfg else None,
             status_kit=row_dict.get("status_kit"),
+            fonte="magento",
         ))
+
+    # --- Ativo-only events ---
+    # Find events that exist only in Ativo (no corresponding Magento bundle).
+    # Path: SkuMapping(fonte='ATIVO') → DimProjeto → CadastroEvento → CadastroKitProduto
+    current_year = date.today().year
+    magento_skus: set = set(externo_to_sku.values())
+
+    ativo_maps = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'ATIVO',
+        SkuMapping.ativo == True,
+        SkuMapping.ano == current_year,
+    ).all()
+
+    for sm in ativo_maps:
+        sku = (sm.sku or "").upper().strip()
+        if not sku or sku in magento_skus:
+            continue
+
+        projeto_id = sku_to_projeto_id.get(sku)
+        if not projeto_id:
+            continue
+        cadastro_id = projeto_to_cadastro_id.get(projeto_id)
+        if not cadastro_id:
+            continue
+
+        kps = [kp for kp in all_kit_produtos if kp.cadastro_id == cadastro_id]
+        if not kps:
+            continue
+
+        for kp in kps:
+            synthetic_bundle_id = -kp.id
+            cfg = config_map.get(synthetic_bundle_id)
+            multiplicador = cfg.multiplicador if cfg else 1
+            is_configured = cfg is not None
+            is_kit_basico = cfg.is_kit_basico if cfg else False
+            is_promo_principal = cfg.is_promo_principal if cfg else False
+            tipo_kit = cfg.tipo_kit if cfg else None
+
+            kit_cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kp.id, []))
+            custo_cadastro_val = kit_cost if kit_cost > 0 else None
+            custo_kit_val = float(cfg.custo_kit) if cfg and cfg.custo_kit is not None else None
+
+            kits.append(KitRow(
+                id_evento=str(sm.id_externo),
+                nome_evento=sm.nome_evento,
+                bundle_entity_id=synthetic_bundle_id,
+                nome_kit=kp.kit,
+                tipo_kit=tipo_kit,
+                tipo_categoria=None,
+                lote_atual=None,
+                multiplicador_sugerido=1,
+                multiplicador=multiplicador,
+                price_base=None,
+                special_price_base=None,
+                price=None,
+                special_price=None,
+                is_configured=is_configured,
+                is_kit_basico=is_kit_basico,
+                is_promo_principal=is_promo_principal,
+                custo_cadastro=custo_cadastro_val,
+                custo_kit=custo_kit_val,
+                ativo_categoria=kp.ativo_categoria or (cfg.ativo_categoria if cfg else None),
+                status_kit=None,
+                fonte="ativo",
+            ))
 
     _kits_cache["data"] = kits
     _kits_cache["ts"] = _time.time()

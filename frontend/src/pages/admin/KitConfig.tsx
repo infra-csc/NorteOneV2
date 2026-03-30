@@ -24,6 +24,7 @@ interface KitRow {
   custo_kit: number | null;
   ativo_categoria: string | null;
   status_kit: string | null;
+  fonte?: string | null;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -58,8 +59,9 @@ const KitConfig: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterLote, setFilterLote] = useState('');
   const [filterStatusKit, setFilterStatusKit] = useState('');
+  const [filterFonte, setFilterFonte] = useState('');
 
-  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '' || filterStatusKit !== '';
+  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '' || filterStatusKit !== '' || filterFonte !== '';
 
   const clearFilters = () => {
     setFilterTipo('');
@@ -67,6 +69,7 @@ const KitConfig: React.FC = () => {
     setFilterStatus('');
     setFilterLote('');
     setFilterStatusKit('');
+    setFilterFonte('');
   };
 
   const tipoOptions = useMemo(() => {
@@ -298,8 +301,12 @@ const KitConfig: React.FC = () => {
       result = result.filter((k) => (k.status_kit ?? '') === filterStatusKit);
     }
 
+    if (filterFonte) {
+      result = result.filter((k) => (k.fonte ?? 'magento') === filterFonte);
+    }
+
     return result;
-  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, filterStatusKit, basicoValues]);
+  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, filterStatusKit, filterFonte, basicoValues]);
 
   const allSelected = filteredKits.length > 0 && filteredKits.every((k) => selectedIds.has(k.bundle_entity_id));
   const someSelected = !allSelected && filteredKits.some((k) => selectedIds.has(k.bundle_entity_id));
@@ -534,6 +541,12 @@ const KitConfig: React.FC = () => {
           <option value="inativo">Inativo</option>
         </select>
 
+        <select value={filterFonte} onChange={(e) => setFilterFonte(e.target.value)} className={selectClass}>
+          <option value="">Fonte: Todos</option>
+          <option value="magento">Magento</option>
+          <option value="ativo">Apenas Ativo</option>
+        </select>
+
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
@@ -617,7 +630,12 @@ const KitConfig: React.FC = () => {
               <tbody>
                 {filteredKits.map((kit, i) => {
                   const evenRow = i % 2 === 0;
-                  const rowBg = isDark
+                  const isAtivoOnly = kit.fonte === 'ativo';
+                  const rowBg = isAtivoOnly
+                    ? isDark
+                      ? 'bg-amber-900/10'
+                      : 'bg-amber-50/60'
+                    : isDark
                     ? evenRow
                       ? 'bg-gray-800'
                       : 'bg-[#2d3748]'
@@ -663,7 +681,7 @@ const KitConfig: React.FC = () => {
 
                       {/* Evento */}
                       <td className={`px-3 py-2.5 text-left ${textPrimary}`}>
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-start gap-2 flex-wrap">
                           {!kit.is_configured && (
                             <span
                               className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
@@ -671,6 +689,18 @@ const KitConfig: React.FC = () => {
                               }`}
                             >
                               NOVO
+                            </span>
+                          )}
+                          {isAtivoOnly && (
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 border ${
+                                isDark
+                                  ? 'bg-orange-900/30 text-orange-300 border-orange-700'
+                                  : 'bg-orange-100 text-orange-700 border-orange-300'
+                              }`}
+                              title="Este evento possui vendas apenas no sistema Ativo, sem produto no Magento"
+                            >
+                              APENAS ATIVO
                             </span>
                           )}
                           <span title={kit.nome_evento || ''}>

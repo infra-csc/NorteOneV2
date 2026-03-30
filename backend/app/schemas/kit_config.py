@@ -52,3 +52,4 @@ class KitRow(BaseModel):
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
     status_kit: Optional[str] = None
+    fonte: Optional[str] = None
