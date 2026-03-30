@@ -1851,7 +1851,7 @@ INNER JOIN sales_order_item soi_parent
       AND soi_parent.product_type = 'bundle'
 WHERE
     soi_parent.product_id IN :bundle_ids
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -1885,7 +1885,7 @@ INNER JOIN sales_order_item soi_child
       )
 WHERE
     soi_parent.product_id IN :bundle_ids
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -1982,7 +1982,7 @@ INNER JOIN (
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 WHERE
     cpev1.value IN :ev_ids_fb
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -2021,7 +2021,7 @@ INNER JOIN (
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 WHERE
     cpev1.value IN :ev_ids_fb
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -2902,7 +2902,7 @@ LEFT JOIN (
     WHERE attribute_id = 73 AND store_id = 0
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -4597,7 +4597,7 @@ LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY MONTH(so.created_at)
@@ -4734,7 +4734,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id     = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -4931,7 +4931,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5079,7 +5079,7 @@ LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5158,7 +5158,7 @@ LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5292,7 +5292,7 @@ INNER JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY cpev1.value, soi.name
@@ -5351,7 +5351,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY soi.name
@@ -8539,3 +8539,180 @@ def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db)
         event_detail_cache.invalidate()
         eventos_list_cache.invalidate()
     return {"status": "success", "key": key, "value": setting.value}
+
+
+@router.get("/diagnostico-inscricoes")
+def diagnostico_inscricoes(
+    ativo_id: int,
+    magento_id: str,
+    current_user: Usuario = Depends(get_current_user)
+):
+    """
+    Endpoint de diagnóstico para investigar discrepâncias entre o sistema e controles externos.
+    Executa múltiplas variações de queries para isolar o filtro causador da diferença.
+    """
+    result = {"ativo_id": ativo_id, "magento_id": magento_id, "ativo": {}, "magento": {}}
+
+    cupom_join = """
+        LEFT JOIN (
+            SELECT e.id_cupom_desconto_item, f.en_cupom_classificacao
+            FROM sa_cupom_desconto_item AS e
+            INNER JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
+        ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
+        LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    """
+
+    canal_case = """
+        CASE
+            WHEN a.nr_preco = 0 THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao IN ('Funcionário','Cortesia Faturada','Coligados','Eventos Terceiros') THEN 'Cortesia'
+            WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE 'Site'
+        END
+    """
+
+    sf_filter = "AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')"
+
+    if db_module.engine_ssh is None:
+        result["ativo"]["error"] = "engine_ssh not available"
+    else:
+        try:
+            with db_module.engine_ssh.connect() as conn:
+                scenarios = [
+                    ("A1_site_fl1_status12", f"fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2)", "Site"),
+                    ("A2_site_nofl_status12", f"c.id_pedido_status IN (1, 2)", "Site"),
+                    ("A3_site_fl1_status123", f"fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2, 3)", "Site"),
+                    ("A4_site_nofl_status123", f"c.id_pedido_status IN (1, 2, 3)", "Site"),
+                    ("A5_todos_canais_fl1_status12", f"fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2)", None),
+                    ("A6_todos_canais_nofl_status12", f"c.id_pedido_status IN (1, 2)", None),
+                    ("A7_todos_canais_nofl_status123", f"c.id_pedido_status IN (1, 2, 3)", None),
+                ]
+                for name, pedido_filter, canal_filter in scenarios:
+                    canal_clause = f"AND {canal_case} = 'Site'" if canal_filter == "Site" else ""
+                    q = text(f"""
+SELECT COUNT(DISTINCT a.id_pedido_evento) AS total
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido AND {pedido_filter}
+{cupom_join}
+WHERE b.id_evento = :eid {sf_filter} {canal_clause}
+""")
+                    r = conn.execute(q, {"eid": ativo_id}).scalar()
+                    result["ativo"][name] = int(r or 0)
+
+                # Breakdown por status e fl_local (sem filtro de canal para ver tudo)
+                q_breakdown = text(f"""
+SELECT c.id_pedido_status, c.fl_local_inscricao,
+       {canal_case} AS canal,
+       COUNT(DISTINCT a.id_pedido_evento) AS cnt
+FROM sa_pedido_evento AS a
+INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
+{cupom_join}
+WHERE b.id_evento = :eid {sf_filter}
+GROUP BY c.id_pedido_status, c.fl_local_inscricao, {canal_case}
+ORDER BY c.id_pedido_status, c.fl_local_inscricao, canal
+""")
+                rows = conn.execute(q_breakdown, {"eid": ativo_id}).fetchall()
+                result["ativo"]["breakdown"] = [
+                    {"status": r[0], "fl_local": r[1], "canal": r[2], "cnt": int(r[3])}
+                    for r in rows
+                ]
+        except Exception as e:
+            result["ativo"]["error"] = str(e)
+
+    if db_module.engine_magento is None:
+        result["magento"]["error"] = "engine_magento not available"
+    else:
+        try:
+            safe_mid = str(int(magento_id))
+            with db_module.engine_magento.connect() as conn:
+                # M1 - query atual (com todos os filtros)
+                q_m1 = text("""
+SELECT
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN 1 END) AS qtd_site,
+    COUNT(soi.item_id) AS qtd_total_bundle,
+    COUNT(CASE WHEN so.base_grand_total > 0 THEN 1 END) AS qtd_grand_total_pos,
+    COUNT(CASE WHEN soi.price > 0 THEN 1 END) AS qtd_price_pos
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+""")
+                r_m1 = conn.execute(q_m1, {"mid": safe_mid}).fetchone()
+                result["magento"]["M1_atual"] = {
+                    "qtd_site": int(r_m1[0] or 0),
+                    "qtd_total_bundle": int(r_m1[1] or 0),
+                    "qtd_grand_total_pos": int(r_m1[2] or 0),
+                    "qtd_price_pos": int(r_m1[3] or 0),
+                }
+
+                # M2 - sem filtro de cortesia/grupos no CASE (todos os válidos por status)
+                q_m2 = text("""
+SELECT COUNT(soi.item_id) AS qtd_all_status
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending', 'pending_payment')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+""")
+                r_m2 = conn.execute(q_m2, {"mid": safe_mid}).scalar()
+                result["magento"]["M2_all_statuses"] = int(r_m2 or 0)
+
+                # M3 - breakdown por status Magento
+                q_m3 = text("""
+SELECT so.status, COUNT(soi.item_id) AS cnt
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE cpev1.value = :mid
+  AND so.state != 'canceled'
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+GROUP BY so.status
+ORDER BY cnt DESC
+""")
+                rows_m3 = conn.execute(q_m3, {"mid": safe_mid}).fetchall()
+                result["magento"]["M3_breakdown_status"] = [
+                    {"status": r[0], "cnt": int(r[1])} for r in rows_m3
+                ]
+
+                # M4 - sem filtro increment_id (inclui sub-pedidos com hífen)
+                q_m4 = text("""
+SELECT COUNT(soi.item_id) AS qtd_com_subpedidos
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+""")
+                r_m4 = conn.execute(q_m4, {"mid": safe_mid}).scalar()
+                result["magento"]["M4_sem_regexp_filter"] = int(r_m4 or 0)
+
+        except Exception as e:
+            result["magento"]["error"] = str(e)
+
+    return result
