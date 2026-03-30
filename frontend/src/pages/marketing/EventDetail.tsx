@@ -594,11 +594,13 @@ const EventDetail: React.FC = () => {
     ? cumulativeData.slice(-chartPeriod)
     : cumulativeData;
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   const parsedEventDate = event.date ? new Date(event.date + 'T12:00:00') : null;
   const hasValidEventDate = parsedEventDate && !isNaN(parsedEventDate.getTime());
 
   const goalAttainmentData = cumulativeData
-    .filter(d => d.cumulativeExpected > 0)
+    .filter(d => d.cumulativeExpected > 0 && d.date < todayStr)
     .map(d => {
       let dMinusInsc = 0;
       if (hasValidEventDate) {
@@ -642,7 +644,6 @@ const EventDetail: React.FC = () => {
   const activeAttainmentData = attainmentMode === 'acumulado' ? goalAttainmentData : goalAttainmentDailyData;
   const filteredAttainmentData = attainmentPeriod ? activeAttainmentData.slice(-attainmentPeriod) : activeAttainmentData;
 
-  const todayStr = new Date().toISOString().split('T')[0];
   const dailySalesArr = event.dailySales || [];
   const todayDailySale = dailySalesArr.find(d => d.date === todayStr);
   const lastDailySale = dailySalesArr.length > 0 ? dailySalesArr[dailySalesArr.length - 1] : null;
@@ -657,7 +658,9 @@ const EventDetail: React.FC = () => {
     ? cumulativeData[yesterdayCumIdx]
     : cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
   const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
-  const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
+  const inscritosTotal = (event.currentSales != null && event.currentSales > 0)
+    ? event.currentSales
+    : (lastCumData ? Math.round(lastCumData.cumulative) : 0);
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
 
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
