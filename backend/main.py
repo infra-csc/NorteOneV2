@@ -40,6 +40,21 @@ def _scheduled_isc_refresh():
             db.close()
 
 
+def _scheduled_sincronizar_hoje():
+    from app.core.database import SessionLocal
+    from app.services.snapshot_service import sincronizar_hoje_batch
+    db = None
+    try:
+        db = SessionLocal()
+        count = sincronizar_hoje_batch(db)
+        logger.info(f"Scheduled sincronizar_hoje_batch completed: {count} groups synced")
+    except Exception as e:
+        logger.error(f"Scheduled sincronizar_hoje_batch failed: {e}")
+    finally:
+        if db:
+            db.close()
+
+
 def _full_cache_warmup():
     from app.core.database import SessionLocal
     from app.core.cache import set_warmup_progress, set_last_refresh_error, update_warmup_sub_progress
@@ -833,6 +848,7 @@ def _run_column_migrations():
 async def lifespan(app: FastAPI):
     register_full_warmup_fn(_full_cache_warmup)
     cache_scheduler.register_full_refresh(_full_cache_warmup)
+    cache_scheduler.register(_scheduled_sincronizar_hoje)
 
     import threading
 
@@ -949,12 +965,13 @@ async def lifespan(app: FastAPI):
         def _run_snapshot_consolidation():
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
+                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch
                 logger.info("Starting snapshot consolidation (parallel)...")
                 db = SessionLocal()
                 try:
                     snapshot_diario_batch(db)
                     consolidar_curvas_historicas_batch(db)
+                    sincronizar_hoje_batch(db)
                     logger.info("Startup snapshot consolidation completed")
                 finally:
                     db.close()

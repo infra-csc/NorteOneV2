@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot
@@ -251,6 +251,131 @@ def consolidar_curvas_historicas_batch(db: Session):
 
     logger.info(f"Curvas históricas consolidadas: {saved} novos grupos")
     return saved
+
+
+def sincronizar_hoje_batch(db: Session) -> int:
+    """
+    Syncs today's sales to vendas_diaria_snapshot for all active event groups
+    using efficient single-batch MySQL queries (one per source).
+
+    Also backfills historical data for groups that have no snapshot rows at all
+    (calls consolidar_vendas_grupo with data_fim=yesterday before syncing today).
+
+    Returns the number of groups whose today row was successfully upserted.
+    """
+    from ..api.routes.marketing import (
+        _fetch_today_sales_ativo_grouped,
+        _fetch_today_sales_magento_grouped,
+    )
+
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    ano = today.year
+
+    mappings = db.query(SkuMapping).filter(
+        SkuMapping.ano == ano,
+        SkuMapping.ativo == True,
+        SkuMapping.id_externo.isnot(None)
+    ).all()
+
+    if not mappings:
+        logger.info("sincronizar_hoje_batch: nenhum SkuMapping ativo para o ano corrente")
+        return 0
+
+    grupos: dict = {}
+    all_ativo_ids: list = []
+    all_magento_ids: list = []
+
+    for m in mappings:
+        if not m.evento_grupo:
+            continue
+        g = m.evento_grupo
+        if g not in grupos:
+            grupos[g] = {"ativo_ids": [], "magento_ids": []}
+        if m.fonte == "ATIVO":
+            id_str = str(m.id_externo)
+            if id_str not in grupos[g]["ativo_ids"]:
+                grupos[g]["ativo_ids"].append(id_str)
+                all_ativo_ids.append(id_str)
+        elif m.fonte == "MAGENTO":
+            id_str = str(m.id_externo)
+            if id_str not in grupos[g]["magento_ids"]:
+                grupos[g]["magento_ids"].append(id_str)
+                all_magento_ids.append(id_str)
+
+    # --- Step 1: Backfill historical data for groups with no snapshot rows ---
+    for grupo in list(grupos.keys()):
+        latest = get_latest_snapshot_date(db, grupo)
+        if latest is None:
+            try:
+                logger.info(f"sincronizar_hoje_batch: backfill histórico para '{grupo}'")
+                consolidar_vendas_grupo(db, grupo, ano, data_fim=yesterday)
+            except Exception as e:
+                logger.warning(f"sincronizar_hoje_batch: backfill falhou para '{grupo}': {e}")
+
+    # --- Step 2: Fetch today's data in batch (2 MySQL queries total) ---
+    ativo_today: dict = {}
+    magento_today: dict = {}
+
+    if all_ativo_ids:
+        try:
+            ativo_today = _fetch_today_sales_ativo_grouped(list(set(all_ativo_ids)))
+            logger.info(f"sincronizar_hoje_batch: Ativo retornou {len(ativo_today)} IDs com vendas hoje")
+        except Exception as e:
+            logger.error(f"sincronizar_hoje_batch: erro Ativo grouped: {e}")
+
+    if all_magento_ids:
+        try:
+            magento_today = _fetch_today_sales_magento_grouped(list(set(all_magento_ids)))
+            logger.info(f"sincronizar_hoje_batch: Magento retornou {len(magento_today)} IDs com vendas hoje")
+        except Exception as e:
+            logger.error(f"sincronizar_hoje_batch: erro Magento grouped: {e}")
+
+    # --- Step 3: Aggregate by grupo and UPSERT today's row ---
+    synced = 0
+    for grupo, ids in grupos.items():
+        try:
+            qtd_total = 0
+            receita_total = 0.0
+
+            for eid in ids["ativo_ids"]:
+                entry = ativo_today.get(eid)
+                if entry:
+                    qtd_total += entry["qtd"]
+                    receita_total += entry["receita"]
+
+            for eid in ids["magento_ids"]:
+                entry = magento_today.get(eid)
+                if entry:
+                    qtd_total += entry["qtd"]
+
+            stmt = pg_insert(VendasDiariaSnapshot).values(
+                evento_grupo=grupo,
+                fonte="CONSOLIDADO",
+                data_venda=today,
+                quantidade=qtd_total,
+                receita=receita_total,
+                ano=ano,
+            ).on_conflict_do_update(
+                index_elements=["evento_grupo", "fonte", "data_venda"],
+                set_={
+                    "quantidade": qtd_total,
+                    "receita": receita_total,
+                    "ano": ano,
+                }
+            )
+            db.execute(stmt)
+            db.commit()
+            synced += 1
+        except Exception as e:
+            logger.error(f"sincronizar_hoje_batch: erro para grupo='{grupo}': {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+    logger.info(f"sincronizar_hoje_batch: {synced}/{len(grupos)} grupos sincronizados para {today}")
+    return synced
 
 
 def backfill_historico(db: Session, ano: int, data_inicio: date = None, data_fim: date = None):

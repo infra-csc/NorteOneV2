@@ -87,12 +87,13 @@ def trigger_snapshot_consolidation(
 
     def _run():
         from app.core.database import SessionLocal
-        from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch
+        from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch
         local_db = SessionLocal()
         try:
             grupos = snapshot_diario_batch(local_db)
             curvas = consolidar_curvas_historicas_batch(local_db)
-            logger.info(f"Manual snapshot consolidation: {grupos} grupos, {curvas} curvas")
+            hoje = sincronizar_hoje_batch(local_db)
+            logger.info(f"Manual snapshot consolidation: {grupos} grupos, {curvas} curvas, {hoje} hoje")
         except Exception as e:
             logger.error(f"Manual snapshot consolidation failed: {e}")
         finally:

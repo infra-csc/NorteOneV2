@@ -5101,6 +5101,109 @@ GROUP BY DATE(so.created_at)
         return {}
 
 
+def _fetch_today_sales_ativo_grouped(id_eventos: list) -> dict:
+    """
+    Single-query batch for today's Ativo sales grouped by id_evento.
+    Returns {str(id_evento): {"qtd": int, "receita": float}}.
+    """
+    if not id_eventos or db_module.engine_ssh is None:
+        return {}
+    try:
+        safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    sub.id_evento,
+    SUM(sub.qtd)     AS qtd,
+    SUM(sub.receita) AS receita
+FROM (
+    SELECT
+        b.id_evento,
+        CASE
+            WHEN a.nr_preco = 0                THEN 'Cortesia'
+            WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+            ELSE                                    'Site'
+        END AS canal,
+        COUNT(DISTINCT a.id_pedido_evento) AS qtd,
+        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)) AS receita
+    FROM sa_pedido_evento AS a
+    INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
+    INNER JOIN sa_pedido AS c
+        ON c.id_pedido = a.id_pedido
+       AND c.fl_local_inscricao = '1'
+       AND c.id_pedido_status IN (1, 2)
+    LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
+    WHERE
+        b.id_evento IN :id_eventos
+        AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
+        AND DATE(c.dt_pedido) = CURDATE()
+    GROUP BY b.id_evento,
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
+                  WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
+                  ELSE 'Site' END
+) AS sub
+WHERE sub.canal = 'Site'
+GROUP BY sub.id_evento
+""").bindparams(bindparam("id_eventos", expanding=True))
+        with db_module.engine_ssh.connect() as conn:
+            result = conn.execute(query, {"id_eventos": safe_ids})
+            grouped = {}
+            for r in result.fetchall():
+                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
+            return grouped
+    except Exception as e:
+        logger.error(f"Erro today sales Ativo grouped: {e}")
+        return {}
+
+
+def _fetch_today_sales_magento_grouped(magento_event_ids: list) -> dict:
+    """
+    Single-query batch for today's Magento sales grouped by id_evento.
+    Returns {str(id_evento): {"qtd": int, "receita": 0.0}}.
+    """
+    if not magento_event_ids or db_module.engine_magento is None:
+        return {}
+    try:
+        safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
+        if not safe_ids:
+            return {}
+        query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    cpev1.value AS id_evento,
+    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN 1 END) AS qtd
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id
+      AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id
+      AND cpev1.attribute_id = 321
+      AND cpev1.store_id = 0
+WHERE
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.state != 'canceled'
+    AND cpev1.value IN :magento_event_ids
+    AND so.increment_id NOT REGEXP '-[0-9]'
+    AND DATE(so.created_at) = CURDATE()
+GROUP BY cpev1.value
+""").bindparams(bindparam("magento_event_ids", expanding=True))
+        with db_module.engine_magento.connect() as conn:
+            result = conn.execute(query, {"magento_event_ids": safe_ids})
+            grouped = {}
+            for r in result.fetchall():
+                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": 0.0}
+            return grouped
+    except Exception as e:
+        logger.error(f"Erro today sales Magento grouped: {e}")
+        return {}
+
+
 def _fetch_daily_sales_magento_by_ids(magento_event_ids: list) -> list:
     if not magento_event_ids:
         return []
@@ -7360,18 +7463,22 @@ def atualizar_vendas_hoje(
     # --- Fetch today's data from both sources (fast — date-filtered queries) ---
     hoje_ativo = 0
     hoje_magento = 0
+    hoje_receita = 0.0
 
     if ativo_ids:
         try:
-            ativo_today = _fetch_today_sales_ativo_by_ids(ativo_ids)
-            hoje_ativo = ativo_today.get(hoje, 0)
+            ativo_today = _fetch_today_sales_ativo_grouped(ativo_ids)
+            for _entry in ativo_today.values():
+                hoje_ativo += _entry["qtd"]
+                hoje_receita += _entry["receita"]
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
 
     if magento_ids:
         try:
-            magento_today = _fetch_today_sales_magento_by_ids(magento_ids)
-            hoje_magento = magento_today.get(hoje, 0)
+            magento_today = _fetch_today_sales_magento_grouped(magento_ids)
+            for _entry in magento_today.values():
+                hoje_magento += _entry["qtd"]
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
 
@@ -7389,6 +7496,7 @@ def atualizar_vendas_hoje(
 
             if existing:
                 existing.quantidade = hoje_total
+                existing.receita = hoje_receita
                 existing.ano = ano
                 existing.updated_at = datetime.now()
             else:
@@ -7397,7 +7505,7 @@ def atualizar_vendas_hoje(
                     fonte=_HOJE_FONTE,
                     data_venda=hoje,
                     quantidade=hoje_total,
-                    receita=0.0,
+                    receita=hoje_receita,
                     ano=ano,
                     updated_at=datetime.now()
                 )
