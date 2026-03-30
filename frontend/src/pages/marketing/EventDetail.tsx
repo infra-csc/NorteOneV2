@@ -702,7 +702,7 @@ const EventDetail: React.FC = () => {
     const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
     const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
     const potencial = media * dMinusCalc;
-    const atingimento = totalInscritos + potencial;
+    const atingimento = totalInscritosConsolidado + potencial;
     const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
     return {
       periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
@@ -2075,6 +2075,7 @@ const EventDetail: React.FC = () => {
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Target className="w-5 h-5 text-indigo-500" />
           Indicadores de Volume
+          <span className="text-xs font-normal text-gray-400 dark:text-gray-500">(dados até ontem)</span>
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
