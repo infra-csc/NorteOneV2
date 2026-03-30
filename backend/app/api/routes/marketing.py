@@ -1841,30 +1841,61 @@ def get_margem_por_kit(
                 f"AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) "
                 f"AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY"
             )
-            magento_bundle_query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    soi_parent.product_id                                                              AS bundle_entity_id,
-    COUNT(DISTINCT soi_parent.item_id)                                                 AS qtd,
-    ROUND(COALESCE(SUM(child_agg.rev), 0), 2)                                         AS receita_liquida
+            # Query 1: conta todos os bundles (sem join com filhos — corrige sub-contagem)
+            magento_count_query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    soi_parent.product_id                  AS bundle_entity_id,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-LEFT JOIN (
-    SELECT parent_item_id,
-           SUM(price - discount_amount) AS rev
-    FROM   sales_order_item
-    WHERE  product_type = 'simple'
-      AND  price > 0
-      AND  (price - discount_amount) > 0
-      AND  (
-                name LIKE '%%Distância%%'
-             OR name LIKE '%%Distancia%%'
-             OR name LIKE '%%Distâncias%%'
-             OR name LIKE '%%Modalidade%%'
-           )
-    GROUP BY parent_item_id
-) AS child_agg ON child_agg.parent_item_id = soi_parent.item_id
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321 AND store_id = 0
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+INNER JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped ON cped.entity_id = cpev1.value
+WHERE
+    soi_parent.product_id IN :bundle_ids
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.state != 'canceled'
+AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
+AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+{_year_filter}
+GROUP BY soi_parent.product_id
+""").bindparams(bindparam("bundle_ids", expanding=True))
+
+            # Query 2: receita líquida via INNER JOIN nos itens de distância/modalidade (rápido)
+            magento_bundle_query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    soi_parent.product_id                                                              AS bundle_entity_id,
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND soi_child.price - soi_child.discount_amount > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
 INNER JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
@@ -1893,16 +1924,26 @@ GROUP BY soi_parent.product_id
 
             try:
                 with db_module.engine_magento.connect() as conn:
-                    result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
-                    for row in result.fetchall():
-                        bid = int(row[0])
-                        qtd = int(row[1] or 0)
-                        receita = float(row[2] or 0)
+                    # Executa as duas queries e combina os resultados
+                    count_result = conn.execute(magento_count_query, {"bundle_ids": bundle_ids})
+                    qtd_by_bid: dict = {}
+                    for row in count_result.fetchall():
+                        qtd_by_bid[int(row[0])] = int(row[1] or 0)
+
+                    rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
+                    rev_by_bid: dict = {}
+                    for row in rev_result.fetchall():
+                        rev_by_bid[int(row[0])] = float(row[1] or 0)
+
+                    # Consolida: todos os bundle_ids com qtd (da query de contagem)
+                    all_bids = set(qtd_by_bid.keys()) | set(rev_by_bid.keys())
+                    for bid in all_bids:
+                        qtd = qtd_by_bid.get(bid, 0)
+                        receita = rev_by_bid.get(bid, 0.0)
                         tipo_kit = global_bundle_tipo_map.get(bid)
                         if not tipo_kit:
                             continue
                         if tipo_kit not in kit_map:
-                            # Sales-only kit: include with custo=0, no ativo_categoria
                             kit_map[tipo_kit] = {
                                 "custo": 0.0,
                                 "ativo_categoria": None,
@@ -1948,30 +1989,61 @@ GROUP BY soi_parent.product_id
         kits_sem_venda = [k for k, v in kit_map.items() if v["qtd"] == 0]
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
             ev_ids_fb = list(seen_magento_events)
-            fb_query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
-    soi_parent.name                                                                    AS bundle_name,
-    COUNT(DISTINCT soi_parent.item_id)                                                 AS qtd,
-    ROUND(COALESCE(SUM(child_agg.rev), 0), 2)                                         AS receita_liquida
+            # Fallback query 1: contagem por nome de bundle (sem join com filhos)
+            fb_count_query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    soi_parent.name                        AS bundle_name,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-LEFT JOIN (
-    SELECT parent_item_id,
-           SUM(price - discount_amount) AS rev
-    FROM   sales_order_item
-    WHERE  product_type = 'simple'
-      AND  price > 0
-      AND  (price - discount_amount) > 0
-      AND  (
-                name LIKE '%%Distância%%'
-             OR name LIKE '%%Distancia%%'
-             OR name LIKE '%%Distâncias%%'
-             OR name LIKE '%%Modalidade%%'
-           )
-    GROUP BY parent_item_id
-) AS child_agg ON child_agg.parent_item_id = soi_parent.item_id
+INNER JOIN (
+    SELECT entity_id, value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 321 AND store_id = 0
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+INNER JOIN (
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_datetime
+    WHERE attribute_id = 195
+    GROUP BY entity_id
+) AS cped ON cped.entity_id = cpev1.value
+WHERE
+    cpev1.value IN :ev_ids_fb
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.state != 'canceled'
+AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
+AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+AND cped.value BETWEEN MAKEDATE({_ano - 1}, 1) AND MAKEDATE({_ano + 1}, 1) - INTERVAL 1 DAY
+GROUP BY soi_parent.name
+""").bindparams(bindparam("ev_ids_fb", expanding=True))
+
+            # Fallback query 2: receita por nome de bundle (INNER JOIN nos filhos, rápido)
+            fb_query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    soi_parent.name                                                                    AS bundle_name,
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND soi_child.price - soi_child.discount_amount > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
 INNER JOIN (
     SELECT entity_id, value
     FROM catalog_product_entity_varchar
@@ -1999,14 +2071,27 @@ GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
             try:
                 with db_module.engine_magento.connect() as conn:
+                    # Contagem por nome (sem join com filhos)
+                    fb_count_result = conn.execute(fb_count_query, {"ev_ids_fb": ev_ids_fb})
+                    fb_qtd_by_name: dict = {}
+                    for fb_row in fb_count_result.fetchall():
+                        fb_qtd_by_name[(fb_row[0] or "").strip()] = int(fb_row[1] or 0)
+
+                    # Receita por nome (INNER JOIN nos filhos)
                     fb_result = conn.execute(fb_query, {"ev_ids_fb": ev_ids_fb})
-                    # bundle_name → (qtd, receita)
-                    fb_by_name: dict = {}
+                    fb_rev_by_name: dict = {}
                     for fb_row in fb_result.fetchall():
-                        bname = (fb_row[0] or "").strip()
-                        bqtd  = int(fb_row[1] or 0)
-                        brec  = float(fb_row[2] or 0)
-                        fb_by_name[bname] = {"qtd": bqtd, "receita": brec}
+                        fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
+
+                    # Combina: bundle_name → (qtd, receita)
+                    all_fb_names = set(fb_qtd_by_name.keys()) | set(fb_rev_by_name.keys())
+                    fb_by_name: dict = {
+                        bname: {
+                            "qtd": fb_qtd_by_name.get(bname, 0),
+                            "receita": fb_rev_by_name.get(bname, 0.0),
+                        }
+                        for bname in all_fb_names
+                    }
 
                     # Só aplica onde qtd ainda é 0; evita sobrescrever dados já preenchidos
                     for kit_name in kits_sem_venda:
@@ -7337,14 +7422,6 @@ def atualizar_vendas_hoje(
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro ao recalcular médias para {grupo_nome}: {_e}")
 
-    # Invalida o cache de detalhe do evento para que a próxima requisição
-    # recalcule tudo (incluindo margemPorKit com a query atualizada).
-    try:
-        detail_cache_key = f"{ano}_{evento_id}_detail"
-        event_detail_cache.invalidate(detail_cache_key)
-        logger.info(f"atualizar-hoje: cache de detalhe invalidado para {detail_cache_key}")
-    except Exception as _e:
-        logger.warning(f"atualizar-hoje: falha ao invalidar cache de detalhe: {_e}")
 
     return {
         "status": "ok",
