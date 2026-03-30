@@ -5176,13 +5176,7 @@ SELECT /*+ MAX_EXECUTION_TIME(30000) */
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
-        AND soi.price > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
-        AND soi.price > 0 THEN soi.price * soi.qty_ordered ELSE 0 END) AS receita
+        AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
@@ -5203,7 +5197,11 @@ GROUP BY cpev1.value
             result = conn.execute(query, {"magento_event_ids": safe_ids})
             grouped = {}
             for r in result.fetchall():
-                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
+                # receita=0.0 is intentional: Magento revenue is not tracked in
+                # historical consolidation either (_fetch_daily_sales_magento_by_ids
+                # also returns receita=0), so keeping 0 ensures today's row is
+                # consistent with the rest of the snapshot table.
+                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": 0.0}
             return grouped
     except Exception as e:
         logger.error(f"Erro today sales Magento grouped: {e}")
