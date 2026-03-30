@@ -7333,6 +7333,15 @@ def atualizar_vendas_hoje(
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro ao recalcular médias para {grupo_nome}: {_e}")
 
+    # Invalida o cache de detalhe do evento para que a próxima requisição
+    # recalcule tudo (incluindo margemPorKit com a query atualizada).
+    try:
+        detail_cache_key = f"{ano}_{evento_id}_detail"
+        event_detail_cache.invalidate(detail_cache_key)
+        logger.info(f"atualizar-hoje: cache de detalhe invalidado para {detail_cache_key}")
+    except Exception as _e:
+        logger.warning(f"atualizar-hoje: falha ao invalidar cache de detalhe: {_e}")
+
     return {
         "status": "ok",
         "evento_id": evento_id,

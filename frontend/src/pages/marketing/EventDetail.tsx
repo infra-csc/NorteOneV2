@@ -354,6 +354,9 @@ const EventDetail: React.FC = () => {
         clearTimeout(staleRetryTimerRef.current);
         staleRetryTimerRef.current = null;
       }
+      // Re-busca o detalhe completo do evento (silencioso) para atualizar
+      // dados como margemPorKit que não fazem parte da resposta rápida acima.
+      fetchEvent(true, true);
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
     } finally {
