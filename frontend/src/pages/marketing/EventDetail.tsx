@@ -122,6 +122,7 @@ const EventDetail: React.FC = () => {
   const [isStaleData, setIsStaleData] = useState(false);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
   const silentRefetchDoneRef = useRef(false);
+  const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean) => void) | null>(null);
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -227,6 +228,7 @@ const EventDetail: React.FC = () => {
       }
     };
     
+    fetchEventRef.current = fetchEvent;
     fetchEvent();
     return () => {
       controller.abort();
@@ -356,7 +358,7 @@ const EventDetail: React.FC = () => {
       }
       // Re-busca o detalhe completo do evento (silencioso) para atualizar
       // dados como margemPorKit que não fazem parte da resposta rápida acima.
-      fetchEvent(true, true);
+      fetchEventRef.current?.(true, true);
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
     } finally {
