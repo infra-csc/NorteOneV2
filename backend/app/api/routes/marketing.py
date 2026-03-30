@@ -2779,7 +2779,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "9"  # v9: ISC merge no longer downgrades qtd_site on partial failure
+_DETAIL_CACHE_VERSION = "10"  # v10: ISC reads from PostgreSQL snapshot (no MySQL in read path)
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
@@ -3011,110 +3011,56 @@ def fetch_isc_data_magento():
 
 
 _isc_warnings = []
-_isc_last_known_data: dict = {}
-_isc_bg_refresh_in_progress: bool = False
-_isc_bg_refresh_lock = _threading.Lock()
-
-
-def _run_isc_background_refresh():
-    """Runs a full ISC refresh in background and updates the smart cache."""
-    global _isc_bg_refresh_in_progress, _isc_last_known_data
-    _db = None
-    try:
-        logger.info("ISC background refresh: started")
-        from ...core.database import SessionLocal
-        _db = SessionLocal()
-        result = fetch_isc_pricing_data(db=_db, force_refresh=True)
-        if result:
-            _isc_last_known_data = result
-        logger.info(f"ISC background refresh: completed ({len(result)} SKUs)")
-    except Exception as e:
-        logger.error(f"ISC background refresh failed: {e}")
-    finally:
-        if _db:
-            try:
-                _db.close()
-            except Exception:
-                pass
-        with _isc_bg_refresh_lock:
-            _isc_bg_refresh_in_progress = False
 
 
 def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> dict:
-    global _isc_cache, _isc_cache_timestamp, _isc_warnings, _isc_last_known_data, _isc_bg_refresh_in_progress
+    """
+    Reads ISC totals and rolling averages from vendas_diaria_snapshot (PostgreSQL).
+    No MySQL queries in the read path — data comes from the background auto-sync.
+    """
+    global _isc_cache, _isc_cache_timestamp, _isc_warnings
     import time
 
     current_year = datetime.now().year
     smart_cache_key = f"{current_year}_isc"
-    
+
     if not force_refresh:
-        cached = _smart_isc_cache.get(smart_cache_key)
+        # stale_ok=False: once TTL (5 min) expires, force a fresh PostgreSQL read.
+        # This is safe because get_isc_totals_from_snapshot is <5ms — no need for stale data.
+        cached = _smart_isc_cache.get(smart_cache_key, stale_ok=False)
         if cached is not None:
             cache_info = _smart_isc_cache.get_info(smart_cache_key)
             logger.info(f"ISC cache HIT: key={smart_cache_key}, age={cache_info.get('age_seconds', '?')}s")
             return cached
         else:
             logger.info(f"ISC cache MISS: key={smart_cache_key}")
-            # If we have last-known data, return it immediately and kick off background refresh
-            if _isc_last_known_data:
-                with _isc_bg_refresh_lock:
-                    if not _isc_bg_refresh_in_progress:
-                        _isc_bg_refresh_in_progress = True
-                        _threading.Thread(target=_run_isc_background_refresh, daemon=True).start()
-                        logger.info("ISC cache MISS: serving last-known data, background refresh started")
-                    else:
-                        logger.info("ISC cache MISS: serving last-known data, background refresh already running")
-                return _isc_last_known_data
     else:
         logger.info(f"ISC cache BYPASS (force_refresh): key={smart_cache_key}")
-        # Se ainda não temos dados anteriores em memória, carrega do cache persistente.
-        # Isso garante que o merge funcione mesmo na primeira rodada após reinicialização.
-        if not _isc_last_known_data:
-            _existing = _smart_isc_cache.get(smart_cache_key)
-            if _existing:
-                _isc_last_known_data = _existing
-                logger.info(f"[ISC] Seeded last-known data from persistent cache ({len(_existing)} entries) before force_refresh")
 
     current_time = time.time()
-
-    from .inscricoes_consolidado import get_sku_mappings_from_db, enrich_with_mappings
-
     warnings = []
 
-    mappings = None
-    if db:
-        try:
-            mappings = get_sku_mappings_from_db(db)
-        except Exception as e:
-            logger.warning(f"Erro ao buscar mapeamentos SKU para ISC: {e}")
-
     # ---------------------------------------------------------------------------
-    # STEP 1: Classify events by regime BEFORE dispatching external queries.
-    # Consolidated groups (D- < -1) are served exclusively from snapshot data.
-    # Their SKUs are collected into consolidated_skus_set so the external-query
-    # results can be filtered to exclude them entirely.
+    # STEP 1: Build grupo→SKU map and classify events by regime.
+    #   consolidated_grupos: set of grupo names where regime == "consolidated"
+    #   _isc_grupo_latest:    {grupo: latest event date (for dias_ate_evento)}
+    #   consolidated_grupo_skus: {grupo: [normalized SKU strings]}
     # ---------------------------------------------------------------------------
-    consolidated_skus_set: set = set()
-    consolidated_totals: dict = {}         # {grupo_nome: snap_metrics}
-    consolidated_grupo_skus: dict = {}     # {grupo_nome: [sku_norm, ...]}
-    excluded_ativo_ids: list = []          # Ativo id_externo for consolidated grupos
-    excluded_magento_ids: list = []        # Magento id_externo for consolidated grupos
-    _isc_grupo_latest: dict = {}           # {grupo_nome: latest_event_date}
-    _need_external_queries: bool = True    # Always True — SKU mappings cover only a subset of all events
+    consolidated_grupos: set = set()
+    consolidated_grupo_skus: dict = {}     # {grupo: [sku_norm, ...]}
+    _isc_grupo_latest: dict = {}           # {grupo: latest event date}
 
     if db:
         try:
             from ...models.dimensoes import SkuMapping as _ISC_SM
             _isc_grupo_rows = db.query(
                 _ISC_SM.evento_grupo, _ISC_SM.sku, _ISC_SM.data_evento,
-                _ISC_SM.fonte, _ISC_SM.id_externo
             ).filter(
                 _ISC_SM.evento_grupo != None,
                 _ISC_SM.ativo == True,
                 _ISC_SM.ano == current_year
             ).all()
 
-            _isc_grupo_ext: dict = {}      # {grupo_nome: [(fonte, id_externo), ...]}
             for _isc_row in _isc_grupo_rows:
                 _gn = _isc_row.evento_grupo
                 if not _gn:
@@ -3128,18 +3074,11 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                     consolidated_grupo_skus[_gn] = []
                 if _isc_row.sku:
                     _sn = normalize_sku(_isc_row.sku)
-                    if _sn not in consolidated_grupo_skus[_gn]:
+                    if _sn and _sn not in consolidated_grupo_skus[_gn]:
                         consolidated_grupo_skus[_gn].append(_sn)
-                if _isc_row.fonte and _isc_row.id_externo:
-                    _isc_grupo_ext.setdefault(_gn, []).append(
-                        (_isc_row.fonte, _isc_row.id_externo)
-                    )
 
-            # For current-year eventos, data_evento is intentionally left blank in
-            # sku_mappings — the canonical date lives in dim_projeto (cadastro do evento).
-            # Resolve missing dates from dim_projeto using the same fuzzy-match logic
-            # used elsewhere, so regime classification (live vs consolidated) works
-            # correctly without requiring manual date entry in SKU mappings.
+            # Resolve missing event dates from dim_projeto using fuzzy-match
+            # so regime classification works without manual date entry in SKU mappings.
             _grupos_sem_data = set(consolidated_grupo_skus.keys()) - set(_isc_grupo_latest.keys())
             if _grupos_sem_data:
                 try:
@@ -3161,201 +3100,139 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
                         if _best_dt and _best_sc >= 0.5:
                             _isc_grupo_latest[_gn_nd] = _best_dt
                 except Exception as _date_err:
-                    logger.warning(f"[Hybrid] ISC: failed to resolve dates from dim_projeto: {_date_err}")
+                    logger.warning(f"[ISC] failed to resolve dates from dim_projeto: {_date_err}")
 
+            # Classify by regime
             _live_count = 0
             for _gn, _evt_date in _isc_grupo_latest.items():
                 _rc = _evt_date - timedelta(days=2)
                 _raw_dm = (_rc - date.today()).days
                 _regime = get_event_regime(_raw_dm)
-                if _regime != "consolidated":
+                if _regime == "consolidated":
+                    consolidated_grupos.add(_gn)
+                else:
                     _live_count += 1
-                    continue
-                _snap = _get_snapshot_metrics_for_grupo(db, _gn)
-                if not _snap:
-                    _live_count += 1
-                    continue
-                consolidated_totals[_gn] = _snap
-                for _sn in consolidated_grupo_skus.get(_gn, []):
-                    consolidated_skus_set.add(_sn)
-                for _fonte, _ext_id in _isc_grupo_ext.get(_gn, []):
-                    _fonte_norm = (_fonte or "").upper()
-                    if _fonte_norm == "ATIVO" and _ext_id not in excluded_ativo_ids:
-                        excluded_ativo_ids.append(_ext_id)
-                    elif _fonte_norm == "MAGENTO" and _ext_id not in excluded_magento_ids:
-                        excluded_magento_ids.append(_ext_id)
 
-            # Always run external queries — SKU mappings only cover a subset of events.
-            # There are many events in Magento/Ativo without SKU mappings that would
-            # be lost if we skipped external queries based solely on mapped eventos.
-            _need_external_queries = True
-
-            if consolidated_totals:
-                logger.info(
-                    f"[Hybrid] ISC: {len(consolidated_totals)} consolidated grupos "
-                    f"({len(consolidated_skus_set)} SKUs) excluded from external queries "
-                    f"(ativo_ids={len(excluded_ativo_ids)}, magento_ids={len(excluded_magento_ids)}, "
-                    f"live_count={_live_count})"
-                )
+            logger.info(
+                f"[ISC] Regime: {len(consolidated_grupos)} consolidated, "
+                f"{_live_count} live/hybrid (total: {len(consolidated_grupo_skus)} grupos)"
+            )
         except Exception as _cls_err:
-            logger.warning(f"[Hybrid] Regime classification failed in ISC: {_cls_err}")
+            logger.warning(f"[ISC] Regime classification failed: {_cls_err}")
 
     # ---------------------------------------------------------------------------
-    # STEP 2: Dispatch live external queries (Ativo + Magento).
-    # Consolidated event IDs are excluded at the SQL WHERE clause level so their
-    # data is never fetched from external databases.
-    # If no live/hybrid eventos exist (all consolidated), skip external calls entirely.
+    # STEP 2: Read ALL grupo metrics from PostgreSQL snapshot table (<5ms).
+    # This replaces the previous MySQL Ativo + Magento queries entirely.
+    # If a grupo has no snapshot rows, it gets zeros with a warning — the
+    # background auto-sync will populate it within the next 30-min cycle.
     # ---------------------------------------------------------------------------
-    all_data = {}
-
-    def _fetch_ativo_filtered():
-        return _fetch_with_retry(
-            db_module.engine_ssh,
-            lambda: build_query_isc_ativo(excluded_ativo_ids if excluded_ativo_ids else None),
-            "Ativo"
-        )
-
-    def _fetch_magento_filtered():
-        return _fetch_with_retry(
-            db_module.engine_magento,
-            lambda: build_query_isc_magento(excluded_magento_ids if excluded_magento_ids else None),
-            "Magento"
-        )
-
-    future_ativo = _rolling_avg_executor.submit(_fetch_ativo_filtered)
-    future_magento = _rolling_avg_executor.submit(_fetch_magento_filtered)
-
-    if future_ativo is not None:
+    snapshot_totals: dict = {}
+    if db:
         try:
-            dados_ativo = future_ativo.result(timeout=300)
+            from ...services.snapshot_service import get_isc_totals_from_snapshot
+            snapshot_totals = get_isc_totals_from_snapshot(db, current_year)
+            logger.info(f"[ISC] PostgreSQL snapshot: {len(snapshot_totals)} grupos com dados")
         except Exception as e:
-            logger.error(f"Erro ISC Ativo (executor): {e}")
-            dados_ativo = []
-            warnings.append("⚠️ Banco Ativo: timeout ou erro de conexão. ISC exibindo apenas dados do Magento (inscrições Ativo ausentes).")
+            logger.error(f"[ISC] Erro ao ler snapshot PostgreSQL: {e}")
+            warnings.append("⚠️ Erro ao ler dados do PostgreSQL. Dashboard pode exibir valores desatualizados.")
 
-    if future_magento is not None:
-        try:
-            dados_magento = future_magento.result(timeout=300)
-        except Exception as e:
-            logger.error(f"Erro ISC Magento (executor): {e}")
-            dados_magento = []
-            warnings.append("⚠️ Banco Magento: timeout ou erro de conexão. ISC exibindo apenas dados do Ativo (inscrições Magento ausentes).")
+    # ---------------------------------------------------------------------------
+    # STEP 3: Build all_data keyed by normalized SKU (same format as before).
+    # Live/hybrid grupos get full metrics + projection math.
+    # Consolidated grupos get snapshot totals with _regime='consolidated'.
+    # ---------------------------------------------------------------------------
+    all_data: dict = {}
+    consolidated_totals: dict = {}   # {grupo: snap_metrics} — kept in output for callers
 
-    if isinstance(dados_ativo, dict) and 'error' in dados_ativo:
-        warnings.append(f"⚠️ Banco Ativo: {dados_ativo['error']}. ISC exibindo apenas dados do Magento (inscrições Ativo ausentes).")
-        dados_ativo = []
+    for _gn, _skus in consolidated_grupo_skus.items():
+        is_consolidated = _gn in consolidated_grupos
+        snap = snapshot_totals.get(_gn)
 
-    if isinstance(dados_magento, dict) and 'error' in dados_magento:
-        warnings.append(f"⚠️ Banco Magento: {dados_magento['error']}. ISC exibindo apenas dados do Ativo (inscrições Magento ausentes).")
-        dados_magento = []
-
-    if _need_external_queries and not dados_ativo and not dados_magento:
-        warnings.append("Nenhuma fonte de dados retornou resultados. Verifique a conectividade com os bancos de dados.")
-
-    if mappings and dados_ativo:
-        import copy
-        dados_ativo = copy.deepcopy(dados_ativo)
-        dados_ativo = enrich_with_mappings(dados_ativo, mappings, "ativo", datetime.now().year)
-
-    def _aggregate_isc_row(all_data: dict, sku: str, row: dict):
-        if sku in all_data:
-            all_data[sku]['qtd_site'] += row.get('qtd_site', 0)
-            all_data[sku]['inscricao_liquida'] += row.get('inscricao_liquida', 0.0)
-            all_data[sku]['media_30d'] += row.get('media_30d', 0.0)
-            all_data[sku]['media_14d'] += row.get('media_14d', 0.0)
-            all_data[sku]['media_7d'] += row.get('media_7d', 0.0)
-        else:
-            all_data[sku] = {
-                'qtd_site': row.get('qtd_site', 0),
-                'inscricao_liquida': row.get('inscricao_liquida', 0.0),
-                'media_30d': row.get('media_30d', 0.0),
-                'media_14d': row.get('media_14d', 0.0),
-                'media_7d': row.get('media_7d', 0.0),
-                'dias_ate_evento': row.get('dias_ate_evento', 0),
-                'evento_name': row.get('evento', ''),
-                'ticket_medio': 0.0,
-                'fator_aceleracao': 0.0,
-                'projecao_linear': 0.0,
-                'projecao_ajustada': 0.0,
-                'projecao_final': 0.0,
-                'tendencia': 'Sem histórico comparativo',
-                'receita_liquida_site': row.get('inscricao_liquida', 0.0),
+        if not snap:
+            if not is_consolidated:
+                logger.warning(
+                    f"[ISC] Grupo '{_gn}' sem dados no snapshot — "
+                    f"auto-sync ainda não rodou ou grupo sem vendas no ano {current_year}"
+                )
+            snap = {
+                "qtd_site": 0, "receita_liquida_site": 0.0, "inscricao_liquida": 0.0,
+                "ticket_medio": 0.0, "media_7d": 0.0, "media_14d": 0.0, "media_30d": 0.0,
             }
 
-    # ---------------------------------------------------------------------------
-    # STEP 3: Populate all_data from external results, SKIPPING consolidated SKUs.
-    # Consolidated events must not appear in all_data from external sources.
-    # ---------------------------------------------------------------------------
-    for row in dados_ativo:
-        sku = normalize_sku(row.get('sku', '') or '')
-        if not sku or sku in consolidated_skus_set:
-            continue
-        _aggregate_isc_row(all_data, sku, row)
+        _evt_date = _isc_grupo_latest.get(_gn)
+        dias_ate_evento = (_evt_date - date.today()).days if _evt_date else 0
 
-    if mappings and dados_magento:
-        import copy
-        dados_magento = copy.deepcopy(dados_magento)
-        dados_magento = enrich_with_mappings(dados_magento, mappings, "magento", datetime.now().year)
-
-    for row in dados_magento:
-        sku = normalize_sku(row.get('sku', '') or '')
-        if not sku or sku in consolidated_skus_set:
-            continue
-        _aggregate_isc_row(all_data, sku, row)
-
-    # ---------------------------------------------------------------------------
-    # STEP 4: Add consolidated SKUs from snapshot-only path.
-    # First SKU per group receives the full grupo total; remaining SKUs get zero
-    # so that callers summing all SKUs get the correct grupo total.
-    # ---------------------------------------------------------------------------
-    for _gn, _snap in consolidated_totals.items():
-        _skus = consolidated_grupo_skus.get(_gn, [])
         for _i, _sn in enumerate(_skus):
-            all_data[_sn] = {
-                'qtd_site': _snap['qtd_site'] if _i == 0 else 0,
-                'inscricao_liquida': _snap['receita_liquida_site'] if _i == 0 else 0.0,
-                'media_30d': 0.0,
-                'media_14d': 0.0,
-                'media_7d': 0.0,
-                'dias_ate_evento': 0,
-                'evento_name': _gn,
-                'ticket_medio': _snap.get('ticket_medio', 0.0) if _i == 0 else 0.0,
-                'fator_aceleracao': 0.0,
-                'projecao_linear': _snap['qtd_site'] if _i == 0 else 0,
-                'projecao_ajustada': _snap['qtd_site'] if _i == 0 else 0,
-                'projecao_final': _snap['qtd_site'] if _i == 0 else 0,
-                'tendencia': 'Consolidado',
-                'receita_liquida_site': _snap['receita_liquida_site'] if _i == 0 else 0.0,
-                '_regime': 'consolidated',
-            }
+            if not _sn:
+                continue
+            if is_consolidated:
+                all_data[_sn] = {
+                    'qtd_site':            snap['qtd_site'] if _i == 0 else 0,
+                    'inscricao_liquida':   snap['inscricao_liquida'] if _i == 0 else 0.0,
+                    'media_30d': 0.0, 'media_14d': 0.0, 'media_7d': 0.0,
+                    'dias_ate_evento': 0,
+                    'evento_name':         _gn,
+                    'ticket_medio':        snap.get('ticket_medio', 0.0) if _i == 0 else 0.0,
+                    'fator_aceleracao':    0.0,
+                    'projecao_linear':     snap['qtd_site'] if _i == 0 else 0,
+                    'projecao_ajustada':   snap['qtd_site'] if _i == 0 else 0,
+                    'projecao_final':      snap['qtd_site'] if _i == 0 else 0,
+                    'tendencia':           'Consolidado',
+                    'receita_liquida_site': snap['receita_liquida_site'] if _i == 0 else 0.0,
+                    '_regime':             'consolidated',
+                }
+                if _i == 0:
+                    consolidated_totals[_gn] = snap
+            else:
+                if _i == 0:
+                    all_data[_sn] = {
+                        'qtd_site':            snap['qtd_site'],
+                        'inscricao_liquida':   snap['inscricao_liquida'],
+                        'media_30d':           snap['media_30d'],
+                        'media_14d':           snap['media_14d'],
+                        'media_7d':            snap['media_7d'],
+                        'dias_ate_evento':     dias_ate_evento,
+                        'evento_name':         _gn,
+                        'ticket_medio':        0.0,
+                        'fator_aceleracao':    0.0,
+                        'projecao_linear':     0.0,
+                        'projecao_ajustada':   0.0,
+                        'projecao_final':      0.0,
+                        'tendencia':           'Sem histórico comparativo',
+                        'receita_liquida_site': snap['receita_liquida_site'],
+                    }
+                else:
+                    all_data[_sn] = {
+                        'qtd_site': 0, 'inscricao_liquida': 0.0,
+                        'media_30d': 0.0, 'media_14d': 0.0, 'media_7d': 0.0,
+                        'dias_ate_evento': 0, 'evento_name': _gn,
+                        'ticket_medio': 0.0, 'fator_aceleracao': 0.0,
+                        'projecao_linear': 0.0, 'projecao_ajustada': 0.0,
+                        'projecao_final': 0.0, 'tendencia': 'Sem histórico comparativo',
+                        'receita_liquida_site': 0.0,
+                    }
 
+    # STEP 4: Compute projection metrics for live/hybrid events (same math as before).
     for sku, data in all_data.items():
         if data.get('_regime') == 'consolidated':
             continue
-        qtd_site = data['qtd_site']
-        dias = max(data['dias_ate_evento'], 0)
+        qtd_site  = data['qtd_site']
+        dias      = max(data['dias_ate_evento'], 0)
         media_14d = data['media_14d']
-        media_7d = data['media_7d']
+        media_7d  = data['media_7d']
 
-        qtd_7d = media_7d * 7.0
+        qtd_7d          = media_7d  * 7.0
         qtd_7d_anterior = media_14d * 14.0 - qtd_7d
 
-        data['ticket_medio'] = round(data['inscricao_liquida'] / qtd_site, 2) if qtd_site > 0 else 0.0
-
+        data['ticket_medio']        = round(data['inscricao_liquida'] / qtd_site, 2) if qtd_site > 0 else 0.0
         data['receita_liquida_site'] = data['inscricao_liquida']
 
-        if qtd_7d_anterior > 0:
-            data['fator_aceleracao'] = round(qtd_7d / qtd_7d_anterior, 2)
-        else:
-            data['fator_aceleracao'] = 0.0
+        data['fator_aceleracao'] = round(qtd_7d / qtd_7d_anterior, 2) if qtd_7d_anterior > 0 else 0.0
+        data['projecao_linear']  = round(qtd_site + media_14d * dias, 0)
 
-        data['projecao_linear'] = round(qtd_site + media_14d * dias, 0)
-
-        fator = data['fator_aceleracao'] if data['fator_aceleracao'] > 0 else 1.0
-        fator_clamped = min(max(fator, 0.3), 2.5)
+        fator_clamped           = min(max(data['fator_aceleracao'] if data['fator_aceleracao'] > 0 else 1.0, 0.3), 2.5)
         data['projecao_ajustada'] = round(qtd_site + media_14d * fator_clamped * dias, 0)
-
-        data['projecao_final'] = data['projecao_linear']
+        data['projecao_final']    = data['projecao_linear']
 
         if qtd_7d_anterior <= 0:
             data['tendencia'] = 'Sem histórico comparativo'
@@ -3368,62 +3245,16 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
 
     all_data['_consolidated_totals'] = consolidated_totals
 
-    fontes = []
-    if dados_ativo:
-        fontes.append("Ativo")
-    if dados_magento:
-        fontes.append("Magento")
-    if fontes and not warnings:
-        logger.info(f"ISC/Pricing data consolidado: {len(all_data)} SKUs (fontes: {', '.join(fontes)})")
-
-    # ---------------------------------------------------------------------------
-    # Se houve falha parcial (um banco não respondeu) e temos dados anteriores,
-    # fazemos um merge: os eventos do banco que falhou ficam com os valores
-    # anteriores; apenas os do banco que respondeu são atualizados.
-    # Assim nunca perdemos dados completos por causa de uma falha temporária.
-    # ---------------------------------------------------------------------------
-    _db_partial_failure = any(
-        ("⚠️ Banco Ativo:" in w or "⚠️ Banco Magento:" in w) for w in warnings
-    )
-    if _db_partial_failure and _isc_last_known_data:
-        merged = dict(_isc_last_known_data)
-        for _mk, _mv in all_data.items():
-            if _mk == '_consolidated_totals':
-                merged[_mk] = _mv
-                continue
-            _prev = merged.get(_mk)
-            if _prev is None:
-                # new entry not seen before — always add
-                merged[_mk] = _mv
-            elif isinstance(_mv, dict) and isinstance(_prev, dict):
-                # Only overwrite if new data has equal or more registrations.
-                # This prevents a partial Ativo-only read (e.g. 649) from
-                # replacing a previously correct Ativo+Magento total (e.g. 2514).
-                if _mv.get('qtd_site', 0) >= _prev.get('qtd_site', 0):
-                    merged[_mk] = _mv
-                # else: keep previous higher value
-            else:
-                merged[_mk] = _mv
-        # _consolidated_totals já veio atualizado no all_data; garante presença
-        if '_consolidated_totals' not in merged:
-            merged['_consolidated_totals'] = {}
-        all_data = merged
+    if not warnings:
         logger.info(
-            f"[ISC] Partial failure — merged {len(all_data)} entries "
-            f"(new: {len(fontes)} fonte(s), preserved previous data for failed source)"
+            f"[ISC] PostgreSQL read OK: {len(all_data) - 1} SKUs "
+            f"({len(consolidated_grupos)} consolidated, {len(snapshot_totals)} grupos com dados)"
         )
 
     _isc_cache = all_data
     _isc_cache_timestamp = current_time
     _isc_warnings = warnings
-
-    # Só atualiza o "last known" quando os dados são mais completos do que antes
-    # (ambas as fontes responderam) OU quando ainda não temos nenhum dado anterior.
-    if all_data and (not _db_partial_failure or not _isc_last_known_data):
-        _isc_last_known_data = all_data
-
     _smart_isc_cache.set(smart_cache_key, all_data)
-
     return all_data
 
 

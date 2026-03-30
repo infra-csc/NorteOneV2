@@ -167,10 +167,11 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             fonte='CONSOLIDADO',
             data_venda=d,
             quantidade=data["qtd"],
-            receita=data["receita"]
+            receita=data["receita"],
+            ano=d.year,
         ).on_conflict_do_update(
             index_elements=['evento_grupo', 'fonte', 'data_venda'],
-            set_={'quantidade': data["qtd"], 'receita': data["receita"]}
+            set_={'quantidade': data["qtd"], 'receita': data["receita"], 'ano': d.year}
         )
         db.execute(stmt)
         saved += 1
@@ -421,7 +422,81 @@ def sincronizar_hoje_batch(db: Session) -> int:
         f"sincronizar_hoje_batch: {synced}/{len(grupos)} grupos sincronizados para {today}"
         f" (backfills={backfilled}, falhas={failed})"
     )
+
+    # Invalidate event_detail and ISC caches so next dashboard request gets fresh
+    # snapshot data without waiting for the 22h/5min SmartCache TTL to expire.
+    if synced > 0:
+        try:
+            from ..core.cache import event_detail_cache, isc_cache
+            event_detail_cache.invalidate()
+            isc_cache.invalidate()
+            logger.info("sincronizar_hoje_batch: event_detail and ISC caches invalidated")
+        except Exception as _ce:
+            logger.warning(f"sincronizar_hoje_batch: cache invalidation failed: {_ce}")
+
     return synced
+
+
+def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
+    """
+    Returns ISC metrics aggregated from vendas_diaria_snapshot for the given year.
+    Includes rolling 7d/14d/30d sales averages based on today's date.
+
+    Returns {grupo_name: {qtd_site, receita_liquida_site, inscricao_liquida,
+                          ticket_medio, media_7d, media_14d, media_30d}}
+    Grupos with no snapshot rows for the given year are not included.
+    """
+    from sqlalchemy import func
+    from sqlalchemy import case as sa_case
+
+    today = date.today()
+    d7  = today - timedelta(days=7)
+    d14 = today - timedelta(days=14)
+    d30 = today - timedelta(days=30)
+
+    # Filter by year from data_venda (robust: handles rows with NULL ano from older
+    # consolidar_vendas_grupo runs that didn't set the ano column).
+    year_start = date(ano, 1, 1)
+    year_end   = date(ano + 1, 1, 1)
+
+    rows = db.query(
+        VendasDiariaSnapshot.evento_grupo,
+        func.sum(VendasDiariaSnapshot.quantidade).label("qtd_total"),
+        func.sum(VendasDiariaSnapshot.receita).label("receita_total"),
+        func.sum(sa_case(
+            (VendasDiariaSnapshot.data_venda >= d7,  VendasDiariaSnapshot.quantidade),
+            else_=0
+        )).label("qtd_7d"),
+        func.sum(sa_case(
+            (VendasDiariaSnapshot.data_venda >= d14, VendasDiariaSnapshot.quantidade),
+            else_=0
+        )).label("qtd_14d"),
+        func.sum(sa_case(
+            (VendasDiariaSnapshot.data_venda >= d30, VendasDiariaSnapshot.quantidade),
+            else_=0
+        )).label("qtd_30d"),
+    ).filter(
+        VendasDiariaSnapshot.data_venda >= year_start,
+        VendasDiariaSnapshot.data_venda <  year_end,
+    ).group_by(VendasDiariaSnapshot.evento_grupo).all()
+
+    result = {}
+    for r in rows:
+        qtd     = int(r.qtd_total   or 0)
+        receita = float(r.receita_total or 0.0)
+        q7      = int(r.qtd_7d  or 0)
+        q14     = int(r.qtd_14d or 0)
+        q30     = int(r.qtd_30d or 0)
+        result[r.evento_grupo] = {
+            "qtd_site":            qtd,
+            "receita_liquida_site": receita,
+            "inscricao_liquida":   receita,
+            "ticket_medio":        round(receita / qtd, 2) if qtd > 0 else 0.0,
+            "media_7d":            round(q7  / 7.0,  2),
+            "media_14d":           round(q14 / 14.0, 2),
+            "media_30d":           round(q30 / 30.0, 2),
+        }
+    return result
 
 
 def backfill_historico(db: Session, ano: int, data_inicio: date = None, data_fim: date = None):

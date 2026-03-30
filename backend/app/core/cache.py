@@ -572,7 +572,8 @@ class SmartCache:
             return len(self._data)
 
 
-isc_cache = SmartCache("isc_pricing", ttl=NIGHTLY_CACHE_TTL)
+ISC_CACHE_TTL = 300  # 5 min — ISC now reads from fast PostgreSQL, no need for 22h TTL
+isc_cache = SmartCache("isc_pricing", ttl=ISC_CACHE_TTL)
 event_detail_cache = SmartCache("event_detail", ttl=NIGHTLY_CACHE_TTL)
 daily_sales_cache = SmartCache("daily_sales")
 curva_cache = SmartCache("curva_comparativa")

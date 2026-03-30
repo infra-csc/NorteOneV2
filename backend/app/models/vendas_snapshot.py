@@ -19,6 +19,7 @@ class VendasDiariaSnapshot(Base):
     __table_args__ = (
         UniqueConstraint('evento_grupo', 'fonte', 'data_venda', name='uq_snapshot_grupo_fonte_data'),
         Index('ix_snapshot_grupo_data', 'evento_grupo', 'data_venda'),
+        Index('ix_snapshot_data_venda', 'data_venda'),
     )
 
 
