@@ -7499,6 +7499,75 @@ def refresh_all_caches(
     }
 
 
+@router.get("/debug/snapshot-grupo")
+def debug_snapshot_grupo(
+    grupo: str,
+    ano: int = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """
+    Diagnostic endpoint: returns a breakdown of vendas_diaria_snapshot rows
+    for a specific grupo, grouped by calendar year and date range.
+    Useful for identifying pre-sale orders or data contamination.
+    """
+    from sqlalchemy import func
+    from app.models.vendas_snapshot import VendasDiariaSnapshot
+    import datetime as _diag_dt
+
+    _ano = ano or _diag_dt.date.today().year
+
+    rows = db.query(
+        VendasDiariaSnapshot.data_venda,
+        VendasDiariaSnapshot.quantidade,
+        VendasDiariaSnapshot.receita,
+        VendasDiariaSnapshot.ano,
+        VendasDiariaSnapshot.fonte,
+    ).filter(
+        VendasDiariaSnapshot.evento_grupo == grupo,
+    ).order_by(VendasDiariaSnapshot.data_venda).all()
+
+    year_start      = _diag_dt.date(_ano, 1, 1)
+    presale_start   = _diag_dt.date(_ano - 1, 9, 1)
+    year_end        = _diag_dt.date(_ano + 1, 1, 1)
+
+    in_year         = [r for r in rows if r.data_venda >= year_start and r.data_venda < year_end]
+    presale         = [r for r in rows if r.data_venda >= presale_start and r.data_venda < year_start]
+    before_presale  = [r for r in rows if r.data_venda < presale_start]
+    after_year      = [r for r in rows if r.data_venda >= year_end]
+
+    def _summarize(subset):
+        return {
+            "count_days": len(subset),
+            "total_qtd": sum(r.quantidade or 0 for r in subset),
+            "total_receita": round(sum(float(r.receita or 0) for r in subset), 2),
+            "date_min": str(subset[0].data_venda) if subset else None,
+            "date_max": str(subset[-1].data_venda) if subset else None,
+            "rows": [{"data_venda": str(r.data_venda), "qtd": r.quantidade, "ano_col": r.ano, "fonte": r.fonte}
+                     for r in subset],
+        }
+
+    isc_total = sum(r.quantidade or 0 for r in rows
+                    if (r.ano == _ano) or (r.data_venda >= presale_start and r.data_venda < year_end))
+
+    return {
+        "grupo": grupo,
+        "ano_consultado": _ano,
+        "isc_total_atual": isc_total,
+        "total_snapshot_sem_filtro": sum(r.quantidade or 0 for r in rows),
+        "breakdown": {
+            f"em_{_ano}": _summarize(in_year),
+            f"pre_venda_{_ano - 1}_set_dez": _summarize(presale),
+            f"antes_set_{_ano - 1}": _summarize(before_presale),
+            f"depois_{_ano}": _summarize(after_year),
+        },
+        "by_ano_col": {
+            str(yr): sum(r.quantidade or 0 for r in rows if r.ano == yr)
+            for yr in sorted(set(r.ano for r in rows if r.ano is not None))
+        },
+    }
+
+
 @router.get("/cache/status")
 def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
