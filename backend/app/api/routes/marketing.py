@@ -7423,6 +7423,14 @@ def atualizar_vendas_hoje(
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro ao recalcular médias para {grupo_nome}: {_e}")
 
+    # Invalidate the eventos list cache so the main table shows fresh counts immediately,
+    # and the ISC cache so projected totals reflect the new today-sync data.
+    try:
+        eventos_list_cache.invalidate()
+        _smart_isc_cache.invalidate()
+        logger.info(f"atualizar-hoje: eventos_list and ISC caches invalidated for {evento_id}")
+    except Exception as _ci:
+        logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
     return {
         "status": "ok",

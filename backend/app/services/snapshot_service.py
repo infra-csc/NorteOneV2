@@ -428,9 +428,11 @@ def sincronizar_hoje_batch(db: Session) -> int:
     if synced > 0:
         try:
             from ..core.cache import event_detail_cache, isc_cache
+            from ..api.routes.marketing import eventos_list_cache
             event_detail_cache.invalidate()
             isc_cache.invalidate()
-            logger.info("sincronizar_hoje_batch: event_detail and ISC caches invalidated")
+            eventos_list_cache.invalidate()
+            logger.info("sincronizar_hoje_batch: event_detail, ISC and eventos_list caches invalidated")
         except Exception as _ce:
             logger.warning(f"sincronizar_hoje_batch: cache invalidation failed: {_ce}")
 
