@@ -74,7 +74,9 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    (
+    -- special_price: usa min_price do bundle pai (já reflete catalog price rules ativas)
+    -- Fallback para pi_filho quando kit inativo (não indexado pelo Magento)
+    COALESCE(pi_pai.min_price, (
         MAX(CASE 
             WHEN (
                 cpev_simple.value LIKE '%Distancia%'
@@ -117,7 +119,7 @@ SELECT
              AND cpev_simple.value NOT LIKE '%Corrida +%'
             THEN pi_filho.final_price ELSE NULL 
         END), 0)
-    )                                       AS special_price,
+    ))                                      AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
@@ -170,10 +172,17 @@ LEFT JOIN catalog_product_entity_decimal cpep
        ON cpep.entity_id = cpeos.product_id
       AND cpep.attribute_id = 77
 
+-- Preço dos filhos simples: fallback para kits inativos
 LEFT JOIN catalog_product_index_price pi_filho
        ON pi_filho.entity_id = cpeos.product_id
       AND pi_filho.website_id = 1
       AND pi_filho.customer_group_id = 0
+
+-- Preço do bundle pai: min_price já reflete catalog price rules ativas
+LEFT JOIN catalog_product_index_price pi_pai
+       ON pi_pai.entity_id = cpe_parent.entity_id
+      AND pi_pai.website_id = 1
+      AND pi_pai.customer_group_id = 0
 
 LEFT JOIN catalog_product_entity_event_lot_price lote
        ON lote.entity_id = cpev1.value
@@ -210,7 +219,8 @@ GROUP BY
     eaov_tipo.value,
     lote.lot_name,
     lote.lot_value,
-    lote.lot_sell_ends
+    lote.lot_sell_ends,
+    pi_pai.min_price
 
 ORDER BY
     cpev1.value,
