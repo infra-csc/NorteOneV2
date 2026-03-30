@@ -5160,7 +5160,7 @@ GROUP BY sub.id_evento
 def _fetch_today_sales_magento_grouped(magento_event_ids: list) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
-    Returns {str(id_evento): {"qtd": int, "receita": 0.0}}.
+    Returns {str(id_evento): {"qtd": int, "receita": float}}.
     """
     if not magento_event_ids or db_module.engine_magento is None:
         return {}
@@ -5176,7 +5176,13 @@ SELECT /*+ MAX_EXECUTION_TIME(30000) */
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
-        AND soi.price > 0 THEN 1 END) AS qtd
+        AND soi.price > 0 THEN 1 END) AS qtd,
+    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
+        AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND soi.price > 0 THEN soi.price * soi.qty_ordered ELSE 0 END) AS receita
 FROM sales_order so
 INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
@@ -5197,7 +5203,7 @@ GROUP BY cpev1.value
             result = conn.execute(query, {"magento_event_ids": safe_ids})
             grouped = {}
             for r in result.fetchall():
-                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": 0.0}
+                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
             return grouped
     except Exception as e:
         logger.error(f"Erro today sales Magento grouped: {e}")
@@ -7479,6 +7485,7 @@ def atualizar_vendas_hoje(
             magento_today = _fetch_today_sales_magento_grouped(magento_ids)
             for _entry in magento_today.values():
                 hoje_magento += _entry["qtd"]
+                hoje_receita += _entry["receita"]
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
 

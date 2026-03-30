@@ -286,8 +286,11 @@ def sincronizar_hoje_batch(db: Session) -> int:
     # data_evento >= min_live_date in the current year.
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     live_grupos: set = set()
+    # Only consider events in the current year that are live/hybrid (not consolidated).
+    max_date = date(ano + 1, 1, 1)
     projetos = db.query(DimProjeto).filter(
         DimProjeto.data_evento >= min_live_date,
+        DimProjeto.data_evento < max_date,
     ).all()
     for p in projetos:
         if not p.data_evento or not p.codigo:
@@ -383,6 +386,7 @@ def sincronizar_hoje_batch(db: Session) -> int:
                 entry = magento_today.get(eid)
                 if entry:
                     qtd_total += entry["qtd"]
+                    receita_total += entry["receita"]
 
             stmt = pg_insert(VendasDiariaSnapshot).values(
                 evento_grupo=grupo,
