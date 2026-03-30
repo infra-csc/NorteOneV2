@@ -342,12 +342,14 @@ def sincronizar_hoje_batch(db: Session) -> int:
     logger.info(f"sincronizar_hoje_batch: {len(grupos)} grupos live/hybrid para sincronizar")
 
     # --- Step 1: Backfill historical data for groups with no snapshot rows ---
+    backfilled = 0
     for grupo in list(grupos.keys()):
         latest = get_latest_snapshot_date(db, grupo)
         if latest is None:
             try:
                 logger.info(f"sincronizar_hoje_batch: backfill histórico para '{grupo}'")
                 consolidar_vendas_grupo(db, grupo, ano, data_fim=yesterday)
+                backfilled += 1
             except Exception as e:
                 logger.warning(f"sincronizar_hoje_batch: backfill falhou para '{grupo}': {e}")
 
@@ -371,6 +373,7 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     # --- Step 3: Aggregate by grupo and UPSERT today's row ---
     synced = 0
+    failed = 0
     for grupo, ids in grupos.items():
         try:
             qtd_total = 0
@@ -407,13 +410,17 @@ def sincronizar_hoje_batch(db: Session) -> int:
             db.commit()
             synced += 1
         except Exception as e:
+            failed += 1
             logger.error(f"sincronizar_hoje_batch: erro para grupo='{grupo}': {e}")
             try:
                 db.rollback()
             except Exception:
                 pass
 
-    logger.info(f"sincronizar_hoje_batch: {synced}/{len(grupos)} grupos sincronizados para {today}")
+    logger.info(
+        f"sincronizar_hoje_batch: {synced}/{len(grupos)} grupos sincronizados para {today}"
+        f" (backfills={backfilled}, falhas={failed})"
+    )
     return synced
 
 
