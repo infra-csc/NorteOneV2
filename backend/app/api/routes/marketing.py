@@ -1851,7 +1851,7 @@ INNER JOIN sales_order_item soi_parent
       AND soi_parent.product_type = 'bundle'
 WHERE
     soi_parent.product_id IN :bundle_ids
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -1885,7 +1885,7 @@ INNER JOIN sales_order_item soi_child
       )
 WHERE
     soi_parent.product_id IN :bundle_ids
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -1982,7 +1982,7 @@ INNER JOIN (
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 WHERE
     cpev1.value IN :ev_ids_fb
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -2021,7 +2021,7 @@ INNER JOIN (
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 WHERE
     cpev1.value IN :ev_ids_fb
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -2902,7 +2902,7 @@ LEFT JOIN (
     WHERE attribute_id = 73 AND store_id = 0
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
 AND so.state != 'canceled'
 AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
@@ -4597,7 +4597,7 @@ LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY MONTH(so.created_at)
@@ -4734,7 +4734,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id     = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -4931,7 +4931,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5079,7 +5079,7 @@ LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5158,7 +5158,7 @@ LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5292,7 +5292,7 @@ INNER JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY cpev1.value, soi.name
@@ -5351,7 +5351,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY soi.name
@@ -8645,7 +8645,7 @@ INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
-WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
   AND so.state != 'canceled'
   AND cpev1.value = :mid
   AND so.increment_id NOT REGEXP '-[0-9]'
@@ -8667,7 +8667,7 @@ INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
-WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending', 'pending_payment')
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending_payment')
   AND so.state != 'canceled'
   AND cpev1.value = :mid
   AND so.increment_id NOT REGEXP '-[0-9]'
@@ -8704,7 +8704,7 @@ INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
-WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'pending')
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
   AND so.state != 'canceled'
   AND cpev1.value = :mid
   AND so.created_at < CURDATE() + INTERVAL 1 DAY
