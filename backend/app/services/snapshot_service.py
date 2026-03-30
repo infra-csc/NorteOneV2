@@ -257,20 +257,49 @@ def sincronizar_hoje_batch(db: Session) -> int:
     """
     Syncs today's sales to vendas_diaria_snapshot for all active event groups
     using efficient single-batch MySQL queries (one per source).
+    Only live/hybrid groups are synced (regime != "consolidated"), i.e., groups
+    that have at least one event with data_evento >= today + 1 (D- >= -1).
 
-    Also backfills historical data for groups that have no snapshot rows at all
-    (calls consolidar_vendas_grupo with data_fim=yesterday before syncing today).
+    Also backfills historical data for live groups that have no snapshot rows at
+    all (calls consolidar_vendas_grupo with data_fim=yesterday before syncing today).
 
     Returns the number of groups whose today row was successfully upserted.
     """
     from ..api.routes.marketing import (
         _fetch_today_sales_ativo_grouped,
         _fetch_today_sales_magento_grouped,
+        _build_sku_to_grupo_map,
+        normalize_sku,
     )
 
     today = date.today()
     yesterday = today - timedelta(days=1)
     ano = today.year
+
+    # D- >= -1 (not consolidated) means data_evento >= today + 1.
+    # registration_close = data_evento - 2, D- = registration_close - today.
+    # D- = -1 → registration_close = today - 1 → data_evento = today + 1.
+    min_live_date = today + timedelta(days=1)
+
+    # --- Build map of live/hybrid grupos ---
+    # A grupo is live/hybrid if it has at least one DimProjeto with
+    # data_evento >= min_live_date in the current year.
+    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+    live_grupos: set = set()
+    projetos = db.query(DimProjeto).filter(
+        DimProjeto.data_evento >= min_live_date,
+    ).all()
+    for p in projetos:
+        if not p.data_evento or not p.codigo:
+            continue
+        sku_norm = normalize_sku(str(p.codigo))
+        grupo = sku_to_grupo.get(sku_norm)
+        if grupo:
+            live_grupos.add(grupo)
+
+    if not live_grupos:
+        logger.info("sincronizar_hoje_batch: nenhum grupo live/hybrid encontrado")
+        return 0
 
     mappings = db.query(SkuMapping).filter(
         SkuMapping.ano == ano,
@@ -287,7 +316,7 @@ def sincronizar_hoje_batch(db: Session) -> int:
     all_magento_ids: list = []
 
     for m in mappings:
-        if not m.evento_grupo:
+        if not m.evento_grupo or m.evento_grupo not in live_grupos:
             continue
         g = m.evento_grupo
         if g not in grupos:
@@ -302,6 +331,12 @@ def sincronizar_hoje_batch(db: Session) -> int:
             if id_str not in grupos[g]["magento_ids"]:
                 grupos[g]["magento_ids"].append(id_str)
                 all_magento_ids.append(id_str)
+
+    if not grupos:
+        logger.info("sincronizar_hoje_batch: nenhum grupo live/hybrid com mappings encontrado")
+        return 0
+
+    logger.info(f"sincronizar_hoje_batch: {len(grupos)} grupos live/hybrid para sincronizar")
 
     # --- Step 1: Backfill historical data for groups with no snapshot rows ---
     for grupo in list(grupos.keys()):

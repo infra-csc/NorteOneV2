@@ -848,6 +848,7 @@ def _run_column_migrations():
 async def lifespan(app: FastAPI):
     register_full_warmup_fn(_full_cache_warmup)
     cache_scheduler.register_full_refresh(_full_cache_warmup)
+    cache_scheduler.register(_scheduled_isc_refresh)
     cache_scheduler.register(_scheduled_sincronizar_hoje)
 
     import threading
