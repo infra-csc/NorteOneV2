@@ -706,6 +706,10 @@ function getCacheKey(params?: {
 
 const MAX_CACHE_ENTRIES = 20;
 
+export function clearMarketingDashboardCache(): void {
+  dashboardCache.clear();
+}
+
 export function getMarketingDashboardCache(params?: {
   ano?: number;
   status?: string;

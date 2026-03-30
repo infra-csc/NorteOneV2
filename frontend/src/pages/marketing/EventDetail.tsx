@@ -38,7 +38,7 @@ import {
   ReferenceLine,
   Cell
 } from 'recharts';
-import { marketingService, MarketingEvent } from '../../services/api';
+import { marketingService, MarketingEvent, clearMarketingDashboardCache } from '../../services/api';
 import { 
   getISCColor, 
   getISCEmoji, 
@@ -351,6 +351,7 @@ const EventDetail: React.FC = () => {
           dailySales: finalDailySales
         };
       });
+      clearMarketingDashboardCache();
       setIsStaleData(false);
       setRefreshSuccess(true);
       setTimeout(() => setRefreshSuccess(false), 4000);
