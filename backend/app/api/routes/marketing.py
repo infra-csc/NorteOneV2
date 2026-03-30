@@ -1843,14 +1843,16 @@ def get_margem_por_kit(
             )
             magento_bundle_query = text(f"""
 SELECT
-    soi_parent.product_id                                    AS bundle_entity_id,
-    COUNT(DISTINCT soi_parent.item_id)                       AS qtd,
-    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita_liquida
+    soi_parent.product_id                                                              AS bundle_entity_id,
+    COUNT(DISTINCT soi_parent.item_id)                                                 AS qtd,
+    ROUND(SUM(CASE WHEN soi_child.item_id IS NOT NULL
+                   THEN soi_child.price - soi_child.discount_amount
+                   ELSE 0 END), 2)                                                     AS receita_liquida
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-INNER JOIN sales_order_item soi_child
+LEFT JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
       AND soi_child.price          > 0
@@ -1946,14 +1948,16 @@ GROUP BY soi_parent.product_id
             ev_ids_fb = list(seen_magento_events)
             fb_query = text(f"""
 SELECT
-    soi_parent.name                                          AS bundle_name,
-    COUNT(DISTINCT soi_parent.item_id)                       AS qtd,
-    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita_liquida
+    soi_parent.name                                                                    AS bundle_name,
+    COUNT(DISTINCT soi_parent.item_id)                                                 AS qtd,
+    ROUND(SUM(CASE WHEN soi_child.item_id IS NOT NULL
+                   THEN soi_child.price - soi_child.discount_amount
+                   ELSE 0 END), 2)                                                     AS receita_liquida
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-INNER JOIN sales_order_item soi_child
+LEFT JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
       AND soi_child.price          > 0

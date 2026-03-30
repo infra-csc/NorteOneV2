@@ -658,9 +658,7 @@ const EventDetail: React.FC = () => {
     ? cumulativeData[yesterdayCumIdx]
     : cumulativeData.length > 0 ? cumulativeData[cumulativeData.length - 1] : null;
   const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
-  const inscritosTotal = (event.currentSales != null && event.currentSales > 0)
-    ? event.currentSales
-    : (lastCumData ? Math.round(lastCumData.cumulative) : 0);
+  const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosTotal - metaAcumulada) / metaAcumulada) * 100) : (inscritosTotal > 0 ? 100 : 0);
 
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
