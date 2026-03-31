@@ -28,8 +28,8 @@ CREATE INDEX IF NOT EXISTS ix_nori_insights_evento_id
 CREATE INDEX IF NOT EXISTS ix_nori_insights_gerado_em
     ON nori_insights (gerado_em DESC);
 
--- Partial unique index: one active (novo/visto) insight per event+type per day
--- (allows a new insight next day, or after discarding)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_nori_insights_active_per_day
-    ON nori_insights (evento_id, tipo, DATE(gerado_em))
-    WHERE status IN ('novo', 'visto');
+-- Unique index enforcing one insight per (evento_id, tipo, day) regardless of status.
+-- Matches the service-layer deduplification policy in save_insights_to_db(), which
+-- also blocks re-creation for discarded insights on the same day.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_nori_insights_per_day
+    ON nori_insights (evento_id, tipo, DATE(gerado_em));

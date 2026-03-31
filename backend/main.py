@@ -851,6 +851,7 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_nori_insights_status ON nori_insights (status)",
             "CREATE INDEX IF NOT EXISTS ix_nori_insights_evento_id ON nori_insights (evento_id)",
             "CREATE INDEX IF NOT EXISTS ix_nori_insights_gerado_em ON nori_insights (gerado_em DESC)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_nori_insights_per_day ON nori_insights (evento_id, tipo, DATE(gerado_em))",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
@@ -888,9 +889,34 @@ async def lifespan(app: FastAPI):
     cache_scheduler.register_full_refresh(_full_cache_warmup)
     cache_scheduler.register(_scheduled_isc_refresh)
     cache_scheduler.register(_scheduled_sincronizar_hoje)
-    cache_scheduler.register(_scheduled_nori_insights)
+    # NOTE: _scheduled_nori_insights is also registered with cache_scheduler for
+    # periodic execution, but since the daily 05:00 BRT path uses _full_refresh_callback
+    # and skips _refresh_callbacks, we add a dedicated daily timer at 05:30 BRT.
+    # This ensures insights are generated once per day regardless of the main refresh path.
 
     import threading
+
+    def _schedule_daily_nori_insights():
+        """Schedule insights generation at 05:30 BRT daily (after daily cache refresh)."""
+        from zoneinfo import ZoneInfo as _ZI
+        from datetime import datetime as _dt, timedelta as _td
+        _brt = _ZI('America/Sao_Paulo')
+        _now = _dt.now(_brt)
+        _target = _now.replace(hour=5, minute=30, second=0, microsecond=0)
+        if _now >= _target:
+            _target += _td(days=1)
+        _delay = (_target - _now).total_seconds()
+        logger.info(f"[NoriInsights] Daily timer: next run at {_target.isoformat()} BRT (in {_delay/3600:.1f}h)")
+
+        def _run_and_reschedule():
+            _scheduled_nori_insights()
+            _schedule_daily_nori_insights()
+
+        _timer = threading.Timer(_delay, _run_and_reschedule)
+        _timer.daemon = True
+        _timer.name = "nori-insights-daily-timer"
+        _timer.start()
+        return _timer
 
     def _all_background_init():
         """All startup work runs in background so the server starts immediately."""
@@ -1102,6 +1128,9 @@ async def lifespan(app: FastAPI):
                 _ins_db.close()
         except Exception as _ins_err:
             logger.warning(f"[Startup] Nori insights startup run failed (non-fatal): {_ins_err}")
+
+        # Start the dedicated 05:30 BRT daily timer for insights generation
+        _schedule_daily_nori_insights()
 
     init_thread = threading.Thread(target=_all_background_init, daemon=True, name="startup-bg-init")
     init_thread.start()
