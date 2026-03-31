@@ -209,6 +209,42 @@ export const noriService = {
   }
 };
 
+export interface NoriInsight {
+  id: number;
+  evento_id?: string;
+  evento_nome: string;
+  tipo: string;
+  titulo: string;
+  conteudo: string;
+  acao_sugerida?: string;
+  impacto_estimado_reais?: number;
+  impacto_estimado_percentual?: number;
+  status: 'novo' | 'visto' | 'descartado';
+  gerado_em: string;
+}
+
+export const noriInsightsService = {
+  list: async (status?: string, tipo?: string): Promise<NoriInsight[]> => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (tipo) params.append('tipo', tipo);
+    const response = await api.get(`/nori/insights?${params.toString()}`);
+    return response.data;
+  },
+  updateStatus: async (id: number, status: string) => {
+    const response = await api.patch(`/nori/insights/${id}?status=${status}`);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/nori/insights/${id}`);
+    return response.data;
+  },
+  generate: async () => {
+    const response = await api.post('/nori/insights/gerar');
+    return response.data;
+  },
+};
+
 export interface ResponsavelInfo {
   id: number;
   nome: string;

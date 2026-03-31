@@ -16,12 +16,15 @@ import {
   X,
   TrendingUp,
   TrendingDown,
-  Minus
+  Minus,
+  Brain,
 } from 'lucide-react';
 import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
 import NoriChat from '../../components/nori/NoriChat';
+import NoriInsightsPanel from '../../components/nori/NoriInsightsPanel';
 import noriAvatar from '@assets/Nori_1768273889454.png';
 
+type MainTab = 'tarefas' | 'insights';
 type StatusFilter = 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA' | 'TODAS' | 'DELEGADAS';
 type DelegadasFilter = 'TODAS' | 'PENDENTE' | 'EM_ANDAMENTO' | 'CONCLUIDA';
 
@@ -46,6 +49,7 @@ const NoriAssistant: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
+  const [mainTab, setMainTab] = useState<MainTab>('tarefas');
   const [activeTab, setActiveTab] = useState<StatusFilter>('PENDENTE');
   const [delegadasFilter, setDelegadasFilter] = useState<DelegadasFilter>('TODAS');
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
@@ -357,6 +361,38 @@ const NoriAssistant: React.FC = () => {
           </div>
         )}
 
+        <div className="flex gap-2 mb-2">
+          <button
+            onClick={() => setMainTab('tarefas')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              mainTab === 'tarefas'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 border border-gray-200/50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+            }`}
+          >
+            <ListTodo className="w-4 h-4" />
+            Tarefas
+          </button>
+          <button
+            onClick={() => setMainTab('insights')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              mainTab === 'insights'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 border border-gray-200/50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+            }`}
+          >
+            <Brain className="w-4 h-4" />
+            Insights Proativos
+          </button>
+        </div>
+
+        {mainTab === 'insights' && (
+          <div className="bg-white dark:bg-gray-800/50 backdrop-blur rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
+            <NoriInsightsPanel visible={true} />
+          </div>
+        )}
+
+        {mainTab === 'tarefas' && (
         <div className="bg-white dark:bg-gray-800/50 backdrop-blur rounded-xl border border-gray-200/50 dark:border-gray-700/50">
           <div className="border-b border-gray-200 dark:border-gray-700">
             <div className="flex overflow-x-auto">
@@ -586,6 +622,7 @@ const NoriAssistant: React.FC = () => {
             )}
           </div>
         </div>
+        )}
       </div>
 
       <NoriChat 

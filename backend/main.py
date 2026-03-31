@@ -55,6 +55,22 @@ def _scheduled_sincronizar_hoje():
             db.close()
 
 
+def _scheduled_nori_insights():
+    from app.core.database import SessionLocal
+    import asyncio as _aio
+    db = None
+    try:
+        db = SessionLocal()
+        from app.services.nori_insights_service import run_proactive_insights_job
+        result = _aio.run(run_proactive_insights_job(db))
+        logger.info(f"Scheduled Nori insights job completed: {result}")
+    except Exception as e:
+        logger.error(f"Scheduled Nori insights job failed: {e}")
+    finally:
+        if db:
+            db.close()
+
+
 def _full_cache_warmup():
     from app.core.database import SessionLocal
     from app.core.cache import set_warmup_progress, set_last_refresh_error, update_warmup_sub_progress
@@ -851,6 +867,7 @@ async def lifespan(app: FastAPI):
     cache_scheduler.register_full_refresh(_full_cache_warmup)
     cache_scheduler.register(_scheduled_isc_refresh)
     cache_scheduler.register(_scheduled_sincronizar_hoje)
+    cache_scheduler.register(_scheduled_nori_insights)
 
     import threading
 
@@ -858,6 +875,7 @@ async def lifespan(app: FastAPI):
         """All startup work runs in background so the server starts immediately."""
         # Phase 0: schema setup (idempotent, safe to run after yield)
         try:
+            from app.models import nori_insights as _ni_models  # noqa: F401 — ensure table is registered
             if engine:
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()

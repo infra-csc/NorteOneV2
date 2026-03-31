@@ -124,7 +124,7 @@ Use formatação visual, emojis e seja entusiasmado!"""
         raise Exception(f"Erro na API OpenAI: {str(e)}")
 
 
-async def chat_with_nori(message: str, context: Optional[list] = None, events_data: Optional[list] = None) -> str:
+async def chat_with_nori(message: str, context: Optional[list] = None, events_data: Optional[list] = None, insights_context: Optional[str] = None) -> str:
     client = get_openai_client()
     
     messages = [{"role": "system", "content": NORI_SYSTEM_PROMPT}]
@@ -133,6 +133,10 @@ async def chat_with_nori(message: str, context: Optional[list] = None, events_da
         context_message = f"""Dados atuais dos eventos (use como referência para responder):
 {format_events_for_analysis(events_data)}"""
         messages.append({"role": "system", "content": context_message})
+
+    if insights_context:
+        messages.append({"role": "system", "content": f"""Insights proativos gerados automaticamente pela sua análise de dados (use-os para enriquecer respostas quando relevante):
+{insights_context}"""})
     
     if context:
         for msg in context[-10:]:
