@@ -79,7 +79,7 @@ interface InsightCardProps {
 const InsightCard: React.FC<InsightCardProps> = ({ insight, onMarkVisto, onDescartar }) => {
   const [expanded, setExpanded] = useState(false);
   const config = TIPO_CONFIG[insight.tipo] || DEFAULT_TIPO;
-  const TipoIcon = config.icon;
+  const TipoIcon = config.icon as React.ComponentType<{ className?: string }>;
 
   const geradoEm = new Date(insight.gerado_em).toLocaleDateString('pt-BR', {
     day: '2-digit',
