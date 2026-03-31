@@ -172,10 +172,10 @@ def save_insights_to_db(db: Session, insights: list, events_context: Optional[di
     for item in insights:
         evento_id = str(item.get("evento_id", "")) or None
         tipo = item.get("tipo", "margem_oportunidade")
-        titulo = (item.get("titulo") or "")[:255]
+        titulo = (item.get("titulo") or "")[:400]       # matches nori_insights.titulo VARCHAR(400)
         conteudo = item.get("conteudo") or ""
         acao_sugerida = (item.get("acao_sugerida") or "")[:500]
-        evento_nome = (item.get("evento_nome") or "")[:255]
+        evento_nome = (item.get("evento_nome") or "")[:300]  # matches nori_insights.evento_nome VARCHAR(300)
 
         if not titulo or not conteudo or not evento_nome:
             continue

@@ -27,7 +27,7 @@ class NoriInsight(Base):
     evento_id = Column(String(200), nullable=True, index=True)
     evento_nome = Column(String(300), nullable=False, default="")
     tipo = Column(String(50), nullable=False, index=True)
-    titulo = Column(String(400), nullable=False)
+    titulo = Column(String(400), nullable=False)  # matches migrations/005: VARCHAR(400)
     conteudo = Column(Text, nullable=False)
     acao_sugerida = Column(Text, nullable=True)
     # NUMERIC matches migration; Numeric(12,2) / Numeric(6,2) == NUMERIC(12,2) / NUMERIC(6,2)
