@@ -1851,14 +1851,13 @@ INNER JOIN sales_order_item soi_parent
       AND soi_parent.product_type = 'bundle'
 WHERE
     soi_parent.product_id IN :bundle_ids
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
@@ -1885,14 +1884,13 @@ INNER JOIN sales_order_item soi_child
       )
 WHERE
     soi_parent.product_id IN :bundle_ids
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
@@ -1982,14 +1980,13 @@ INNER JOIN (
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 WHERE
     cpev1.value IN :ev_ids_fb
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
@@ -2021,14 +2018,13 @@ INNER JOIN (
 ) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 WHERE
     cpev1.value IN :ev_ids_fb
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
@@ -2612,9 +2608,11 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     m.ds_modalidade                                                                 AS distancia,
     h.ds_categoria                                                                  AS kit,
     CASE
-        WHEN a.nr_preco = 0               THEN 'Cortesia'
-        WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-        ELSE                                   'Site'
+        WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
+        WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
+        WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
+        ELSE                                                                                                  'Site'
     END                                                                             AS canal,
     COUNT(DISTINCT a.id_pedido_evento)                                              AS inscritos,
     SUM(a.nr_preco)                                                                 AS receita_bruta,
@@ -2638,10 +2636,6 @@ LEFT JOIN (
 WHERE b.id_evento IN ({ids_str})
   AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
   AND c.nr_total > 0
-  AND (
-        cupom.en_cupom_classificacao IS NULL
-        OR cupom.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros')
-  )
 GROUP BY
     b.id_evento,
     b.ds_evento,
@@ -2650,9 +2644,11 @@ GROUP BY
     h.id_categoria,
     h.ds_categoria,
     CASE
-        WHEN a.nr_preco = 0               THEN 'Cortesia'
-        WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
-        ELSE                                   'Site'
+        WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
+        WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+        WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
+        WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
+        ELSE                                                                                                  'Site'
     END
 ORDER BY b.id_evento, canal, inscritos DESC
 """
@@ -2766,34 +2762,34 @@ FROM (
         b.dt_evento,
         SUM(CASE
             WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
             THEN 1 ELSE 0
         END)                                                                 AS qtd_site,
 
         SUM(CASE
             WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_30d,
 
         SUM(CASE
             WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 14 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_14d,
 
         SUM(CASE
             WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
              AND c.dt_pedido >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
             THEN 1 ELSE 0
         END)                                                                 AS qtd_7d,
 
         SUM(CASE
             WHEN a.nr_preco > 0
-             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%Grup%%')
+             AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
             THEN
                 GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
             ELSE 0
@@ -2902,14 +2898,13 @@ LEFT JOIN (
     WHERE attribute_id = 73 AND store_id = 0
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
 AND so.base_grand_total > 0
 AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 AND cped.value BETWEEN MAKEDATE(YEAR(CURDATE()) - 1, 1) AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
 {excl_clause}
@@ -4334,11 +4329,11 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     MONTH(c.dt_pedido) AS mes,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd,
     SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)
     ELSE 0 END) AS receita
@@ -4372,9 +4367,9 @@ def _fetch_monthly_sales_magento(ano_atual: int, ano_anterior: int) -> list:
 SELECT
     YEAR(so.created_at) AS ano,
     MONTH(so.created_at) AS mes,
-    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') 
+    COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%') 
         AND so.base_grand_total > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%') THEN
+    SUM(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%') THEN
         (soi.price - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
             WHEN soi.name LIKE '%%super%%' THEN 269.00
@@ -4528,11 +4523,11 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     MONTH(c.dt_pedido) AS mes,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd,
     SUM(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
         GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)
     ELSE 0 END) AS receita
@@ -4568,17 +4563,15 @@ def _fetch_monthly_sales_magento_by_ids(magento_event_ids: list) -> list:
         query = text("""
 SELECT
     MONTH(so.created_at) AS mes,
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         THEN 1 END) AS qtd,
-    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    SUM(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%') THEN
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%') THEN
         (soi.price - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
             WHEN soi.name LIKE '%%super%%' THEN 269.00
@@ -4597,7 +4590,7 @@ LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY MONTH(so.created_at)
@@ -4719,11 +4712,10 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list) -> dict:
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     cpev1.value AS id_evento,
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN (soi_parent.sku IS NULL OR soi_parent.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         THEN 1 END) AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
@@ -4734,7 +4726,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id     = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -4916,11 +4908,10 @@ def _fetch_today_sales_magento_by_ids(magento_event_ids: list) -> dict:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi
@@ -4931,7 +4922,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.attribute_id = 321
       AND cpev1.store_id = 0
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5042,17 +5033,15 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list) -> dict:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     cpev1.value AS id_evento,
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    SUM(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN
         soi.price
         - CASE WHEN soi.price = 0 THEN 0
@@ -5079,7 +5068,7 @@ LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5121,17 +5110,15 @@ def _fetch_daily_sales_magento_by_ids(magento_event_ids: list) -> list:
         query = text("""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    SUM(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN
         soi.price
         - CASE WHEN soi.price = 0 THEN 0
@@ -5158,7 +5145,7 @@ LEFT JOIN (
     SELECT parent_item_id, MAX(price) AS price FROM sales_order_item WHERE name LIKE '%%persona%%' GROUP BY parent_item_id
 ) AS soiaa ON soiaa.parent_item_id = soi.item_id
 WHERE
-    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
@@ -5200,7 +5187,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     h.ds_categoria AS categoria,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -5237,7 +5224,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     h.ds_categoria AS categoria,
     COUNT(CASE WHEN (f.en_cupom_classificacao IS NULL
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados', 'Eventos Terceiros'))
-        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%Grup%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
+        AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 1 END) AS qtd
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -5280,11 +5267,10 @@ def _fetch_category_sales_magento_by_ids_grouped(magento_event_ids: list) -> dic
 SELECT
     cpev1.value AS event_id,
     soi.name AS categoria,
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN 1 END) AS qtd
 FROM sales_order AS so
 INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
@@ -5292,7 +5278,7 @@ INNER JOIN catalog_product_entity_varchar cpev1 ON cpev1.entity_id = soi.product
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY cpev1.value, soi.name
@@ -5338,11 +5324,10 @@ def _fetch_category_sales_magento_by_ids(magento_event_ids: list) -> list:
         query = text("""
 SELECT
     soi.name AS categoria,
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         THEN 1 END) AS qtd
 FROM sales_order AS so
 INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
@@ -5351,7 +5336,7 @@ INNER JOIN catalog_product_entity_varchar cpev1
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
-    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+    AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
 GROUP BY soi.name
@@ -8631,11 +8616,10 @@ ORDER BY c.id_pedido_status, c.fl_local_inscricao, canal
                 # M1 - query atual (com todos os filtros)
                 q_m1 = text("""
 SELECT
-    COUNT(CASE WHEN (soi.sku IS NULL OR soi.sku NOT LIKE '%%CORTESIA%%')
-        AND so.base_grand_total > 0
+    COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%Grup%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GR%%')
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN 1 END) AS qtd_site,
     COUNT(soi.item_id) AS qtd_total_bundle,
     COUNT(CASE WHEN so.base_grand_total > 0 THEN 1 END) AS qtd_grand_total_pos,
@@ -8645,7 +8629,7 @@ INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
-WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
   AND so.state != 'canceled'
   AND cpev1.value = :mid
   AND so.increment_id NOT REGEXP '-[0-9]'
@@ -8704,7 +8688,7 @@ INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
-WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial')
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
   AND so.state != 'canceled'
   AND cpev1.value = :mid
   AND so.created_at < CURDATE() + INTERVAL 1 DAY
