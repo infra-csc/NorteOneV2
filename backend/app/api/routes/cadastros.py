@@ -200,8 +200,8 @@ def listar_cadastros(
     status: str = None,
     db: Session = Depends(get_db)
 ):
-    """Lista todos os cadastros de eventos"""
-    query = db.query(CadastroEvento).options(*_CADASTRO_EAGER)
+    """Lista todos os cadastros de eventos ativos (não deletados)"""
+    query = db.query(CadastroEvento).options(*_CADASTRO_EAGER).filter(CadastroEvento.deleted_at.is_(None))
     
     if status:
         query = query.filter(CadastroEvento.status == status)
@@ -211,10 +211,47 @@ def listar_cadastros(
     return [db_to_response(c) for c in cadastros]
 
 
+@router.get("/lixeira/itens")
+def listar_lixeira(db: Session = Depends(get_db)):
+    """Lista cadastros deletados (lixeira) — últimos 30 dias"""
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(days=30)
+    cadastros = (
+        db.query(CadastroEvento)
+        .options(*_CADASTRO_EAGER)
+        .filter(CadastroEvento.deleted_at.isnot(None))
+        .filter(CadastroEvento.deleted_at >= cutoff)
+        .order_by(CadastroEvento.deleted_at.desc())
+        .all()
+    )
+    return [
+        {**db_to_response(c), "deleted_at": c.deleted_at.isoformat() if c.deleted_at else None}
+        for c in cadastros
+    ]
+
+
+@router.post("/{cadastro_id}/restaurar")
+def restaurar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
+    """Restaura um cadastro da lixeira"""
+    cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
+    if not cadastro:
+        raise HTTPException(status_code=404, detail="Cadastro não encontrado")
+    if cadastro.deleted_at is None:
+        raise HTTPException(status_code=400, detail="Cadastro não está na lixeira")
+    cadastro.deleted_at = None
+    db.commit()
+    return {"message": "Cadastro restaurado com sucesso"}
+
+
 @router.get("/{cadastro_id}", response_model=CadastroEventoResponse)
 def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
-    """Obtém um cadastro específico"""
-    cadastro = db.query(CadastroEvento).options(*_CADASTRO_EAGER).filter(CadastroEvento.id == cadastro_id).first()
+    """Obtém um cadastro específico (não deletado)"""
+    cadastro = (
+        db.query(CadastroEvento)
+        .options(*_CADASTRO_EAGER)
+        .filter(CadastroEvento.id == cadastro_id, CadastroEvento.deleted_at.is_(None))
+        .first()
+    )
     
     if not cadastro:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado")
@@ -228,7 +265,8 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     
     if data.sku and data.sku.strip():
         existing_sku = db.query(CadastroEvento).filter(
-            CadastroEvento.sku == data.sku.strip()
+            CadastroEvento.sku == data.sku.strip(),
+            CadastroEvento.deleted_at.is_(None)
         ).first()
         if existing_sku:
             raise HTTPException(
@@ -604,16 +642,19 @@ def resync_dim_projetos(db: Session = Depends(get_db)):
 
 @router.delete("/{cadastro_id}")
 def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
-    """Deleta um cadastro"""
-    cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
+    """Move um cadastro para a lixeira (soft-delete — recuperável por 30 dias)"""
+    cadastro = db.query(CadastroEvento).filter(
+        CadastroEvento.id == cadastro_id,
+        CadastroEvento.deleted_at.is_(None)
+    ).first()
     
     if not cadastro:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado")
     
-    db.delete(cadastro)
+    cadastro.deleted_at = datetime.utcnow()
     db.commit()
     
-    return {"message": "Cadastro deletado com sucesso"}
+    return {"message": "Cadastro movido para a lixeira. Você tem 30 dias para restaurá-lo."}
 
 
 @router.get("/opcoes/circuitos", response_model=List[CircuitoProdutoSchema])

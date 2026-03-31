@@ -73,6 +73,7 @@ class CadastroEvento(Base):
     
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+    deleted_at = Column(DateTime, nullable=True, default=None)
     
     projeto = relationship("DimProjeto")
     cortesias = relationship("CadastroCortesia", back_populates="cadastro", cascade="all, delete-orphan")

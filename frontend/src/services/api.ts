@@ -312,6 +312,14 @@ export const cadastrosService = {
     const response = await api.delete(`/cadastros/${id}`);
     return response.data;
   },
+  listLixeira: async () => {
+    const response = await api.get('/cadastros/lixeira/itens');
+    return response.data;
+  },
+  restore: async (id: number) => {
+    const response = await api.post(`/cadastros/${id}/restaurar`);
+    return response.data;
+  },
   getCircuitos: async () => {
     const response = await api.get('/cadastros/opcoes/circuitos');
     return response.data;

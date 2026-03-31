@@ -824,6 +824,7 @@ def _run_column_migrations():
             "ALTER TABLE sku_mappings ADD COLUMN IF NOT EXISTS data_evento DATE",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS is_kit_basico BOOLEAN DEFAULT FALSE NOT NULL",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS id_evento_magento INTEGER",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS tipo_kit VARCHAR(100)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS custo_kit DECIMAL(10,2)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",

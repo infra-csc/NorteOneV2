@@ -11,7 +11,7 @@ import {
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
   TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
-  Box, Flag, Activity, Scale, Download
+  Box, Flag, Activity, Scale, Download, Trash2, RefreshCw
 } from 'lucide-react';
 
 interface CortesiaItem {
@@ -266,6 +266,10 @@ const Cadastro: React.FC = () => {
   const [showAddDistancia, setShowAddDistancia] = useState(false);
   const [newDistancia, setNewDistancia] = useState('');
 
+  const [lixeira, setLixeira] = useState<any[]>([]);
+  const [showLixeira, setShowLixeira] = useState(false);
+  const [loadingLixeira, setLoadingLixeira] = useState(false);
+
   const visibleTabs = useMemo(() => {
     return tabs.filter(tab => canViewCampo('eventos', tab.id));
   }, [permissions]);
@@ -281,6 +285,39 @@ const Cadastro: React.FC = () => {
     loadOpcoes();
     loadDistancias();
   }, []);
+
+  const handleDeleteEvento = async (cadastro: CadastroEvento) => {
+    if (!confirm(`Mover "${cadastro.nome}" para a lixeira?\n\nVocê poderá restaurar este evento nos próximos 30 dias.`)) return;
+    try {
+      await cadastrosService.delete(cadastro.id!);
+      setCadastros(prev => prev.filter(c => c.id !== cadastro.id));
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Erro ao mover para lixeira');
+    }
+  };
+
+  const loadLixeira = async () => {
+    setLoadingLixeira(true);
+    try {
+      const data = await cadastrosService.listLixeira();
+      setLixeira(data);
+    } catch (err) {
+      console.error('Erro ao carregar lixeira:', err);
+    } finally {
+      setLoadingLixeira(false);
+    }
+  };
+
+  const handleRestaurar = async (id: number, nome: string) => {
+    if (!confirm(`Restaurar "${nome}"?`)) return;
+    try {
+      await cadastrosService.restore(id);
+      setLixeira(prev => prev.filter(c => c.id !== id));
+      await loadCadastros();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Erro ao restaurar');
+    }
+  };
 
   const loadCadastros = async () => {
     try {
@@ -2671,6 +2708,20 @@ const Cadastro: React.FC = () => {
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => { setShowLixeira(v => { if (!v) loadLixeira(); return !v; }); }}
+              title="Ver eventos na lixeira (excluídos nos últimos 30 dias)"
+              className={`flex items-center gap-2 px-4 py-3 rounded-2xl border font-semibold transition-all duration-300 hover:scale-105 ${
+                showLixeira
+                  ? 'border-red-500 text-red-400 bg-red-500/10'
+                  : isDark
+                    ? 'border-gray-600 text-gray-300 hover:bg-gray-700 hover:border-gray-500'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400'
+              }`}
+            >
+              <Trash2 className="w-5 h-5" />
+              Lixeira{lixeira.length > 0 && !showLixeira && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500 text-white text-xs">{lixeira.length}</span>}
+            </button>
+            <button
               onClick={exportToCSV}
               title={`Exportar ${filteredCadastros.length} evento(s) para CSV`}
               className={`flex items-center gap-2 px-4 py-3 rounded-2xl border font-semibold transition-all duration-300 hover:scale-105 ${
@@ -2980,6 +3031,15 @@ const Cadastro: React.FC = () => {
                       <Pencil className="w-4 h-4" />
                       Editar
                     </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDeleteEvento(cadastro)}
+                        title="Mover para lixeira"
+                        className="p-2.5 rounded-xl font-semibold transition-all flex items-center justify-center text-red-400 hover:bg-red-500/20 hover:text-red-300"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2987,6 +3047,62 @@ const Cadastro: React.FC = () => {
           })}
         </div>
       </div>
+
+      {showLixeira && (
+        <div className={`mt-4 rounded-3xl border p-6 ${isDark ? 'bg-gray-800/80 border-red-500/30' : 'bg-red-50 border-red-200'}`}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-red-500/20">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Lixeira</h2>
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Eventos excluídos nos últimos 30 dias — clique em Restaurar para recuperar</p>
+              </div>
+            </div>
+            <button
+              onClick={() => loadLixeira()}
+              className={`p-2 rounded-xl transition-all ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}
+              title="Atualizar lixeira"
+            >
+              <RefreshCw className={`w-4 h-4 ${loadingLixeira ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {loadingLixeira ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-8 h-8 border-4 border-red-500/30 border-t-red-500 rounded-full animate-spin" />
+            </div>
+          ) : lixeira.length === 0 ? (
+            <div className="text-center py-8">
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum evento na lixeira</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {lixeira.map((item: any) => (
+                <div
+                  key={item.id}
+                  className={`flex items-center justify-between p-3 rounded-xl ${isDark ? 'bg-gray-700/50' : 'bg-white'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-semibold text-sm truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{item.nome}</p>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      SKU: {item.sku || '—'} • Excluído em: {item.deleted_at ? new Date(item.deleted_at).toLocaleDateString('pt-BR') : '—'}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleRestaurar(item.id, item.nome)}
+                    className="ml-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-all text-xs font-semibold"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Restaurar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {showDetailsModal && selectedCadastro && (
         <div 
