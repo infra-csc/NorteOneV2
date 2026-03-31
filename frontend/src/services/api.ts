@@ -243,6 +243,10 @@ export const noriInsightsService = {
     const response = await api.post('/nori/insights/gerar');
     return response.data;
   },
+  clearOld: async (dias = 30, status = 'descartado') => {
+    const response = await api.delete(`/nori/insights?dias=${dias}&status=${status}`);
+    return response.data;
+  },
 };
 
 export interface ResponsavelInfo {

@@ -227,10 +227,10 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
   const handleMarkVisto = async (id: number) => {
     const insight = insights.find(i => i.id === id);
     if (!insight) return;
-    const newStatus = insight.status === 'novo' ? 'visto' : 'novo';
+    const newStatus: NoriInsight['status'] = insight.status === 'novo' ? 'visto' : 'novo';
     try {
       await noriInsightsService.updateStatus(id, newStatus);
-      setInsights(prev => prev.map(i => i.id === id ? { ...i, status: newStatus as any } : i));
+      setInsights(prev => prev.map(i => i.id === id ? { ...i, status: newStatus } : i));
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
     }

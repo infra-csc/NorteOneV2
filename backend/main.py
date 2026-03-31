@@ -830,6 +830,27 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_kit_produto ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
             "ALTER TABLE kit_config ALTER COLUMN ativo_categoria TYPE VARCHAR(500)",
             "ALTER TABLE vendas_diaria_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
+            # nori_insights table (idempotent — create_all handles new installs; this covers existing DBs)
+            """
+            CREATE TABLE IF NOT EXISTS nori_insights (
+                id SERIAL PRIMARY KEY,
+                evento_id VARCHAR(200),
+                evento_nome VARCHAR(300) NOT NULL DEFAULT '',
+                tipo VARCHAR(50) NOT NULL,
+                titulo VARCHAR(400) NOT NULL,
+                conteudo TEXT NOT NULL,
+                acao_sugerida TEXT,
+                impacto_estimado_reais NUMERIC(12,2),
+                impacto_estimado_percentual NUMERIC(6,2),
+                dados_contexto JSONB,
+                status VARCHAR(20) NOT NULL DEFAULT 'novo',
+                gerado_em TIMESTAMP DEFAULT NOW(),
+                atualizado_em TIMESTAMP DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_nori_insights_status ON nori_insights (status)",
+            "CREATE INDEX IF NOT EXISTS ix_nori_insights_evento_id ON nori_insights (evento_id)",
+            "CREATE INDEX IF NOT EXISTS ix_nori_insights_gerado_em ON nori_insights (gerado_em DESC)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
@@ -1067,6 +1088,20 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Full cache warmup failed: {e}")
 
         logger.info("=== All background startup tasks completed ===")
+
+        # Trigger proactive insights generation on startup (non-blocking, best-effort)
+        try:
+            from app.core.database import SessionLocal as _InsightSL
+            from app.services.nori_insights_service import run_proactive_insights_job
+            import asyncio as _aio
+            _ins_db = _InsightSL()
+            try:
+                _ins_result = _aio.run(run_proactive_insights_job(_ins_db))
+                logger.info(f"[Startup] Nori insights job: {_ins_result.get('insights_saved', 0)} saved, {_ins_result.get('events_analyzed', 0)} events analyzed")
+            finally:
+                _ins_db.close()
+        except Exception as _ins_err:
+            logger.warning(f"[Startup] Nori insights startup run failed (non-fatal): {_ins_err}")
 
     init_thread = threading.Thread(target=_all_background_init, daemon=True, name="startup-bg-init")
     init_thread.start()

@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
@@ -8,7 +9,9 @@ from app.core.database import get_db
 from app.models.user import Usuario
 from app.models.nori_insights import NoriInsight
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nori", tags=["Assistente Nori"])
 
@@ -70,8 +73,8 @@ def nori_chat(
         try:
             from app.services.nori_insights_service import get_active_insights_summary
             insights_context = get_active_insights_summary(db, limit=5)
-        except Exception:
-            pass
+        except Exception as insights_err:
+            logger.warning(f"[nori_chat] Could not load insights context (non-fatal): {insights_err}")
 
         response = asyncio.run(chat_with_nori(
             message=request.message,
@@ -158,6 +161,24 @@ def update_insight_status(
     insight.atualizado_em = datetime.now()
     db.commit()
     return {"success": True, "id": insight_id, "status": status}
+
+
+@router.delete("/insights")
+def clear_old_insights(
+    dias: int = Query(30, description="Deletar insights com mais de N dias (padrão: 30)"),
+    status: Optional[str] = Query("descartado", description="Filtrar por status ao limpar. Use 'todos' para incluir qualquer status."),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Remove insights antigos ou descartados para evitar acúmulo."""
+    cutoff = datetime.now() - timedelta(days=dias)
+    query = db.query(NoriInsight).filter(NoriInsight.gerado_em < cutoff)
+    if status and status != "todos":
+        query = query.filter(NoriInsight.status == status)
+    deleted = query.delete(synchronize_session=False)
+    db.commit()
+    logger.info(f"[nori_insights] Limpeza: {deleted} insights removidos (>{dias} dias, status={status})")
+    return {"success": True, "deleted": deleted}
 
 
 @router.delete("/insights/{insight_id}")
