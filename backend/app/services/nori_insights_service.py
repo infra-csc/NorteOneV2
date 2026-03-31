@@ -157,7 +157,8 @@ async def generate_insights_for_events(events_data: list) -> list:
         return []
 
 
-def save_insights_to_db(db: Session, insights: list) -> int:
+def save_insights_to_db(db: Session, insights: list, events_context: Optional[dict] = None) -> int:
+    """Persist generated insights, deduplicating by (evento_id, tipo, date) across ALL statuses."""
     from app.models.nori_insights import NoriInsight
 
     if not insights:
@@ -165,6 +166,7 @@ def save_insights_to_db(db: Session, insights: list) -> int:
 
     brasilia_tz = ZoneInfo('America/Sao_Paulo')
     today = datetime.now(brasilia_tz).date()
+    day_start = datetime.combine(today, datetime.min.time())
 
     saved = 0
     for item in insights:
@@ -178,16 +180,20 @@ def save_insights_to_db(db: Session, insights: list) -> int:
         if not titulo or not conteudo or not evento_nome:
             continue
 
+        # Dedupe: one insight per (evento_id, tipo, day) regardless of status
         existing = db.query(NoriInsight).filter(
             NoriInsight.evento_id == evento_id,
             NoriInsight.tipo == tipo,
-            NoriInsight.status.in_(["novo", "visto"]),
-        ).filter(
-            NoriInsight.gerado_em >= datetime.combine(today, datetime.min.time())
+            NoriInsight.gerado_em >= day_start,
         ).first()
 
         if existing:
             continue
+
+        # Capture the raw event metrics used to generate this insight
+        ctx: Optional[dict] = None
+        if events_context and evento_id and evento_id in events_context:
+            ctx = events_context[evento_id]
 
         insight = NoriInsight(
             evento_id=evento_id,
@@ -198,7 +204,7 @@ def save_insights_to_db(db: Session, insights: list) -> int:
             acao_sugerida=acao_sugerida if acao_sugerida else None,
             impacto_estimado_reais=item.get("impacto_estimado_reais"),
             impacto_estimado_percentual=item.get("impacto_estimado_percentual"),
-            dados_contexto=None,
+            dados_contexto=ctx,
             status="novo",
         )
         db.add(insight)
@@ -245,10 +251,36 @@ async def run_proactive_insights_job(db: Session) -> dict:
 
     logger.info(f"[NoriInsights] Analisando {len(events_raw)} eventos ativos...")
 
+    # Build a lookup of simplified event metrics keyed by event ID for dados_contexto
+    events_context: dict = {}
+    for evt in events_raw:
+        if not evt:
+            continue
+        evt_id = str(evt.get("id", "") or evt.get("evento_id", "") or "")
+        if not evt_id:
+            continue
+        # Store the same simplified view that was sent to the AI
+        events_context[evt_id] = {
+            "id": evt_id,
+            "nome": evt.get("name", "") or evt.get("nome", ""),
+            "d_minus": evt.get("dMinus"),
+            "isc": evt.get("isc"),
+            "isc_status": evt.get("iscStatus"),
+            "vendas_atuais": evt.get("currentSales"),
+            "meta_vendas": evt.get("salesGoal"),
+            "ticket_medio_realizado": evt.get("averageTicket"),
+            "ticket_orcado": evt.get("budgetTicket"),
+            "ticket_atual_magento": evt.get("ticketAtual"),
+            "custo_kit": evt.get("kitCostPerUnit"),
+            "margem_realizada_pct": evt.get("margemRealizadaPct"),
+            "margem_orcada_pct": evt.get("margemOrcadaPct"),
+            "margem_realizada_total_R$": evt.get("margemRealizadaTotal"),
+        }
+
     insights = await generate_insights_for_events(events_raw)
     logger.info(f"[NoriInsights] OpenAI retornou {len(insights)} insights")
 
-    saved = save_insights_to_db(db, insights)
+    saved = save_insights_to_db(db, insights, events_context=events_context)
     logger.info(f"[NoriInsights] {saved} novos insights salvos no banco")
 
     return {
