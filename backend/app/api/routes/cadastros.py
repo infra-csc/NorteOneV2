@@ -196,7 +196,7 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
 @router.get("/", response_model=List[CadastroEventoResponse])
 def listar_cadastros(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 1000,
     status: str = None,
     db: Session = Depends(get_db)
 ):
