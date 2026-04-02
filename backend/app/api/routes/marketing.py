@@ -6848,15 +6848,11 @@ def get_marketing_event_by_id(
             card_total_receita=current_receita,
             card_kit_cost_avg=detail_kit_cost_avg,
         )
+        detail_detalhe_vendas = []
+        detail_kit_query_failed = False
         if detail_regime == "consolidated":
-            detail_detalhe_vendas = []
             detail_detalhe_ativo = []
-            detail_kit_query_failed = False
         else:
-            detail_detalhe_vendas = get_detalhe_vendas_por_kit(db, grupo_projeto_ids, ano=ano)
-            detail_kit_query_failed = detail_detalhe_vendas is None
-            if detail_kit_query_failed:
-                detail_detalhe_vendas = []
             detail_detalhe_ativo = get_detalhe_vendas_ativo(db, grupo_projeto_ids, ano=ano)
         
         evento = MarketingEvent(
@@ -7175,15 +7171,11 @@ def get_marketing_event_by_id(
         card_total_receita=current_receita,
         card_kit_cost_avg=detail_sa_kit_cost,
     )
+    sa_detalhe_vendas = []
+    sa_kit_query_failed = False
     if standalone_detail_regime == "consolidated":
-        sa_detalhe_vendas = []
         sa_detalhe_ativo = []
-        sa_kit_query_failed = False
     else:
-        sa_detalhe_vendas = get_detalhe_vendas_por_kit(db, [projeto.id], ano=ano)
-        sa_kit_query_failed = sa_detalhe_vendas is None
-        if sa_kit_query_failed:
-            sa_detalhe_vendas = []
         sa_detalhe_ativo = get_detalhe_vendas_ativo(db, [projeto.id], ano=ano)
     
     evento = MarketingEvent(
