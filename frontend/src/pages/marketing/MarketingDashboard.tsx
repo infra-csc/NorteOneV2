@@ -102,11 +102,9 @@ const PLAYBOOK_CUTOFFS = [
   { value: 30, label: 'D-30', stage: 'Operacional' },
   { value: 15, label: 'D-15', stage: 'Operacional' },
 ];
-const CUTOFF_WINDOW = 5;
-
 function getCutoffAlert(dMinus: number): { value: number; label: string; stage: string } | null {
   for (const co of PLAYBOOK_CUTOFFS) {
-    if (Math.abs(dMinus - co.value) <= CUTOFF_WINDOW) {
+    if (dMinus === co.value) {
       return co;
     }
   }
@@ -885,7 +883,7 @@ const MarketingDashboard: React.FC = () => {
 
               <button
                 onClick={() => setOnlyCutoff(v => !v)}
-                title="Exibir apenas eventos que estão em um ponto de corte do playbook (±5 dias de D-70, D-50, D-45, D-35, D-30 ou D-15)"
+                title="Exibir apenas eventos cujo D- é exatamente 70, 50, 45, 35, 30 ou 15 (pontos de corte do playbook)"
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   onlyCutoff
                     ? 'bg-purple-600 text-white border-purple-600 dark:bg-purple-500 dark:border-purple-500'
@@ -995,7 +993,7 @@ const MarketingDashboard: React.FC = () => {
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg -left-28 top-5">
-                        Sinaliza o ponto de corte do playbook — indica qual evento precisa de atenção agora (±5 dias de D-70, D-50, D-45, D-35, D-30 ou D-15)
+                        Sinaliza o ponto de corte do playbook — aparece somente quando o D- for exatamente 70, 50, 45, 35, 30 ou 15
                       </div>
                     </div>
                   </div>
