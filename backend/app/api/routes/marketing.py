@@ -2348,7 +2348,7 @@ SELECT /*+ MAX_EXECUTION_TIME(300000) */
     cpev2.value                                                                         AS evento,
     soi_parent.name                                                                     AS kit,
     eaov_tipo.value                                                                     AS tipo_categoria,
-    soi_child.name                                                                      AS distancia,
+    COALESCE(soi_child.name, 'Outras modalidades')                                      AS distancia,
     CASE
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
@@ -2382,7 +2382,7 @@ JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
 
-JOIN sales_order_item soi_child
+LEFT JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
       AND soi_child.price          > 0
@@ -2579,7 +2579,7 @@ GROUP BY
     cpev2.value,
     soi_parent.name,
     eaov_tipo.value,
-    soi_child.name,
+    COALESCE(soi_child.name, 'Outras modalidades'),
     CASE
         WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
         WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
