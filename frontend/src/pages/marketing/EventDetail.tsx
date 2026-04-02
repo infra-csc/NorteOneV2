@@ -77,7 +77,7 @@ const EventDetail: React.FC = () => {
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
   const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
   const [loading, setLoading] = useState(!previewEvent);
-  const [detailsLoading, setDetailsLoading] = useState(true);
+  const [detailsLoading, setDetailsLoading] = useState(!!previewEvent);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [showMargemInfo, setShowMargemInfo] = useState(false);
@@ -146,7 +146,7 @@ const EventDetail: React.FC = () => {
         if (!forceRefresh) {
           if (!event) setLoading(true);
         }
-        if (!silent) setDetailsLoading(true);
+        if (!silent && previewEvent) setDetailsLoading(true);
         const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
         if (controller.signal.aborted) return;
 
