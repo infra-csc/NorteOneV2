@@ -454,6 +454,66 @@ def get_kits_with_config(
     return kits
 
 
+def _invalidate_event_detail_for_bundle(
+    db: Session,
+    bundle_entity_id: int,
+    id_evento: int = None,
+) -> bool:
+    """Invalidate only the event_detail cache entries affected by this bundle change.
+
+    Strategy:
+    1. Look up SkuMapping (fonte=magento) for this bundle → find grupo + ano → targeted key.
+    2. If not found via Magento mapping, fall back to id_evento → DimProjeto.data_evento.year.
+    3. If still unresolvable, fall back to full cache invalidation.
+
+    Returns True when targeted invalidation succeeded, False when fell back to full invalidation.
+    """
+    from ...core.cache import event_detail_cache
+    from datetime import datetime
+
+    invalidated_keys: list[str] = []
+
+    sku_rows = (
+        db.query(SkuMapping)
+        .filter(
+            SkuMapping.fonte == "magento",
+            SkuMapping.id_externo == bundle_entity_id,
+            SkuMapping.ativo == True,
+        )
+        .all()
+    )
+
+    for row in sku_rows:
+        if row.evento_grupo and row.ano:
+            key = f"{row.ano}_grp_{row.evento_grupo}_detail"
+            event_detail_cache.invalidate(key)
+            invalidated_keys.append(key)
+
+    if invalidated_keys:
+        logger.info(
+            f"[KitConfig] Targeted event_detail invalidation for bundle {bundle_entity_id}: {invalidated_keys}"
+        )
+        return True
+
+    if id_evento:
+        projeto = db.query(DimProjeto).filter(DimProjeto.id == id_evento).first()
+        if projeto:
+            year = projeto.data_evento.year if projeto.data_evento else datetime.now().year
+            key = f"{year}_{id_evento}_detail"
+            event_detail_cache.invalidate(key)
+            logger.info(
+                f"[KitConfig] Fallback targeted event_detail invalidation for bundle {bundle_entity_id} "
+                f"via id_evento={id_evento}: {key}"
+            )
+            return True
+
+    event_detail_cache.invalidate()
+    logger.info(
+        f"[KitConfig] Full event_detail invalidation for bundle {bundle_entity_id} (no SKU mapping found)"
+    )
+    return False
+
+
 @router.post("/{bundle_entity_id}", response_model=KitConfigResponse)
 def upsert_kit_config(
     bundle_entity_id: int,
@@ -462,7 +522,7 @@ def upsert_kit_config(
     current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
 ):
     from .marketing import clear_ticket_atual_cache
-    from ...core.cache import eventos_list_cache, event_detail_cache
+    from ...core.cache import eventos_list_cache
 
     if body.is_kit_basico and body.id_evento is not None:
         db.query(KitConfig).filter(
@@ -496,7 +556,7 @@ def upsert_kit_config(
             _kits_cache["ts"] = 0.0
             clear_ticket_atual_cache()
             eventos_list_cache.invalidate_all()
-            event_detail_cache.invalidate()
+            _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
             return existing
 
         new_config = KitConfig(
@@ -516,7 +576,7 @@ def upsert_kit_config(
         _kits_cache["ts"] = 0.0
         clear_ticket_atual_cache()
         eventos_list_cache.invalidate_all()
-        event_detail_cache.invalidate()
+        _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
         return new_config
     except IntegrityError:
         db.rollback()
