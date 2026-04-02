@@ -94,7 +94,26 @@ const VALID_STATUS = ['all', 'active', 'closed'];
 const VALID_ZONE = ['all', 'accelerating', 'stable', 'decelerating'];
 const VALID_DMINUS = ['all', 'critical', '41-60', '61-90', '91-120', '120+'];
 
-function loadFilters(): { search: string; category: string; status: string; zone: string; dMinus: string } {
+const PLAYBOOK_CUTOFFS = [
+  { value: 70, label: 'D-70', stage: 'Analítico' },
+  { value: 50, label: 'D-50', stage: 'Analítico' },
+  { value: 45, label: 'D-45', stage: 'Estratégico' },
+  { value: 35, label: 'D-35', stage: 'Estratégico' },
+  { value: 30, label: 'D-30', stage: 'Operacional' },
+  { value: 15, label: 'D-15', stage: 'Operacional' },
+];
+const CUTOFF_WINDOW = 5;
+
+function getCutoffAlert(dMinus: number): { value: number; label: string; stage: string } | null {
+  for (const co of PLAYBOOK_CUTOFFS) {
+    if (Math.abs(dMinus - co.value) <= CUTOFF_WINDOW) {
+      return co;
+    }
+  }
+  return null;
+}
+
+function loadFilters(): { search: string; category: string; status: string; zone: string; dMinus: string; onlyCutoff: boolean } {
   try {
     const raw = sessionStorage.getItem(SESSION_STORAGE_KEY);
     if (raw) {
@@ -105,13 +124,14 @@ function loadFilters(): { search: string; category: string; status: string; zone
         status: VALID_STATUS.includes(parsed.status) ? parsed.status : 'active',
         zone: VALID_ZONE.includes(parsed.zone) ? parsed.zone : 'all',
         dMinus: VALID_DMINUS.includes(parsed.dMinus) ? parsed.dMinus : 'all',
+        onlyCutoff: typeof parsed.onlyCutoff === 'boolean' ? parsed.onlyCutoff : false,
       };
     }
   } catch {}
-  return { search: '', category: 'all', status: 'active', zone: 'all', dMinus: 'all' };
+  return { search: '', category: 'all', status: 'active', zone: 'all', dMinus: 'all', onlyCutoff: false };
 }
 
-function saveFilters(filters: { search: string; category: string; status: string; zone: string; dMinus: string }) {
+function saveFilters(filters: { search: string; category: string; status: string; zone: string; dMinus: string; onlyCutoff: boolean }) {
   try {
     sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(filters));
   } catch {}
@@ -129,6 +149,7 @@ const MarketingDashboard: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState(initialFilters.status);
   const [zoneFilter, setZoneFilter] = useState(initialFilters.zone);
   const [dMinusFilter, setDMinusFilter] = useState(initialFilters.dMinus);
+  const [onlyCutoff, setOnlyCutoff] = useState(initialFilters.onlyCutoff);
   
   const [eventos, setEventos] = useState<MarketingEvent[]>([]);
   const [summary, setSummary] = useState<MarketingDashboardSummary>({
@@ -180,8 +201,9 @@ const MarketingDashboard: React.FC = () => {
       status: statusFilter,
       zone: zoneFilter,
       dMinus: dMinusFilter,
+      onlyCutoff,
     });
-  }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter]);
+  }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter, onlyCutoff]);
 
   const fetchData = useCallback(async (isRefresh = false, forceRefresh = false) => {
     if (abortControllerRef.current) {
@@ -431,8 +453,8 @@ const MarketingDashboard: React.FC = () => {
   }, []);
 
   const hasActiveFilters = useMemo(() => {
-    return searchInput !== '' || categoryFilter !== 'all' || statusFilter !== 'active' || zoneFilter !== 'all' || dMinusFilter !== 'all';
-  }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter]);
+    return searchInput !== '' || categoryFilter !== 'all' || statusFilter !== 'active' || zoneFilter !== 'all' || dMinusFilter !== 'all' || onlyCutoff;
+  }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter, onlyCutoff]);
 
   const clearAllFilters = useCallback(() => {
     setSearchInput('');
@@ -441,6 +463,7 @@ const MarketingDashboard: React.FC = () => {
     setStatusFilter('active');
     setZoneFilter('all');
     setDMinusFilter('all');
+    setOnlyCutoff(false);
     try { sessionStorage.removeItem(SESSION_STORAGE_KEY); } catch {}
   }, []);
 
@@ -484,8 +507,12 @@ const MarketingDashboard: React.FC = () => {
       });
     }
 
+    if (onlyCutoff) {
+      filtered = filtered.filter(e => getCutoffAlert(e.dMinusInscricoes) !== null);
+    }
+
     return filtered;
-  }, [eventos, debouncedSearch, categoryFilter, statusFilter, zoneFilter, dMinusFilter]);
+  }, [eventos, debouncedSearch, categoryFilter, statusFilter, zoneFilter, dMinusFilter, onlyCutoff]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -856,6 +883,19 @@ const MarketingDashboard: React.FC = () => {
                 <option value="120+">D- {'>'} 120</option>
               </select>
 
+              <button
+                onClick={() => setOnlyCutoff(v => !v)}
+                title="Exibir apenas eventos que estão em um ponto de corte do playbook (±5 dias de D-70, D-50, D-45, D-35, D-30 ou D-15)"
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  onlyCutoff
+                    ? 'bg-purple-600 text-white border-purple-600 dark:bg-purple-500 dark:border-purple-500'
+                    : 'bg-white text-purple-700 border-purple-300 hover:bg-purple-50 dark:bg-gray-700 dark:text-purple-300 dark:border-purple-600 dark:hover:bg-purple-900/20'
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                Pontos de corte
+              </button>
+
               {hasActiveFilters && (
                 <button
                   onClick={clearAllFilters}
@@ -950,7 +990,15 @@ const MarketingDashboard: React.FC = () => {
                   </div>
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Ação Sugerida
+                  <div className="flex items-center justify-center gap-1">
+                    Guia Playbook
+                    <div className="group relative">
+                      <Info className="w-3 h-3 cursor-help" />
+                      <div className="hidden group-hover:block absolute z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg -left-28 top-5">
+                        Sinaliza o ponto de corte do playbook — indica qual evento precisa de atenção agora (±5 dias de D-70, D-50, D-45, D-35, D-30 ou D-15)
+                      </div>
+                    </div>
+                  </div>
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status Ação
@@ -1074,20 +1122,25 @@ const MarketingDashboard: React.FC = () => {
                     {event.iscComponents.curvaDPercent.toFixed(2)}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    {event.suggestedAction ? (
-                      <div className={`inline-flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl ${
-                        event.suggestedAction.iscState === 'forte'
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                          : event.suggestedAction.iscState === 'estável'
-                          ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                          : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                      }`}>
-                        <span className="text-base font-bold leading-none">{event.suggestedAction.letter}</span>
-                        <span className="text-[10px] font-medium leading-tight text-center max-w-[100px] break-words opacity-90">
-                          {event.suggestedAction.actions?.[0] ?? event.suggestedAction.name}
-                        </span>
-                      </div>
-                    ) : '—'}
+                    {(() => {
+                      const cutoff = getCutoffAlert(event.dMinusInscricoes);
+                      if (!cutoff || !event.suggestedAction) return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>;
+                      return (
+                        <div className={`inline-flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border ${
+                          event.suggestedAction.iscState === 'forte'
+                            ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700'
+                            : event.suggestedAction.iscState === 'estável'
+                            ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700'
+                            : 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700'
+                        }`}>
+                          <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75 leading-none">{cutoff.label}</span>
+                          <span className="text-base font-bold leading-none">{event.suggestedAction.letter}</span>
+                          <span className="text-[10px] font-medium leading-tight text-center max-w-[100px] break-words opacity-90">
+                            {event.suggestedAction.name}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-4 text-center">
                     {event.activeAction ? (
