@@ -1254,12 +1254,14 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     all_daily = {}
     
     snapshot_used = False
+    today_in_snapshot = False
     if evento_grupo:
-        snapshot_data = get_snapshot_vendas(db, evento_grupo, data_fim=yesterday)
+        snapshot_data = get_snapshot_vendas(db, evento_grupo, data_fim=today)
         if snapshot_data:
             all_daily.update(snapshot_data)
             snapshot_used = True
-            logger.debug(f"Snapshot loaded for '{evento_grupo}': {len(snapshot_data)} days up to {yesterday}")
+            today_in_snapshot = today in snapshot_data
+            logger.debug(f"Snapshot loaded for '{evento_grupo}': {len(snapshot_data)} days up to {today} (today_in_snapshot={today_in_snapshot})")
 
     if not snapshot_used:
         if ativo_ids:
@@ -1277,6 +1279,8 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
         event_already_happened = data_evento_real and data_evento_real < today
         if event_already_happened:
             logger.debug(f"Event '{evento_grupo}' already happened ({data_evento_real}), skipping today's live sales query")
+        elif today_in_snapshot:
+            logger.debug(f"Today's data already in snapshot for '{evento_grupo}', skipping live query")
         else:
             if ativo_ids:
                 try:
