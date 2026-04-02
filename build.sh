@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd /home/runner/workspace/frontend
+cd frontend
 npm run build
-mkdir -p /home/runner/workspace/backend/static
-cp -r /home/runner/workspace/frontend/dist/. /home/runner/workspace/backend/static/
+mkdir -p ../backend/static
+cp -r dist/. ../backend/static/
