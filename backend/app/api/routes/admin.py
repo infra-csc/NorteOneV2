@@ -180,20 +180,43 @@ def get_snapshot_status(
 def get_health_events(
     severity: Optional[str] = Query(default=None),
     event_type: Optional[str] = Query(default=None),
-    limit: int = Query(default=100, le=500),
+    date_from: Optional[str] = Query(default=None, description="ISO date string (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(default=None, description="ISO date string (YYYY-MM-DD)"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
+    from sqlalchemy import func as sqlfunc
     from ...models.system_health import SystemHealthEvent
     query = db.query(SystemHealthEvent).order_by(desc(SystemHealthEvent.created_at))
     if severity:
         query = query.filter(SystemHealthEvent.severity == severity.upper())
     if event_type:
         query = query.filter(SystemHealthEvent.event_type == event_type.upper())
-    events = query.limit(limit).all()
+    if date_from:
+        try:
+            dt_from = datetime.fromisoformat(date_from)
+            query = query.filter(SystemHealthEvent.created_at >= dt_from)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            dt_to = datetime.fromisoformat(date_to)
+            from datetime import timedelta
+            dt_to = dt_to + timedelta(days=1)
+            query = query.filter(SystemHealthEvent.created_at < dt_to)
+        except ValueError:
+            pass
+    total_count = query.count()
+    offset = (page - 1) * page_size
+    events = query.offset(offset).limit(page_size).all()
     return {
         "events": [e.to_dict() for e in events],
-        "total": len(events),
+        "total": total_count,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": max(1, (total_count + page_size - 1) // page_size),
     }
 
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -73,6 +73,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [cadastrosOpen, setCadastrosOpen] = useState(true);
   const [marketingOpen, setMarketingOpen] = useState(location.pathname.startsWith('/marketing'));
   const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin'));
+  const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'info' | null>(null);
+
+  const isAdmin = canView('admin_monitoramento');
+
+  const fetchHealthStatus = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const { adminService } = await import('../../services/api');
+      const data = await adminService.getHealthSummary();
+      setHealthStatus(data.status);
+    } catch {
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    fetchHealthStatus();
+    const interval = setInterval(fetchHealthStatus, 60000);
+    return () => clearInterval(interval);
+  }, [fetchHealthStatus]);
 
   const handleLogout = () => {
     logout();
@@ -292,7 +311,31 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Menu className={isDark ? 'text-white' : 'text-gray-600'} />
           </button>
           
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
+            {isAdmin && healthStatus !== null && (
+              <Link
+                to="/admin/saude-sistema"
+                title={`Saúde do Sistema: ${healthStatus === 'healthy' ? 'Saudável' : healthStatus === 'critical' ? 'Crítico' : healthStatus === 'warning' ? 'Alerta' : 'Info'}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
+                  healthStatus === 'critical'
+                    ? 'bg-red-500/10 text-red-400 border-red-500/40 hover:bg-red-500/20'
+                    : healthStatus === 'warning'
+                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 hover:bg-amber-500/20'
+                    : healthStatus === 'info'
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/40 hover:bg-blue-500/20'
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/20'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  healthStatus === 'critical' ? 'bg-red-400 animate-pulse' :
+                  healthStatus === 'warning' ? 'bg-amber-400 animate-pulse' :
+                  healthStatus === 'info' ? 'bg-blue-400' :
+                  'bg-emerald-400'
+                }`} />
+                <Shield className="w-3.5 h-3.5" />
+                {healthStatus === 'critical' ? 'Crítico' : healthStatus === 'warning' ? 'Alerta' : healthStatus === 'info' ? 'Info' : 'OK'}
+              </Link>
+            )}
             <button onClick={toggleTheme} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
               {isDark ? <Sun className="text-yellow-400" /> : <Moon className="text-gray-600" />}
             </button>

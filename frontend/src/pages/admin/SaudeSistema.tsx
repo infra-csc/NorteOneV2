@@ -3,7 +3,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { adminService } from '../../services/api';
 import {
   ShieldCheck, ShieldAlert, AlertTriangle, Info, RefreshCw, Settings,
-  Save, Send, ChevronDown, ChevronUp, Filter, Clock, Activity
+  Save, Send, ChevronDown, ChevronUp, Filter, Clock, Activity,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 interface HealthEvent {
@@ -37,11 +38,11 @@ interface AlertConfig {
 }
 
 const SEVERITY_CONFIG = {
-  CRITICAL: { label: 'Crítico', bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30', badge: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', dot: 'bg-red-500' },
-  HIGH: { label: 'Alto', bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/30', badge: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400', dot: 'bg-orange-500' },
-  MEDIUM: { label: 'Médio', bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/30', badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', dot: 'bg-yellow-500' },
-  LOW: { label: 'Baixo', bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/30', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', dot: 'bg-blue-500' },
-  INFO: { label: 'Info', bg: 'bg-gray-500/10', text: 'text-gray-400', border: 'border-gray-500/30', badge: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', dot: 'bg-gray-500' },
+  CRITICAL: { label: 'Crítico', badge: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', dot: 'bg-red-500' },
+  HIGH: { label: 'Alto', badge: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400', dot: 'bg-orange-500' },
+  MEDIUM: { label: 'Médio', badge: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400', dot: 'bg-yellow-500' },
+  LOW: { label: 'Baixo', badge: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', dot: 'bg-blue-500' },
+  INFO: { label: 'Info', badge: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', dot: 'bg-gray-500' },
 };
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -73,10 +74,15 @@ function timeAgo(iso: string): string {
   return `há ${Math.floor(diff / 86400)}d`;
 }
 
+const PAGE_SIZE = 50;
+
 const SaudeSistema: React.FC = () => {
   const { isDark } = useTheme();
   const [summary, setSummary] = useState<HealthSummary | null>(null);
   const [events, setEvents] = useState<HealthEvent[]>([]);
+  const [totalEvents, setTotalEvents] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [currentPage, setCurrentPage] = useState(1);
   const [config, setConfig] = useState<AlertConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
@@ -84,6 +90,8 @@ const SaudeSistema: React.FC = () => {
   const [testingAlert, setTestingAlert] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [filterSeverity, setFilterSeverity] = useState<string>('');
+  const [filterDateFrom, setFilterDateFrom] = useState<string>('');
+  const [filterDateTo, setFilterDateTo] = useState<string>('');
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
   const [showConfig, setShowConfig] = useState(false);
   const [formConfig, setFormConfig] = useState<AlertConfig>({
@@ -98,21 +106,36 @@ const SaudeSistema: React.FC = () => {
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
   const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
   const inputClass = `w-full px-3 py-2 rounded-lg border text-sm outline-none transition-colors ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-400'}`;
+  const selectClass = `text-sm rounded-lg px-3 py-1.5 border outline-none ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`;
 
-  const fetchData = useCallback(async () => {
+  const fetchEvents = useCallback(async (page: number) => {
+    setLoading(true);
     try {
-      const [sumData, evData] = await Promise.all([
-        adminService.getHealthSummary(),
-        adminService.getHealthEvents({ severity: filterSeverity || undefined }),
-      ]);
-      setSummary(sumData);
-      setEvents(evData.events || []);
+      const data = await adminService.getHealthEvents({
+        severity: filterSeverity || undefined,
+        date_from: filterDateFrom || undefined,
+        date_to: filterDateTo || undefined,
+        page,
+        page_size: PAGE_SIZE,
+      });
+      setEvents(data.events || []);
+      setTotalEvents(data.total ?? 0);
+      setTotalPages(data.total_pages ?? 1);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [filterSeverity]);
+  }, [filterSeverity, filterDateFrom, filterDateTo]);
+
+  const fetchSummary = useCallback(async () => {
+    try {
+      const data = await adminService.getHealthSummary();
+      setSummary(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -127,7 +150,7 @@ const SaudeSistema: React.FC = () => {
         smtp_user: cfg.smtp_user ?? '',
         smtp_password: '',
         slack_enabled: cfg.slack_enabled ?? false,
-        slack_webhook_url: cfg.slack_webhook_url ?? '',
+        slack_webhook_url: '',
         min_severity: cfg.min_severity ?? 'HIGH',
       });
     } catch (e) {
@@ -138,11 +161,26 @@ const SaudeSistema: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    fetchSummary();
     fetchConfig();
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(fetchSummary, 30000);
     return () => clearInterval(interval);
-  }, [fetchData, fetchConfig]);
+  }, [fetchSummary, fetchConfig]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    fetchEvents(1);
+  }, [filterSeverity, filterDateFrom, filterDateTo]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    fetchEvents(page);
+  };
+
+  const handleApplyFilters = () => {
+    setCurrentPage(1);
+    fetchEvents(1);
+  };
 
   const handleSaveConfig = async () => {
     setSavingConfig(true);
@@ -164,6 +202,7 @@ const SaudeSistema: React.FC = () => {
     try {
       await adminService.testAlert();
       setSaveMsg('Alerta de teste enviado!');
+      setTimeout(() => fetchSummary(), 1500);
     } catch (e: any) {
       setSaveMsg('Erro ao testar: ' + (e?.response?.data?.detail || e.message));
     } finally {
@@ -187,8 +226,6 @@ const SaudeSistema: React.FC = () => {
     info: { icon: Info, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/30', label: 'Info', desc: 'Eventos informativos nas últimas 24h' },
   };
 
-  const filteredEvents = events.filter(e => !filterSeverity || e.severity === filterSeverity);
-
   const stt = summary ? statusConfig[summary.status] : statusConfig.healthy;
   const SttIcon = stt.icon;
 
@@ -206,7 +243,7 @@ const SaudeSistema: React.FC = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { setShowConfig(v => !v); }}
+            onClick={() => setShowConfig(v => !v)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border
               ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
           >
@@ -214,11 +251,9 @@ const SaudeSistema: React.FC = () => {
             Configurações
           </button>
           <button
-            onClick={() => { setLoading(true); fetchData(); }}
+            onClick={() => { fetchSummary(); fetchEvents(currentPage); }}
             disabled={loading}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all
-              ${isDark ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}
-              disabled:opacity-50`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-all"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Atualizar
@@ -228,14 +263,12 @@ const SaudeSistema: React.FC = () => {
 
       {summary && (
         <div className={`${cardBase} rounded-xl p-5 border-l-4 ${stt.border}`}>
-          <div className="flex items-center gap-4">
-            <div className={`p-3 rounded-xl ${stt.bg}`}>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className={`p-3 rounded-xl ${stt.bg} flex-shrink-0`}>
               <SttIcon className={`w-8 h-8 ${stt.color}`} />
             </div>
             <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <span className={`text-xl font-bold ${stt.color}`}>{stt.label}</span>
-              </div>
+              <span className={`text-xl font-bold ${stt.color}`}>{stt.label}</span>
               <p className={`text-sm ${textSecondary} mt-0.5`}>{stt.desc}</p>
               {summary.last_event && (
                 <p className={`text-xs ${textSecondary} mt-1`}>
@@ -246,11 +279,11 @@ const SaudeSistema: React.FC = () => {
             </div>
             <div className="flex gap-4 text-center">
               <div>
-                <p className={`text-2xl font-bold text-red-400`}>{summary.critical_24h}</p>
+                <p className="text-2xl font-bold text-red-400">{summary.critical_24h}</p>
                 <p className={`text-xs ${textSecondary}`}>Críticos 24h</p>
               </div>
               <div>
-                <p className={`text-2xl font-bold text-orange-400`}>{summary.high_24h}</p>
+                <p className="text-2xl font-bold text-orange-400">{summary.high_24h}</p>
                 <p className={`text-xs ${textSecondary}`}>Altos 24h</p>
               </div>
               <div>
@@ -264,7 +297,7 @@ const SaudeSistema: React.FC = () => {
 
       {showConfig && (
         <div className={`${cardBase} rounded-xl p-6 space-y-6`}>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className={`text-lg font-semibold ${textPrimary}`}>Configurações de Alerta</h2>
             {saveMsg && (
               <span className={`text-sm px-3 py-1 rounded-lg ${saveMsg.includes('Erro') ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
@@ -330,7 +363,10 @@ const SaudeSistema: React.FC = () => {
                 <div className="space-y-3 pl-4 border-l-2 border-purple-500/30">
                   <div>
                     <label className={`block text-xs font-medium ${textSecondary} mb-1`}>Slack Webhook URL</label>
-                    <input className={inputClass} placeholder="https://hooks.slack.com/services/..." value={formConfig.slack_webhook_url || ''} onChange={e => setFormConfig(f => ({ ...f, slack_webhook_url: e.target.value }))} />
+                    <input className={inputClass} type="password" placeholder="https://hooks.slack.com/services/..." value={formConfig.slack_webhook_url || ''} onChange={e => setFormConfig(f => ({ ...f, slack_webhook_url: e.target.value }))} />
+                    {config?.slack_webhook_url && (
+                      <p className={`text-xs ${textSecondary} mt-1`}>Webhook configurado: <code className="text-xs">{config.slack_webhook_url}</code></p>
+                    )}
                   </div>
                 </div>
               )}
@@ -352,7 +388,7 @@ const SaudeSistema: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
             <button
               onClick={handleSaveConfig}
               disabled={savingConfig}
@@ -370,31 +406,66 @@ const SaudeSistema: React.FC = () => {
               <Send className="w-4 h-4" />
               {testingAlert ? 'Enviando...' : 'Enviar Teste'}
             </button>
-            <p className={`text-xs ${textSecondary}`}>O botão de teste envia um alerta com severidade "Info" para verificar as configurações.</p>
+            <p className={`text-xs ${textSecondary}`}>O botão de teste envia um alerta "Info" para verificar as configurações.</p>
           </div>
         </div>
       )}
 
       <div className={`${cardBase} rounded-xl overflow-hidden`}>
-        <div className={`px-4 py-3 ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3`}>
-          <h2 className={`text-sm font-semibold ${textPrimary} flex items-center gap-2`}>
-            <Clock className="w-4 h-4" />
-            Histórico de Eventos
-          </h2>
-          <div className="flex items-center gap-2">
-            <Filter className={`w-4 h-4 ${textSecondary}`} />
+        <div className={`px-4 py-3 ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} flex flex-col gap-3`}>
+          <div className="flex items-center justify-between">
+            <h2 className={`text-sm font-semibold ${textPrimary} flex items-center gap-2`}>
+              <Clock className="w-4 h-4" />
+              Histórico de Eventos
+              {totalEvents > 0 && <span className={`text-xs ${textSecondary}`}>({totalEvents} total)</span>}
+            </h2>
+            <button
+              onClick={handleApplyFilters}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors"
+            >
+              <Filter className="w-3 h-3" />
+              Filtrar
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
             <select
               value={filterSeverity}
               onChange={e => setFilterSeverity(e.target.value)}
-              className={`text-sm rounded-lg px-3 py-1.5 border outline-none ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+              className={selectClass}
             >
-              <option value="">Todos</option>
+              <option value="">Todas as severidades</option>
               <option value="CRITICAL">Crítico</option>
               <option value="HIGH">Alto</option>
               <option value="MEDIUM">Médio</option>
               <option value="LOW">Baixo</option>
               <option value="INFO">Info</option>
             </select>
+            <div className="flex items-center gap-1">
+              <label className={`text-xs ${textSecondary}`}>De:</label>
+              <input
+                type="date"
+                value={filterDateFrom}
+                onChange={e => setFilterDateFrom(e.target.value)}
+                className={selectClass}
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <label className={`text-xs ${textSecondary}`}>Até:</label>
+              <input
+                type="date"
+                value={filterDateTo}
+                onChange={e => setFilterDateTo(e.target.value)}
+                className={selectClass}
+              />
+            </div>
+            {(filterSeverity || filterDateFrom || filterDateTo) && (
+              <button
+                onClick={() => { setFilterSeverity(''); setFilterDateFrom(''); setFilterDateTo(''); }}
+                className={`text-xs ${textSecondary} hover:text-red-400 underline`}
+              >
+                Limpar filtros
+              </button>
+            )}
           </div>
         </div>
 
@@ -402,56 +473,107 @@ const SaudeSistema: React.FC = () => {
           <div className="p-12 flex justify-center">
             <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
           </div>
-        ) : filteredEvents.length === 0 ? (
+        ) : events.length === 0 ? (
           <div className={`p-12 text-center ${textSecondary} text-sm`}>
             <ShieldCheck className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            Nenhum evento registrado
+            Nenhum evento encontrado para os filtros selecionados
           </div>
         ) : (
-          <div className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-            {filteredEvents.map(event => {
-              const sev = SEVERITY_CONFIG[event.severity] || SEVERITY_CONFIG.INFO;
-              const isExpanded = expandedEvents.has(event.id);
-              const typeLabel = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
-              return (
-                <div key={event.id} className={`px-4 py-3 transition-colors ${isDark ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50'}`}>
-                  <div
-                    className="flex items-start justify-between gap-3 cursor-pointer"
-                    onClick={() => event.detail && toggleExpand(event.id)}
-                  >
-                    <div className="flex items-start gap-3 min-w-0">
-                      <span className={`mt-0.5 w-2 h-2 rounded-full flex-shrink-0 ${sev.dot}`} />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${sev.badge}`}>
-                            {sev.label}
-                          </span>
-                          <span className={`text-xs font-medium ${textSecondary}`}>{typeLabel}</span>
+          <>
+            <div className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+              {events.map(event => {
+                const sev = SEVERITY_CONFIG[event.severity] || SEVERITY_CONFIG.INFO;
+                const isExpanded = expandedEvents.has(event.id);
+                const typeLabel = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
+                return (
+                  <div key={event.id} className={`px-4 py-3 transition-colors ${isDark ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50'}`}>
+                    <div
+                      className="flex items-start justify-between gap-3 cursor-pointer"
+                      onClick={() => event.detail && toggleExpand(event.id)}
+                    >
+                      <div className="flex items-start gap-3 min-w-0">
+                        <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${sev.dot}`} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${sev.badge}`}>
+                              {sev.label}
+                            </span>
+                            <span className={`text-xs font-medium ${textSecondary}`}>{typeLabel}</span>
+                          </div>
+                          <p className={`text-sm mt-1 ${textPrimary}`}>{event.message}</p>
                         </div>
-                        <p className={`text-sm mt-1 ${textPrimary}`}>{event.message}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="text-right">
+                          <p className={`text-xs ${textSecondary}`}>{timeAgo(event.created_at)}</p>
+                          <p className={`text-xs ${textSecondary} hidden sm:block`}>{formatDatetime(event.created_at)}</p>
+                        </div>
+                        {event.detail && (
+                          <div className={textSecondary}>
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <div className="text-right">
-                        <p className={`text-xs ${textSecondary}`}>{timeAgo(event.created_at)}</p>
-                        <p className={`text-xs ${textSecondary} hidden sm:block`}>{formatDatetime(event.created_at)}</p>
+                    {isExpanded && event.detail && (
+                      <div className={`mt-2 ml-5 p-3 rounded-lg text-xs font-mono whitespace-pre-wrap ${isDark ? 'bg-gray-900/50 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                        {event.detail}
                       </div>
-                      {event.detail && (
-                        <div className={`${textSecondary}`}>
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </div>
-                  {isExpanded && event.detail && (
-                    <div className={`mt-2 ml-5 p-3 rounded-lg text-xs font-mono whitespace-pre-wrap ${isDark ? 'bg-gray-900/50 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
-                      {event.detail}
-                    </div>
-                  )}
+                );
+              })}
+            </div>
+
+            {totalPages > 1 && (
+              <div className={`px-4 py-3 flex items-center justify-between border-t ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+                <p className={`text-xs ${textSecondary}`}>
+                  Página {currentPage} de {totalPages} — {totalEvents} eventos
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let page: number;
+                    if (totalPages <= 5) {
+                      page = i + 1;
+                    } else if (currentPage <= 3) {
+                      page = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      page = totalPages - 4 + i;
+                    } else {
+                      page = currentPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => handlePageChange(page)}
+                        className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
+                          page === currentPage
+                            ? 'bg-blue-600 text-white'
+                            : isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}`}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

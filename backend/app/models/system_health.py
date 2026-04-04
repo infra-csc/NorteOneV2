@@ -41,6 +41,10 @@ class SystemAlertConfig(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     def to_dict(self):
+        masked_webhook = None
+        if self.slack_webhook_url:
+            url = self.slack_webhook_url
+            masked_webhook = url[:30] + "***" if len(url) > 30 else "***"
         return {
             "email_enabled": self.email_enabled,
             "email_recipients": self.email_recipients,
@@ -50,6 +54,6 @@ class SystemAlertConfig(Base):
             "smtp_user": self.smtp_user,
             "smtp_password": "***" if self.smtp_password else None,
             "slack_enabled": self.slack_enabled,
-            "slack_webhook_url": self.slack_webhook_url,
+            "slack_webhook_url": masked_webhook,
             "min_severity": self.min_severity,
         }

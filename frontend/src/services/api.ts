@@ -470,7 +470,7 @@ export const adminService = {
     const response = await api.get('/admin/health-events/summary');
     return response.data;
   },
-  getHealthEvents: async (params?: { severity?: string; event_type?: string; limit?: number }) => {
+  getHealthEvents: async (params?: { severity?: string; event_type?: string; date_from?: string; date_to?: string; page?: number; page_size?: number }) => {
     const response = await api.get('/admin/health-events', { params });
     return response.data;
   },
