@@ -6916,7 +6916,17 @@ def get_marketing_event_by_id(
                     "vendas_antes": vendas_antes,
                     "vendas_depois": vendas_depois,
                     "impacto_percentual": impacto_percentual,
-                    "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados"
+                    "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados",
+                    "ponto_corte": a.ponto_corte,
+                    "estagio": a.estagio,
+                    "snapshot_isc": float(a.snapshot_isc) if a.snapshot_isc is not None else None,
+                    "snapshot_isc_state": a.snapshot_isc_state,
+                    "snapshot_d_minus": a.snapshot_d_minus,
+                    "snapshot_ia730": float(a.snapshot_ia730) if a.snapshot_ia730 is not None else None,
+                    "snapshot_rolling14d": float(a.snapshot_rolling14d) if a.snapshot_rolling14d is not None else None,
+                    "snapshot_curva_percent": float(a.snapshot_curva_percent) if a.snapshot_curva_percent is not None else None,
+                    "snapshot_vendas_acumuladas": a.snapshot_vendas_acumuladas,
+                    "snapshot_playbook_letter": a.snapshot_playbook_letter,
                 })
         
         ano_anterior = ano - 1
@@ -7246,7 +7256,17 @@ def get_marketing_event_by_id(
             "vendas_antes": vendas_antes,
             "vendas_depois": vendas_depois,
             "impacto_percentual": impacto_percentual,
-            "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados"
+            "status_impacto": impacto.get("status", "calculado") if impacto_percentual is not None else "aguardando_dados",
+            "ponto_corte": a.ponto_corte,
+            "estagio": a.estagio,
+            "snapshot_isc": float(a.snapshot_isc) if a.snapshot_isc is not None else None,
+            "snapshot_isc_state": a.snapshot_isc_state,
+            "snapshot_d_minus": a.snapshot_d_minus,
+            "snapshot_ia730": float(a.snapshot_ia730) if a.snapshot_ia730 is not None else None,
+            "snapshot_rolling14d": float(a.snapshot_rolling14d) if a.snapshot_rolling14d is not None else None,
+            "snapshot_curva_percent": float(a.snapshot_curva_percent) if a.snapshot_curva_percent is not None else None,
+            "snapshot_vendas_acumuladas": a.snapshot_vendas_acumuladas,
+            "snapshot_playbook_letter": a.snapshot_playbook_letter,
         })
     
     standalone_result = {
@@ -7714,6 +7734,16 @@ class AcaoComercialCreate(BaseModel):
     tipo: str
     descricao: str
     data_acao: date
+    ponto_corte: Optional[str] = None
+    estagio: Optional[str] = None
+    snapshot_isc: Optional[float] = None
+    snapshot_isc_state: Optional[str] = None
+    snapshot_d_minus: Optional[int] = None
+    snapshot_ia730: Optional[float] = None
+    snapshot_rolling14d: Optional[float] = None
+    snapshot_curva_percent: Optional[float] = None
+    snapshot_vendas_acumuladas: Optional[int] = None
+    snapshot_playbook_letter: Optional[str] = None
 
 class AcaoComercialUpdate(BaseModel):
     tipo: Optional[str] = None
@@ -7729,6 +7759,16 @@ class AcaoComercialResponse(BaseModel):
     impacto_percentual: Optional[float] = None
     vendas_antes: Optional[int] = None
     vendas_depois: Optional[int] = None
+    ponto_corte: Optional[str] = None
+    estagio: Optional[str] = None
+    snapshot_isc: Optional[float] = None
+    snapshot_isc_state: Optional[str] = None
+    snapshot_d_minus: Optional[int] = None
+    snapshot_ia730: Optional[float] = None
+    snapshot_rolling14d: Optional[float] = None
+    snapshot_curva_percent: Optional[float] = None
+    snapshot_vendas_acumuladas: Optional[int] = None
+    snapshot_playbook_letter: Optional[str] = None
     created_at: Optional[str] = None
 
     class Config:
@@ -7784,38 +7824,28 @@ def create_acao_comercial(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    """Cria uma nova ação comercial com validação de duplicidade (7 dias)"""
+    """Cria uma nova ação comercial vinculada ao ponto de corte e com snapshot dos dados ISC"""
     from ...models.dimensoes import AcaoComercial
     
     projeto = db.query(DimProjeto).filter(DimProjeto.id == acao.projeto_id).first()
     if not projeto:
         raise HTTPException(status_code=404, detail="Projeto não encontrado")
     
-    duplicate = check_duplicate_action(db, acao.projeto_id, acao.tipo)
-    if duplicate:
-        tipo_labels = {
-            'PROMOCAO': 'Promoção',
-            'AUMENTO_PRECO': 'Aumento de Preço',
-            'REDUCAO_PRECO': 'Redução de Preço',
-            'CAMPANHA': 'Campanha',
-            'COMUNICACAO': 'Comunicação'
-        }
-        tipo_label = tipo_labels.get(acao.tipo, acao.tipo)
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": f"Já existe uma ação de '{tipo_label}' ativa para este evento. "
-                           f"A ação '{duplicate['descricao']}' foi criada em {duplicate['data_acao']} "
-                           f"e ainda está ativa por mais {duplicate['dias_restantes']} dia(s).",
-                "existing_action": duplicate
-            }
-        )
-    
     nova_acao = AcaoComercial(
         projeto_id=acao.projeto_id,
         tipo=acao.tipo,
         descricao=acao.descricao,
-        data_acao=acao.data_acao
+        data_acao=acao.data_acao,
+        ponto_corte=acao.ponto_corte,
+        estagio=acao.estagio,
+        snapshot_isc=acao.snapshot_isc,
+        snapshot_isc_state=acao.snapshot_isc_state,
+        snapshot_d_minus=acao.snapshot_d_minus,
+        snapshot_ia730=acao.snapshot_ia730,
+        snapshot_rolling14d=acao.snapshot_rolling14d,
+        snapshot_curva_percent=acao.snapshot_curva_percent,
+        snapshot_vendas_acumuladas=acao.snapshot_vendas_acumuladas,
+        snapshot_playbook_letter=acao.snapshot_playbook_letter,
     )
     
     db.add(nova_acao)
@@ -7830,7 +7860,9 @@ def create_acao_comercial(
             "projeto_id": nova_acao.projeto_id,
             "tipo": nova_acao.tipo,
             "descricao": nova_acao.descricao,
-            "data_acao": nova_acao.data_acao.isoformat() if nova_acao.data_acao else None
+            "data_acao": nova_acao.data_acao.isoformat() if nova_acao.data_acao else None,
+            "ponto_corte": nova_acao.ponto_corte,
+            "estagio": nova_acao.estagio,
         }
     }
 

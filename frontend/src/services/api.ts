@@ -879,7 +879,22 @@ export const marketingService = {
     const response = await api.get(`/marketing/acoes-comerciais/${projetoId}`);
     return response.data;
   },
-  createAcaoComercial: async (data: { projeto_id: number; tipo: string; descricao: string; data_acao: string }): Promise<any> => {
+  createAcaoComercial: async (data: {
+    projeto_id: number;
+    tipo: string;
+    descricao: string;
+    data_acao: string;
+    ponto_corte?: string;
+    estagio?: string;
+    snapshot_isc?: number;
+    snapshot_isc_state?: string;
+    snapshot_d_minus?: number;
+    snapshot_ia730?: number;
+    snapshot_rolling14d?: number;
+    snapshot_curva_percent?: number;
+    snapshot_vendas_acumuladas?: number;
+    snapshot_playbook_letter?: string;
+  }): Promise<any> => {
     const response = await api.post('/marketing/acoes-comerciais', data);
     return response.data;
   },

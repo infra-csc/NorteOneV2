@@ -60,6 +60,16 @@ interface CommercialAction {
   vendas_depois?: number;
   impacto_percentual?: number;
   status_impacto?: string;
+  ponto_corte?: string;
+  estagio?: string;
+  snapshot_isc?: number;
+  snapshot_isc_state?: string;
+  snapshot_d_minus?: number;
+  snapshot_ia730?: number;
+  snapshot_rolling14d?: number;
+  snapshot_curva_percent?: number;
+  snapshot_vendas_acumuladas?: number;
+  snapshot_playbook_letter?: string;
 }
 
 interface ExtendedEvent extends MarketingEvent {
@@ -175,17 +185,7 @@ const EventDetail: React.FC = () => {
             excessRemoved: d.excessRemoved,
             excessReceived: d.excessReceived
           })),
-          commercialActions: response.commercialActions?.map((a: any) => ({
-            id: a.id,
-            type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
-            description: a.description,
-            date: a.date,
-            impact: a.impact,
-            vendas_antes: a.vendas_antes,
-            vendas_depois: a.vendas_depois,
-            impacto_percentual: a.impacto_percentual,
-            status_impacto: a.status_impacto
-          }))
+          commercialActions: mapEventResponseToActions(response.commercialActions ?? [])
         };
         setEvent(eventWithData);
         const cacheTime: string | undefined = (response as any).ultima_atualizacao;
@@ -430,6 +430,39 @@ const EventDetail: React.FC = () => {
     return new Intl.NumberFormat('pt-BR').format(value);
   };
 
+  const getActionCutoffInfo = (dMinus: number): { ponto_corte: string; estagio: string } => {
+    if (dMinus >= 50) {
+      return { ponto_corte: dMinus >= 70 ? 'D-70' : 'D-50', estagio: 'analitico' };
+    } else if (dMinus >= 32) {
+      return { ponto_corte: dMinus >= 45 ? 'D-45' : 'D-35', estagio: 'estrategico' };
+    } else {
+      return { ponto_corte: dMinus >= 15 ? 'D-30' : 'D-15', estagio: 'operacional' };
+    }
+  };
+
+  const mapEventResponseToActions = (actions: any[]): CommercialAction[] =>
+    actions.map((a: any) => ({
+      id: a.id,
+      type: a.type as CommercialAction['type'],
+      description: a.description,
+      date: a.date,
+      impact: a.impact,
+      vendas_antes: a.vendas_antes,
+      vendas_depois: a.vendas_depois,
+      impacto_percentual: a.impacto_percentual,
+      status_impacto: a.status_impacto,
+      ponto_corte: a.ponto_corte,
+      estagio: a.estagio,
+      snapshot_isc: a.snapshot_isc,
+      snapshot_isc_state: a.snapshot_isc_state,
+      snapshot_d_minus: a.snapshot_d_minus,
+      snapshot_ia730: a.snapshot_ia730,
+      snapshot_rolling14d: a.snapshot_rolling14d,
+      snapshot_curva_percent: a.snapshot_curva_percent,
+      snapshot_vendas_acumuladas: a.snapshot_vendas_acumuladas,
+      snapshot_playbook_letter: a.snapshot_playbook_letter,
+    }));
+
   const handleSaveAction = async () => {
     if (!id || !actionForm.descricao.trim()) return;
     
@@ -446,80 +479,57 @@ const EventDetail: React.FC = () => {
     
     setSavingAction(true);
     try {
-      const duplicateCheck = await marketingService.checkDuplicateAction(projetoIdParaAcao, actionForm.tipo);
-      if (duplicateCheck.has_duplicate && duplicateCheck.existing_action) {
-        const tipoLabels: Record<string, string> = {
-          'PROMOCAO': 'Promoção',
-          'AUMENTO_PRECO': 'Aumento de Preço',
-          'REDUCAO_PRECO': 'Redução de Preço',
-          'CAMPANHA': 'Campanha',
-          'COMUNICACAO': 'Comunicação'
-        };
-        const tipoLabel = tipoLabels[actionForm.tipo] || actionForm.tipo;
-        const dataFormatada = new Date(duplicateCheck.existing_action.data_acao + 'T00:00:00').toLocaleDateString('pt-BR');
-        setActionError(
-          `Já existe uma ação de "${tipoLabel}" ativa (registrada em ${dataFormatada}, válida por mais ${duplicateCheck.existing_action.dias_restantes} dia(s)). Aguarde o término dos 7 dias para criar uma nova ação do mesmo tipo.`
-        );
-        setSavingAction(false);
-        return;
-      }
-    } catch (err) {
-      console.error('Error checking duplicate:', err);
-    }
-    try {
+      const dMinus = event?.dMinus ?? 0;
+      const cutoffInfo = getActionCutoffInfo(dMinus);
+      const iscStatusMap: Record<string, string> = {
+        accelerating: 'forte',
+        stable: 'estavel',
+        decelerating: 'fraco'
+      };
+
       await marketingService.createAcaoComercial({
         projeto_id: projetoIdParaAcao,
         tipo: actionForm.tipo,
         descricao: actionForm.descricao,
-        data_acao: actionForm.data_acao
+        data_acao: actionForm.data_acao,
+        ponto_corte: cutoffInfo.ponto_corte,
+        estagio: cutoffInfo.estagio,
+        snapshot_isc: event?.isc,
+        snapshot_isc_state: event?.iscStatus ? iscStatusMap[event.iscStatus] : undefined,
+        snapshot_d_minus: dMinus,
+        snapshot_ia730: event?.iscComponents?.ia730,
+        snapshot_rolling14d: event?.iscComponents?.rolling14d,
+        snapshot_curva_percent: event?.iscComponents?.curvaDPercent,
+        snapshot_vendas_acumuladas: event?.currentSales,
+        snapshot_playbook_letter: event?.suggestedAction?.letter,
       });
-      
-      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
-      const eventWithData = {
-        ...response.evento,
-        dailySales: response.dailySales?.map(d => ({
-          date: d.date,
-          sales: d.sales,
-          expected: d.expected,
-          cumulativeSales: d.cumulativeSales,
-          cumulativeExpected: d.cumulativeExpected,
-          dMinus: d.dMinus,
-          curvaAnoAnterior: d.curvaAnoAnterior,
-          dif: d.dif,
-          atingimentoAcumulado: d.atingimentoAcumulado,
-          atingimentoDiario: d.atingimentoDiario,
-          normalizedSales: d.normalizedSales,
-          cumulativeNormalized: d.cumulativeNormalized,
-          localMedian: d.localMedian,
-          outlierLimit: d.outlierLimit,
-          isOutlier: d.isOutlier,
-          excessRemoved: d.excessRemoved,
-          excessReceived: d.excessReceived
-        })),
-        commercialActions: response.commercialActions?.map((a: any) => ({
-          id: a.id,
-          type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
-          description: a.description,
-          date: a.date,
-          impact: a.impact,
-          vendas_antes: a.vendas_antes,
-          vendas_depois: a.vendas_depois,
-          impacto_percentual: a.impacto_percentual,
-          status_impacto: a.status_impacto
-        }))
-      };
-      setEvent(eventWithData);
-      
+
       setShowActionModal(false);
+      setActionError(null);
       setActionForm({
         tipo: 'PROMOCAO',
         descricao: '',
         data_acao: new Date().toISOString().split('T')[0],
         projeto_id_selecionado: 0
       });
+
+      try {
+        const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
+        const eventWithData = {
+          ...response.evento,
+          dailySales: response.dailySales?.map(d => ({ ...d })),
+          commercialActions: mapEventResponseToActions(response.commercialActions ?? [])
+        };
+        setEvent(eventWithData);
+      } catch (refreshErr: any) {
+        if (refreshErr?.name !== 'CanceledError' && refreshErr?.code !== 'ERR_CANCELED') {
+          console.error('Erro ao atualizar evento após salvar ação:', refreshErr);
+        }
+      }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
       console.error('Erro ao salvar ação:', err);
+      setActionError('Erro ao salvar ação. Tente novamente.');
     } finally {
       setSavingAction(false);
     }
@@ -527,43 +537,25 @@ const EventDetail: React.FC = () => {
 
   const handleDeleteAction = async (actionId: string) => {
     if (!id) return;
+    setEvent(prev => prev ? {
+      ...prev,
+      commercialActions: prev.commercialActions?.filter(a => a.id !== actionId)
+    } : prev);
     try {
       await marketingService.deleteAcaoComercial(parseInt(actionId));
-      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
-      const eventWithData = {
-        ...response.evento,
-        dailySales: response.dailySales?.map(d => ({
-          date: d.date,
-          sales: d.sales,
-          expected: d.expected,
-          cumulativeSales: d.cumulativeSales,
-          cumulativeExpected: d.cumulativeExpected,
-          dMinus: d.dMinus,
-          curvaAnoAnterior: d.curvaAnoAnterior,
-          dif: d.dif,
-          atingimentoAcumulado: d.atingimentoAcumulado,
-          atingimentoDiario: d.atingimentoDiario,
-          normalizedSales: d.normalizedSales,
-          cumulativeNormalized: d.cumulativeNormalized,
-          localMedian: d.localMedian,
-          outlierLimit: d.outlierLimit,
-          isOutlier: d.isOutlier,
-          excessRemoved: d.excessRemoved,
-          excessReceived: d.excessReceived
-        })),
-        commercialActions: response.commercialActions?.map((a: any) => ({
-          id: a.id,
-          type: a.type as 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication',
-          description: a.description,
-          date: a.date,
-          impact: a.impact,
-          vendas_antes: a.vendas_antes,
-          vendas_depois: a.vendas_depois,
-          impacto_percentual: a.impacto_percentual,
-          status_impacto: a.status_impacto
-        }))
-      };
-      setEvent(eventWithData);
+      try {
+        const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
+        const eventWithData = {
+          ...response.evento,
+          dailySales: response.dailySales?.map(d => ({ ...d })),
+          commercialActions: mapEventResponseToActions(response.commercialActions ?? [])
+        };
+        setEvent(eventWithData);
+      } catch (refreshErr: any) {
+        if (refreshErr?.name !== 'CanceledError' && refreshErr?.code !== 'ERR_CANCELED') {
+          console.error('Erro ao atualizar evento após excluir ação:', refreshErr);
+        }
+      }
     } catch (err) {
       console.error('Erro ao excluir ação:', err);
     }
@@ -2667,93 +2659,132 @@ const EventDetail: React.FC = () => {
             Adicionar Ação
           </button>
         </div>
-        {event.commercialActions && event.commercialActions.length > 0 ? (
-          <div className="space-y-4">
-            {event.commercialActions.map((action: CommercialAction, index: number) => (
-              <div key={action.id} className="flex gap-4">
-                <div className="flex flex-col items-center">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    action.type === 'price_increase' ? 'bg-green-100 dark:bg-green-900/30' :
-                    action.type === 'price_decrease' ? 'bg-red-100 dark:bg-red-900/30' :
-                    action.type === 'promotion' ? 'bg-purple-100 dark:bg-purple-900/30' :
-                    action.type === 'campaign' ? 'bg-blue-100 dark:bg-blue-900/30' :
-                    'bg-gray-100 dark:bg-gray-700'
-                  }`}>
-                    {action.type === 'price_increase' && <TrendingUp className="w-5 h-5 text-green-600" />}
-                    {action.type === 'price_decrease' && <TrendingDown className="w-5 h-5 text-red-600" />}
-                    {action.type === 'promotion' && <Target className="w-5 h-5 text-purple-600" />}
-                    {action.type === 'campaign' && <Activity className="w-5 h-5 text-blue-600" />}
-                    {action.type === 'communication' && <Clock className="w-5 h-5 text-gray-600" />}
-                  </div>
-                  {index < (event.commercialActions?.length ?? 0) - 1 && (
-                    <div className="w-0.5 h-full bg-gray-200 dark:bg-gray-600 mt-2" />
-                  )}
+        {event.commercialActions && event.commercialActions.length > 0 ? (() => {
+          const stageOrder = ['analitico', 'estrategico', 'operacional', null] as const;
+          const stageMeta: Record<string, { label: string; color: string; borderColor: string; cutoffs: string[] }> = {
+            analitico: { label: 'Analítico', color: 'text-blue-700 dark:text-blue-300', borderColor: 'border-blue-300 dark:border-blue-700', cutoffs: ['D-70', 'D-50'] },
+            estrategico: { label: 'Estratégico', color: 'text-purple-700 dark:text-purple-300', borderColor: 'border-purple-300 dark:border-purple-700', cutoffs: ['D-45', 'D-35'] },
+            operacional: { label: 'Operacional', color: 'text-orange-700 dark:text-orange-300', borderColor: 'border-orange-300 dark:border-orange-700', cutoffs: ['D-30', 'D-15'] },
+          };
+          const knownStages = new Set(['analitico', 'estrategico', 'operacional']);
+          const grouped: Record<string, CommercialAction[]> = { analitico: [], estrategico: [], operacional: [], _legacy: [] };
+          for (const a of event.commercialActions!) {
+            const key = a.estagio && knownStages.has(a.estagio) ? a.estagio : '_legacy';
+            grouped[key].push(a);
+          }
+          const renderAction = (action: CommercialAction, isLast: boolean) => (
+            <div key={action.id} className="flex gap-3">
+              <div className="flex flex-col items-center pt-1">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  action.type === 'price_increase' ? 'bg-green-100 dark:bg-green-900/30' :
+                  action.type === 'price_decrease' ? 'bg-red-100 dark:bg-red-900/30' :
+                  action.type === 'promotion' ? 'bg-purple-100 dark:bg-purple-900/30' :
+                  action.type === 'campaign' ? 'bg-blue-100 dark:bg-blue-900/30' :
+                  'bg-gray-100 dark:bg-gray-700'
+                }`}>
+                  {action.type === 'price_increase' && <TrendingUp className="w-4 h-4 text-green-600" />}
+                  {action.type === 'price_decrease' && <TrendingDown className="w-4 h-4 text-red-600" />}
+                  {action.type === 'promotion' && <Target className="w-4 h-4 text-purple-600" />}
+                  {action.type === 'campaign' && <Activity className="w-4 h-4 text-blue-600" />}
+                  {action.type === 'communication' && <Clock className="w-4 h-4 text-gray-600" />}
                 </div>
-                <div className="flex-1 pb-4">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-gray-900 dark:text-white">
-                      {action.description}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        {new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}
-                      </span>
-                      {(() => {
-                        const actionDate = new Date(action.date + 'T00:00:00');
-                        const now = new Date();
-                        const diffDays = Math.floor((now.getTime() - actionDate.getTime()) / (1000 * 60 * 60 * 24));
-                        if (diffDays <= 7 && diffDays >= 0) {
-                          return (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-400/50 dark:border-green-600/50">
-                              <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                              </span>
-                              <span className="text-[10px] font-bold text-green-700 dark:text-green-400 uppercase tracking-wider">Ativa</span>
-                              <span className="text-[10px] text-green-600 dark:text-green-400 font-mono">{7 - diffDays}d</span>
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <button
-                        onClick={() => handleDeleteAction(action.id)}
-                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                        title="Excluir ação"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  {action.impact ? (
-                    <div className="mt-1">
-                      <p className={`text-sm flex items-center gap-1 ${
-                        action.impacto_percentual && action.impacto_percentual > 0 
-                          ? 'text-green-600 dark:text-green-400' 
-                          : action.impacto_percentual && action.impacto_percentual < 0
-                            ? 'text-red-600 dark:text-red-400'
-                            : 'text-gray-600 dark:text-gray-400'
-                      }`}>
-                        <CheckCircle className="w-4 h-4" />
-                        Impacto: {action.impact}
-                      </p>
-                      {action.vendas_antes !== undefined && action.vendas_depois !== undefined && (
-                        <p className="text-xs text-gray-500 dark:text-gray-500 mt-0.5 ml-5">
-                          7d antes: {action.vendas_antes} vendas → 7d depois: {action.vendas_depois} vendas
-                        </p>
-                      )}
-                    </div>
-                  ) : action.status_impacto === 'aguardando_dados' ? (
-                    <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-1 flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      Aguardando dados (7 dias após a ação)
-                    </p>
-                  ) : null}
-                </div>
+                {!isLast && <div className="w-0.5 flex-1 bg-gray-200 dark:bg-gray-600 mt-1" />}
               </div>
-            ))}
-          </div>
-        ) : (
+              <div className="flex-1 pb-4">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <p className="font-medium text-gray-900 dark:text-white text-sm leading-snug">{action.description}</p>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                    <button onClick={() => handleDeleteAction(action.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Excluir ação">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                {action.snapshot_isc !== undefined && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
+                      ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc?.toFixed(2)}</span>
+                    </span>
+                    {action.snapshot_d_minus !== undefined && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
+                        D-<span className="font-bold">{action.snapshot_d_minus}</span>
+                      </span>
+                    )}
+                    {action.snapshot_ia730 !== undefined && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
+                        IA730 <span className="font-bold">{(action.snapshot_ia730 * 100).toFixed(0)}%</span>
+                      </span>
+                    )}
+                    {action.snapshot_rolling14d !== undefined && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
+                        14d <span className="font-bold">{(action.snapshot_rolling14d * 100).toFixed(0)}%</span>
+                      </span>
+                    )}
+                    {action.snapshot_playbook_letter && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/30 text-xs font-bold text-blue-700 dark:text-blue-300">
+                        Playbook {action.snapshot_playbook_letter}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {action.impact ? (
+                  <div className="mt-1.5">
+                    <p className={`text-xs flex items-center gap-1 ${
+                      action.impacto_percentual && action.impacto_percentual > 0
+                        ? 'text-green-600 dark:text-green-400'
+                        : action.impacto_percentual && action.impacto_percentual < 0
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-gray-600 dark:text-gray-400'
+                    }`}>
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Impacto: {action.impact}
+                      {action.vendas_antes !== undefined && action.vendas_depois !== undefined && (
+                        <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">({action.vendas_antes} → {action.vendas_depois} vendas)</span>
+                      )}
+                    </p>
+                  </div>
+                ) : action.status_impacto === 'aguardando_dados' ? (
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1.5 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    Aguardando dados (7 dias após a ação)
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          );
+          return (
+            <div className="space-y-6">
+              {(stageOrder.filter(s => s !== null) as string[]).map(stage => {
+                const actions = grouped[stage];
+                if (!actions || actions.length === 0) return null;
+                const meta = stageMeta[stage];
+                return (
+                  <div key={stage}>
+                    <div className={`flex items-center gap-2 mb-3 pb-1.5 border-b ${meta.borderColor}`}>
+                      <span className={`text-xs font-bold uppercase tracking-widest ${meta.color}`}>{meta.label}</span>
+                      <div className="flex gap-1">
+                        {meta.cutoffs.map(c => (
+                          <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 font-mono">{c}</span>
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{actions.length} ação{actions.length !== 1 ? 'ões' : ''}</span>
+                    </div>
+                    <div>{actions.map((a, i) => renderAction(a, i === actions.length - 1))}</div>
+                  </div>
+                );
+              })}
+              {grouped._legacy && grouped._legacy.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3 pb-1.5 border-b border-gray-200 dark:border-gray-600">
+                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Histórico</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{grouped._legacy.length} ação{grouped._legacy.length !== 1 ? 'ões' : ''}</span>
+                  </div>
+                  <div>{grouped._legacy.map((a, i) => renderAction(a, i === grouped._legacy.length - 1))}</div>
+                </div>
+              )}
+            </div>
+          );
+        })() : (
           <p className="text-gray-500 dark:text-gray-400 text-center py-4">
             Nenhuma ação comercial registrada. Clique em "Adicionar Ação" para registrar uma ação realizada.
           </p>
@@ -2798,111 +2829,164 @@ const EventDetail: React.FC = () => {
         </div>
       )}
 
-      {showActionModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Adicionar Ação Comercial
-              </h3>
-              <button
-                onClick={() => { setShowActionModal(false); setActionError(null); }}
-                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            {actionError && (
-              <div className="mb-4 flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
-                <span className="shrink-0 mt-0.5">⚠️</span>
-                <span>{actionError}</span>
+      {showActionModal && (() => {
+        const dMinus = event?.dMinus ?? 0;
+        const cutoffInfo = getActionCutoffInfo(dMinus);
+        const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional' };
+        const stageColor: Record<string, string> = {
+          analitico: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800',
+          estrategico: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800',
+          operacional: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800',
+        };
+        const iscStatusMap: Record<string, string> = { accelerating: 'Forte', stable: 'Estável', decelerating: 'Fraco' };
+        const iscColorMap: Record<string, string> = { accelerating: 'text-green-600 dark:text-green-400', stable: 'text-yellow-600 dark:text-yellow-400', decelerating: 'text-red-500 dark:text-red-400' };
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between p-5 pb-0">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Registrar Ação Comercial</h3>
+                <button onClick={() => { setShowActionModal(false); setActionError(null); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            )}
 
-            <div className="space-y-4">
-              {isConsolidated && projetosVinculados.length > 0 && (
+              <div className="p-5 space-y-4">
+                {actionError && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+                    <span className="shrink-0 mt-0.5">⚠️</span>
+                    <span>{actionError}</span>
+                  </div>
+                )}
+
+                <div className={`rounded-lg border p-3 ${stageColor[cutoffInfo.estagio] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider opacity-70">Ponto de Corte</p>
+                      <p className="text-xl font-bold font-mono mt-0.5">{cutoffInfo.ponto_corte}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-bold uppercase tracking-wider opacity-70">Estágio</p>
+                      <p className="text-sm font-semibold mt-0.5">{stageLabel[cutoffInfo.estagio] || cutoffInfo.estagio}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs opacity-60 mt-1">Snapshot dos dados ISC será congelado ao salvar</p>
+                </div>
+
+                {event && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50 p-3">
+                    <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Snapshot ISC atual</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">ISC</span>
+                        <span className={`text-base font-bold ${iscColorMap[event.iscStatus] || 'text-gray-700 dark:text-gray-300'}`}>
+                          {event.isc?.toFixed(2)} <span className="text-xs font-normal">({iscStatusMap[event.iscStatus] || event.iscStatus})</span>
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">D-Minus</span>
+                        <span className="text-base font-bold text-gray-700 dark:text-gray-300">D-{dMinus}</span>
+                      </div>
+                      {event.iscComponents && (
+                        <>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">IA 730</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{(event.iscComponents.ia730 * 100).toFixed(0)}%</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Rolling 14d</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{(event.iscComponents.rolling14d * 100).toFixed(0)}%</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Curva D%</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{(event.iscComponents.curvaDPercent * 100).toFixed(0)}%</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Vendas acumuladas</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{event.currentSales?.toLocaleString('pt-BR')}</span>
+                          </div>
+                        </>
+                      )}
+                      {event.suggestedAction?.letter && (
+                        <div className="col-span-2 flex flex-col">
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Playbook</span>
+                          <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{event.suggestedAction.letter} — {event.suggestedAction.name}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {isConsolidated && projetosVinculados.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Projeto Vinculado</label>
+                    <select
+                      value={actionForm.projeto_id_selecionado}
+                      onChange={(e) => setActionForm({ ...actionForm, projeto_id_selecionado: parseInt(e.target.value) })}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
+                    >
+                      {projetosVinculados.map(p => (
+                        <option key={p.id} value={p.id}>{p.sku} - {p.nome || 'Sem nome'}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Projeto Vinculado
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tipo de Ação</label>
                   <select
-                    value={actionForm.projeto_id_selecionado}
-                    onChange={(e) => setActionForm({ ...actionForm, projeto_id_selecionado: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+                    value={actionForm.tipo}
+                    onChange={(e) => { setActionForm({ ...actionForm, tipo: e.target.value }); setActionError(null); }}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
                   >
-                    {projetosVinculados.map(p => (
-                      <option key={p.id} value={p.id}>{p.sku} - {p.nome || 'Sem nome'}</option>
+                    {tipoOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
                   </select>
                 </div>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Tipo de Ação
-                </label>
-                <select
-                  value={actionForm.tipo}
-                  onChange={(e) => { setActionForm({ ...actionForm, tipo: e.target.value }); setActionError(null); }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data da Ação</label>
+                  <input
+                    type="date"
+                    value={actionForm.data_acao}
+                    onChange={(e) => setActionForm({ ...actionForm, data_acao: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Descrição</label>
+                  <textarea
+                    value={actionForm.descricao}
+                    onChange={(e) => setActionForm({ ...actionForm, descricao: e.target.value })}
+                    placeholder="Descreva a ação realizada..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 p-5 pt-0">
+                <button
+                  onClick={() => { setShowActionModal(false); setActionError(null); }}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
                 >
-                  {tipoOptions.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveAction}
+                  disabled={savingAction || !actionForm.descricao.trim()}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+                >
+                  {savingAction ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
+                  ) : 'Salvar Ação'}
+                </button>
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Data da Ação
-                </label>
-                <input
-                  type="date"
-                  value={actionForm.data_acao}
-                  onChange={(e) => setActionForm({ ...actionForm, data_acao: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Descrição
-                </label>
-                <textarea
-                  value={actionForm.descricao}
-                  onChange={(e) => setActionForm({ ...actionForm, descricao: e.target.value })}
-                  placeholder="Descreva a ação realizada..."
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-            </div>
-            
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => { setShowActionModal(false); setActionError(null); }}
-                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveAction}
-                disabled={savingAction || !actionForm.descricao.trim()}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {savingAction ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Salvando...
-                  </>
-                ) : (
-                  'Salvar Ação'
-                )}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       </>
       )}
       </div>

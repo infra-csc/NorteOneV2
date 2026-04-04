@@ -855,6 +855,17 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_kit_produto ADD COLUMN IF NOT EXISTS ativo_categoria VARCHAR(100)",
             "ALTER TABLE kit_config ALTER COLUMN ativo_categoria TYPE VARCHAR(500)",
             "ALTER TABLE vendas_diaria_snapshot ADD COLUMN IF NOT EXISTS ano INTEGER",
+            # acoes_comerciais: snapshot fields + cutoff point (task #51)
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS ponto_corte VARCHAR(10)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS estagio VARCHAR(20)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_isc NUMERIC(6,4)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_isc_state VARCHAR(10)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_d_minus INTEGER",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_ia730 NUMERIC(6,4)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_rolling14d NUMERIC(6,4)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_curva_percent NUMERIC(6,4)",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_vendas_acumuladas INTEGER",
+            "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_playbook_letter VARCHAR(5)",
             # nori_insights table (idempotent — create_all handles new installs; this covers existing DBs)
             """
             CREATE TABLE IF NOT EXISTS nori_insights (
