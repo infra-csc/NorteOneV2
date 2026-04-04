@@ -695,7 +695,7 @@ def get_isc_status(isc: float, green_threshold: float = 1.10, yellow_threshold: 
 _PLAYBOOK: dict = {
     # (stage_key, isc_key) -> PlaybookEntry dict
     ("analitico", "forte"): {
-        "letter": "A", "name": "Subida Micro / Âncora de Valor",
+        "letter": "A1", "name": "Subida Micro / Âncora de Valor",
         "stage": "analitico", "stageName": "D-90 → D-50 | Analítico",
         "iscLabel": "ISC Forte (>1,12)",
         "objective": "Fixar percepção de valor cedo sem gerar rejeição.",
@@ -705,7 +705,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-70", "D-50"],
     },
     ("analitico", "estavel"): {
-        "letter": "B", "name": "Consolidação de Narrativa",
+        "letter": "A2", "name": "Consolidação de Narrativa",
         "stage": "analitico", "stageName": "D-90 → D-50 | Analítico",
         "iscLabel": "ISC Estável (0,90–1,12)",
         "objective": "Construir desejo antes de mexer em preço.",
@@ -715,7 +715,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-70", "D-50"],
     },
     ("analitico", "fraco"): {
-        "letter": "C", "name": "Socorro Precoce (sem desconto público)",
+        "letter": "A3", "name": "Socorro Precoce (sem desconto público)",
         "stage": "analitico", "stageName": "D-90 → D-50 | Analítico",
         "iscLabel": "ISC Fraco (<0,90)",
         "objective": "Reativar demanda sem educar o público a esperar desconto.",
@@ -725,7 +725,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-70", "D-50"],
     },
     ("estrategico", "forte"): {
-        "letter": "D", "name": "Confirmação de Valor / Escala Moderada",
+        "letter": "E1", "name": "Confirmação de Valor / Escala Moderada",
         "stage": "estrategico", "stageName": "D-50 → D-32 | Estratégico",
         "iscLabel": "ISC Forte (>1,12)",
         "objective": "Consolidar evento como premium e preparar rentabilização.",
@@ -735,7 +735,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-45", "D-35"],
     },
     ("estrategico", "estavel"): {
-        "letter": "E", "name": "Ajuste Fino (sem preço)",
+        "letter": "E2", "name": "Ajuste Fino (sem preço)",
         "stage": "estrategico", "stageName": "D-50 → D-32 | Estratégico",
         "iscLabel": "ISC Estável (0,90–1,12)",
         "objective": "Melhorar conversão antes de mexer no preço.",
@@ -745,7 +745,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-45", "D-35"],
     },
     ("estrategico", "fraco"): {
-        "letter": "F", "name": "Promoção Privada Controlada (última janela)",
+        "letter": "E3", "name": "Promoção Privada Controlada (última janela)",
         "stage": "estrategico", "stageName": "D-50 → D-32 | Estratégico",
         "iscLabel": "ISC Fraco (<0,90)",
         "objective": "Destravar vendas rápido sem quebrar percepção de valor.",
@@ -755,7 +755,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-45", "D-35"],
     },
     ("operacional", "forte"): {
-        "letter": "G", "name": "Rentabilização Máxima",
+        "letter": "O1", "name": "Rentabilização Máxima",
         "stage": "operacional", "stageName": "D-32 → D-0 | Operacional",
         "iscLabel": "ISC Forte (>1,12)",
         "objective": "Maximizar margem (inclusive acima da meta).",
@@ -765,7 +765,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-30", "D-15"],
     },
     ("operacional", "estavel"): {
-        "letter": "H", "name": "Conversão Final",
+        "letter": "O2", "name": "Conversão Final",
         "stage": "operacional", "stageName": "D-32 → D-0 | Operacional",
         "iscLabel": "ISC Estável (0,90–1,12)",
         "objective": "Converter indecisos sem distorcer preço.",
@@ -775,7 +775,7 @@ _PLAYBOOK: dict = {
         "cutoffs": ["D-30", "D-15"],
     },
     ("operacional", "fraco"): {
-        "letter": "I", "name": "Giro Final Controlado (sem desconto aberto)",
+        "letter": "O3", "name": "Giro Final Controlado (sem desconto aberto)",
         "stage": "operacional", "stageName": "D-32 → D-0 | Operacional",
         "iscLabel": "ISC Fraco (<0,90)",
         "objective": "Fechar volume sem destruir posicionamento.",
