@@ -679,10 +679,14 @@ def _startup_resync_projetos():
         for c in cadastros:
             try:
                 _sync_dim_projeto(db, c)
+                db.commit()
                 synced += 1
             except Exception as e:
                 logger.warning(f"Resync failed for cadastro {c.id} ({c.nome}): {e}")
-        db.commit()
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
         logger.info(f"Startup resync: {synced}/{len(cadastros)} cadastros synced to dim_projeto")
         db.close()
     except Exception as e:
