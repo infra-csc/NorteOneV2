@@ -92,6 +92,50 @@ def _should_throttle(event_type: str) -> bool:
         return False
 
 
+def _dispatch_alert_force(event_type: str, severity: str, message: str, detail: Optional[str]):
+    """Like _dispatch_alert but bypasses severity threshold — used by test endpoint."""
+    try:
+        with _dispatch_lock:
+            _last_alert_times[event_type] = 0
+        cfg = _get_config()
+        if cfg is None:
+            return
+        now_brt = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S BRT")
+        subject = f"[TESTE] Verificação dos canais de alerta"
+        body_text = f"""Teste de Alerta
+===============
+Este é um alerta de teste enviado manualmente.
+Horário: {now_brt}
+Disparado por: {detail or ''}
+
+Se você recebeu este e-mail, a configuração SMTP está funcionando corretamente.
+"""
+        body_html = f"""
+<html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f5f5f5">
+<div style="background:white;border-radius:8px;padding:24px;border-top:4px solid #3b82f6">
+  <h2 style="margin:0 0 8px;color:#111">✅ Teste de Alerta</h2>
+  <p style="color:#666;margin:0 0 20px;font-size:14px">{now_brt}</p>
+  <p>Este é um alerta de teste enviado manualmente para verificar a configuração dos canais de notificação.</p>
+  <p style="color:#555;font-size:13px">{detail or ''}</p>
+  <p style="color:#6b7280;font-size:12px;margin-top:20px">Se você recebeu esta mensagem, a configuração está funcionando corretamente.</p>
+</div>
+</body></html>
+"""
+        if cfg.email_enabled and cfg.smtp_host and cfg.email_recipients:
+            try:
+                recipients = [r.strip() for r in cfg.email_recipients.split(",") if r.strip()]
+                _send_email(cfg, subject, body_text, body_html, recipients)
+            except Exception as e:
+                logger.error(f"[HealthAlert] Test email dispatch failed: {e}")
+        if cfg.slack_enabled and cfg.slack_webhook_url:
+            try:
+                _send_slack(cfg.slack_webhook_url, "TEST", "INFO", "Teste de alerta enviado manualmente", detail, now_brt)
+            except Exception as e:
+                logger.error(f"[HealthAlert] Test Slack dispatch failed: {e}")
+    except Exception as e:
+        logger.error(f"[HealthAlert] _dispatch_alert_force error: {e}")
+
+
 def _dispatch_alert(event_type: str, severity: str, message: str, detail: Optional[str]):
     try:
         if _should_throttle(event_type):

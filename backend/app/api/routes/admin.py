@@ -316,7 +316,8 @@ def update_alert_config(
     if payload.smtp_password and payload.smtp_password != "***":
         cfg.smtp_password = payload.smtp_password
     cfg.slack_enabled = payload.slack_enabled
-    cfg.slack_webhook_url = payload.slack_webhook_url
+    if payload.slack_webhook_url and payload.slack_webhook_url.strip():
+        cfg.slack_webhook_url = payload.slack_webhook_url
     cfg.min_severity = payload.min_severity
 
     db.commit()
@@ -328,11 +329,17 @@ def test_alert(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
-    from app.services.health_alert_service import log_and_alert
-    log_and_alert(
+    from app.services.health_alert_service import log_event, _dispatch_alert_force
+    event_id = log_event(
         event_type="TEST",
         severity="INFO",
         message="Teste de alerta enviado manualmente",
         detail=f"Disparado por {current_user.nome} ({current_user.email})",
     )
-    return {"status": "ok", "message": "Alerta de teste enviado"}
+    import threading as _threading
+    _threading.Thread(
+        target=_dispatch_alert_force,
+        args=("TEST", "INFO", "Teste de alerta enviado manualmente", f"Disparado por {current_user.nome} ({current_user.email})"),
+        daemon=True,
+    ).start()
+    return {"status": "ok", "message": "Alerta de teste enviado (ignora filtro de severidade)"}
