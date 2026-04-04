@@ -1,6 +1,10 @@
+import json
 from datetime import datetime, date
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import desc
+from typing import Optional, List
 from ...core.database import get_db
 from ...core.security import require_permission
 from ...models.user import Usuario
@@ -170,3 +174,142 @@ def get_snapshot_status(
             "total_grupos": grupos_curva,
         }
     }
+
+
+@router.get("/health-events")
+def get_health_events(
+    severity: Optional[str] = Query(default=None),
+    event_type: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, le=500),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from ...models.system_health import SystemHealthEvent
+    query = db.query(SystemHealthEvent).order_by(desc(SystemHealthEvent.created_at))
+    if severity:
+        query = query.filter(SystemHealthEvent.severity == severity.upper())
+    if event_type:
+        query = query.filter(SystemHealthEvent.event_type == event_type.upper())
+    events = query.limit(limit).all()
+    return {
+        "events": [e.to_dict() for e in events],
+        "total": len(events),
+    }
+
+
+@router.get("/health-events/summary")
+def get_health_summary(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from sqlalchemy import func
+    from datetime import timedelta
+    from ...models.system_health import SystemHealthEvent
+
+    now = datetime.utcnow()
+    last_24h = now - timedelta(hours=24)
+    last_event = (
+        db.query(SystemHealthEvent)
+        .order_by(desc(SystemHealthEvent.created_at))
+        .first()
+    )
+    critical_24h = (
+        db.query(func.count(SystemHealthEvent.id))
+        .filter(SystemHealthEvent.severity == "CRITICAL", SystemHealthEvent.created_at >= last_24h)
+        .scalar()
+    ) or 0
+    high_24h = (
+        db.query(func.count(SystemHealthEvent.id))
+        .filter(SystemHealthEvent.severity == "HIGH", SystemHealthEvent.created_at >= last_24h)
+        .scalar()
+    ) or 0
+    total_24h = (
+        db.query(func.count(SystemHealthEvent.id))
+        .filter(SystemHealthEvent.created_at >= last_24h)
+        .scalar()
+    ) or 0
+
+    if critical_24h > 0:
+        status = "critical"
+    elif high_24h > 0:
+        status = "warning"
+    elif total_24h > 0:
+        status = "info"
+    else:
+        status = "healthy"
+
+    return {
+        "status": status,
+        "critical_24h": critical_24h,
+        "high_24h": high_24h,
+        "total_24h": total_24h,
+        "last_event": last_event.to_dict() if last_event else None,
+    }
+
+
+class AlertConfigRequest(BaseModel):
+    email_enabled: bool = False
+    email_recipients: Optional[str] = None
+    email_from: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    slack_enabled: bool = False
+    slack_webhook_url: Optional[str] = None
+    min_severity: str = "HIGH"
+
+
+@router.get("/alert-config")
+def get_alert_config(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from ...models.system_health import SystemAlertConfig
+    cfg = db.query(SystemAlertConfig).filter(SystemAlertConfig.id == 1).first()
+    if not cfg:
+        return SystemAlertConfig(id=1).to_dict()
+    return cfg.to_dict()
+
+
+@router.put("/alert-config")
+def update_alert_config(
+    payload: AlertConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from ...models.system_health import SystemAlertConfig
+    cfg = db.query(SystemAlertConfig).filter(SystemAlertConfig.id == 1).first()
+    if not cfg:
+        cfg = SystemAlertConfig(id=1)
+        db.add(cfg)
+
+    cfg.email_enabled = payload.email_enabled
+    cfg.email_recipients = payload.email_recipients
+    cfg.email_from = payload.email_from
+    cfg.smtp_host = payload.smtp_host
+    cfg.smtp_port = payload.smtp_port or 587
+    cfg.smtp_user = payload.smtp_user
+    if payload.smtp_password and payload.smtp_password != "***":
+        cfg.smtp_password = payload.smtp_password
+    cfg.slack_enabled = payload.slack_enabled
+    cfg.slack_webhook_url = payload.slack_webhook_url
+    cfg.min_severity = payload.min_severity
+
+    db.commit()
+    return {"status": "ok", "message": "Configuração salva com sucesso"}
+
+
+@router.post("/alert-config/test")
+def test_alert(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from app.services.health_alert_service import log_and_alert
+    log_and_alert(
+        event_type="TEST",
+        severity="INFO",
+        message="Teste de alerta enviado manualmente",
+        detail=f"Disparado por {current_user.nome} ({current_user.email})",
+    )
+    return {"status": "ok", "message": "Alerta de teste enviado"}

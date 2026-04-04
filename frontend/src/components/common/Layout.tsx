@@ -27,7 +27,8 @@ import {
   Plane,
   Monitor,
   BookOpen,
-  Layers
+  Layers,
+  Shield
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -59,6 +60,7 @@ const adminItems = [
   { path: '/admin/perfis-acesso', icon: ShieldCheck, label: 'Perfis de Acesso', modulo: 'admin_perfis_acesso' },
   { path: '/admin/centros-custo', icon: Building2, label: 'Centros de Custo', modulo: 'admin_centros_custo' },
   { path: '/admin/monitoramento', icon: Monitor, label: 'Monitoramento', modulo: 'admin_monitoramento' },
+  { path: '/admin/saude-sistema', icon: Shield, label: 'Saúde do Sistema', modulo: 'admin_monitoramento' },
 ];
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {

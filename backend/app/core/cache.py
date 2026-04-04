@@ -76,6 +76,11 @@ def is_full_refresh_in_progress():
             _warmup_progress["step"] = 0
             _warmup_progress["label"] = ""
             _warmup_progress["started_at"] = None
+        try:
+            from app.services.health_alert_service import log_and_alert as _ha
+            _ha("WARMUP_STUCK", "HIGH", "Atualização de dados travada por mais de 45 minutos", "O flag de refresh foi resetado automaticamente. Verifique os logs do servidor.")
+        except Exception:
+            pass
         return False
     return True
 
@@ -872,8 +877,18 @@ class CacheRefreshScheduler:
             try:
                 self._full_refresh_callback()
                 logger.info("=== DAILY FULL CACHE REFRESH COMPLETED ===")
+                try:
+                    from app.services.health_alert_service import log_event as _le
+                    _le("DAILY_REFRESH_COMPLETED", "INFO", "Refresh diário completo concluído com sucesso (05:00 BRT)", None)
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error(f"Daily full cache refresh error: {e}")
+                try:
+                    from app.services.health_alert_service import log_and_alert as _ha
+                    _ha("DAILY_REFRESH_FAILED", "CRITICAL", "Falha no refresh diário completo dos dados (05:00 BRT)", str(e))
+                except Exception:
+                    pass
         else:
             for callback in self._refresh_callbacks:
                 try:

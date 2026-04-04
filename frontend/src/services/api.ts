@@ -466,6 +466,26 @@ export const adminService = {
     const response = await api.get('/admin/user-activity');
     return response.data;
   },
+  getHealthSummary: async () => {
+    const response = await api.get('/admin/health-events/summary');
+    return response.data;
+  },
+  getHealthEvents: async (params?: { severity?: string; event_type?: string; limit?: number }) => {
+    const response = await api.get('/admin/health-events', { params });
+    return response.data;
+  },
+  getAlertConfig: async () => {
+    const response = await api.get('/admin/alert-config');
+    return response.data;
+  },
+  updateAlertConfig: async (config: object) => {
+    const response = await api.put('/admin/alert-config', config);
+    return response.data;
+  },
+  testAlert: async () => {
+    const response = await api.post('/admin/alert-config/test');
+    return response.data;
+  },
 };
 
 export interface FonteDisponivel {

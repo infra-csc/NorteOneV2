@@ -72,6 +72,11 @@ def _ssh_watchdog():
             continue
         _db_logger.warning("SSH tunnel watchdog: tunnel is DOWN – reconnecting...")
         try:
+            from app.services.health_alert_service import log_and_alert as _health_alert
+            _health_alert("SSH_TUNNEL_DOWN", "CRITICAL", "Túnel SSH para o banco de dados caiu", "O watchdog detectou que o túnel SSH está inativo e tentará reconexão.")
+        except Exception:
+            pass
+        try:
             close_ssh_tunnel()
         except Exception as _ce:
             _db_logger.error(f"SSH watchdog: error closing old tunnel: {_ce}")
@@ -80,8 +85,18 @@ def _ssh_watchdog():
             ok = _reconnect_ssh_tunnel()
             if ok:
                 _db_logger.info("SSH tunnel reconnected")
+                try:
+                    from app.services.health_alert_service import log_event as _log_ev
+                    _log_ev("SSH_TUNNEL_RECONNECTED", "INFO", "Túnel SSH reconectado com sucesso", None)
+                except Exception:
+                    pass
             else:
                 _db_logger.warning("SSH tunnel watchdog: reconnect failed, will retry next cycle")
+                try:
+                    from app.services.health_alert_service import log_and_alert as _health_alert
+                    _health_alert("SSH_TUNNEL_RECONNECT_FAILED", "CRITICAL", "Falha ao reconectar o túnel SSH", "O watchdog tentou reconectar mas falhou. Nova tentativa no próximo ciclo (15s).")
+                except Exception:
+                    pass
         except Exception as _re:
             _db_logger.error(f"SSH watchdog: reconnect error: {_re}")
     _db_logger.info("SSH tunnel watchdog stopped")

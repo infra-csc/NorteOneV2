@@ -35,6 +35,11 @@ def _scheduled_isc_refresh():
         logger.info("Scheduled ISC cache refresh completed successfully")
     except Exception as e:
         logger.error(f"Scheduled ISC cache refresh failed: {e}")
+        try:
+            from app.services.health_alert_service import log_and_alert
+            log_and_alert("ISC_REFRESH_FAILED", "HIGH", f"Falha no refresh automático do ISC", str(e))
+        except Exception:
+            pass
     finally:
         if db:
             db.close()
@@ -50,6 +55,11 @@ def _scheduled_sincronizar_hoje():
         logger.info(f"Scheduled sincronizar_hoje_batch completed: {count} groups synced")
     except Exception as e:
         logger.error(f"Scheduled sincronizar_hoje_batch failed: {e}")
+        try:
+            from app.services.health_alert_service import log_and_alert
+            log_and_alert("SYNC_BATCH_FAILED", "HIGH", f"Falha na sincronização diária de snapshots", str(e))
+        except Exception:
+            pass
     finally:
         if db:
             db.close()
@@ -513,6 +523,11 @@ def _full_cache_warmup():
     except Exception as e:
         logger.error(f"Full cache warmup failed: {e}", exc_info=True)
         set_last_refresh_error(f"Falha na atualização dos dados: {str(e)}")
+        try:
+            from app.services.health_alert_service import log_and_alert
+            log_and_alert("WARMUP_FAILED", "CRITICAL", "Falha crítica no refresh completo dos dados", str(e))
+        except Exception:
+            pass
     finally:
         clear_warmup_daily_cache()
         clear_warmup_metadata_cache()
@@ -691,6 +706,11 @@ def _startup_resync_projetos():
         db.close()
     except Exception as e:
         logger.error(f"Startup resync failed: {e}")
+        try:
+            from app.services.health_alert_service import log_and_alert
+            log_and_alert("STARTUP_RESYNC_FAILED", "HIGH", "Falha no resync de eventos na inicialização", str(e))
+        except Exception:
+            pass
 
 def _sync_id_evento_magento():
     from app.core.database import SessionLocal
@@ -928,6 +948,7 @@ async def lifespan(app: FastAPI):
         # Phase 0: schema setup (idempotent, safe to run after yield)
         try:
             from app.models import nori_insights as _ni_models  # noqa: F401 — ensure table is registered
+            from app.models import system_health as _sh_models  # noqa: F401 — ensure health tables are registered
             if engine:
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()
