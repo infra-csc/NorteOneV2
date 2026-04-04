@@ -91,6 +91,7 @@ const EventDetail: React.FC = () => {
     projeto_id_selecionado: 0
   });
   const [savingAction, setSavingAction] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
@@ -455,11 +456,10 @@ const EventDetail: React.FC = () => {
           'COMUNICACAO': 'Comunicação'
         };
         const tipoLabel = tipoLabels[actionForm.tipo] || actionForm.tipo;
-        alert(`Já existe uma ação de "${tipoLabel}" ativa neste evento.\n\n` +
-          `Ação: ${duplicateCheck.existing_action.descricao}\n` +
-          `Data: ${new Date(duplicateCheck.existing_action.data_acao + 'T00:00:00').toLocaleDateString('pt-BR')}\n` +
-          `Ativa por mais: ${duplicateCheck.existing_action.dias_restantes} dia(s)\n\n` +
-          `Aguarde o término do período de 7 dias para criar uma nova ação do mesmo tipo.`);
+        const dataFormatada = new Date(duplicateCheck.existing_action.data_acao + 'T00:00:00').toLocaleDateString('pt-BR');
+        setActionError(
+          `Já existe uma ação de "${tipoLabel}" ativa (registrada em ${dataFormatada}, válida por mais ${duplicateCheck.existing_action.dias_restantes} dia(s)). Aguarde o término dos 7 dias para criar uma nova ação do mesmo tipo.`
+        );
         setSavingAction(false);
         return;
       }
@@ -474,7 +474,7 @@ const EventDetail: React.FC = () => {
         data_acao: actionForm.data_acao
       });
       
-      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam);
+      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
       const eventWithData = {
         ...response.evento,
         dailySales: response.dailySales?.map(d => ({
@@ -529,7 +529,7 @@ const EventDetail: React.FC = () => {
     if (!id) return;
     try {
       await marketingService.deleteAcaoComercial(parseInt(actionId));
-      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam);
+      const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
       const eventWithData = {
         ...response.evento,
         dailySales: response.dailySales?.map(d => ({
@@ -2660,7 +2660,7 @@ const EventDetail: React.FC = () => {
             Timeline de Ações Comerciais
           </h3>
           <button
-            onClick={() => setShowActionModal(true)}
+            onClick={() => { setShowActionModal(true); setActionError(null); }}
             className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
@@ -2806,13 +2806,20 @@ const EventDetail: React.FC = () => {
                 Adicionar Ação Comercial
               </h3>
               <button
-                onClick={() => setShowActionModal(false)}
+                onClick={() => { setShowActionModal(false); setActionError(null); }}
                 className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             
+            {actionError && (
+              <div className="mb-4 flex items-start gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-sm text-red-700 dark:text-red-300">
+                <span className="shrink-0 mt-0.5">⚠️</span>
+                <span>{actionError}</span>
+              </div>
+            )}
+
             <div className="space-y-4">
               {isConsolidated && projetosVinculados.length > 0 && (
                 <div>
@@ -2836,7 +2843,7 @@ const EventDetail: React.FC = () => {
                 </label>
                 <select
                   value={actionForm.tipo}
-                  onChange={(e) => setActionForm({ ...actionForm, tipo: e.target.value })}
+                  onChange={(e) => { setActionForm({ ...actionForm, tipo: e.target.value }); setActionError(null); }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
                 >
                   {tipoOptions.map(opt => (
@@ -2873,7 +2880,7 @@ const EventDetail: React.FC = () => {
             
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowActionModal(false)}
+                onClick={() => { setShowActionModal(false); setActionError(null); }}
                 className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
                 Cancelar
