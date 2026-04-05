@@ -6528,6 +6528,47 @@ def _curva_comparativa_mensal_fallback(
     }
 
 
+def _fetch_commercial_actions_from_db(db: Session, projeto_ids: list) -> list:
+    """Always reads fresh from DB — never cached. Returns formatted commercial actions list."""
+    if not projeto_ids:
+        return []
+    from ...models.dimensoes import AcaoComercial
+    tipo_map = {
+        'AUMENTO_PRECO': 'price_increase', 'REDUCAO_PRECO': 'price_decrease',
+        'PROMOCAO': 'promotion', 'CAMPANHA': 'campaign', 'COMUNICACAO': 'communication',
+    }
+    acoes = db.query(AcaoComercial).filter(
+        AcaoComercial.projeto_id.in_(projeto_ids)
+    ).order_by(AcaoComercial.data_acao.desc()).all()
+    result = []
+    for a in acoes:
+        impacto = calculate_action_impact(db, a)
+        ip = impacto.get("impacto_percentual")
+        impact_str = (f"+{ip}%" if ip and ip > 0 else f"{ip}%") if ip is not None else None
+        result.append({
+            "id": str(a.id),
+            "type": tipo_map.get(a.tipo, 'communication'),
+            "description": a.descricao,
+            "date": a.data_acao.isoformat() if a.data_acao else None,
+            "impact": impact_str,
+            "vendas_antes": impacto.get("vendas_antes"),
+            "vendas_depois": impacto.get("vendas_depois"),
+            "impacto_percentual": ip,
+            "status_impacto": impacto.get("status", "calculado") if ip is not None else "aguardando_dados",
+            "ponto_corte": a.ponto_corte,
+            "estagio": a.estagio,
+            "snapshot_isc": float(a.snapshot_isc) if a.snapshot_isc is not None else None,
+            "snapshot_isc_state": a.snapshot_isc_state,
+            "snapshot_d_minus": a.snapshot_d_minus,
+            "snapshot_ia730": float(a.snapshot_ia730) if a.snapshot_ia730 is not None else None,
+            "snapshot_rolling14d": float(a.snapshot_rolling14d) if a.snapshot_rolling14d is not None else None,
+            "snapshot_curva_percent": float(a.snapshot_curva_percent) if a.snapshot_curva_percent is not None else None,
+            "snapshot_vendas_acumuladas": a.snapshot_vendas_acumuladas,
+            "snapshot_playbook_letter": a.snapshot_playbook_letter,
+        })
+    return result
+
+
 @router.get("/eventos/{evento_id}")
 def get_marketing_event_by_id(
     evento_id: str,
@@ -6607,6 +6648,14 @@ def get_marketing_event_by_id(
                 # Force cacheTime < systemRefresh so frontend's stale check triggers a silent re-fetch
                 if _needs_recompute:
                     result_hit["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
+                # Always fetch commercial actions fresh (never from cache)
+                _ca_pids = [p["id"] for p in result_hit.get("projetos_vinculados", [])]
+                if not _ca_pids:
+                    try:
+                        _ca_pids = [int(evento_id)]
+                    except (ValueError, TypeError):
+                        pass
+                result_hit["commercialActions"] = _fetch_commercial_actions_from_db(db, _ca_pids)
                 return result_hit
 
         # Concurrent computation guard: if another request is already computing this
@@ -6632,6 +6681,13 @@ def get_marketing_event_by_id(
                 _lfr_str2 = datetime.fromtimestamp(_lfr_ts2, tz=ZoneInfo('America/Sao_Paulo')).isoformat() if _lfr_ts2 else None
                 _res2 = {k: v for k, v in _cached2.items() if k != "__is_completed"}
                 _res2["ultima_atualizacao_completa"] = _lfr_str2
+                _ca_pids2 = [p["id"] for p in _res2.get("projetos_vinculados", [])]
+                if not _ca_pids2:
+                    try:
+                        _ca_pids2 = [int(evento_id)]
+                    except (ValueError, TypeError):
+                        pass
+                _res2["commercialActions"] = _fetch_commercial_actions_from_db(db, _ca_pids2)
                 return _res2
             # Computing thread failed or timed out — fall through to compute ourselves
             with _event_computing_lock:
@@ -7016,7 +7072,7 @@ def get_marketing_event_by_id(
             "status": "success",
             "evento": evento,
             "dailySales": daily_sales,
-            "commercialActions": commercial_actions,
+            # commercialActions intentionally excluded from cache — always fetched fresh per request
             "projetos_vinculados": [{"id": p.id, "nome": p.evento, "sku": p.codigo} for p in projetos],
             "comparacao_anual": comparacao_anual,
             "anos_disponiveis": [a[0] for a in anos_disponiveis],
@@ -7037,6 +7093,7 @@ def get_marketing_event_by_id(
         if _done_evt is not None:
             _done_evt.set()
         response_result = {k: v for k, v in grouped_result.items() if k != "__is_completed"}
+        response_result["commercialActions"] = _fetch_commercial_actions_from_db(db, [p.id for p in projetos])
         return response_result
     
     projeto = _wq_dim_projeto_by_id(db, int(evento_id))
@@ -7273,7 +7330,7 @@ def get_marketing_event_by_id(
         "status": "success",
         "evento": evento,
         "dailySales": daily_sales,
-        "commercialActions": commercial_actions,
+        # commercialActions intentionally excluded from cache — always fetched fresh per request
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
         "avisos": get_isc_warnings(),
         "_cache_version": _DETAIL_CACHE_VERSION
@@ -7286,7 +7343,9 @@ def get_marketing_event_by_id(
         logger.info(f"Standalone event {evento_id} ({projeto_data_evento}) cached permanently (completed event)")
     else:
         event_detail_cache.set(standalone_cache_key, standalone_result)
-    return {k: v for k, v in standalone_result.items() if k != "__is_completed"}
+    sa_result = {k: v for k, v in standalone_result.items() if k != "__is_completed"}
+    sa_result["commercialActions"] = _fetch_commercial_actions_from_db(db, [int(evento_id)])
+    return sa_result
 
 
 @router.post("/eventos/{evento_id}/atualizar-hoje")
@@ -7862,12 +7921,6 @@ def create_acao_comercial(
     db.commit()
     db.refresh(nova_acao)
 
-    try:
-        from ...core.cache import event_detail_cache as _edc
-        _edc.invalidate()
-    except Exception:
-        pass
-
     return {
         "status": "success",
         "message": "Ação comercial criada com sucesso",
@@ -7935,12 +7988,6 @@ def delete_acao_comercial(
     
     db.delete(acao)
     db.commit()
-
-    try:
-        from ...core.cache import event_detail_cache as _edc
-        _edc.invalidate()
-    except Exception:
-        pass
 
     return {
         "status": "success",
