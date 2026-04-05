@@ -2670,12 +2670,12 @@ const EventDetail: React.FC = () => {
         {(() => {
           const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
           const SLOTS = [
-            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70 },
-            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50 },
-            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45 },
-            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35 },
-            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30 },
-            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15 },
+            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, nextCutoff: 50 },
+            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50, nextCutoff: 45 },
+            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45, nextCutoff: 35 },
+            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35, nextCutoff: 30 },
+            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30, nextCutoff: 15 },
+            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15, nextCutoff: 0 },
           ] as const;
           const STAGE_META: Record<string, { label: string; text: string; bg: string; border: string; badge: string; btn: string }> = {
             analitico: {
@@ -2709,9 +2709,11 @@ const EventDetail: React.FC = () => {
               <div className="grid grid-cols-3 gap-2">
                 {SLOTS.map(slot => {
                   const meta = STAGE_META[slot.estagio];
-                  const unlocked = dInscricoes <= slot.cutoffValue;
                   const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
-                  if (!unlocked) {
+                  const isFuture = dInscricoes > slot.cutoffValue;
+                  const isActive = dInscricoes <= slot.cutoffValue && dInscricoes > slot.nextCutoff;
+                  const isMissed = dInscricoes <= slot.nextCutoff && !slotAction;
+                  if (isFuture) {
                     return (
                       <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-50 flex flex-col gap-1">
                         <div className="flex items-center justify-between">
@@ -2720,6 +2722,18 @@ const EventDetail: React.FC = () => {
                         </div>
                         <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
                         <span className="text-[10px] text-gray-300 dark:text-gray-600">faltam {dInscricoes - slot.cutoffValue}d</span>
+                      </div>
+                    );
+                  }
+                  if (isMissed) {
+                    return (
+                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-40 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
+                          <span className="text-[9px] text-gray-400 dark:text-gray-500">—</span>
+                        </div>
+                        <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">janela encerrada</span>
                       </div>
                     );
                   }
