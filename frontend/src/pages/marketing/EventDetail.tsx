@@ -883,9 +883,14 @@ const EventDetail: React.FC = () => {
               </div>
             ) : null}
           </div>
-          <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Categoria</span>
-            <p className="font-medium text-gray-900 dark:text-white">{event.category}</p>
+          <div className="flex flex-col items-end gap-2">
+            <div className="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+              <span className="text-sm text-gray-500 dark:text-gray-400">Categoria</span>
+              <p className="font-medium text-gray-900 dark:text-white">{event.category}</p>
+            </div>
+            <Link to="/marketing/playbook" className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap">
+              Ver Playbook Completo →
+            </Link>
           </div>
         </div>
       </div>
@@ -1739,91 +1744,165 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
-      {event.suggestedAction && (
-        <div className={`rounded-xl p-5 border-2 ${
-          event.iscStatus === 'accelerating'
-            ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
-            : event.iscStatus === 'stable'
-              ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
-              : 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800'
-        }`}>
-          <div className="flex items-start gap-4 mb-4">
-            <div className={`shrink-0 w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black ${
-              event.iscStatus === 'accelerating'
-                ? 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'
-                : event.iscStatus === 'stable'
-                  ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200'
-                  : 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200'
-            }`}>
-              {event.suggestedAction.letter}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2 mb-1">
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Playbook Ativo</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  event.iscStatus === 'accelerating'
-                    ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'
-                    : event.iscStatus === 'stable'
-                      ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'
-                      : 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200'
-                }`}>{event.suggestedAction.stageName}</span>
-                <span className="text-xs text-gray-400 dark:text-gray-500">{event.suggestedAction.iscLabel}</span>
-              </div>
-              <p className={`font-bold text-base ${
-                event.iscStatus === 'accelerating'
-                  ? 'text-green-800 dark:text-green-200'
-                  : event.iscStatus === 'stable'
-                    ? 'text-amber-800 dark:text-amber-200'
-                    : 'text-red-800 dark:text-red-200'
-              }`}>{event.suggestedAction.name}</p>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 italic">{event.suggestedAction.narrative}</p>
-            </div>
-            <Link to="/marketing/playbook" className="shrink-0 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline whitespace-nowrap">
-              Ver Playbook Completo →
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="sm:col-span-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Ações Operacionais</p>
-              <ul className="space-y-1.5">
-                {(event.suggestedAction.actions ?? []).map((action, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
-                    <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
-                      event.iscStatus === 'accelerating' ? 'bg-green-500' : event.iscStatus === 'stable' ? 'bg-amber-400' : 'bg-red-500'
-                    }`} />
-                    {action}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">KPIs (48–72h)</p>
-                {(event.suggestedAction.kpis ?? []).map((kpi, i) => (
-                  <div key={i} className="text-sm text-gray-700 dark:text-gray-300 bg-white/60 dark:bg-black/20 rounded-lg px-3 py-1.5 font-medium">
-                    {kpi}
-                  </div>
-                ))}
-              </div>
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Pontos de Corte</p>
-                <div className="flex gap-2 flex-wrap">
-                  {(event.suggestedAction.cutoffs ?? []).map((c, i) => (
-                    <span key={i} className={`text-sm font-bold px-3 py-1 rounded-lg ${
-                      event.iscStatus === 'accelerating'
-                        ? 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-200'
-                        : event.iscStatus === 'stable'
-                          ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'
-                          : 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-200'
-                    }`}>{c}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Comerciais</h3>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">D-Insc atual: {event.dMinusInscricoes ?? event.dMinus ?? '—'}</span>
         </div>
-      )}
+        {(() => {
+          const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
+          const SLOTS = [
+            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, nextCutoff: 50 },
+            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50, nextCutoff: 45 },
+            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45, nextCutoff: 35 },
+            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35, nextCutoff: 30 },
+            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30, nextCutoff: 15 },
+            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15, nextCutoff: 0 },
+          ] as const;
+          const STAGE_META: Record<string, { label: string; text: string; bg: string; border: string; badge: string; btn: string }> = {
+            analitico: {
+              label: 'Analítico',
+              text: 'text-indigo-700 dark:text-indigo-300',
+              bg: 'bg-indigo-50 dark:bg-indigo-950/30',
+              border: 'border-indigo-200 dark:border-indigo-800',
+              badge: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200',
+              btn: 'bg-indigo-600 hover:bg-indigo-700 text-white',
+            },
+            estrategico: {
+              label: 'Estratégico',
+              text: 'text-amber-700 dark:text-amber-300',
+              bg: 'bg-amber-50 dark:bg-amber-950/30',
+              border: 'border-amber-200 dark:border-amber-800',
+              badge: 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200',
+              btn: 'bg-amber-500 hover:bg-amber-600 text-white',
+            },
+            operacional: {
+              label: 'Operacional',
+              text: 'text-rose-700 dark:text-rose-300',
+              bg: 'bg-rose-50 dark:bg-rose-950/30',
+              border: 'border-rose-200 dark:border-rose-800',
+              badge: 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200',
+              btn: 'bg-rose-600 hover:bg-rose-700 text-white',
+            },
+          };
+          const legacyActions = (event.commercialActions ?? []).filter(a => !a.ponto_corte || !a.estagio);
+          return (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {SLOTS.map(slot => {
+                  const meta = STAGE_META[slot.estagio];
+                  const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
+                  const isFuture = dInscricoes > slot.cutoffValue;
+                  const isActive = dInscricoes === slot.cutoffValue;
+                  const isMissed = dInscricoes < slot.cutoffValue && !slotAction;
+                  if (isFuture) {
+                    return (
+                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-50 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
+                          <span className="text-[9px] text-gray-300 dark:text-gray-600">🔒</span>
+                        </div>
+                        <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
+                        <span className="text-[10px] text-gray-300 dark:text-gray-600">faltam {dInscricoes - slot.cutoffValue}d</span>
+                      </div>
+                    );
+                  }
+                  if (isMissed) {
+                    return (
+                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-40 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
+                          <span className="text-[9px] text-gray-400 dark:text-gray-500">—</span>
+                        </div>
+                        <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">janela encerrada</span>
+                      </div>
+                    );
+                  }
+                  if (slotAction) {
+                    return (
+                      <div key={slot.ponto_corte} className={`rounded-xl border-2 ${meta.border} ${meta.bg} p-3 flex flex-col gap-1.5`}>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
+                          <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
+                          {slotAction.snapshot_isc != null && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badge}`}>ISC {slotAction.snapshot_isc.toFixed(2)}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug line-clamp-2">{slotAction.description}</p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {slotAction.snapshot_d_minus != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">D-<span className="font-bold ml-0.5">{slotAction.snapshot_d_minus}</span></span>
+                          )}
+                          {slotAction.snapshot_ia730 != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">IA730 <span className="font-bold ml-0.5">{slotAction.snapshot_ia730.toFixed(2)}</span></span>
+                          )}
+                          {slotAction.snapshot_rolling14d != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">14d <span className="font-bold ml-0.5">{slotAction.snapshot_rolling14d.toFixed(2)}</span></span>
+                          )}
+                          {slotAction.snapshot_curva_percent != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Curva <span className="font-bold ml-0.5">{(slotAction.snapshot_curva_percent * 100).toFixed(0)}%</span></span>
+                          )}
+                          {slotAction.snapshot_vendas_acumuladas != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Vnd <span className="font-bold ml-0.5">{slotAction.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span></span>
+                          )}
+                          {slotAction.snapshot_playbook_letter && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 text-[10px] font-bold text-blue-700 dark:text-blue-300">{slotAction.snapshot_playbook_letter}</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 mt-auto">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={slot.ponto_corte} className={`rounded-xl border-2 border-dashed ${meta.border} p-3 flex flex-col gap-1.5`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
+                        <span className="text-[9px] text-yellow-500">●</span>
+                      </div>
+                      <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
+                      <button
+                        onClick={() => {
+                          setActionForm(f => ({ ...f, forced_ponto_corte: slot.ponto_corte, forced_estagio: slot.estagio }));
+                          setShowActionModal(true);
+                          setActionError(null);
+                        }}
+                        className={`mt-auto w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${meta.btn}`}
+                      >
+                        <Plus className="w-3 h-3" />
+                        Registrar
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              {legacyActions.length > 0 && (
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">Histórico</p>
+                  <div className="space-y-1.5">
+                    {legacyActions.map(action => (
+                      <div key={action.id} className="flex items-center justify-between gap-2 py-1">
+                        <p className="text-xs text-gray-700 dark:text-gray-300 leading-snug truncate">{action.description}</p>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-[10px] text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                          <button onClick={() => handleDeleteAction(action.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
 
       <div>
         {isConsolidated && cumulativeData.length > 0 ? (
@@ -2657,166 +2736,6 @@ const EventDetail: React.FC = () => {
                   ))}
                 </tbody>
               </table>
-            </div>
-          );
-        })()}
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Comerciais</h3>
-          <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">D-Insc atual: {event.dMinusInscricoes ?? event.dMinus ?? '—'}</span>
-        </div>
-        {(() => {
-          const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
-          const SLOTS = [
-            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, nextCutoff: 50 },
-            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50, nextCutoff: 45 },
-            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45, nextCutoff: 35 },
-            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35, nextCutoff: 30 },
-            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30, nextCutoff: 15 },
-            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15, nextCutoff: 0 },
-          ] as const;
-          const STAGE_META: Record<string, { label: string; text: string; bg: string; border: string; badge: string; btn: string }> = {
-            analitico: {
-              label: 'Analítico',
-              text: 'text-indigo-700 dark:text-indigo-300',
-              bg: 'bg-indigo-50 dark:bg-indigo-950/30',
-              border: 'border-indigo-200 dark:border-indigo-800',
-              badge: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200',
-              btn: 'bg-indigo-600 hover:bg-indigo-700 text-white',
-            },
-            estrategico: {
-              label: 'Estratégico',
-              text: 'text-amber-700 dark:text-amber-300',
-              bg: 'bg-amber-50 dark:bg-amber-950/30',
-              border: 'border-amber-200 dark:border-amber-800',
-              badge: 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200',
-              btn: 'bg-amber-500 hover:bg-amber-600 text-white',
-            },
-            operacional: {
-              label: 'Operacional',
-              text: 'text-rose-700 dark:text-rose-300',
-              bg: 'bg-rose-50 dark:bg-rose-950/30',
-              border: 'border-rose-200 dark:border-rose-800',
-              badge: 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200',
-              btn: 'bg-rose-600 hover:bg-rose-700 text-white',
-            },
-          };
-          const legacyActions = (event.commercialActions ?? []).filter(a => !a.ponto_corte || !a.estagio);
-          return (
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-2">
-                {SLOTS.map(slot => {
-                  const meta = STAGE_META[slot.estagio];
-                  const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
-                  const isFuture = dInscricoes > slot.cutoffValue;
-                  const isActive = dInscricoes === slot.cutoffValue;
-                  const isMissed = dInscricoes < slot.cutoffValue && !slotAction;
-                  if (isFuture) {
-                    return (
-                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-50 flex flex-col gap-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
-                          <span className="text-[9px] text-gray-300 dark:text-gray-600">🔒</span>
-                        </div>
-                        <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
-                        <span className="text-[10px] text-gray-300 dark:text-gray-600">faltam {dInscricoes - slot.cutoffValue}d</span>
-                      </div>
-                    );
-                  }
-                  if (isMissed) {
-                    return (
-                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-40 flex flex-col gap-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
-                          <span className="text-[9px] text-gray-400 dark:text-gray-500">—</span>
-                        </div>
-                        <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500">janela encerrada</span>
-                      </div>
-                    );
-                  }
-                  if (slotAction) {
-                    return (
-                      <div key={slot.ponto_corte} className={`rounded-xl border-2 ${meta.border} ${meta.bg} p-3 flex flex-col gap-1.5`}>
-                        <div className="flex items-center justify-between">
-                          <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
-                          <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
-                          {slotAction.snapshot_isc != null && (
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badge}`}>ISC {slotAction.snapshot_isc.toFixed(2)}</span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug line-clamp-2">{slotAction.description}</p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {slotAction.snapshot_d_minus != null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">D-<span className="font-bold ml-0.5">{slotAction.snapshot_d_minus}</span></span>
-                          )}
-                          {slotAction.snapshot_ia730 != null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">IA730 <span className="font-bold ml-0.5">{slotAction.snapshot_ia730.toFixed(2)}</span></span>
-                          )}
-                          {slotAction.snapshot_rolling14d != null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">14d <span className="font-bold ml-0.5">{slotAction.snapshot_rolling14d.toFixed(2)}</span></span>
-                          )}
-                          {slotAction.snapshot_curva_percent != null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Curva <span className="font-bold ml-0.5">{(slotAction.snapshot_curva_percent * 100).toFixed(0)}%</span></span>
-                          )}
-                          {slotAction.snapshot_vendas_acumuladas != null && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Vnd <span className="font-bold ml-0.5">{slotAction.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span></span>
-                          )}
-                          {slotAction.snapshot_playbook_letter && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 text-[10px] font-bold text-blue-700 dark:text-blue-300">{slotAction.snapshot_playbook_letter}</span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 mt-auto">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={slot.ponto_corte} className={`rounded-xl border-2 border-dashed ${meta.border} p-3 flex flex-col gap-1.5`}>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
-                        <span className="text-[9px] text-yellow-500">●</span>
-                      </div>
-                      <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
-                      <button
-                        onClick={() => {
-                          setActionForm(f => ({ ...f, forced_ponto_corte: slot.ponto_corte, forced_estagio: slot.estagio }));
-                          setShowActionModal(true);
-                          setActionError(null);
-                        }}
-                        className={`mt-auto w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${meta.btn}`}
-                      >
-                        <Plus className="w-3 h-3" />
-                        Registrar
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              {legacyActions.length > 0 && (
-                <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">Histórico</p>
-                  <div className="space-y-1.5">
-                    {legacyActions.map(action => (
-                      <div key={action.id} className="flex items-center justify-between gap-2 py-1">
-                        <p className="text-xs text-gray-700 dark:text-gray-300 leading-snug truncate">{action.description}</p>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="text-[10px] text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                          <button onClick={() => handleDeleteAction(action.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           );
         })()}
