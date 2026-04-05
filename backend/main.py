@@ -864,6 +864,10 @@ def _run_column_migrations():
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_ia730 NUMERIC(6,4)",
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_rolling14d NUMERIC(6,4)",
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_curva_percent NUMERIC(6,4)",
+            # widen snapshot ratio columns from NUMERIC(6,4) to FLOAT (values can exceed 99.9999)
+            "ALTER TABLE acoes_comerciais ALTER COLUMN snapshot_ia730 TYPE DOUBLE PRECISION USING snapshot_ia730::double precision",
+            "ALTER TABLE acoes_comerciais ALTER COLUMN snapshot_rolling14d TYPE DOUBLE PRECISION USING snapshot_rolling14d::double precision",
+            "ALTER TABLE acoes_comerciais ALTER COLUMN snapshot_curva_percent TYPE DOUBLE PRECISION USING snapshot_curva_percent::double precision",
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_vendas_acumuladas INTEGER",
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_playbook_letter VARCHAR(5)",
             # nori_insights table (idempotent — create_all handles new installs; this covers existing DBs)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Text, CheckConstraint, JSON
+from sqlalchemy import Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Numeric, Float, Text, CheckConstraint, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..core.database import Base
@@ -82,9 +82,9 @@ class AcaoComercial(Base):
     snapshot_isc = Column(Numeric(6, 4))
     snapshot_isc_state = Column(String(10))
     snapshot_d_minus = Column(Integer)
-    snapshot_ia730 = Column(Numeric(6, 4))
-    snapshot_rolling14d = Column(Numeric(6, 4))
-    snapshot_curva_percent = Column(Numeric(6, 4))
+    snapshot_ia730 = Column(Float)
+    snapshot_rolling14d = Column(Float)
+    snapshot_curva_percent = Column(Float)
     snapshot_vendas_acumuladas = Column(Integer)
     snapshot_playbook_letter = Column(String(5))
     created_at = Column(DateTime, default=func.now())

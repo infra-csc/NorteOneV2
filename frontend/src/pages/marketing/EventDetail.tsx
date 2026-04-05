@@ -2732,14 +2732,34 @@ const EventDetail: React.FC = () => {
                             <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
-                        <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
-                        <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug line-clamp-2">{slotAction.description}</p>
-                        <div className="flex items-center justify-between mt-auto pt-1">
-                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
                           {slotAction.snapshot_isc != null && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badge}`}>ISC {slotAction.snapshot_isc.toFixed(2)}</span>
                           )}
                         </div>
+                        <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug line-clamp-2">{slotAction.description}</p>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {slotAction.snapshot_d_minus != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">D-<span className="font-bold ml-0.5">{slotAction.snapshot_d_minus}</span></span>
+                          )}
+                          {slotAction.snapshot_ia730 != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">IA730 <span className="font-bold ml-0.5">{slotAction.snapshot_ia730.toFixed(2)}</span></span>
+                          )}
+                          {slotAction.snapshot_rolling14d != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">14d <span className="font-bold ml-0.5">{slotAction.snapshot_rolling14d.toFixed(2)}</span></span>
+                          )}
+                          {slotAction.snapshot_curva_percent != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Curva <span className="font-bold ml-0.5">{(slotAction.snapshot_curva_percent * 100).toFixed(0)}%</span></span>
+                          )}
+                          {slotAction.snapshot_vendas_acumuladas != null && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Vnd <span className="font-bold ml-0.5">{slotAction.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span></span>
+                          )}
+                          {slotAction.snapshot_playbook_letter && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 text-[10px] font-bold text-blue-700 dark:text-blue-300">{slotAction.snapshot_playbook_letter}</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 mt-auto">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
                       </div>
                     );
                   }
