@@ -94,10 +94,15 @@ const EventDetail: React.FC = () => {
   const [showReceitaOrcada, setShowReceitaOrcada] = useState(false);
   const [showReceitaRealizada, setShowReceitaRealizada] = useState(false);
   const [showDetalheVendas, setShowDetalheVendas] = useState(false);
+  const getTodayLocalDate = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
   const [actionForm, setActionForm] = useState({
     tipo: 'PROMOCAO',
     descricao: '',
-    data_acao: new Date().toISOString().split('T')[0],
+    data_acao: getTodayLocalDate(),
     projeto_id_selecionado: 0,
     forced_ponto_corte: '',
     forced_estagio: '',
@@ -542,7 +547,7 @@ const EventDetail: React.FC = () => {
       setActionForm({
         tipo: 'PROMOCAO',
         descricao: '',
-        data_acao: new Date().toISOString().split('T')[0],
+        data_acao: getTodayLocalDate(),
         projeto_id_selecionado: 0,
         forced_ponto_corte: '',
         forced_estagio: '',
@@ -2657,197 +2662,121 @@ const EventDetail: React.FC = () => {
         })()}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="mb-5">
-          <h3 className="font-semibold text-gray-900 dark:text-white">Plano de Ações Comerciais</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Cada ponto de corte é liberado automaticamente quando o D-Inscrição chega ao valor correspondente</p>
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Comerciais</h3>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">D-Insc atual: {event.dMinusInscricoes ?? event.dMinus ?? '—'}</span>
         </div>
         {(() => {
           const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
-          const cutoffSlots = [
-            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, stageLabel: 'Analítico' },
-            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50, stageLabel: 'Analítico' },
-            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45, stageLabel: 'Estratégico' },
-            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35, stageLabel: 'Estratégico' },
-            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30, stageLabel: 'Operacional' },
-            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15, stageLabel: 'Operacional' },
+          const SLOTS = [
+            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70 },
+            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50 },
+            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45 },
+            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35 },
+            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30 },
+            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15 },
           ] as const;
-          const stageGroups = [
-            {
-              key: 'analitico',
+          const STAGE_META: Record<string, { label: string; text: string; bg: string; border: string; badge: string; btn: string }> = {
+            analitico: {
               label: 'Analítico',
-              color: 'text-blue-700 dark:text-blue-300',
-              borderColor: 'border-blue-300 dark:border-blue-600',
-              bgHeader: 'bg-blue-50 dark:bg-blue-900/20',
-              cardBorder: 'border-blue-200 dark:border-blue-700',
-              activeBg: 'bg-blue-50 dark:bg-blue-900/10',
-              slots: cutoffSlots.filter(s => s.estagio === 'analitico'),
+              text: 'text-indigo-700 dark:text-indigo-300',
+              bg: 'bg-indigo-50 dark:bg-indigo-950/30',
+              border: 'border-indigo-200 dark:border-indigo-800',
+              badge: 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200',
+              btn: 'bg-indigo-600 hover:bg-indigo-700 text-white',
             },
-            {
-              key: 'estrategico',
+            estrategico: {
               label: 'Estratégico',
-              color: 'text-purple-700 dark:text-purple-300',
-              borderColor: 'border-purple-300 dark:border-purple-600',
-              bgHeader: 'bg-purple-50 dark:bg-purple-900/20',
-              cardBorder: 'border-purple-200 dark:border-purple-700',
-              activeBg: 'bg-purple-50 dark:bg-purple-900/10',
-              slots: cutoffSlots.filter(s => s.estagio === 'estrategico'),
+              text: 'text-amber-700 dark:text-amber-300',
+              bg: 'bg-amber-50 dark:bg-amber-950/30',
+              border: 'border-amber-200 dark:border-amber-800',
+              badge: 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200',
+              btn: 'bg-amber-500 hover:bg-amber-600 text-white',
             },
-            {
-              key: 'operacional',
+            operacional: {
               label: 'Operacional',
-              color: 'text-orange-700 dark:text-orange-300',
-              borderColor: 'border-orange-300 dark:border-orange-600',
-              bgHeader: 'bg-orange-50 dark:bg-orange-900/20',
-              cardBorder: 'border-orange-200 dark:border-orange-700',
-              activeBg: 'bg-orange-50 dark:bg-orange-900/10',
-              slots: cutoffSlots.filter(s => s.estagio === 'operacional'),
+              text: 'text-rose-700 dark:text-rose-300',
+              bg: 'bg-rose-50 dark:bg-rose-950/30',
+              border: 'border-rose-200 dark:border-rose-800',
+              badge: 'bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200',
+              btn: 'bg-rose-600 hover:bg-rose-700 text-white',
             },
-          ];
+          };
           const legacyActions = (event.commercialActions ?? []).filter(a => !a.ponto_corte || !a.estagio);
-          const renderSnapshotPills = (action: CommercialAction) => (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {action.snapshot_isc != null && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                  ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc.toFixed(2)}</span>
-                </span>
-              )}
-              {action.snapshot_d_minus != null && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                  D-<span className="font-bold">{action.snapshot_d_minus}</span>
-                </span>
-              )}
-              {action.snapshot_ia730 != null && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                  IA730 <span className="font-bold">{(action.snapshot_ia730 * 100).toFixed(0)}%</span>
-                </span>
-              )}
-              {action.snapshot_rolling14d != null && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                  14d <span className="font-bold">{(action.snapshot_rolling14d * 100).toFixed(0)}%</span>
-                </span>
-              )}
-              {action.snapshot_curva_percent != null && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                  Curva <span className="font-bold">{(action.snapshot_curva_percent * 100).toFixed(0)}%</span>
-                </span>
-              )}
-              {action.snapshot_vendas_acumuladas != null && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
-                  <span className="opacity-70">Vendas</span> <span className="font-bold">{action.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span>
-                </span>
-              )}
-              {action.snapshot_playbook_letter && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-xs font-bold text-blue-700 dark:text-blue-300">
-                  {action.snapshot_playbook_letter}
-                </span>
-              )}
-            </div>
-          );
           return (
-            <div className="space-y-6">
-              {stageGroups.map(stage => (
-                <div key={stage.key}>
-                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg mb-3 ${stage.bgHeader}`}>
-                    <span className={`text-xs font-bold uppercase tracking-widest ${stage.color}`}>{stage.label}</span>
-                    <div className="flex gap-1 ml-1">
-                      {stage.slots.map(s => (
-                        <span key={s.ponto_corte} className="text-[10px] px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 text-gray-500 dark:text-gray-400 font-mono border border-gray-200 dark:border-gray-600">{s.ponto_corte}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {stage.slots.map(slot => {
-                      const unlocked = dInscricoes <= slot.cutoffValue;
-                      const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
-                      const registered = !!slotAction;
-                      if (!unlocked) {
-                        return (
-                          <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4 opacity-60">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-bold font-mono text-gray-400 dark:text-gray-500">{slot.ponto_corte}</span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-[10px] font-medium text-gray-500 dark:text-gray-400">
-                                🔒 Bloqueado
-                              </span>
-                            </div>
-                            <p className="text-xs text-gray-400 dark:text-gray-500">
-                              Disponível quando D-Inscrição atingir {slot.ponto_corte}
-                            </p>
-                            <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-1">
-                              D-Inscrição atual: D-{dInscricoes} (faltam {dInscricoes - slot.cutoffValue} dias)
-                            </p>
-                          </div>
-                        );
-                      }
-                      if (registered && slotAction) {
-                        return (
-                          <div key={slot.ponto_corte} className={`rounded-xl border ${stage.cardBorder} ${stage.activeBg} p-4`}>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className={`text-sm font-bold font-mono ${stage.color}`}>{slot.ponto_corte}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-[10px] font-medium text-green-700 dark:text-green-400">
-                                  ✓ Registrado
-                                </span>
-                                <button onClick={() => handleDeleteAction(slotAction.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Excluir ação">
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white leading-snug">{slotAction.description}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
-                            {renderSnapshotPills(slotAction)}
-                          </div>
-                        );
-                      }
-                      return (
-                        <div key={slot.ponto_corte} className={`rounded-xl border-2 border-dashed ${stage.cardBorder} p-4`}>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className={`text-sm font-bold font-mono ${stage.color}`}>{slot.ponto_corte}</span>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-[10px] font-medium text-yellow-700 dark:text-yellow-400">
-                              ● Disponível
-                            </span>
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Registre a ação tomada neste ponto de corte</p>
-                          <button
-                            onClick={() => {
-                              setActionForm(f => ({ ...f, forced_ponto_corte: slot.ponto_corte, forced_estagio: slot.estagio }));
-                              setShowActionModal(true);
-                              setActionError(null);
-                            }}
-                            className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-                              stage.key === 'analitico' ? 'bg-blue-600 hover:bg-blue-700 text-white' :
-                              stage.key === 'estrategico' ? 'bg-purple-600 hover:bg-purple-700 text-white' :
-                              'bg-orange-600 hover:bg-orange-700 text-white'
-                            }`}
-                          >
-                            <Plus className="w-4 h-4" />
-                            Registrar Ação
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {SLOTS.map(slot => {
+                  const meta = STAGE_META[slot.estagio];
+                  const unlocked = dInscricoes <= slot.cutoffValue;
+                  const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
+                  if (!unlocked) {
+                    return (
+                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-50 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
+                          <span className="text-[9px] text-gray-300 dark:text-gray-600">🔒</span>
+                        </div>
+                        <span className="text-lg font-black font-mono text-gray-300 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
+                        <span className="text-[10px] text-gray-300 dark:text-gray-600">faltam {dInscricoes - slot.cutoffValue}d</span>
+                      </div>
+                    );
+                  }
+                  if (slotAction) {
+                    return (
+                      <div key={slot.ponto_corte} className={`rounded-xl border-2 ${meta.border} ${meta.bg} p-3 flex flex-col gap-1.5`}>
+                        <div className="flex items-center justify-between">
+                          <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
+                          <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
+                            <Trash2 className="w-3 h-3" />
                           </button>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                        <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
+                        <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug line-clamp-2">{slotAction.description}</p>
+                        <div className="flex items-center justify-between mt-auto pt-1">
+                          <span className="text-[10px] text-gray-400 dark:text-gray-500">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                          {slotAction.snapshot_isc != null && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badge}`}>ISC {slotAction.snapshot_isc.toFixed(2)}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={slot.ponto_corte} className={`rounded-xl border-2 border-dashed ${meta.border} p-3 flex flex-col gap-1.5`}>
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
+                        <span className="text-[9px] text-yellow-500">●</span>
+                      </div>
+                      <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
+                      <button
+                        onClick={() => {
+                          setActionForm(f => ({ ...f, forced_ponto_corte: slot.ponto_corte, forced_estagio: slot.estagio }));
+                          setShowActionModal(true);
+                          setActionError(null);
+                        }}
+                        className={`mt-auto w-full flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] font-medium rounded-lg transition-colors ${meta.btn}`}
+                      >
+                        <Plus className="w-3 h-3" />
+                        Registrar
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
               {legacyActions.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-3 pb-1.5 border-b border-gray-200 dark:border-gray-600">
-                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Histórico</span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{legacyActions.length} ação{legacyActions.length !== 1 ? 'ões' : ''}</span>
-                  </div>
-                  <div className="space-y-3">
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">Histórico</p>
+                  <div className="space-y-1.5">
                     {legacyActions.map(action => (
-                      <div key={action.id} className="flex gap-3 py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="font-medium text-gray-900 dark:text-white text-sm leading-snug">{action.description}</p>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                              <button onClick={() => handleDeleteAction(action.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Excluir ação">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
+                      <div key={action.id} className="flex items-center justify-between gap-2 py-1">
+                        <p className="text-xs text-gray-700 dark:text-gray-300 leading-snug truncate">{action.description}</p>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="text-[10px] text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                          <button onClick={() => handleDeleteAction(action.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -2905,9 +2834,9 @@ const EventDetail: React.FC = () => {
           : getActionCutoffInfo(dMinus);
         const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional' };
         const stageColor: Record<string, string> = {
-          analitico: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800',
-          estrategico: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800',
-          operacional: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800',
+          analitico: 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
+          estrategico: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+          operacional: 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
         };
         const iscStatusMap: Record<string, string> = { accelerating: 'Forte', stable: 'Estável', decelerating: 'Fraco' };
         const iscColorMap: Record<string, string> = { accelerating: 'text-green-600 dark:text-green-400', stable: 'text-yellow-600 dark:text-yellow-400', decelerating: 'text-red-500 dark:text-red-400' };
