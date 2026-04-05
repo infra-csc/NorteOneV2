@@ -98,7 +98,9 @@ const EventDetail: React.FC = () => {
     tipo: 'PROMOCAO',
     descricao: '',
     data_acao: new Date().toISOString().split('T')[0],
-    projeto_id_selecionado: 0
+    projeto_id_selecionado: 0,
+    forced_ponto_corte: '',
+    forced_estagio: '',
   });
   const [savingAction, setSavingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -480,7 +482,9 @@ const EventDetail: React.FC = () => {
     setSavingAction(true);
     try {
       const dMinus = event?.dMinus ?? 0;
-      const cutoffInfo = getActionCutoffInfo(dMinus);
+      const cutoffInfo = actionForm.forced_ponto_corte && actionForm.forced_estagio
+        ? { ponto_corte: actionForm.forced_ponto_corte, estagio: actionForm.forced_estagio }
+        : getActionCutoffInfo(dMinus);
       const iscStatusMap: Record<string, string> = {
         accelerating: 'forte',
         stable: 'estavel',
@@ -2649,169 +2653,205 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white">
-            Timeline de Ações Comerciais
-          </h3>
-          <button
-            onClick={() => { setShowActionModal(true); setActionError(null); }}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar Ação
-          </button>
+        <div className="mb-5">
+          <h3 className="font-semibold text-gray-900 dark:text-white">Plano de Ações Comerciais</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Cada ponto de corte é liberado automaticamente quando o D-Inscrição chega ao valor correspondente</p>
         </div>
-        {event.commercialActions && event.commercialActions.length > 0 ? (() => {
-          const stageOrder = ['analitico', 'estrategico', 'operacional', null] as const;
-          const stageMeta: Record<string, { label: string; color: string; borderColor: string; cutoffs: string[] }> = {
-            analitico: { label: 'Analítico', color: 'text-blue-700 dark:text-blue-300', borderColor: 'border-blue-300 dark:border-blue-700', cutoffs: ['D-70', 'D-50'] },
-            estrategico: { label: 'Estratégico', color: 'text-purple-700 dark:text-purple-300', borderColor: 'border-purple-300 dark:border-purple-700', cutoffs: ['D-45', 'D-35'] },
-            operacional: { label: 'Operacional', color: 'text-orange-700 dark:text-orange-300', borderColor: 'border-orange-300 dark:border-orange-700', cutoffs: ['D-30', 'D-15'] },
-          };
-          const knownStages = new Set(['analitico', 'estrategico', 'operacional']);
-          const grouped: Record<string, CommercialAction[]> = { analitico: [], estrategico: [], operacional: [], _legacy: [] };
-          for (const a of event.commercialActions!) {
-            const key = a.estagio && knownStages.has(a.estagio) ? a.estagio : '_legacy';
-            grouped[key].push(a);
-          }
-          const renderAction = (action: CommercialAction, isLast: boolean, iscDelta?: number | null) => (
-            <div key={action.id} className="flex gap-3">
-              <div className="flex flex-col items-center pt-1">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  action.type === 'price_increase' ? 'bg-green-100 dark:bg-green-900/30' :
-                  action.type === 'price_decrease' ? 'bg-red-100 dark:bg-red-900/30' :
-                  action.type === 'promotion' ? 'bg-purple-100 dark:bg-purple-900/30' :
-                  action.type === 'campaign' ? 'bg-blue-100 dark:bg-blue-900/30' :
-                  'bg-gray-100 dark:bg-gray-700'
-                }`}>
-                  {action.type === 'price_increase' && <TrendingUp className="w-4 h-4 text-green-600" />}
-                  {action.type === 'price_decrease' && <TrendingDown className="w-4 h-4 text-red-600" />}
-                  {action.type === 'promotion' && <Target className="w-4 h-4 text-purple-600" />}
-                  {action.type === 'campaign' && <Activity className="w-4 h-4 text-blue-600" />}
-                  {action.type === 'communication' && <Clock className="w-4 h-4 text-gray-600" />}
-                </div>
-                {!isLast && <div className="w-0.5 flex-1 bg-gray-200 dark:bg-gray-600 mt-1" />}
-              </div>
-              <div className="flex-1 pb-4">
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <p className="font-medium text-gray-900 dark:text-white text-sm leading-snug">{action.description}</p>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                    <button onClick={() => handleDeleteAction(action.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Excluir ação">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-                {action.snapshot_isc != null && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                      ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc.toFixed(2)}</span>
-                      {iscDelta != null && (
-                        <span className={`text-[10px] font-bold ${iscDelta > 0 ? 'text-green-500' : iscDelta < 0 ? 'text-red-400' : 'text-gray-400'}`}>
-                          {iscDelta > 0 ? '▲' : iscDelta < 0 ? '▼' : '='}{Math.abs(iscDelta).toFixed(2)}
-                        </span>
-                      )}
-                    </span>
-                    {action.snapshot_d_minus != null && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                        D-<span className="font-bold">{action.snapshot_d_minus}</span>
-                      </span>
-                    )}
-                    {action.snapshot_ia730 != null && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                        IA730 <span className="font-bold">{(action.snapshot_ia730 * 100).toFixed(0)}%</span>
-                      </span>
-                    )}
-                    {action.snapshot_rolling14d != null && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                        14d <span className="font-bold">{(action.snapshot_rolling14d * 100).toFixed(0)}%</span>
-                      </span>
-                    )}
-                    {action.snapshot_curva_percent != null && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                        Curva <span className="font-bold">{(action.snapshot_curva_percent * 100).toFixed(0)}%</span>
-                      </span>
-                    )}
-                    {action.snapshot_vendas_acumuladas != null && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                        <span className="opacity-70">Vendas</span> <span className="font-bold">{action.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span>
-                      </span>
-                    )}
-                    {action.snapshot_playbook_letter && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/30 text-xs font-bold text-blue-700 dark:text-blue-300">
-                        {action.snapshot_playbook_letter}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {action.impact ? (
-                  <div className="mt-1.5">
-                    <p className={`text-xs flex items-center gap-1 ${
-                      action.impacto_percentual && action.impacto_percentual > 0
-                        ? 'text-green-600 dark:text-green-400'
-                        : action.impacto_percentual && action.impacto_percentual < 0
-                          ? 'text-red-600 dark:text-red-400'
-                          : 'text-gray-600 dark:text-gray-400'
-                    }`}>
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Impacto: {action.impact}
-                      {action.vendas_antes !== undefined && action.vendas_depois !== undefined && (
-                        <span className="text-gray-400 dark:text-gray-500 font-normal ml-1">({action.vendas_antes} → {action.vendas_depois} vendas)</span>
-                      )}
-                    </p>
-                  </div>
-                ) : action.status_impacto === 'aguardando_dados' ? (
-                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1.5 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    Aguardando dados (7 dias após a ação)
-                  </p>
-                ) : null}
-              </div>
+        {(() => {
+          const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
+          const cutoffSlots = [
+            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, stageLabel: 'Analítico' },
+            { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50, stageLabel: 'Analítico' },
+            { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45, stageLabel: 'Estratégico' },
+            { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35, stageLabel: 'Estratégico' },
+            { ponto_corte: 'D-30', estagio: 'operacional', cutoffValue: 30, stageLabel: 'Operacional' },
+            { ponto_corte: 'D-15', estagio: 'operacional', cutoffValue: 15, stageLabel: 'Operacional' },
+          ] as const;
+          const stageGroups = [
+            {
+              key: 'analitico',
+              label: 'Analítico',
+              color: 'text-blue-700 dark:text-blue-300',
+              borderColor: 'border-blue-300 dark:border-blue-600',
+              bgHeader: 'bg-blue-50 dark:bg-blue-900/20',
+              cardBorder: 'border-blue-200 dark:border-blue-700',
+              activeBg: 'bg-blue-50 dark:bg-blue-900/10',
+              slots: cutoffSlots.filter(s => s.estagio === 'analitico'),
+            },
+            {
+              key: 'estrategico',
+              label: 'Estratégico',
+              color: 'text-purple-700 dark:text-purple-300',
+              borderColor: 'border-purple-300 dark:border-purple-600',
+              bgHeader: 'bg-purple-50 dark:bg-purple-900/20',
+              cardBorder: 'border-purple-200 dark:border-purple-700',
+              activeBg: 'bg-purple-50 dark:bg-purple-900/10',
+              slots: cutoffSlots.filter(s => s.estagio === 'estrategico'),
+            },
+            {
+              key: 'operacional',
+              label: 'Operacional',
+              color: 'text-orange-700 dark:text-orange-300',
+              borderColor: 'border-orange-300 dark:border-orange-600',
+              bgHeader: 'bg-orange-50 dark:bg-orange-900/20',
+              cardBorder: 'border-orange-200 dark:border-orange-700',
+              activeBg: 'bg-orange-50 dark:bg-orange-900/10',
+              slots: cutoffSlots.filter(s => s.estagio === 'operacional'),
+            },
+          ];
+          const legacyActions = (event.commercialActions ?? []).filter(a => !a.ponto_corte || !a.estagio);
+          const renderSnapshotPills = (action: CommercialAction) => (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {action.snapshot_isc != null && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                  ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc.toFixed(2)}</span>
+                </span>
+              )}
+              {action.snapshot_d_minus != null && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                  D-<span className="font-bold">{action.snapshot_d_minus}</span>
+                </span>
+              )}
+              {action.snapshot_ia730 != null && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                  IA730 <span className="font-bold">{(action.snapshot_ia730 * 100).toFixed(0)}%</span>
+                </span>
+              )}
+              {action.snapshot_rolling14d != null && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                  14d <span className="font-bold">{(action.snapshot_rolling14d * 100).toFixed(0)}%</span>
+                </span>
+              )}
+              {action.snapshot_curva_percent != null && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                  Curva <span className="font-bold">{(action.snapshot_curva_percent * 100).toFixed(0)}%</span>
+                </span>
+              )}
+              {action.snapshot_vendas_acumuladas != null && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs text-gray-600 dark:text-gray-300">
+                  <span className="opacity-70">Vendas</span> <span className="font-bold">{action.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span>
+                </span>
+              )}
+              {action.snapshot_playbook_letter && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-xs font-bold text-blue-700 dark:text-blue-300">
+                  {action.snapshot_playbook_letter}
+                </span>
+              )}
             </div>
           );
           return (
             <div className="space-y-6">
-              {(stageOrder.filter(s => s !== null) as string[]).map(stage => {
-                const actions = grouped[stage];
-                if (!actions || actions.length === 0) return null;
-                const meta = stageMeta[stage];
-                const iscDeltas: (number | null)[] = actions.map((a, i) => {
-                  if (i === 0 || a.snapshot_isc === undefined) return null;
-                  const prev = actions[i - 1];
-                  if (prev.snapshot_isc === undefined) return null;
-                  return a.snapshot_isc - prev.snapshot_isc;
-                });
-                return (
-                  <div key={stage}>
-                    <div className={`flex items-center gap-2 mb-3 pb-1.5 border-b ${meta.borderColor}`}>
-                      <span className={`text-xs font-bold uppercase tracking-widest ${meta.color}`}>{meta.label}</span>
-                      <div className="flex gap-1">
-                        {meta.cutoffs.map(c => (
-                          <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 font-mono">{c}</span>
-                        ))}
-                      </div>
-                      <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{actions.length} ação{actions.length !== 1 ? 'ões' : ''}</span>
+              {stageGroups.map(stage => (
+                <div key={stage.key}>
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg mb-3 ${stage.bgHeader}`}>
+                    <span className={`text-xs font-bold uppercase tracking-widest ${stage.color}`}>{stage.label}</span>
+                    <div className="flex gap-1 ml-1">
+                      {stage.slots.map(s => (
+                        <span key={s.ponto_corte} className="text-[10px] px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 text-gray-500 dark:text-gray-400 font-mono border border-gray-200 dark:border-gray-600">{s.ponto_corte}</span>
+                      ))}
                     </div>
-                    <div>{actions.map((a, i) => renderAction(a, i === actions.length - 1, iscDeltas[i]))}</div>
                   </div>
-                );
-              })}
-              {grouped._legacy && grouped._legacy.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {stage.slots.map(slot => {
+                      const unlocked = dInscricoes <= slot.cutoffValue;
+                      const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
+                      const registered = !!slotAction;
+                      if (!unlocked) {
+                        return (
+                          <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4 opacity-60">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-bold font-mono text-gray-400 dark:text-gray-500">{slot.ponto_corte}</span>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-[10px] font-medium text-gray-500 dark:text-gray-400">
+                                🔒 Bloqueado
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                              Disponível quando D-Inscrição atingir {slot.ponto_corte}
+                            </p>
+                            <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-1">
+                              D-Inscrição atual: D-{dInscricoes} (faltam {dInscricoes - slot.cutoffValue} dias)
+                            </p>
+                          </div>
+                        );
+                      }
+                      if (registered && slotAction) {
+                        return (
+                          <div key={slot.ponto_corte} className={`rounded-xl border ${stage.cardBorder} ${stage.activeBg} p-4`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className={`text-sm font-bold font-mono ${stage.color}`}>{slot.ponto_corte}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-[10px] font-medium text-green-700 dark:text-green-400">
+                                  ✓ Registrado
+                                </span>
+                                <button onClick={() => handleDeleteAction(slotAction.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Excluir ação">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white leading-snug">{slotAction.description}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{new Date(slotAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                            {renderSnapshotPills(slotAction)}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={slot.ponto_corte} className={`rounded-xl border-2 border-dashed ${stage.cardBorder} p-4`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className={`text-sm font-bold font-mono ${stage.color}`}>{slot.ponto_corte}</span>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-[10px] font-medium text-yellow-700 dark:text-yellow-400">
+                              ● Disponível
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Registre a ação tomada neste ponto de corte</p>
+                          <button
+                            onClick={() => {
+                              setActionForm(f => ({ ...f, forced_ponto_corte: slot.ponto_corte, forced_estagio: slot.estagio }));
+                              setShowActionModal(true);
+                              setActionError(null);
+                            }}
+                            className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                              stage.key === 'analitico' ? 'bg-blue-600 hover:bg-blue-700 text-white' :
+                              stage.key === 'estrategico' ? 'bg-purple-600 hover:bg-purple-700 text-white' :
+                              'bg-orange-600 hover:bg-orange-700 text-white'
+                            }`}
+                          >
+                            <Plus className="w-4 h-4" />
+                            Registrar Ação
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {legacyActions.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 mb-3 pb-1.5 border-b border-gray-200 dark:border-gray-600">
                     <span className="text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">Histórico</span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{grouped._legacy.length} ação{grouped._legacy.length !== 1 ? 'ões' : ''}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{legacyActions.length} ação{legacyActions.length !== 1 ? 'ões' : ''}</span>
                   </div>
-                  <div>{grouped._legacy.map((a, i) => renderAction(a, i === grouped._legacy.length - 1))}</div>
+                  <div className="space-y-3">
+                    {legacyActions.map(action => (
+                      <div key={action.id} className="flex gap-3 py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                        <div className="flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="font-medium text-gray-900 dark:text-white text-sm leading-snug">{action.description}</p>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(action.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                              <button onClick={() => handleDeleteAction(action.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Excluir ação">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
           );
-        })() : (
-          <p className="text-gray-500 dark:text-gray-400 text-center py-4">
-            Nenhuma ação comercial registrada. Clique em "Adicionar Ação" para registrar uma ação realizada.
-          </p>
-        )}
+        })()}
       </div>
 
       {isConsolidated && projetosVinculados.length > 0 && (
@@ -2854,7 +2894,9 @@ const EventDetail: React.FC = () => {
 
       {showActionModal && (() => {
         const dMinus = event?.dMinus ?? 0;
-        const cutoffInfo = getActionCutoffInfo(dMinus);
+        const cutoffInfo = actionForm.forced_ponto_corte && actionForm.forced_estagio
+          ? { ponto_corte: actionForm.forced_ponto_corte, estagio: actionForm.forced_estagio }
+          : getActionCutoffInfo(dMinus);
         const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional' };
         const stageColor: Record<string, string> = {
           analitico: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800',
@@ -2868,7 +2910,7 @@ const EventDetail: React.FC = () => {
             <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-5 pb-0">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Registrar Ação Comercial</h3>
-                <button onClick={() => { setShowActionModal(false); setActionError(null); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <button onClick={() => { setShowActionModal(false); setActionError(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -2991,7 +3033,7 @@ const EventDetail: React.FC = () => {
 
               <div className="flex gap-3 p-5 pt-0">
                 <button
-                  onClick={() => { setShowActionModal(false); setActionError(null); }}
+                  onClick={() => { setShowActionModal(false); setActionError(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
                 >
                   Cancelar
