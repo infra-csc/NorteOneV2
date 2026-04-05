@@ -448,7 +448,7 @@ const NoriAssistant: React.FC = () => {
                 return (
                   <Link
                     key={alert.id}
-                    to={`/marketing/evento/${alert.id}`}
+                    to={`/marketing/evento/${encodeURIComponent(alert.id)}`}
                     className={`flex flex-col gap-2 p-3 rounded-xl border ${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} hover:brightness-95 dark:hover:brightness-110 transition-all group`}
                   >
                     <div className="flex items-start justify-between gap-2">

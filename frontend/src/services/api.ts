@@ -887,7 +887,7 @@ export const marketingService = {
     if (ano) queryParams.append('ano', ano.toString());
     if (force_refresh) queryParams.append('force_refresh', 'true');
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    const response = await api.get(`/marketing/eventos/${id}${queryString}`, { signal });
+    const response = await api.get(`/marketing/eventos/${encodeURIComponent(id)}${queryString}`, { signal });
     const data = response.data;
     data._isStale = response.headers?.['x-data-stale'] === 'true';
     return data;
@@ -908,7 +908,7 @@ export const marketingService = {
     const queryParams = new URLSearchParams();
     if (ano) queryParams.append('ano', ano.toString());
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-    const response = await api.post(`/marketing/eventos/${id}/atualizar-hoje${queryString}`);
+    const response = await api.post(`/marketing/eventos/${encodeURIComponent(id)}/atualizar-hoje${queryString}`);
     return response.data;
   },
   getAcoesComerciais: async (projetoId: string): Promise<{ status: string; acoes: any[] }> => {
@@ -973,7 +973,7 @@ export const marketingService = {
   }> => {
     const params: any = {};
     if (ano) params.ano = ano;
-    const response = await api.get(`/marketing/curva-comparativa/${eventoId}`, { signal, params });
+    const response = await api.get(`/marketing/curva-comparativa/${encodeURIComponent(eventoId)}`, { signal, params });
     return response.data;
   },
   getSalesAverages: async (eventoId: string, periodo: number = 30, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<{
@@ -990,7 +990,7 @@ export const marketingService = {
     queryParams.append('periodo', periodo.toString());
     if (ano) queryParams.append('ano', ano.toString());
     if (force_refresh) queryParams.append('force_refresh', 'true');
-    const url = `/marketing/eventos/${eventoId}/medias-vendas?${queryParams.toString()}`;
+    const url = `/marketing/eventos/${encodeURIComponent(eventoId)}/medias-vendas?${queryParams.toString()}`;
     const response = await api.get(url, { signal });
     return response.data;
   },
@@ -1004,13 +1004,13 @@ export const marketingService = {
   }> => {
     const params: any = {};
     if (ano) params.ano = ano;
-    const response = await api.get(`/marketing/eventos/${eventoId}/curva-snapshot`, { signal, params });
+    const response = await api.get(`/marketing/eventos/${encodeURIComponent(eventoId)}/curva-snapshot`, { signal, params });
     return response.data;
   },
   getSimulacao: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<any> => {
     const queryParams = new URLSearchParams();
     if (ano) queryParams.append('ano', ano.toString());
-    const url = `/marketing/eventos/${eventoId}/simulacao?${queryParams.toString()}`;
+    const url = `/marketing/eventos/${encodeURIComponent(eventoId)}/simulacao?${queryParams.toString()}`;
     const response = await api.get(url, { signal });
     return response.data;
   },
@@ -1089,7 +1089,7 @@ export const marketingService = {
     const params: any = {};
     if (ano) params.ano = ano;
     if (force_refresh) params.force_refresh = true;
-    const response = await api.get(`/marketing/eventos/${eventoId}/insights`, { signal, params });
+    const response = await api.get(`/marketing/eventos/${encodeURIComponent(eventoId)}/insights`, { signal, params });
     return response.data;
   },
   getSettings: async (key: string): Promise<{ status: string; key: string; value: any }> => {
