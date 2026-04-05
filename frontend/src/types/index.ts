@@ -7,6 +7,7 @@ export interface User {
   is_admin: boolean;
   centro_custo_id?: number;
   ativo: boolean;
+  recebe_alertas_corte?: boolean;
 }
 
 export interface CentroCusto {

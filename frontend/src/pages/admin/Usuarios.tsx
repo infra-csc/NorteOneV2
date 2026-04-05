@@ -26,6 +26,7 @@ interface Usuario {
   is_admin: boolean;
   centro_custo_id: number | null;
   ativo: boolean;
+  recebe_alertas_corte: boolean;
 }
 
 interface UsuarioForm {
@@ -35,6 +36,7 @@ interface UsuarioForm {
   perfil_acesso_id: number | null;
   centro_custo_id: number | null;
   ativo: boolean;
+  recebe_alertas_corte: boolean;
 }
 
 const Usuarios: React.FC = () => {
@@ -57,7 +59,8 @@ const Usuarios: React.FC = () => {
     password: '',
     perfil_acesso_id: null,
     centro_custo_id: null,
-    ativo: true
+    ativo: true,
+    recebe_alertas_corte: false
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,7 +121,8 @@ const Usuarios: React.FC = () => {
       password: '',
       perfil_acesso_id: null,
       centro_custo_id: null,
-      ativo: true
+      ativo: true,
+      recebe_alertas_corte: false
     });
     setFormError(null);
     setShowModal(true);
@@ -132,7 +136,8 @@ const Usuarios: React.FC = () => {
       password: '',
       perfil_acesso_id: user.perfil_acesso_id,
       centro_custo_id: user.centro_custo_id,
-      ativo: user.ativo
+      ativo: user.ativo,
+      recebe_alertas_corte: user.recebe_alertas_corte
     });
     setFormError(null);
     setShowModal(true);
@@ -149,7 +154,8 @@ const Usuarios: React.FC = () => {
           nome: formData.nome,
           perfil_acesso_id: formData.perfil_acesso_id,
           centro_custo_id: formData.centro_custo_id,
-          ativo: formData.ativo
+          ativo: formData.ativo,
+          recebe_alertas_corte: formData.recebe_alertas_corte
         };
         if (formData.password) {
           updateData.password = formData.password;
@@ -607,6 +613,32 @@ const Usuarios: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              <div className={`p-4 rounded-lg border ${isDark ? 'bg-amber-950/20 border-amber-800/40' : 'bg-amber-50 border-amber-200'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className={`block text-sm font-medium ${isDark ? 'text-amber-300' : 'text-amber-900'}`}>
+                      Alertas de Ponto de Corte
+                    </label>
+                    <p className={`text-xs mt-0.5 ${isDark ? 'text-amber-400/70' : 'text-amber-700'}`}>
+                      Exibe no Nori os eventos que estão no D-ponto de corte
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, recebe_alertas_corte: !formData.recebe_alertas_corte })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      formData.recebe_alertas_corte ? 'bg-amber-500' : 'bg-gray-400'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        formData.recebe_alertas_corte ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
 
               <div className={`flex justify-end gap-3 pt-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                 <button

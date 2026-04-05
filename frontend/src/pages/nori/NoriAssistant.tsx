@@ -23,7 +23,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { tarefasService, marketingService, Tarefa, TarefaCreate, CutoffAlert } from '../../services/api';
-import { usePermissions } from '../../context/PermissionContext';
+import { useAuth } from '../../context/AuthContext';
 import NoriChat from '../../components/nori/NoriChat';
 import NoriInsightsPanel from '../../components/nori/NoriInsightsPanel';
 import noriAvatar from '@assets/Nori_1768273889454.png';
@@ -48,7 +48,7 @@ interface AnalysisData {
 }
 
 const NoriAssistant: React.FC = () => {
-  const { canView } = usePermissions();
+  const { user } = useAuth();
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [resumo, setResumo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,7 +66,7 @@ const NoriAssistant: React.FC = () => {
   });
   const [cutoffAlerts, setCutoffAlerts] = useState<CutoffAlert[]>([]);
 
-  const showCutoffAlerts = canView('marketing_dashboard');
+  const showCutoffAlerts = !!user?.recebe_alertas_corte;
 
   useEffect(() => {
     if (showCutoffAlerts) {
