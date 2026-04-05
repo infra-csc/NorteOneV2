@@ -2702,39 +2702,39 @@ const EventDetail: React.FC = () => {
                     </button>
                   </div>
                 </div>
-                {action.snapshot_isc !== undefined && (
+                {action.snapshot_isc != null && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                      ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc?.toFixed(2)}</span>
-                      {iscDelta !== undefined && iscDelta !== null && (
+                      ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc.toFixed(2)}</span>
+                      {iscDelta != null && (
                         <span className={`text-[10px] font-bold ${iscDelta > 0 ? 'text-green-500' : iscDelta < 0 ? 'text-red-400' : 'text-gray-400'}`}>
                           {iscDelta > 0 ? '▲' : iscDelta < 0 ? '▼' : '='}{Math.abs(iscDelta).toFixed(2)}
                         </span>
                       )}
                     </span>
-                    {action.snapshot_d_minus !== undefined && (
+                    {action.snapshot_d_minus != null && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
                         D-<span className="font-bold">{action.snapshot_d_minus}</span>
                       </span>
                     )}
-                    {action.snapshot_ia730 !== undefined && (
+                    {action.snapshot_ia730 != null && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
                         IA730 <span className="font-bold">{(action.snapshot_ia730 * 100).toFixed(0)}%</span>
                       </span>
                     )}
-                    {action.snapshot_rolling14d !== undefined && (
+                    {action.snapshot_rolling14d != null && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
                         14d <span className="font-bold">{(action.snapshot_rolling14d * 100).toFixed(0)}%</span>
                       </span>
                     )}
-                    {action.snapshot_curva_percent !== undefined && (
+                    {action.snapshot_curva_percent != null && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
                         Curva <span className="font-bold">{(action.snapshot_curva_percent * 100).toFixed(0)}%</span>
                       </span>
                     )}
-                    {action.snapshot_vendas_acumuladas !== undefined && (
+                    {action.snapshot_vendas_acumuladas != null && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                        <span className="opacity-70">Vendas</span> <span className="font-bold">{action.snapshot_vendas_acumuladas?.toLocaleString('pt-BR')}</span>
+                        <span className="opacity-70">Vendas</span> <span className="font-bold">{action.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span>
                       </span>
                     )}
                     {action.snapshot_playbook_letter && (

@@ -842,7 +842,27 @@ export const marketingService = {
     status: string; 
     evento: MarketingEvent; 
     dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number; localMedian?: number | null; outlierLimit?: number | null; isOutlier?: boolean; excessRemoved?: number; excessReceived?: number }[];
-    commercialActions?: { id: string; type: string; description: string; date: string; impact?: string }[];
+    commercialActions?: {
+      id: string;
+      type: string;
+      description: string;
+      date: string;
+      impact?: string;
+      vendas_antes?: number | null;
+      vendas_depois?: number | null;
+      impacto_percentual?: number | null;
+      status_impacto?: string;
+      ponto_corte?: string | null;
+      estagio?: string | null;
+      snapshot_isc?: number | null;
+      snapshot_isc_state?: string | null;
+      snapshot_d_minus?: number | null;
+      snapshot_ia730?: number | null;
+      snapshot_rolling14d?: number | null;
+      snapshot_curva_percent?: number | null;
+      snapshot_vendas_acumuladas?: number | null;
+      snapshot_playbook_letter?: string | null;
+    }[];
     projetos_vinculados?: { id: number; nome: string; sku: string }[];
     ultima_atualizacao: string;
     _isStale?: boolean;
