@@ -668,6 +668,18 @@ export interface MarketingEventsResponse {
   ultima_atualizacao: string;
 }
 
+export interface CutoffAlert {
+  id: string;
+  name: string;
+  category: string;
+  dMinusInscricoes: number;
+  ponto_corte: string;
+  estagio: string;
+  estagio_label: string;
+  isc: number | null;
+  iscStatus: string | null;
+}
+
 export interface PricingMetrics {
   rollingIndex: number;
   rollingAvg14d: number;
@@ -836,6 +848,10 @@ export const marketingService = {
   getResumo: async (ano?: number, signal?: AbortSignal): Promise<{ status: string; resumo: MarketingDashboardSummary; ultima_atualizacao: string }> => {
     const queryString = ano ? `?ano=${ano}` : '';
     const response = await api.get(`/marketing/resumo${queryString}`, { signal });
+    return response.data;
+  },
+  getCutoffAlerts: async (signal?: AbortSignal): Promise<{ alerts: CutoffAlert[]; total: number }> => {
+    const response = await api.get('/marketing/cutoff-alerts', { signal });
     return response.data;
   },
   getEventoById: async (id: string, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<{ 

@@ -3416,6 +3416,47 @@ def get_playbook():
             entries.append({**entry, "stageInfo": stage, "iscInfo": isc})
     return {"stages": stages, "iscStates": isc_states, "entries": entries}
 
+_CUTOFF_VALUES = [70, 50, 45, 35, 30, 15]
+_CUTOFF_ESTAGIO = {70: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional"}
+_CUTOFF_ESTAGIO_LABEL = {70: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional"}
+
+@router.get("/cutoff-alerts")
+def get_cutoff_alerts(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Retorna eventos cujo D-Inscrição está exatamente em um ponto de corte estratégico."""
+    ano = datetime.now().year
+    cache_key = f"{ano}_active_all_"
+    cached, _ = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=None)
+    if cached is None:
+        cache_key2 = f"{ano}_all_all_"
+        cached, _ = eventos_list_cache.get_or_revalidate(cache_key2, refresh_fn=None)
+    eventos = cached.get("eventos", []) if cached else []
+    alerts = []
+    for ev in eventos:
+        d = ev.get("dMinusInscricoes") if isinstance(ev, dict) else getattr(ev, "dMinusInscricoes", None)
+        if d in _CUTOFF_VALUES:
+            ev_id = ev.get("id") if isinstance(ev, dict) else getattr(ev, "id", None)
+            ev_name = ev.get("name") if isinstance(ev, dict) else getattr(ev, "name", None)
+            ev_cat = ev.get("category") if isinstance(ev, dict) else getattr(ev, "category", None)
+            ev_isc = ev.get("isc") if isinstance(ev, dict) else getattr(ev, "isc", None)
+            ev_isc_status = ev.get("iscStatus") if isinstance(ev, dict) else getattr(ev, "iscStatus", None)
+            alerts.append({
+                "id": ev_id,
+                "name": ev_name,
+                "category": ev_cat,
+                "dMinusInscricoes": d,
+                "ponto_corte": f"D-{d}",
+                "estagio": _CUTOFF_ESTAGIO.get(d, ""),
+                "estagio_label": _CUTOFF_ESTAGIO_LABEL.get(d, ""),
+                "isc": round(ev_isc, 1) if ev_isc is not None else None,
+                "iscStatus": ev_isc_status,
+            })
+    alerts.sort(key=lambda x: x["dMinusInscricoes"])
+    return {"alerts": alerts, "total": len(alerts)}
+
+
 @router.get("/eventos", response_model=MarketingEventsResponse)
 def get_marketing_events(
     ano: int = Query(default=None, description="Ano dos eventos"),

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   ListTodo, 
   Plus, 
@@ -18,8 +19,11 @@ import {
   TrendingDown,
   Minus,
   Brain,
+  Zap,
+  ExternalLink,
 } from 'lucide-react';
-import { tarefasService, Tarefa, TarefaCreate } from '../../services/api';
+import { tarefasService, marketingService, Tarefa, TarefaCreate, CutoffAlert } from '../../services/api';
+import { usePermissions } from '../../context/PermissionContext';
 import NoriChat from '../../components/nori/NoriChat';
 import NoriInsightsPanel from '../../components/nori/NoriInsightsPanel';
 import noriAvatar from '@assets/Nori_1768273889454.png';
@@ -44,6 +48,7 @@ interface AnalysisData {
 }
 
 const NoriAssistant: React.FC = () => {
+  const { canView } = usePermissions();
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [resumo, setResumo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,6 +64,15 @@ const NoriAssistant: React.FC = () => {
     descricao: '',
     prioridade: 'MEDIA'
   });
+  const [cutoffAlerts, setCutoffAlerts] = useState<CutoffAlert[]>([]);
+
+  const showCutoffAlerts = canView('marketing_dashboard');
+
+  useEffect(() => {
+    if (showCutoffAlerts) {
+      marketingService.getCutoffAlerts().then(r => setCutoffAlerts(r.alerts)).catch(() => {});
+    }
+  }, [showCutoffAlerts]);
 
   useEffect(() => {
     loadData();
@@ -389,6 +403,80 @@ const NoriAssistant: React.FC = () => {
         {mainTab === 'insights' && (
           <div className="bg-white dark:bg-gray-800/50 backdrop-blur rounded-xl border border-gray-200/50 dark:border-gray-700/50 p-6">
             <NoriInsightsPanel visible={true} />
+          </div>
+        )}
+
+        {mainTab === 'tarefas' && showCutoffAlerts && cutoffAlerts.length > 0 && (
+          <div className="bg-white dark:bg-gray-800/50 backdrop-blur rounded-xl border border-amber-300 dark:border-amber-700/60">
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-amber-200 dark:border-amber-700/40">
+              <div className="p-1.5 bg-amber-100 dark:bg-amber-900/40 rounded-lg">
+                <Zap className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-300">
+                  Alertas de Ponto de Corte
+                </h3>
+                <p className="text-xs text-amber-700 dark:text-amber-400/80">
+                  {cutoffAlerts.length === 1
+                    ? '1 evento necessita de ação estratégica hoje'
+                    : `${cutoffAlerts.length} eventos necessitam de ação estratégica hoje`}
+                </p>
+              </div>
+            </div>
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {cutoffAlerts.map((alert) => {
+                const stageBg: Record<string, string> = {
+                  analitico: 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800',
+                  estrategico: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800',
+                  operacional: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800',
+                };
+                const stageBadge: Record<string, string> = {
+                  analitico: 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300',
+                  estrategico: 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300',
+                  operacional: 'bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300',
+                };
+                const cutoffBadge: Record<string, string> = {
+                  analitico: 'bg-indigo-600 text-white',
+                  estrategico: 'bg-amber-500 text-white',
+                  operacional: 'bg-rose-600 text-white',
+                };
+                const iscColor = alert.iscStatus === 'green'
+                  ? 'text-green-600 dark:text-green-400'
+                  : alert.iscStatus === 'yellow'
+                  ? 'text-yellow-600 dark:text-yellow-400'
+                  : 'text-red-600 dark:text-red-400';
+                return (
+                  <Link
+                    key={alert.id}
+                    to={`/marketing/evento/${alert.id}`}
+                    className={`flex flex-col gap-2 p-3 rounded-xl border ${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} hover:brightness-95 dark:hover:brightness-110 transition-all group`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-white leading-tight line-clamp-2 flex-1">
+                        {alert.name}
+                      </span>
+                      <ExternalLink className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0 mt-0.5 transition-colors" />
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${cutoffBadge[alert.estagio] ?? 'bg-gray-500 text-white'}`}>
+                        {alert.ponto_corte}
+                      </span>
+                      <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${stageBadge[alert.estagio] ?? ''}`}>
+                        {alert.estagio_label}
+                      </span>
+                      {alert.isc !== null && (
+                        <span className={`text-xs font-semibold ml-auto ${iscColor}`}>
+                          ISC {alert.isc}
+                        </span>
+                      )}
+                    </div>
+                    {alert.category && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{alert.category}</span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
         )}
 
