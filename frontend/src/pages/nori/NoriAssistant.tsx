@@ -486,10 +486,14 @@ const NoriAssistant: React.FC = () => {
                         { state: { previewEvent: previewStub } },
                       );
                     }}
-                    className={`flex flex-col gap-2 p-3 rounded-xl border cursor-pointer ${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} hover:brightness-95 dark:hover:brightness-110 transition-all group`}
+                    className={`flex flex-col gap-2 p-3 rounded-xl border cursor-pointer transition-all group ${
+                      alert.acao_definida
+                        ? `${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} ring-1 ring-emerald-400/70 dark:ring-emerald-500/60`
+                        : stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                    } hover:brightness-95 dark:hover:brightness-110`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium text-gray-900 dark:text-white leading-tight line-clamp-2 flex-1">
+                      <span className={`text-sm font-medium leading-tight line-clamp-2 flex-1 ${alert.acao_definida ? 'text-gray-600 dark:text-gray-300' : 'text-gray-900 dark:text-white'}`}>
                         {alert.name}
                       </span>
                       <ExternalLink className="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0 mt-0.5 transition-colors" />
@@ -509,6 +513,14 @@ const NoriAssistant: React.FC = () => {
                     </div>
                     {alert.category && (
                       <span className="text-xs text-gray-500 dark:text-gray-400">{alert.category}</span>
+                    )}
+                    {alert.acao_definida && (
+                      <div className="flex items-center gap-1.5 pt-1 border-t border-emerald-200/60 dark:border-emerald-700/40">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                          Ação registrada neste ponto de corte
+                        </span>
+                      </div>
                     )}
                   </div>
                 );

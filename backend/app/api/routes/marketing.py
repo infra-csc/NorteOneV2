@@ -3454,6 +3454,41 @@ def get_cutoff_alerts(
                 "iscStatus": ev_isc_status,
             })
     alerts.sort(key=lambda x: x["dMinusInscricoes"])
+
+    # Enriquecer alerts com flag de ação já registrada para o ponto de corte específico
+    if alerts:
+        from ...models.dimensoes import AcaoComercial, EventoGrupo
+        cutoff_pcs = [f"D-{v}" for v in _CUTOFF_VALUES]
+
+        # Buscar todas as ações que têm ponto_corte nos valores de corte conhecidos
+        acoes_rows = db.query(AcaoComercial.projeto_id, AcaoComercial.ponto_corte).filter(
+            AcaoComercial.ponto_corte.in_(cutoff_pcs)
+        ).all()
+
+        if acoes_rows:
+            # Mapear projeto_id -> grupo_nome via EventoGrupo
+            pids_com_acao = {a.projeto_id for a in acoes_rows}
+            grp_rows = db.query(DimProjeto.id, EventoGrupo.nome).join(
+                EventoGrupo, DimProjeto.evento_grupo_id == EventoGrupo.id
+            ).filter(DimProjeto.id.in_(pids_com_acao)).all()
+            pid_to_grupo = {pid: nome for pid, nome in grp_rows}
+
+            # Construir set de chaves {ev_id|ponto_corte}
+            action_keys: set = set()
+            for a in acoes_rows:
+                if a.projeto_id in pid_to_grupo:
+                    ev_key = f"grp_{pid_to_grupo[a.projeto_id]}"
+                else:
+                    ev_key = str(a.projeto_id)
+                action_keys.add(f"{ev_key}|{a.ponto_corte}")
+
+            for alert in alerts:
+                key = f"{alert['id']}|{alert['ponto_corte']}"
+                alert["acao_definida"] = key in action_keys
+        else:
+            for alert in alerts:
+                alert["acao_definida"] = False
+    
     return {"alerts": alerts, "total": len(alerts)}
 
 

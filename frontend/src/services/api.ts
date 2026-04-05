@@ -678,6 +678,7 @@ export interface CutoffAlert {
   estagio_label: string;
   isc: number | null;
   iscStatus: string | null;
+  acao_definida?: boolean;
 }
 
 export interface PricingMetrics {
