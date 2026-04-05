@@ -7861,7 +7861,13 @@ def create_acao_comercial(
     db.add(nova_acao)
     db.commit()
     db.refresh(nova_acao)
-    
+
+    try:
+        from ...core.cache import event_detail_cache as _edc
+        _edc.invalidate()
+    except Exception:
+        pass
+
     return {
         "status": "success",
         "message": "Ação comercial criada com sucesso",
@@ -7929,7 +7935,13 @@ def delete_acao_comercial(
     
     db.delete(acao)
     db.commit()
-    
+
+    try:
+        from ...core.cache import event_detail_cache as _edc
+        _edc.invalidate()
+    except Exception:
+        pass
+
     return {
         "status": "success",
         "message": "Ação comercial removida com sucesso"
