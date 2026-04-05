@@ -7800,6 +7800,16 @@ def get_acoes_comerciais(
             "impacto_percentual": float(a.impacto_percentual) if a.impacto_percentual else None,
             "vendas_antes": a.vendas_antes,
             "vendas_depois": a.vendas_depois,
+            "ponto_corte": a.ponto_corte,
+            "estagio": a.estagio,
+            "snapshot_isc": float(a.snapshot_isc) if a.snapshot_isc is not None else None,
+            "snapshot_isc_state": a.snapshot_isc_state,
+            "snapshot_d_minus": a.snapshot_d_minus,
+            "snapshot_ia730": float(a.snapshot_ia730) if a.snapshot_ia730 is not None else None,
+            "snapshot_rolling14d": float(a.snapshot_rolling14d) if a.snapshot_rolling14d is not None else None,
+            "snapshot_curva_percent": float(a.snapshot_curva_percent) if a.snapshot_curva_percent is not None else None,
+            "snapshot_vendas_acumuladas": a.snapshot_vendas_acumuladas,
+            "snapshot_playbook_letter": a.snapshot_playbook_letter,
             "created_at": a.created_at.isoformat() if a.created_at else None
         }
         

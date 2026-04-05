@@ -537,6 +537,7 @@ const EventDetail: React.FC = () => {
 
   const handleDeleteAction = async (actionId: string) => {
     if (!id) return;
+    const previousActions = event?.commercialActions;
     setEvent(prev => prev ? {
       ...prev,
       commercialActions: prev.commercialActions?.filter(a => a.id !== actionId)
@@ -558,6 +559,7 @@ const EventDetail: React.FC = () => {
       }
     } catch (err) {
       console.error('Erro ao excluir ação:', err);
+      setEvent(prev => prev ? { ...prev, commercialActions: previousActions } : prev);
     }
   };
 
@@ -2672,7 +2674,7 @@ const EventDetail: React.FC = () => {
             const key = a.estagio && knownStages.has(a.estagio) ? a.estagio : '_legacy';
             grouped[key].push(a);
           }
-          const renderAction = (action: CommercialAction, isLast: boolean) => (
+          const renderAction = (action: CommercialAction, isLast: boolean, iscDelta?: number | null) => (
             <div key={action.id} className="flex gap-3">
               <div className="flex flex-col items-center pt-1">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
@@ -2701,9 +2703,14 @@ const EventDetail: React.FC = () => {
                   </div>
                 </div>
                 {action.snapshot_isc !== undefined && (
-                  <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
                       ISC <span className={`font-bold ${action.snapshot_isc_state === 'forte' ? 'text-green-600 dark:text-green-400' : action.snapshot_isc_state === 'fraco' ? 'text-red-500 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>{action.snapshot_isc?.toFixed(2)}</span>
+                      {iscDelta !== undefined && iscDelta !== null && (
+                        <span className={`text-[10px] font-bold ${iscDelta > 0 ? 'text-green-500' : iscDelta < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                          {iscDelta > 0 ? '▲' : iscDelta < 0 ? '▼' : '='}{Math.abs(iscDelta).toFixed(2)}
+                        </span>
+                      )}
                     </span>
                     {action.snapshot_d_minus !== undefined && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
@@ -2720,9 +2727,19 @@ const EventDetail: React.FC = () => {
                         14d <span className="font-bold">{(action.snapshot_rolling14d * 100).toFixed(0)}%</span>
                       </span>
                     )}
+                    {action.snapshot_curva_percent !== undefined && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
+                        Curva <span className="font-bold">{(action.snapshot_curva_percent * 100).toFixed(0)}%</span>
+                      </span>
+                    )}
+                    {action.snapshot_vendas_acumuladas !== undefined && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-300">
+                        <span className="opacity-70">Vendas</span> <span className="font-bold">{action.snapshot_vendas_acumuladas?.toLocaleString('pt-BR')}</span>
+                      </span>
+                    )}
                     {action.snapshot_playbook_letter && (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/30 text-xs font-bold text-blue-700 dark:text-blue-300">
-                        Playbook {action.snapshot_playbook_letter}
+                        {action.snapshot_playbook_letter}
                       </span>
                     )}
                   </div>
@@ -2758,6 +2775,12 @@ const EventDetail: React.FC = () => {
                 const actions = grouped[stage];
                 if (!actions || actions.length === 0) return null;
                 const meta = stageMeta[stage];
+                const iscDeltas: (number | null)[] = actions.map((a, i) => {
+                  if (i === 0 || a.snapshot_isc === undefined) return null;
+                  const prev = actions[i - 1];
+                  if (prev.snapshot_isc === undefined) return null;
+                  return a.snapshot_isc - prev.snapshot_isc;
+                });
                 return (
                   <div key={stage}>
                     <div className={`flex items-center gap-2 mb-3 pb-1.5 border-b ${meta.borderColor}`}>
@@ -2769,7 +2792,7 @@ const EventDetail: React.FC = () => {
                       </div>
                       <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{actions.length} ação{actions.length !== 1 ? 'ões' : ''}</span>
                     </div>
-                    <div>{actions.map((a, i) => renderAction(a, i === actions.length - 1))}</div>
+                    <div>{actions.map((a, i) => renderAction(a, i === actions.length - 1, iscDeltas[i]))}</div>
                   </div>
                 );
               })}
