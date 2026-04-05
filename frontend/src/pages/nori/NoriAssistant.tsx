@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
   ListTodo, 
   Plus, 
@@ -49,6 +49,7 @@ interface AnalysisData {
 
 const NoriAssistant: React.FC = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [resumo, setResumo] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -446,10 +447,12 @@ const NoriAssistant: React.FC = () => {
                   ? 'text-yellow-600 dark:text-yellow-400'
                   : 'text-red-600 dark:text-red-400';
                 return (
-                  <Link
+                  <div
                     key={alert.id}
-                    to={`/marketing/evento/${encodeURIComponent(alert.id)}`}
-                    className={`flex flex-col gap-2 p-3 rounded-xl border ${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} hover:brightness-95 dark:hover:brightness-110 transition-all group`}
+                    onClick={() => navigate(
+                      `/marketing/evento/${alert.id}${alert.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : ''}`,
+                    )}
+                    className={`flex flex-col gap-2 p-3 rounded-xl border cursor-pointer ${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} hover:brightness-95 dark:hover:brightness-110 transition-all group`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-medium text-gray-900 dark:text-white leading-tight line-clamp-2 flex-1">
@@ -473,7 +476,7 @@ const NoriAssistant: React.FC = () => {
                     {alert.category && (
                       <span className="text-xs text-gray-500 dark:text-gray-400">{alert.category}</span>
                     )}
-                  </Link>
+                  </div>
                 );
               })}
             </div>
