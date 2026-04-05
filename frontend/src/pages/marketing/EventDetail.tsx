@@ -2711,8 +2711,8 @@ const EventDetail: React.FC = () => {
                   const meta = STAGE_META[slot.estagio];
                   const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
                   const isFuture = dInscricoes > slot.cutoffValue;
-                  const isActive = dInscricoes <= slot.cutoffValue && dInscricoes > slot.nextCutoff;
-                  const isMissed = dInscricoes <= slot.nextCutoff && !slotAction;
+                  const isActive = dInscricoes === slot.cutoffValue;
+                  const isMissed = dInscricoes < slot.cutoffValue && !slotAction;
                   if (isFuture) {
                     return (
                       <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 opacity-50 flex flex-col gap-1">
