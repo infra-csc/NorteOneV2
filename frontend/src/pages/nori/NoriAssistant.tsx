@@ -22,7 +22,7 @@ import {
   Zap,
   ExternalLink,
 } from 'lucide-react';
-import { tarefasService, marketingService, Tarefa, TarefaCreate, CutoffAlert } from '../../services/api';
+import { tarefasService, marketingService, Tarefa, TarefaCreate, CutoffAlert, MarketingEvent } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import NoriChat from '../../components/nori/NoriChat';
 import NoriInsightsPanel from '../../components/nori/NoriInsightsPanel';
@@ -449,9 +449,43 @@ const NoriAssistant: React.FC = () => {
                 return (
                   <div
                     key={alert.id}
-                    onClick={() => navigate(
-                      `/marketing/evento/${alert.id}${alert.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : ''}`,
-                    )}
+                    onClick={() => {
+                      const previewStub: MarketingEvent = {
+                        id: alert.id,
+                        name: alert.name,
+                        date: '',
+                        location: '',
+                        category: alert.category,
+                        totalCapacity: 0,
+                        currentSales: 0,
+                        salesGoal: 0,
+                        averageTicket: 0,
+                        budgetTicket: 0,
+                        dMinus: 0,
+                        dMinusInscricoes: alert.dMinusInscricoes,
+                        isc: alert.isc ?? 0,
+                        iscComponents: { ia730: 0, curvaDPercent: 0, rolling14d: 0 },
+                        iscStatus: (alert.iscStatus as 'accelerating' | 'stable' | 'decelerating') ?? 'stable',
+                        suggestedAction: {
+                          letter: 'A',
+                          name: '',
+                          stageName: '',
+                          iscLabel: '',
+                          iscState: 'estável',
+                          objective: '',
+                          narrative: '',
+                          actions: [],
+                          kpis: [],
+                          cutoffs: [],
+                        },
+                        isActive: true,
+                      };
+                      const ano = alert.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : '';
+                      navigate(
+                        `/marketing/evento/${encodeURIComponent(alert.id)}${ano}`,
+                        { state: { previewEvent: previewStub } },
+                      );
+                    }}
                     className={`flex flex-col gap-2 p-3 rounded-xl border cursor-pointer ${stageBg[alert.estagio] ?? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'} hover:brightness-95 dark:hover:brightness-110 transition-all group`}
                   >
                     <div className="flex items-start justify-between gap-2">
