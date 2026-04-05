@@ -3455,32 +3455,41 @@ def get_cutoff_alerts(
             })
     alerts.sort(key=lambda x: x["dMinusInscricoes"])
 
-    # Enriquecer alerts com flag de ação já registrada para o ponto de corte específico
+    # Enriquecer alerts com flag de ação registrada consultando acoes_comerciais via SkuMapping
     if alerts:
-        from ...models.dimensoes import AcaoComercial, EventoGrupo
+        from ...models.dimensoes import AcaoComercial
+        from .inscricoes_consolidado import normalize_sku as _norm_sku
         cutoff_pcs = [f"D-{v}" for v in _CUTOFF_VALUES]
 
-        # Buscar todas as ações que têm ponto_corte nos valores de corte conhecidos
-        acoes_rows = db.query(AcaoComercial.projeto_id, AcaoComercial.ponto_corte).filter(
-            AcaoComercial.ponto_corte.in_(cutoff_pcs)
-        ).all()
+        # Buscar ações para os ponto_corte conhecidos com o codigo do projeto
+        acoes_rows = (
+            db.query(AcaoComercial.ponto_corte, DimProjeto.id, DimProjeto.codigo)
+            .join(DimProjeto, AcaoComercial.projeto_id == DimProjeto.id)
+            .filter(AcaoComercial.ponto_corte.in_(cutoff_pcs))
+            .all()
+        )
 
         if acoes_rows:
-            # Mapear projeto_id -> grupo_nome via EventoGrupo
-            pids_com_acao = {a.projeto_id for a in acoes_rows}
-            grp_rows = db.query(DimProjeto.id, EventoGrupo.nome).join(
-                EventoGrupo, DimProjeto.evento_grupo_id == EventoGrupo.id
-            ).filter(DimProjeto.id.in_(pids_com_acao)).all()
-            pid_to_grupo = {pid: nome for pid, nome in grp_rows}
+            # Coletar codigos brutos para filtrar SkuMapping via SQL
+            raw_codigos = {str(r.codigo) for r in acoes_rows if r.codigo}
+            sm_rows = (
+                db.query(SkuMapping.sku, SkuMapping.evento_grupo)
+                .filter(SkuMapping.sku.in_(raw_codigos), SkuMapping.evento_grupo != None)
+                .all()
+            )
+            # Chave normalizada -> grupo (mesmo padrão usado no eventos list)
+            sku_to_grupo = {_norm_sku(r.sku): r.evento_grupo for r in sm_rows}
 
             # Construir set de chaves {ev_id|ponto_corte}
             action_keys: set = set()
             for a in acoes_rows:
-                if a.projeto_id in pid_to_grupo:
-                    ev_key = f"grp_{pid_to_grupo[a.projeto_id]}"
+                pc = a.ponto_corte
+                sku_n = _norm_sku(str(a.codigo)) if a.codigo else None
+                grupo = sku_to_grupo.get(sku_n) if sku_n else None
+                if grupo:
+                    action_keys.add(f"grp_{grupo}|{pc}")
                 else:
-                    ev_key = str(a.projeto_id)
-                action_keys.add(f"{ev_key}|{a.ponto_corte}")
+                    action_keys.add(f"{a.id}|{pc}")
 
             for alert in alerts:
                 key = f"{alert['id']}|{alert['ponto_corte']}"
@@ -3488,7 +3497,7 @@ def get_cutoff_alerts(
         else:
             for alert in alerts:
                 alert["acao_definida"] = False
-    
+
     return {"alerts": alerts, "total": len(alerts)}
 
 
