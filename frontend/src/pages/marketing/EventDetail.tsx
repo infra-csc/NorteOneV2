@@ -1752,7 +1752,7 @@ const EventDetail: React.FC = () => {
             onClick={() => setAcoesColapsadas(v => !v)}
             className="flex items-center gap-2 group"
           >
-            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Comerciais</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Estratégicas</h3>
             {acoesColapsadas
               ? <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
               : <ChevronUp className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
