@@ -548,19 +548,6 @@ const EventDetail: React.FC = () => {
         forced_estagio: '',
       });
 
-      try {
-        const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, false);
-        const eventWithData = {
-          ...response.evento,
-          dailySales: response.dailySales?.map(d => ({ ...d })),
-          commercialActions: mapEventResponseToActions(response.commercialActions ?? [])
-        };
-        setEvent(eventWithData);
-      } catch (refreshErr: any) {
-        if (refreshErr?.name !== 'CanceledError' && refreshErr?.code !== 'ERR_CANCELED') {
-          console.error('Erro ao atualizar evento após salvar ação:', refreshErr);
-        }
-      }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
       console.error('Erro ao salvar ação:', err);
