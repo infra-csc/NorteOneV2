@@ -482,6 +482,7 @@ const EventDetail: React.FC = () => {
     setSavingAction(true);
     try {
       const dMinus = event?.dMinus ?? 0;
+      const dMinusInscricoes = event?.dMinusInscricoes ?? dMinus;
       const cutoffInfo = actionForm.forced_ponto_corte && actionForm.forced_estagio
         ? { ponto_corte: actionForm.forced_ponto_corte, estagio: actionForm.forced_estagio }
         : getActionCutoffInfo(dMinus);
@@ -491,22 +492,50 @@ const EventDetail: React.FC = () => {
         decelerating: 'fraco'
       };
 
-      await marketingService.createAcaoComercial({
+      const snapshotData = {
+        snapshot_isc: event?.isc,
+        snapshot_isc_state: event?.iscStatus ? iscStatusMap[event.iscStatus] : undefined,
+        snapshot_d_minus: dMinusInscricoes,
+        snapshot_ia730: event?.iscComponents?.ia730,
+        snapshot_rolling14d: event?.iscComponents?.rolling14d,
+        snapshot_curva_percent: event?.iscComponents?.curvaDPercent,
+        snapshot_vendas_acumuladas: event?.currentSales,
+        snapshot_playbook_letter: event?.suggestedAction?.letter,
+      };
+
+      const result = await marketingService.createAcaoComercial({
         projeto_id: projetoIdParaAcao,
         tipo: actionForm.tipo,
         descricao: actionForm.descricao,
         data_acao: actionForm.data_acao,
         ponto_corte: cutoffInfo.ponto_corte,
         estagio: cutoffInfo.estagio,
-        snapshot_isc: event?.isc,
-        snapshot_isc_state: event?.iscStatus ? iscStatusMap[event.iscStatus] : undefined,
-        snapshot_d_minus: dMinus,
-        snapshot_ia730: event?.iscComponents?.ia730,
-        snapshot_rolling14d: event?.iscComponents?.rolling14d,
-        snapshot_curva_percent: event?.iscComponents?.curvaDPercent,
-        snapshot_vendas_acumuladas: event?.currentSales,
-        snapshot_playbook_letter: event?.suggestedAction?.letter,
+        ...snapshotData,
       });
+
+      const newAction: CommercialAction = {
+        id: String(result.acao?.id ?? Date.now()),
+        type: actionForm.tipo === 'AUMENTO_PRECO' ? 'price_increase'
+            : actionForm.tipo === 'REDUCAO_PRECO' ? 'price_decrease'
+            : actionForm.tipo === 'CAMPANHA' ? 'campaign'
+            : actionForm.tipo === 'COMUNICACAO' ? 'communication'
+            : 'promotion',
+        description: actionForm.descricao,
+        date: actionForm.data_acao,
+        impact: undefined,
+        impacto_percentual: undefined,
+        vendas_antes: undefined,
+        vendas_depois: undefined,
+        status_impacto: undefined,
+        ponto_corte: cutoffInfo.ponto_corte,
+        estagio: cutoffInfo.estagio,
+        ...snapshotData,
+      };
+
+      setEvent(prev => prev ? {
+        ...prev,
+        commercialActions: [...(prev.commercialActions ?? []), newAction]
+      } : prev);
 
       setShowActionModal(false);
       setActionError(null);
@@ -514,11 +543,13 @@ const EventDetail: React.FC = () => {
         tipo: 'PROMOCAO',
         descricao: '',
         data_acao: new Date().toISOString().split('T')[0],
-        projeto_id_selecionado: 0
+        projeto_id_selecionado: 0,
+        forced_ponto_corte: '',
+        forced_estagio: '',
       });
 
       try {
-        const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
+        const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, false);
         const eventWithData = {
           ...response.evento,
           dailySales: response.dailySales?.map(d => ({ ...d })),
@@ -548,19 +579,6 @@ const EventDetail: React.FC = () => {
     } : prev);
     try {
       await marketingService.deleteAcaoComercial(parseInt(actionId));
-      try {
-        const response = await marketingService.getEventoById(id, abortControllerRef.current?.signal, anoParam, true);
-        const eventWithData = {
-          ...response.evento,
-          dailySales: response.dailySales?.map(d => ({ ...d })),
-          commercialActions: mapEventResponseToActions(response.commercialActions ?? [])
-        };
-        setEvent(eventWithData);
-      } catch (refreshErr: any) {
-        if (refreshErr?.name !== 'CanceledError' && refreshErr?.code !== 'ERR_CANCELED') {
-          console.error('Erro ao atualizar evento após excluir ação:', refreshErr);
-        }
-      }
     } catch (err) {
       console.error('Erro ao excluir ação:', err);
       setEvent(prev => prev ? { ...prev, commercialActions: previousActions } : prev);
@@ -2894,6 +2912,7 @@ const EventDetail: React.FC = () => {
 
       {showActionModal && (() => {
         const dMinus = event?.dMinus ?? 0;
+        const dMinusInscricoes = event?.dMinusInscricoes ?? dMinus;
         const cutoffInfo = actionForm.forced_ponto_corte && actionForm.forced_estagio
           ? { ponto_corte: actionForm.forced_ponto_corte, estagio: actionForm.forced_estagio }
           : getActionCutoffInfo(dMinus);
@@ -2948,22 +2967,22 @@ const EventDetail: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">D-Minus</span>
-                        <span className="text-base font-bold text-gray-700 dark:text-gray-300">D-{dMinus}</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">D-Inscrição</span>
+                        <span className="text-base font-bold text-gray-700 dark:text-gray-300">D-{dMinusInscricoes}</span>
                       </div>
                       {event.iscComponents && (
                         <>
                           <div className="flex flex-col">
                             <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">IA 730</span>
-                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{(event.iscComponents.ia730 * 100).toFixed(0)}%</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{event.iscComponents.ia730.toFixed(2)}</span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Rolling 14d</span>
-                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{(event.iscComponents.rolling14d * 100).toFixed(0)}%</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{event.iscComponents.rolling14d.toFixed(2)}</span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Curva D%</span>
-                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{(event.iscComponents.curvaDPercent * 100).toFixed(0)}%</span>
+                            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{event.iscComponents.curvaDPercent.toFixed(2)}</span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide">Vendas acumuladas</span>
@@ -2978,21 +2997,6 @@ const EventDetail: React.FC = () => {
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {isConsolidated && projetosVinculados.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Projeto Vinculado</label>
-                    <select
-                      value={actionForm.projeto_id_selecionado}
-                      onChange={(e) => setActionForm({ ...actionForm, projeto_id_selecionado: parseInt(e.target.value) })}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
-                    >
-                      {projetosVinculados.map(p => (
-                        <option key={p.id} value={p.id}>{p.sku} - {p.nome || 'Sem nome'}</option>
-                      ))}
-                    </select>
                   </div>
                 )}
 
