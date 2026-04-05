@@ -22,6 +22,7 @@ import {
   RefreshCw,
   TableProperties,
   ChevronDown,
+  ChevronUp,
   Archive
 } from 'lucide-react';
 import { 
@@ -90,6 +91,7 @@ const EventDetail: React.FC = () => {
   const [detailsLoading, setDetailsLoading] = useState(!!previewEvent);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
+  const [acoesColapsadas, setAcoesColapsadas] = useState(false);
   const [showMargemInfo, setShowMargemInfo] = useState(false);
   const [showReceitaOrcada, setShowReceitaOrcada] = useState(false);
   const [showReceitaRealizada, setShowReceitaRealizada] = useState(false);
@@ -1745,11 +1747,20 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Comerciais</h3>
+        <div className={`flex items-center justify-between ${acoesColapsadas ? '' : 'mb-4'}`}>
+          <button
+            onClick={() => setAcoesColapsadas(v => !v)}
+            className="flex items-center gap-2 group"
+          >
+            <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Ações Comerciais</h3>
+            {acoesColapsadas
+              ? <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+              : <ChevronUp className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+            }
+          </button>
           <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">D-Insc atual: {event.dMinusInscricoes ?? event.dMinus ?? '—'}</span>
         </div>
-        {(() => {
+        {!acoesColapsadas && (() => {
           const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
           const SLOTS = [
             { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, nextCutoff: 50 },
