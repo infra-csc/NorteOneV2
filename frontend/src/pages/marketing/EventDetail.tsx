@@ -1808,13 +1808,13 @@ const EventDetail: React.FC = () => {
                   const isMissed = dInscricoes < slot.cutoffValue && !slotAction;
                   if (isFuture) {
                     return (
-                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 flex flex-col gap-1">
+                      <div key={slot.ponto_corte} className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/40 p-3 flex flex-col gap-1">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
+                          <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
                           <span className="text-[9px] text-gray-400 dark:text-gray-600">🔒</span>
                         </div>
-                        <span className="text-lg font-black font-mono text-gray-400 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500">faltam {dInscricoes - slot.cutoffValue}d</span>
+                        <span className="text-lg font-black font-mono text-gray-500 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
+                        <span className="text-[10px] text-gray-500 dark:text-gray-500">faltam {dInscricoes - slot.cutoffValue}d</span>
                       </div>
                     );
                   }
@@ -1822,10 +1822,10 @@ const EventDetail: React.FC = () => {
                     return (
                       <div key={slot.ponto_corte} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3 flex flex-col gap-1">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
+                          <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide">{meta.label}</span>
                           <span className="text-[9px] text-gray-400 dark:text-gray-500">—</span>
                         </div>
-                        <span className="text-lg font-black font-mono text-gray-400 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
+                        <span className="text-lg font-black font-mono text-gray-500 dark:text-gray-600 leading-none">{slot.ponto_corte}</span>
                         <span className="text-[10px] text-gray-400 dark:text-gray-500">janela encerrada</span>
                       </div>
                     );
