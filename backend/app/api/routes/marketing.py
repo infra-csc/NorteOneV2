@@ -634,6 +634,7 @@ class MarketingEvent(BaseModel):
     ticketAtual: float = 0.0
     ticketKitNome: Optional[str] = None
     margemPorKit: Optional[List[dict]] = None
+    margemAvisos: Optional[List[str]] = None
     detalheVendasPorKit: Optional[List[dict]] = None
     detalheVendasAtivoKit: Optional[List[dict]] = None
     kitQueryFailed: bool = False
@@ -1706,6 +1707,7 @@ def get_margem_por_kit(
     card_total_qty: int = None,
     card_total_receita: float = None,
     card_kit_cost_avg: float = None,
+    avisos_out: list = None,
 ) -> list:
     """Quebra de margem por tipo de kit via vendas Magento bundle."""
     from ...models.kit_config import KitConfig
@@ -1932,6 +1934,20 @@ GROUP BY soi_parent.product_id
                         kit_map[tipo_kit]["receita"] += receita
             except Exception as e:
                 logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+                _aviso_magento = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                if avisos_out is not None and _aviso_magento not in avisos_out:
+                    avisos_out.append(_aviso_magento)
+                try:
+                    from ...services.health_alert_service import log_and_alert as _log_alert
+                    _first_pid = projeto_ids[0] if projeto_ids else None
+                    _log_alert(
+                        event_type="MARGEM_MAGENTO_FAILED",
+                        severity="HIGH",
+                        message=f"Falha ao buscar dados Magento na Margem por Kit (projeto_id={_first_pid}): {type(e).__name__}",
+                        detail=str(e)[:1000],
+                    )
+                except Exception:
+                    pass
 
         # Override custo pelo custo manual do kit_config quando definido.
         # Se o tipo não existe no kit_map (sem Cadastro e sem vendas), cria entrada
@@ -2070,6 +2086,20 @@ GROUP BY soi_parent.name
                             kit_map[kit_name]["receita"] = total_rec
             except Exception as e:
                 logger.error(f"Erro no fallback de vendas por nome de bundle para margem: {e}")
+                _aviso_magento_fb = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                if avisos_out is not None and _aviso_magento_fb not in avisos_out:
+                    avisos_out.append(_aviso_magento_fb)
+                try:
+                    from ...services.health_alert_service import log_and_alert as _log_alert_fb
+                    _first_pid_fb = projeto_ids[0] if projeto_ids else None
+                    _log_alert_fb(
+                        event_type="MARGEM_MAGENTO_FAILED",
+                        severity="HIGH",
+                        message=f"Falha no fallback Magento na Margem por Kit (projeto_id={_first_pid_fb}): {type(e).__name__}",
+                        detail=str(e)[:1000],
+                    )
+                except Exception:
+                    pass
 
         # 5. Ativo: query por ds_categoria para os event IDs mapeados como fonte=ATIVO
         #    Todos os kits verificam o Ativo; a contribuição é somada ao Magento (ou zerado se não há match).
@@ -2193,6 +2223,20 @@ GROUP BY sub.id_evento, sub.ds_categoria
                     kit_map[_matched_kit]["receita"] += _a_rec
             except Exception as _e_ativo:
                 logger.warning(f"Erro ao buscar dados Ativo por categoria para margem: {_e_ativo}")
+                _aviso_ativo = "Dados do Ativo indisponíveis — totais de inscrições e receita podem estar incompletos."
+                if avisos_out is not None and _aviso_ativo not in avisos_out:
+                    avisos_out.append(_aviso_ativo)
+                try:
+                    from ...services.health_alert_service import log_and_alert as _log_alert_ativo
+                    _first_pid_ativo = projeto_ids[0] if projeto_ids else None
+                    _log_alert_ativo(
+                        event_type="MARGEM_ATIVO_FAILED",
+                        severity="HIGH",
+                        message=f"Falha ao buscar dados Ativo na Margem por Kit (projeto_id={_first_pid_ativo}): {type(_e_ativo).__name__}",
+                        detail=str(_e_ativo)[:1000],
+                    )
+                except Exception:
+                    pass
 
         # 6. Build result list — inclui kits sem vendas (qtd=0) para visibilidade de custo
         if not kit_map:
@@ -6980,6 +7024,7 @@ def get_marketing_event_by_id(
         detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         grupo_projeto_ids = [p.id for p in projetos]
+        _detail_margem_avisos: list = []
         detail_margem_por_kit = get_margem_por_kit(
             db,
             grupo_projeto_ids,
@@ -6987,6 +7032,7 @@ def get_marketing_event_by_id(
             card_total_qty=current_sales,
             card_total_receita=current_receita,
             card_kit_cost_avg=detail_kit_cost_avg,
+            avisos_out=_detail_margem_avisos,
         )
         detail_detalhe_vendas = []
         detail_kit_query_failed = False
@@ -7017,6 +7063,7 @@ def get_marketing_event_by_id(
             ticketAtual=detail_ticket_atual,
             ticketKitNome=detail_ticket_kit_nome,
             margemPorKit=detail_margem_por_kit if detail_margem_por_kit else None,
+            margemAvisos=_detail_margem_avisos if _detail_margem_avisos else None,
             kitQueryFailed=detail_kit_query_failed,
             detalheVendasPorKit=detail_detalhe_vendas if detail_detalhe_vendas else None,
             detalheVendasAtivoKit=detail_detalhe_ativo if detail_detalhe_ativo else None,
@@ -7314,6 +7361,7 @@ def get_marketing_event_by_id(
     sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
     sa_detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(sa_ticket_atual_map, projeto.id)
     
+    _sa_margem_avisos: list = []
     sa_margem_por_kit = get_margem_por_kit(
         db,
         [projeto.id],
@@ -7321,6 +7369,7 @@ def get_marketing_event_by_id(
         card_total_qty=current_sales,
         card_total_receita=current_receita,
         card_kit_cost_avg=detail_sa_kit_cost,
+        avisos_out=_sa_margem_avisos,
     )
     sa_detalhe_vendas = []
     sa_kit_query_failed = False
@@ -7351,6 +7400,7 @@ def get_marketing_event_by_id(
         ticketAtual=sa_detail_ticket_atual,
         ticketKitNome=sa_detail_ticket_kit_nome,
         margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
+        margemAvisos=_sa_margem_avisos if _sa_margem_avisos else None,
         kitQueryFailed=sa_kit_query_failed,
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,
         detalheVendasAtivoKit=sa_detalhe_ativo if sa_detalhe_ativo else None,

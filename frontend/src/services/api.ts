@@ -624,6 +624,7 @@ export interface MarketingEvent {
     margemUnit: number | null;
     margemTotal: number;
   }> | null;
+  margemAvisos?: string[] | null;
   detalheVendasPorKit?: Array<{
     kit: string;
     tipoCategoria: string | null;
