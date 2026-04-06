@@ -1957,11 +1957,11 @@ const EventDetail: React.FC = () => {
               </div>
 
               <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total (até ontem)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total (até o momento)</p>
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Inscritos</p>
-                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalInscritosConsolidado)}</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalInscritos)}</p>
                   </div>
                   <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
                   <div className="text-right">

@@ -1279,8 +1279,8 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
         event_already_happened = data_evento_real and data_evento_real < today
         if event_already_happened:
             logger.debug(f"Event '{evento_grupo}' already happened ({data_evento_real}), skipping today's live sales query")
-        elif today_in_snapshot:
-            logger.debug(f"Today's data already in snapshot for '{evento_grupo}', skipping live query")
+        elif today_in_snapshot and all_daily.get(today, 0) > 0:
+            logger.debug(f"Today's data already in snapshot for '{evento_grupo}' (qty={all_daily.get(today, 0)}), skipping live query")
         else:
             if ativo_ids:
                 try:
@@ -6900,11 +6900,10 @@ def get_marketing_event_by_id(
                 grupo_media_7d += info.get('media_7d', 0.0)
                 grupo_media_30d += info.get('media_30d', 0.0)
             # Align current_sales with ISC cache so ISC calc is identical to list view.
-            # The ISC cache is always the canonical source for live events — it handles the
-            # year-specific aggregation that snapshot data cannot (snapshot mixes all years).
-            # The ISC merge logic (above in fetch_isc_pricing_data) ensures partial failures
-            # never produce a lower value than the previous good read.
-            if current_sales_isc > 0:
+            # Take the higher value: ISC cache (snapshot-based, updated every 30 min) vs
+            # daily_sales live query (which may include inscriptions made since last sync).
+            # Using max() ensures new inscriptions made after the last auto-sync are visible.
+            if current_sales_isc > current_sales:
                 current_sales = current_sales_isc
         else:
             ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
