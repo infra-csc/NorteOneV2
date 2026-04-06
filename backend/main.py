@@ -712,6 +712,113 @@ def _startup_resync_projetos():
         except Exception:
             pass
 
+def _prewarm_revenue_cache():
+    """
+    Pré-aquece o _margem_rev_cache para todos os grupos de bundles ativos.
+    Roda em background após o startup para garantir que a primeira requisição de
+    receita de qualquer evento seja respondida a partir do cache em memória.
+    """
+    import threading as _threading
+    import time as _t
+
+    def _do_prewarm():
+        _t.sleep(5)  # aguarda o servidor estar pronto
+        try:
+            from app.core.database import SessionLocal
+            from app.models.kit_config import KitConfig
+            from app.models.dimensoes import DimProjeto, SkuMapping
+            from app.api.routes.marketing import get_margem_por_kit, _margem_rev_cache
+            import app.core.database as _db_mod
+
+            if _db_mod.engine_magento is None:
+                logger.info("[RevenuePrewarm] Magento engine não disponível — pulando pré-aquecimento de receita")
+                return
+
+            db = SessionLocal()
+            try:
+                from datetime import date as _date, timedelta as _td
+                today = _date.today()
+
+                # Coleta todos os projetos com data futura ou recente (últimos 30d)
+                projetos = db.query(DimProjeto).filter(
+                    DimProjeto.data_evento >= today - _td(days=30),
+                ).all()
+
+                if not projetos:
+                    logger.info("[RevenuePrewarm] Nenhum projeto ativo encontrado — pulando")
+                    return
+
+                # O caminho correto: DimProjeto.codigo → SkuMapping.sku (fonte=MAGENTO)
+                # → SkuMapping.id_externo (Magento event entity_id) → KitConfig.id_evento
+                codigos = [p.codigo.upper().strip() for p in projetos if p.codigo]
+                sku_maps = db.query(SkuMapping).filter(
+                    SkuMapping.sku.in_(codigos),
+                    SkuMapping.fonte == 'MAGENTO',
+                    SkuMapping.ativo == True,
+                ).all()
+
+                # sku → [magento_event_id, ...]
+                magento_ids_by_sku: dict = {}
+                for sm in sku_maps:
+                    if sm.id_externo:
+                        try:
+                            magento_ids_by_sku.setdefault(sm.sku.upper(), []).append(int(sm.id_externo))
+                        except (ValueError, TypeError):
+                            pass
+
+                # Para cada projeto, determina os bundle_ids via KitConfig.id_evento
+                seen_cache_keys: set = set()
+                proj_bundle_map: list = []  # [(proj_id, bundle_ids)]
+                for proj in projetos:
+                    sku = (proj.codigo or "").upper().strip()
+                    magento_ids = magento_ids_by_sku.get(sku, [])
+                    if not magento_ids:
+                        continue
+                    kcs = db.query(KitConfig).filter(
+                        KitConfig.id_evento.in_(magento_ids),
+                        KitConfig.bundle_entity_id.isnot(None),
+                        KitConfig.tipo_kit.isnot(None),
+                    ).all()
+                    bundle_ids = list({kc.bundle_entity_id for kc in kcs if kc.bundle_entity_id})
+                    if not bundle_ids:
+                        continue
+                    cache_key = frozenset(bundle_ids)
+                    if cache_key in seen_cache_keys:
+                        continue  # grupo já representado por outro projeto
+                    seen_cache_keys.add(cache_key)
+                    proj_bundle_map.append((proj.id, bundle_ids))
+
+                if not proj_bundle_map:
+                    logger.info("[RevenuePrewarm] Nenhum bundle mapeado — pulando pré-aquecimento")
+                    return
+
+                logger.info(f"[RevenuePrewarm] Iniciando pré-aquecimento de receita para {len(proj_bundle_map)} grupos de bundles")
+                ok = 0
+                skipped = 0
+                failed = 0
+
+                for proj_id, bundle_ids in proj_bundle_map:
+                    cache_key = frozenset(bundle_ids)
+                    if cache_key in _margem_rev_cache:
+                        skipped += 1
+                        continue
+                    try:
+                        # Chama get_margem_por_kit — popula _margem_rev_cache como side effect
+                        get_margem_por_kit(db, [proj_id], avisos_out=[], force_refresh=False)
+                        ok += 1
+                    except Exception as _pe:
+                        logger.debug(f"[RevenuePrewarm] Projeto {proj_id} falhou: {_pe}")
+                        failed += 1
+
+                logger.info(f"[RevenuePrewarm] Concluído: {ok} ok, {skipped} já em cache, {failed} falhou")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"[RevenuePrewarm] Erro no pré-aquecimento de receita: {e}")
+
+    _threading.Thread(target=_do_prewarm, daemon=True, name="revenue-prewarm").start()
+
+
 def _sync_id_evento_magento():
     from app.core.database import SessionLocal
     from app.models.cadastro_evento import CadastroEvento
@@ -1156,6 +1263,11 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Full cache warmup failed: {e}")
 
         logger.info("=== All background startup tasks completed ===")
+
+        # Pré-aquece cache de receita Magento por bundle em background (não bloqueia startup).
+        # Garante que a primeira requisição de margem para qualquer evento ativo
+        # responda a partir do cache em memória, não espere 20-55s na query de receita.
+        _prewarm_revenue_cache()
 
         # Trigger proactive insights generation on startup (non-blocking, best-effort)
         try:

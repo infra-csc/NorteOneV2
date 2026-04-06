@@ -1883,9 +1883,13 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
-            # Query 2: receita — mesmo padrão + join filho para valor da distância/modalidade
+            # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
+            # + join filho para valor da distância/modalidade.
+            # Timeout elevado para 55s: eventos de alto volume precisam de ~20-25s.
+            # Resultado armazenado em cache em memória por 4h (_margem_rev_cache).
+            # A segunda chamada (mesmos bundle_ids) é instantânea.
             magento_bundle_query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(20000) */
+SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.product_id                                                              AS bundle_entity_id,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
 FROM sales_order so
@@ -2062,7 +2066,7 @@ AND    value        IN :ev_ids_fb
             if fb_bundle_ids:
                 # Reutiliza o mesmo padrão das queries primárias, agrupando por nome do bundle
                 fb_count_q = text("""
-SELECT /*+ MAX_EXECUTION_TIME(20000) */
+SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.name                        AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
 FROM sales_order so
@@ -2084,7 +2088,7 @@ GROUP BY soi_parent.name
 """).bindparams(bindparam("fb_bundle_ids", expanding=True))
 
                 fb_rev_q = text("""
-SELECT /*+ MAX_EXECUTION_TIME(20000) */
+SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.name                                                                    AS bundle_name,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
 FROM sales_order so
