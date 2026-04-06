@@ -1938,7 +1938,7 @@ GROUP BY soi_parent.product_id
                 if avisos_out is not None and _aviso_magento not in avisos_out:
                     avisos_out.append(_aviso_magento)
                 try:
-                    from ...services.health_alert_service import log_and_alert as _log_alert
+                    from app.services.health_alert_service import log_and_alert as _log_alert
                     _first_pid = projeto_ids[0] if projeto_ids else None
                     _log_alert(
                         event_type="MARGEM_MAGENTO_FAILED",
@@ -1946,8 +1946,8 @@ GROUP BY soi_parent.product_id
                         message=f"Falha ao buscar dados Magento na Margem por Kit (projeto_id={_first_pid}): {type(e).__name__}",
                         detail=str(e)[:1000],
                     )
-                except Exception:
-                    pass
+                except Exception as _ha_err:
+                    logger.warning(f"[HealthAlert] Falha ao registrar MARGEM_MAGENTO_FAILED: {_ha_err}")
 
         # Override custo pelo custo manual do kit_config quando definido.
         # Se o tipo não existe no kit_map (sem Cadastro e sem vendas), cria entrada
@@ -2090,7 +2090,7 @@ GROUP BY soi_parent.name
                 if avisos_out is not None and _aviso_magento_fb not in avisos_out:
                     avisos_out.append(_aviso_magento_fb)
                 try:
-                    from ...services.health_alert_service import log_and_alert as _log_alert_fb
+                    from app.services.health_alert_service import log_and_alert as _log_alert_fb
                     _first_pid_fb = projeto_ids[0] if projeto_ids else None
                     _log_alert_fb(
                         event_type="MARGEM_MAGENTO_FAILED",
@@ -2098,8 +2098,8 @@ GROUP BY soi_parent.name
                         message=f"Falha no fallback Magento na Margem por Kit (projeto_id={_first_pid_fb}): {type(e).__name__}",
                         detail=str(e)[:1000],
                     )
-                except Exception:
-                    pass
+                except Exception as _ha_err_fb:
+                    logger.warning(f"[HealthAlert] Falha ao registrar MARGEM_MAGENTO_FAILED (fallback): {_ha_err_fb}")
 
         # 5. Ativo: query por ds_categoria para os event IDs mapeados como fonte=ATIVO
         #    Todos os kits verificam o Ativo; a contribuição é somada ao Magento (ou zerado se não há match).
@@ -2227,7 +2227,7 @@ GROUP BY sub.id_evento, sub.ds_categoria
                 if avisos_out is not None and _aviso_ativo not in avisos_out:
                     avisos_out.append(_aviso_ativo)
                 try:
-                    from ...services.health_alert_service import log_and_alert as _log_alert_ativo
+                    from app.services.health_alert_service import log_and_alert as _log_alert_ativo
                     _first_pid_ativo = projeto_ids[0] if projeto_ids else None
                     _log_alert_ativo(
                         event_type="MARGEM_ATIVO_FAILED",
@@ -2235,8 +2235,8 @@ GROUP BY sub.id_evento, sub.ds_categoria
                         message=f"Falha ao buscar dados Ativo na Margem por Kit (projeto_id={_first_pid_ativo}): {type(_e_ativo).__name__}",
                         detail=str(_e_ativo)[:1000],
                     )
-                except Exception:
-                    pass
+                except Exception as _ha_err_ativo:
+                    logger.warning(f"[HealthAlert] Falha ao registrar MARGEM_ATIVO_FAILED: {_ha_err_ativo}")
 
         # 6. Build result list — inclui kits sem vendas (qtd=0) para visibilidade de custo
         if not kit_map:

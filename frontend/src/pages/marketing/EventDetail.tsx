@@ -2294,9 +2294,17 @@ const EventDetail: React.FC = () => {
               {event.margemAvisos.map((aviso, i) => (
                 <div key={i} className="flex items-start gap-2 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg text-xs text-red-700 dark:text-red-300">
                   <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-red-500" />
-                  <span>{aviso}</span>
+                  <span className="flex-1">{aviso}</span>
                 </div>
               ))}
+              <button
+                onClick={() => fetchEventRef.current?.(true)}
+                disabled={loading || detailsLoading}
+                className="flex items-center justify-center gap-1.5 w-full py-1.5 text-xs font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-700 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-3 h-3 ${(loading || detailsLoading) ? 'animate-spin' : ''}`} />
+                Tentar novamente
+              </button>
             </div>
           )}
           {(() => {
