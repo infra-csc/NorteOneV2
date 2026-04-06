@@ -9125,6 +9125,48 @@ ORDER BY cnt DESC
                     {"categoria": r[0], "cnt": int(r[1])} for r in rows_m12
                 ]
 
+                # M13 - query usando a lógica do controle externo:
+                # Cortesia = soi_child.price - soi_child.discount_amount = 0
+                # Usa MAX(soi_child.price - soi_child.discount_amount) por bundle
+                # para evitar multiplicar linhas com múltiplos filhos
+                q_m13 = text("""
+SELECT
+    SUM(CASE
+        WHEN child_agg.net_price > 0
+            AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+            AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        THEN 1 ELSE 0 END) AS qtd_site_logica_externa,
+    SUM(CASE WHEN child_agg.net_price = 0 THEN 1 ELSE 0 END) AS cortesia_child_zero,
+    SUM(CASE WHEN so.discount_description LIKE '%%GRUPOS%%' THEN 1 ELSE 0 END) AS excluidos_grupos_desc,
+    SUM(CASE WHEN so.coupon_code LIKE 'GRUP%%' THEN 1 ELSE 0 END) AS excluidos_cupom_grupo,
+    COUNT(*) AS total_bundles
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+LEFT JOIN (
+    SELECT parent_item_id,
+           MAX(price - COALESCE(discount_amount, 0)) AS net_price
+    FROM sales_order_item
+    WHERE product_type != 'bundle'
+    GROUP BY parent_item_id
+) AS child_agg ON child_agg.parent_item_id = soi.item_id
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+""")
+                r_m13 = conn.execute(q_m13, {"mid": safe_mid}).fetchone()
+                result["magento"]["M13_logica_externa_child"] = {
+                    "qtd_site": int(r_m13[0] or 0),
+                    "cortesia_child_zero": int(r_m13[1] or 0),
+                    "excluidos_grupos_desc": int(r_m13[2] or 0),
+                    "excluidos_cupom_grupo": int(r_m13[3] or 0),
+                    "total_com_child": int(r_m13[4] or 0),
+                }
+
         except Exception as e:
             result["magento"]["error"] = str(e)
 
