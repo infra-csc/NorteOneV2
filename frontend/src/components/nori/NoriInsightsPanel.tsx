@@ -132,6 +132,12 @@ const InsightCard: React.FC<InsightCardProps> = ({ insight, onMarkVisto, onDesca
               </div>
             )}
 
+            {insight.acao_sugerida && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug mb-2">
+                🎯 {insight.acao_sugerida}
+              </p>
+            )}
+
             {expanded && (
               <div className="mt-2 space-y-2">
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
