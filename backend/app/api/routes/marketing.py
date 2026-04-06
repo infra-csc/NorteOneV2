@@ -9046,6 +9046,85 @@ ORDER BY cnt DESC
                     {"categoria": r[0], "cnt": int(r[1])} for r in rows_m9
                 ]
 
+                # M10 - quantidade de CORTESIA com grand_total >= 50 (incluídas na nossa query mas talvez excluídas no controle externo)
+                q_m10 = text("""
+SELECT
+    COUNT(*) AS cortesia_com_total_alto,
+    MIN(so.base_grand_total) AS min_total,
+    MAX(so.base_grand_total) AS max_total
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total > 0
+  AND so.discount_description LIKE '%%CORTESIA%%'
+""")
+                r_m10 = conn.execute(q_m10, {"mid": safe_mid}).fetchone()
+                result["magento"]["M10_cortesia_grand_total_alto"] = {
+                    "count": int(r_m10[0] or 0),
+                    "min_total": float(r_m10[1] or 0),
+                    "max_total": float(r_m10[2] or 0),
+                }
+
+                # M11 - query simples sem filtros de cortesia/grupos (apenas price > 0 e grand_total > 0)
+                # Para ver se o controle externo conta de forma mais simples
+                q_m11 = text("""
+SELECT COUNT(*) AS qtd_sem_filtros_desc
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total > 0
+""")
+                r_m11 = conn.execute(q_m11, {"mid": safe_mid}).scalar()
+                result["magento"]["M11_sem_filtros_desc_coupon"] = int(r_m11 or 0)
+
+                # M12 - breakdown por discount_description das ordens com grand_total > 0 e price > 0
+                # (incluindo CORTESIA e GRUPOS para ver exatamente o que está sendo contado)
+                q_m12 = text("""
+SELECT
+    CASE
+        WHEN so.discount_description IS NULL AND so.coupon_code IS NULL THEN 'SEM_DESCONTO'
+        WHEN so.discount_description LIKE '%%CORTESIA%%' THEN 'CORTESIA'
+        WHEN so.discount_description LIKE '%%GRUPOS%%' THEN 'GRUPOS'
+        WHEN so.coupon_code LIKE 'GRUP%%' THEN 'CUPOM_GRUPO'
+        ELSE 'OUTROS_DESC'
+    END AS categoria,
+    COUNT(*) AS cnt
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total > 0
+GROUP BY categoria
+ORDER BY cnt DESC
+""")
+                rows_m12 = conn.execute(q_m12, {"mid": safe_mid}).fetchall()
+                result["magento"]["M12_breakdown_com_grand_total_pos"] = [
+                    {"categoria": r[0], "cnt": int(r[1])} for r in rows_m12
+                ]
+
         except Exception as e:
             result["magento"]["error"] = str(e)
 
