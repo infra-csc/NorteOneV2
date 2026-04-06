@@ -8877,6 +8877,175 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
                 r_m4 = conn.execute(q_m4, {"mid": safe_mid}).scalar()
                 result["magento"]["M4_sem_regexp_filter"] = int(r_m4 or 0)
 
+                # M5 - breakdown do que está sendo filtrado (cortesia vs grupos vs preco_zero)
+                q_m5 = text("""
+SELECT
+    SUM(CASE WHEN soi.price = 0 THEN 1 ELSE 0 END) AS excluidos_price_zero,
+    SUM(CASE WHEN soi.price > 0 AND so.base_grand_total = 0 THEN 1 ELSE 0 END) AS excluidos_grand_total_zero,
+    SUM(CASE WHEN soi.price > 0 AND so.base_grand_total > 0
+        AND (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50) THEN 1 ELSE 0 END) AS excluidos_cortesia_barato,
+    SUM(CASE WHEN soi.price > 0 AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description LIKE '%%GRUPOS%%') THEN 1 ELSE 0 END) AS excluidos_desc_grupos,
+    SUM(CASE WHEN soi.price > 0 AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code LIKE 'GRUP%%') THEN 1 ELSE 0 END) AS excluidos_cupom_grupos,
+    SUM(CASE WHEN soi.price > 0 AND so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%') THEN 1 ELSE 0 END) AS incluidos_site
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+""")
+                r_m5 = conn.execute(q_m5, {"mid": safe_mid}).fetchone()
+                result["magento"]["M5_exclusao_breakdown"] = {
+                    "excluidos_price_zero": int(r_m5[0] or 0),
+                    "excluidos_grand_total_zero": int(r_m5[1] or 0),
+                    "excluidos_cortesia_barato": int(r_m5[2] or 0),
+                    "excluidos_desc_grupos": int(r_m5[3] or 0),
+                    "excluidos_cupom_grupos": int(r_m5[4] or 0),
+                    "incluidos_site": int(r_m5[5] or 0),
+                }
+
+                # M6 - amostras dos pedidos excluidos por discount_description GRUPOS
+                q_m6 = text("""
+SELECT so.increment_id, so.discount_description, so.coupon_code, so.base_grand_total, soi.price, soi.name
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total > 0
+  AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+  AND so.discount_description LIKE '%%GRUPOS%%'
+LIMIT 10
+""")
+                rows_m6 = conn.execute(q_m6, {"mid": safe_mid}).fetchall()
+                result["magento"]["M6_amostras_excluidos_desc_grupos"] = [
+                    {
+                        "increment_id": r[0],
+                        "discount_description": r[1],
+                        "coupon_code": r[2],
+                        "base_grand_total": float(r[3] or 0),
+                        "soi_price": float(r[4] or 0),
+                        "item_name": r[5],
+                    }
+                    for r in rows_m6
+                ]
+
+                # M7 - amostras dos pedidos excluidos por coupon_code GRUP%
+                q_m7 = text("""
+SELECT so.increment_id, so.discount_description, so.coupon_code, so.base_grand_total, soi.price
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total > 0
+  AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+  AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+  AND so.coupon_code LIKE 'GRUP%%'
+LIMIT 10
+""")
+                rows_m7 = conn.execute(q_m7, {"mid": safe_mid}).fetchall()
+                result["magento"]["M7_amostras_excluidos_cupom_grupos"] = [
+                    {
+                        "increment_id": r[0],
+                        "discount_description": r[1],
+                        "coupon_code": r[2],
+                        "base_grand_total": float(r[3] or 0),
+                        "soi_price": float(r[4] or 0),
+                    }
+                    for r in rows_m7
+                ]
+
+                # M8 - amostras dos 169 com grand_total=0 mas soi.price>0
+                # (para entender se são cortesia, grupos ou site com desconto 100%)
+                q_m8 = text("""
+SELECT so.increment_id, so.discount_description, so.coupon_code,
+       so.base_grand_total, soi.price, soi.name,
+       so.customer_email
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total = 0
+LIMIT 20
+""")
+                rows_m8 = conn.execute(q_m8, {"mid": safe_mid}).fetchall()
+                result["magento"]["M8_amostras_grand_total_zero"] = [
+                    {
+                        "increment_id": r[0],
+                        "discount_description": r[1],
+                        "coupon_code": r[2],
+                        "base_grand_total": float(r[3] or 0),
+                        "soi_price": float(r[4] or 0),
+                        "item_name": r[5],
+                        "email": (r[6] or "")[:30],
+                    }
+                    for r in rows_m8
+                ]
+
+                # M9 - breakdown do grand_total=0 por discount_description pattern
+                q_m9 = text("""
+SELECT
+    CASE
+        WHEN so.discount_description LIKE '%%CORTESIA%%' THEN 'CORTESIA'
+        WHEN so.discount_description LIKE '%%GRUPOS%%' THEN 'GRUPOS'
+        WHEN so.coupon_code LIKE 'GRUP%%' THEN 'CUPOM_GRUP'
+        WHEN so.coupon_code LIKE '%%CORTESIA%%' THEN 'CUPOM_CORTESIA'
+        WHEN so.discount_description IS NULL AND so.coupon_code IS NULL THEN 'SEM_DESC_SEM_CUPOM'
+        ELSE CONCAT('outros_desc:', COALESCE(LEFT(so.discount_description,30),'NULL'))
+    END AS categoria,
+    COUNT(*) AS cnt
+FROM sales_order so
+INNER JOIN sales_order_item soi
+       ON soi.order_id = so.entity_id AND soi.product_type = 'bundle'
+INNER JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
+WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+  AND so.state != 'canceled'
+  AND cpev1.value = :mid
+  AND so.increment_id NOT REGEXP '-[0-9]'
+  AND so.created_at < CURDATE() + INTERVAL 1 DAY
+  AND soi.price > 0
+  AND so.base_grand_total = 0
+GROUP BY categoria
+ORDER BY cnt DESC
+""")
+                rows_m9 = conn.execute(q_m9, {"mid": safe_mid}).fetchall()
+                result["magento"]["M9_grand_total_zero_por_categoria"] = [
+                    {"categoria": r[0], "cnt": int(r[1])} for r in rows_m9
+                ]
+
         except Exception as e:
             result["magento"]["error"] = str(e)
 
