@@ -1700,6 +1700,13 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
     }
 
 
+# Cache em memória para resultados de receita Magento por bundle.
+# A revenue query (com join de filhos por nome) é lenta para eventos de alto volume.
+# O dado de receita muda raramente dentro de uma sessão — TTL de 4h é suficiente.
+_margem_rev_cache: dict = {}  # frozenset(bundle_ids) → (rev_by_bid: dict, timestamp: float)
+_MARGEM_REV_TTL_SECONDS = 14400  # 4 horas
+
+
 def get_margem_por_kit(
     db: Session,
     projeto_ids: list,
@@ -1708,6 +1715,7 @@ def get_margem_por_kit(
     card_total_receita: float = None,
     card_kit_cost_avg: float = None,
     avisos_out: list = None,
+    force_refresh: bool = False,
 ) -> list:
     """Quebra de margem por tipo de kit via vendas Magento bundle."""
     from ...models.kit_config import KitConfig
@@ -1954,16 +1962,30 @@ GROUP BY soi_parent.product_id
                 _log_margem_magento_failed(e, "count")
 
             # --- Query 2: Receita por bundle (join com itens-filho) ---
-            try:
-                with db_module.engine_magento.connect() as conn:
-                    _t1 = _time.monotonic()
-                    rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
-                    for row in rev_result.fetchall():
-                        rev_by_bid[int(row[0])] = float(row[1] or 0)
-                    logger.info(f"[Margem] revenue_query: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_time.monotonic()-_t1:.2f}s")
-            except Exception as e:
-                logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
-                _log_margem_magento_failed(e, "revenue")
+            # A join com soi_child por nome (LIKE) é lenta para eventos de alto volume
+            # porque parent_item_id pode não ter índice no Magento 2.
+            # Usamos cache em memória com TTL de 4h para evitar re-executar a cada request.
+            _rev_cache_key = frozenset(bundle_ids)
+            _now_mono = _time.monotonic()
+            if force_refresh:
+                _margem_rev_cache.pop(_rev_cache_key, None)
+            _cached = _margem_rev_cache.get(_rev_cache_key)
+            if _cached and (_now_mono - _cached[1]) < _MARGEM_REV_TTL_SECONDS:
+                rev_by_bid = dict(_cached[0])
+                logger.info(f"[Margem] revenue_query cache HIT: {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (TTL restante: {int(_MARGEM_REV_TTL_SECONDS - (_now_mono - _cached[1]))}s)")
+            else:
+                try:
+                    with db_module.engine_magento.connect() as conn:
+                        _t1 = _time.monotonic()
+                        rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
+                        for row in rev_result.fetchall():
+                            rev_by_bid[int(row[0])] = float(row[1] or 0)
+                        _elapsed = _time.monotonic() - _t1
+                        logger.info(f"[Margem] revenue_query: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
+                        _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
+                except Exception as e:
+                    logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
+                    _log_margem_magento_failed(e, "revenue")
 
             # Consolida: usa qtd da query 1 + receita da query 2 (independentes)
             all_bids = set(qtd_by_bid.keys()) | set(rev_by_bid.keys())
@@ -2108,16 +2130,25 @@ GROUP BY soi_parent.name
                     logger.error(f"Erro no fallback count Magento para margem: {e}")
                     _log_margem_magento_failed(e, "fallback-count")
 
-                # Fallback receita — bloco independente
-                try:
-                    with db_module.engine_magento.connect() as conn:
-                        _t_fb1 = _time.monotonic()
-                        for fb_row in conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall():
-                            fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
-                        logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_time.monotonic()-_t_fb1:.2f}s")
-                except Exception as e:
-                    logger.error(f"Erro no fallback receita Magento para margem: {e}")
-                    _log_margem_magento_failed(e, "fallback-revenue")
+                # Fallback receita — bloco independente (com cache em memória)
+                _fb_rev_cache_key = frozenset(fb_bundle_ids)
+                _now_mono_fb = _time.monotonic()
+                _cached_fb = _margem_rev_cache.get(_fb_rev_cache_key)
+                if _cached_fb and (_now_mono_fb - _cached_fb[1]) < _MARGEM_REV_TTL_SECONDS:
+                    fb_rev_by_name = dict(_cached_fb[0])
+                    logger.info(f"[Margem] fallback revenue_query cache HIT: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} entradas")
+                else:
+                    try:
+                        with db_module.engine_magento.connect() as conn:
+                            _t_fb1 = _time.monotonic()
+                            for fb_row in conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall():
+                                fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
+                            _elapsed_fb = _time.monotonic() - _t_fb1
+                            logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_elapsed_fb:.2f}s")
+                            _margem_rev_cache[_fb_rev_cache_key] = (dict(fb_rev_by_name), _time.monotonic())
+                    except Exception as e:
+                        logger.error(f"Erro no fallback receita Magento para margem: {e}")
+                        _log_margem_magento_failed(e, "fallback-revenue")
 
                 # Combina e aplica apenas onde qtd ainda é 0
                 all_fb_names = set(fb_qtd_by_name.keys()) | set(fb_rev_by_name.keys())
@@ -7072,6 +7103,7 @@ def get_marketing_event_by_id(
             card_total_receita=current_receita,
             card_kit_cost_avg=detail_kit_cost_avg,
             avisos_out=_detail_margem_avisos,
+            force_refresh=force_refresh,
         )
         detail_detalhe_vendas = []
         detail_kit_query_failed = False
@@ -7409,6 +7441,7 @@ def get_marketing_event_by_id(
         card_total_receita=current_receita,
         card_kit_cost_avg=detail_sa_kit_cost,
         avisos_out=_sa_margem_avisos,
+        force_refresh=force_refresh,
     )
     sa_detalhe_vendas = []
     sa_kit_query_failed = False
