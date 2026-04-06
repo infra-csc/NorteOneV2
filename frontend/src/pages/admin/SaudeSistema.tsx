@@ -16,12 +16,24 @@ interface HealthEvent {
   created_at: string;
 }
 
+interface DataSourceStatus {
+  failures_24h: number;
+  last_failure: HealthEvent | null;
+}
+
 interface HealthSummary {
   status: 'healthy' | 'warning' | 'critical' | 'info';
   critical_24h: number;
   high_24h: number;
   total_24h: number;
   last_event: HealthEvent | null;
+  data_sources?: {
+    magento?: DataSourceStatus;
+    ativo?: DataSourceStatus;
+    ssh?: DataSourceStatus;
+    cache?: DataSourceStatus;
+    sync?: DataSourceStatus;
+  };
 }
 
 interface AlertConfig {
@@ -57,6 +69,16 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   SYNC_BATCH_FAILED: 'Falha na sincronização',
   STARTUP_RESYNC_FAILED: 'Falha no resync inicial',
   TEST: 'Teste de alerta',
+  MARGEM_MAGENTO_FAILED: 'Falha na consulta Magento (Margem)',
+  MARGEM_ATIVO_FAILED: 'Falha na consulta Ativo (Margem)',
+};
+
+const DATA_SOURCE_CONFIG: Record<string, { label: string; desc: string }> = {
+  magento: { label: 'Magento', desc: 'Inscrições e receita (loja online)' },
+  ativo: { label: 'Ativo', desc: 'Inscrições legacy (sistema legado)' },
+  ssh: { label: 'Túnel SSH', desc: 'Conexão com banco de dados' },
+  cache: { label: 'Cache / Refresh', desc: 'Atualização automática de dados' },
+  sync: { label: 'Sincronização', desc: 'Resync de cadastros e dim_projeto' },
 };
 
 function formatDatetime(iso: string): string {
@@ -291,6 +313,47 @@ const SaudeSistema: React.FC = () => {
                 <p className={`text-xs ${textSecondary}`}>Total 24h</p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {summary?.data_sources && Object.keys(summary.data_sources).length > 0 && (
+        <div className={`${cardBase} rounded-xl p-5`}>
+          <h2 className={`text-sm font-semibold ${textSecondary} uppercase tracking-wider mb-4`}>Fontes de Dados — últimas 24h</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+            {(Object.entries(summary.data_sources) as [string, DataSourceStatus][]).map(([key, src]) => {
+              const cfg = DATA_SOURCE_CONFIG[key];
+              if (!cfg) return null;
+              const ok = src.failures_24h === 0;
+              return (
+                <div
+                  key={key}
+                  className={`flex flex-col gap-1.5 p-3 rounded-lg border ${ok
+                    ? isDark ? 'border-emerald-700/40 bg-emerald-900/10' : 'border-emerald-200 bg-emerald-50'
+                    : isDark ? 'border-red-700/40 bg-red-900/10' : 'border-red-200 bg-red-50'}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                    <span className={`text-sm font-semibold ${ok
+                      ? isDark ? 'text-emerald-300' : 'text-emerald-700'
+                      : isDark ? 'text-red-300' : 'text-red-700'}`}>
+                      {cfg.label}
+                    </span>
+                  </div>
+                  <p className={`text-xs ${textSecondary} leading-tight`}>{cfg.desc}</p>
+                  {ok ? (
+                    <p className={`text-xs font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                      Sem falhas nas últimas 24h
+                    </p>
+                  ) : (
+                    <p className={`text-xs font-medium ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                      {src.failures_24h} falha{src.failures_24h !== 1 ? 's' : ''}
+                      {src.last_failure ? ` — último ${timeAgo(src.last_failure.created_at)}` : ''}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

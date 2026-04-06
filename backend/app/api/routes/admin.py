@@ -261,12 +261,45 @@ def get_health_summary(
     else:
         status = "healthy"
 
+    # --- Fontes de dados: última falha por source nas últimas 24h ---
+    DATA_SOURCE_GROUPS = {
+        "magento": ["MARGEM_MAGENTO_FAILED"],
+        "ativo": ["MARGEM_ATIVO_FAILED"],
+        "ssh": ["SSH_TUNNEL_DOWN", "SSH_TUNNEL_RECONNECT_FAILED"],
+        "cache": ["WARMUP_FAILED", "DAILY_REFRESH_FAILED", "ISC_REFRESH_FAILED"],
+        "sync": ["SYNC_BATCH_FAILED", "STARTUP_RESYNC_FAILED"],
+    }
+    data_sources = {}
+    for source, event_types in DATA_SOURCE_GROUPS.items():
+        fail_count = (
+            db.query(func.count(SystemHealthEvent.id))
+            .filter(
+                SystemHealthEvent.event_type.in_(event_types),
+                SystemHealthEvent.created_at >= last_24h,
+            )
+            .scalar()
+        ) or 0
+        last_failure = (
+            db.query(SystemHealthEvent)
+            .filter(
+                SystemHealthEvent.event_type.in_(event_types),
+                SystemHealthEvent.created_at >= last_24h,
+            )
+            .order_by(desc(SystemHealthEvent.created_at))
+            .first()
+        )
+        data_sources[source] = {
+            "failures_24h": fail_count,
+            "last_failure": last_failure.to_dict() if last_failure else None,
+        }
+
     return {
         "status": status,
         "critical_24h": critical_24h,
         "high_24h": high_24h,
         "total_24h": total_24h,
         "last_event": last_event.to_dict() if last_event else None,
+        "data_sources": data_sources,
     }
 
 
