@@ -7,7 +7,6 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional
-import requests
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +232,7 @@ def _send_email(cfg, subject: str, body_text: str, body_html: str, recipients: l
 
 
 def _send_slack(webhook_url: str, event_type: str, severity: str, message: str, detail: Optional[str], timestamp: str):
+    import requests  # lazy import: evita falha de módulo se requests não estiver instalado
     color_map = {
         "CRITICAL": "#dc2626",
         "HIGH": "#f97316",

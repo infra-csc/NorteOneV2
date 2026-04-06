@@ -1846,18 +1846,24 @@ def get_margem_por_kit(
             # Note: bundle_ids is already scoped to this event's SKU mapping (ano=_ano),
             # so no year filter is needed — removing the cped/cpev1 INNER JOINs that
             # previously excluded bundles whose event entity lacked attribute 195.
-            # Query 1: conta todos os bundles — parte de soi_parent filtrado por product_id
-            # (index lookup seletivo) e depois join com sales_order, evitando full scan.
+            # Estratégia: sales_order_item NÃO tem índice em product_id no Magento 2 padrão.
+            # Partir de sales_order_item com WHERE product_id IN (...) faz full scan.
+            # A solução: partir de sales_order com filtro de data (indexed created_at)
+            # → poda o universo para ~2 anos de pedidos → join com soi_item via order_id
+            # (indexed) com product_id no ON → MySQL avalia product_id AFTER index join.
+            #
+            # Query 1: contagem — filtro de data em sales_order + product_id no JOIN
             magento_count_query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(10000) */
+SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.product_id                  AS bundle_entity_id,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
-FROM sales_order_item soi_parent
-INNER JOIN sales_order so
-       ON so.entity_id = soi_parent.order_id
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+      AND soi_parent.product_id   IN :bundle_ids
 WHERE
-    soi_parent.product_id IN :bundle_ids
-AND soi_parent.product_type = 'bundle'
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
 AND so.base_grand_total > 0
@@ -1869,14 +1875,16 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
-            # Query 2: receita líquida — idem, parte de soi_parent → join so → join soi_child.
+            # Query 2: receita — mesmo padrão + join filho para valor da distância/modalidade
             magento_bundle_query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(10000) */
+SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.product_id                                                              AS bundle_entity_id,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
-FROM sales_order_item soi_parent
-INNER JOIN sales_order so
-       ON so.entity_id = soi_parent.order_id
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+      AND soi_parent.product_id   IN :bundle_ids
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -1889,8 +1897,7 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE '%%Modalidade%%'
       )
 WHERE
-    soi_parent.product_id IN :bundle_ids
-AND soi_parent.product_type = 'bundle'
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
 AND so.base_grand_total > 0
@@ -1988,22 +1995,26 @@ GROUP BY soi_parent.product_id
         kits_sem_venda = [k for k, v in kit_map.items() if v["qtd"] == 0]
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
             ev_ids_fb = list(seen_magento_events)
-            # Fallback query 1: parte de cpev1 (pequena, indexada por attribute_id + value)
-            # → join soi_parent (product_id do bundle) → join so para filtros de status.
+            # Fallback: mesmo padrão das queries primárias — filtro de data em sales_order
+            # (usa índice created_at) + cpev1 como subquery no JOIN para obter product_ids
+            # do evento sem precisar de uma round-trip extra ao banco.
             fb_count_query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(10000) */
+SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.name                        AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
-FROM catalog_product_entity_varchar cpev1
+FROM sales_order so
 INNER JOIN sales_order_item soi_parent
-       ON soi_parent.product_id   = cpev1.entity_id
+       ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-INNER JOIN sales_order so
-       ON so.entity_id = soi_parent.order_id
+      AND soi_parent.product_id   IN (
+              SELECT entity_id
+              FROM   catalog_product_entity_varchar
+              WHERE  attribute_id = 321
+              AND    store_id     = 0
+              AND    value        IN :ev_ids_fb
+          )
 WHERE
-    cpev1.attribute_id = 321
-AND cpev1.store_id     = 0
-AND cpev1.value IN :ev_ids_fb
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
 AND so.base_grand_total > 0
@@ -2015,17 +2026,22 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
 
-            # Fallback query 2: idem, com join adicional em soi_child para receita.
+            # Fallback query 2: idem + join filho para receita por distância/modalidade.
             fb_query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(10000) */
+SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.name                                                                    AS bundle_name,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
-FROM catalog_product_entity_varchar cpev1
+FROM sales_order so
 INNER JOIN sales_order_item soi_parent
-       ON soi_parent.product_id   = cpev1.entity_id
+       ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-INNER JOIN sales_order so
-       ON so.entity_id = soi_parent.order_id
+      AND soi_parent.product_id   IN (
+              SELECT entity_id
+              FROM   catalog_product_entity_varchar
+              WHERE  attribute_id = 321
+              AND    store_id     = 0
+              AND    value        IN :ev_ids_fb
+          )
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -2038,9 +2054,7 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE '%%Modalidade%%'
       )
 WHERE
-    cpev1.attribute_id = 321
-AND cpev1.store_id     = 0
-AND cpev1.value IN :ev_ids_fb
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
 AND so.base_grand_total > 0
