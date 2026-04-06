@@ -454,34 +454,6 @@ def get_kits_with_config(
     return kits
 
 
-def _invalidate_eventos_list_for_year(db: Session, id_evento: int = None) -> None:
-    """Invalidate eventos_list_cache only for the year of the affected event.
-
-    Falls back to invalidate_all() if the year cannot be determined.
-    """
-    from ...core.cache import eventos_list_cache
-    from datetime import datetime
-
-    year = None
-    if id_evento:
-        projeto = db.query(DimProjeto).filter(DimProjeto.id == id_evento).first()
-        if projeto and projeto.data_evento:
-            year = projeto.data_evento.year
-
-    if year is None:
-        year = datetime.now().year
-
-    all_keys = eventos_list_cache.get_all_keys()
-    prefix = f"{year}_"
-    keys_to_drop = [k for k in all_keys if k.startswith(prefix)]
-    for k in keys_to_drop:
-        eventos_list_cache.invalidate(k)
-    logger.info(
-        f"[KitConfig] eventos_list_cache: invalidated {len(keys_to_drop)} keys for year {year} "
-        f"(id_evento={id_evento}): {keys_to_drop}"
-    )
-
-
 def _invalidate_event_detail_for_bundle(
     db: Session,
     bundle_entity_id: int,
@@ -582,7 +554,6 @@ def upsert_kit_config(
             _kits_cache["data"] = None
             _kits_cache["ts"] = 0.0
             clear_ticket_atual_cache()
-            _invalidate_eventos_list_for_year(db, body.id_evento)
             _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
             return existing
 
@@ -602,7 +573,6 @@ def upsert_kit_config(
         _kits_cache["data"] = None
         _kits_cache["ts"] = 0.0
         clear_ticket_atual_cache()
-        _invalidate_eventos_list_for_year(db, body.id_evento)
         _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
         return new_config
     except IntegrityError:
