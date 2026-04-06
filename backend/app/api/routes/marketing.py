@@ -1909,58 +1909,80 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
-            try:
-                import time as _time
-                with db_module.engine_magento.connect() as conn:
-                    # Executa as duas queries e combina os resultados
-                    _t0 = _time.monotonic()
-                    count_result = conn.execute(magento_count_query, {"bundle_ids": bundle_ids})
-                    qtd_by_bid: dict = {}
-                    for row in count_result.fetchall():
-                        qtd_by_bid[int(row[0])] = int(row[1] or 0)
-                    logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_time.monotonic()-_t0:.2f}s")
+            import time as _time
 
-                    _t1 = _time.monotonic()
-                    rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
-                    rev_by_bid: dict = {}
-                    for row in rev_result.fetchall():
-                        rev_by_bid[int(row[0])] = float(row[1] or 0)
-                    logger.info(f"[Margem] revenue_query: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_time.monotonic()-_t1:.2f}s")
-
-                    # Consolida: todos os bundle_ids com qtd (da query de contagem)
-                    all_bids = set(qtd_by_bid.keys()) | set(rev_by_bid.keys())
-                    for bid in all_bids:
-                        qtd = qtd_by_bid.get(bid, 0)
-                        receita = rev_by_bid.get(bid, 0.0)
-                        tipo_kit = global_bundle_tipo_map.get(bid)
-                        if not tipo_kit:
-                            continue
-                        if tipo_kit not in kit_map:
-                            kit_map[tipo_kit] = {
-                                "custo": 0.0,
-                                "ativo_categoria": None,
-                                "qtd": 0,
-                                "receita": 0.0,
-                                "has_cost": False,
-                            }
-                        kit_map[tipo_kit]["qtd"] += qtd
-                        kit_map[tipo_kit]["receita"] += receita
-            except Exception as e:
-                logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
-                _aviso_magento = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
-                if avisos_out is not None and _aviso_magento not in avisos_out:
-                    avisos_out.append(_aviso_magento)
+            def _log_margem_magento_failed(e_exc, label="primary"):
+                _aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                if avisos_out is not None and _aviso not in avisos_out:
+                    avisos_out.append(_aviso)
                 try:
-                    from app.services.health_alert_service import log_and_alert as _log_alert
-                    _first_pid = projeto_ids[0] if projeto_ids else None
-                    _log_alert(
+                    from app.services.health_alert_service import log_and_alert as _la
+                    from ...models.dimensoes import DimProjeto as _DP
+                    _pid = projeto_ids[0] if projeto_ids else None
+                    _nome = None
+                    if _pid:
+                        try:
+                            _proj = db.query(_DP).filter(_DP.id == _pid).first()
+                            _nome = _proj.evento if _proj else None
+                        except Exception:
+                            pass
+                    _evento_label = _nome or f"projeto_id={_pid}"
+                    _la(
                         event_type="MARGEM_MAGENTO_FAILED",
                         severity="HIGH",
-                        message=f"Falha ao buscar dados Magento na Margem por Kit (projeto_id={_first_pid}): {type(e).__name__}",
-                        detail=str(e)[:1000],
+                        message=f"Falha na query Magento ({label}) — Margem por Kit: {_evento_label}: {type(e_exc).__name__}",
+                        detail=str(e_exc)[:1000],
                     )
                 except Exception as _ha_err:
                     logger.warning(f"[HealthAlert] Falha ao registrar MARGEM_MAGENTO_FAILED: {_ha_err}")
+
+            # Executa count e receita como blocos independentes: se a receita falhar,
+            # a contagem já calculada é preservada (evita perder qtd por timeout na receita).
+            qtd_by_bid: dict = {}
+            rev_by_bid: dict = {}
+
+            # --- Query 1: Contagem de inscrições por bundle ---
+            try:
+                with db_module.engine_magento.connect() as conn:
+                    _t0 = _time.monotonic()
+                    count_result = conn.execute(magento_count_query, {"bundle_ids": bundle_ids})
+                    for row in count_result.fetchall():
+                        qtd_by_bid[int(row[0])] = int(row[1] or 0)
+                    logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_time.monotonic()-_t0:.2f}s")
+            except Exception as e:
+                logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+                _log_margem_magento_failed(e, "count")
+
+            # --- Query 2: Receita por bundle (join com itens-filho) ---
+            try:
+                with db_module.engine_magento.connect() as conn:
+                    _t1 = _time.monotonic()
+                    rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
+                    for row in rev_result.fetchall():
+                        rev_by_bid[int(row[0])] = float(row[1] or 0)
+                    logger.info(f"[Margem] revenue_query: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_time.monotonic()-_t1:.2f}s")
+            except Exception as e:
+                logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
+                _log_margem_magento_failed(e, "revenue")
+
+            # Consolida: usa qtd da query 1 + receita da query 2 (independentes)
+            all_bids = set(qtd_by_bid.keys()) | set(rev_by_bid.keys())
+            for bid in all_bids:
+                qtd = qtd_by_bid.get(bid, 0)
+                receita = rev_by_bid.get(bid, 0.0)
+                tipo_kit = global_bundle_tipo_map.get(bid)
+                if not tipo_kit:
+                    continue
+                if tipo_kit not in kit_map:
+                    kit_map[tipo_kit] = {
+                        "custo": 0.0,
+                        "ativo_categoria": None,
+                        "qtd": 0,
+                        "receita": 0.0,
+                        "has_cost": False,
+                    }
+                kit_map[tipo_kit]["qtd"] += qtd
+                kit_map[tipo_kit]["receita"] += receita
 
         # Override custo pelo custo manual do kit_config quando definido.
         # Se o tipo não existe no kit_map (sem Cadastro e sem vendas), cria entrada
@@ -1995,10 +2017,29 @@ GROUP BY soi_parent.product_id
         kits_sem_venda = [k for k, v in kit_map.items() if v["qtd"] == 0]
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
             ev_ids_fb = list(seen_magento_events)
-            # Fallback: mesmo padrão das queries primárias — filtro de data em sales_order
-            # (usa índice created_at) + cpev1 como subquery no JOIN para obter product_ids
-            # do evento sem precisar de uma round-trip extra ao banco.
-            fb_count_query = text("""
+
+            # Estratégia do fallback: pré-busca os product_ids via cpev1 (tabela pequena,
+            # bem indexada por attribute_id+store_id+value) e depois reutiliza as mesmas
+            # queries eficientes do bloco primário — evita subconsulta correlacionada lenta.
+            fb_bundle_ids: list = []
+            try:
+                _cpev1_q = text("""
+SELECT DISTINCT entity_id
+FROM   catalog_product_entity_varchar
+WHERE  attribute_id = 321
+AND    store_id     = 0
+AND    value        IN :ev_ids_fb
+""").bindparams(bindparam("ev_ids_fb", expanding=True))
+                with db_module.engine_magento.connect() as _pid_conn:
+                    _pid_rows = _pid_conn.execute(_cpev1_q, {"ev_ids_fb": ev_ids_fb}).fetchall()
+                fb_bundle_ids = [int(r[0]) for r in _pid_rows]
+                logger.info(f"[Margem] fallback cpev1 prefetch: {len(ev_ids_fb)} ev_ids → {len(fb_bundle_ids)} bundle_ids")
+            except Exception as _cpev1_err:
+                logger.warning(f"[Margem] fallback cpev1 prefetch falhou: {_cpev1_err}")
+
+            if fb_bundle_ids:
+                # Reutiliza o mesmo padrão das queries primárias, agrupando por nome do bundle
+                fb_count_q = text("""
 SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.name                        AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
@@ -2006,13 +2047,7 @@ FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN (
-              SELECT entity_id
-              FROM   catalog_product_entity_varchar
-              WHERE  attribute_id = 321
-              AND    store_id     = 0
-              AND    value        IN :ev_ids_fb
-          )
+      AND soi_parent.product_id   IN :fb_bundle_ids
 WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
@@ -2024,10 +2059,9 @@ AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUP
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
-""").bindparams(bindparam("ev_ids_fb", expanding=True))
+""").bindparams(bindparam("fb_bundle_ids", expanding=True))
 
-            # Fallback query 2: idem + join filho para receita por distância/modalidade.
-            fb_query = text("""
+                fb_rev_q = text("""
 SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.name                                                                    AS bundle_name,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -2035,13 +2069,7 @@ FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
       AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN (
-              SELECT entity_id
-              FROM   catalog_product_entity_varchar
-              WHERE  attribute_id = 321
-              AND    store_id     = 0
-              AND    value        IN :ev_ids_fb
-          )
+      AND soi_parent.product_id   IN :fb_bundle_ids
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
@@ -2064,59 +2092,53 @@ AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUP
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
 AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
-""").bindparams(bindparam("ev_ids_fb", expanding=True))
-            try:
-                with db_module.engine_magento.connect() as conn:
-                    # Contagem por nome (sem join com filhos)
-                    fb_count_result = conn.execute(fb_count_query, {"ev_ids_fb": ev_ids_fb})
-                    fb_qtd_by_name: dict = {}
-                    for fb_row in fb_count_result.fetchall():
-                        fb_qtd_by_name[(fb_row[0] or "").strip()] = int(fb_row[1] or 0)
+""").bindparams(bindparam("fb_bundle_ids", expanding=True))
 
-                    # Receita por nome (INNER JOIN nos filhos)
-                    fb_result = conn.execute(fb_query, {"ev_ids_fb": ev_ids_fb})
-                    fb_rev_by_name: dict = {}
-                    for fb_row in fb_result.fetchall():
-                        fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
+                fb_qtd_by_name: dict = {}
+                fb_rev_by_name: dict = {}
 
-                    # Combina: bundle_name → (qtd, receita)
-                    all_fb_names = set(fb_qtd_by_name.keys()) | set(fb_rev_by_name.keys())
-                    fb_by_name: dict = {
-                        bname: {
-                            "qtd": fb_qtd_by_name.get(bname, 0),
-                            "receita": fb_rev_by_name.get(bname, 0.0),
-                        }
-                        for bname in all_fb_names
-                    }
-
-                    # Só aplica onde qtd ainda é 0; evita sobrescrever dados já preenchidos
-                    for kit_name in kits_sem_venda:
-                        kit_name_lower = kit_name.lower()
-                        total_qtd  = 0
-                        total_rec  = 0.0
-                        for bname, bdata in fb_by_name.items():
-                            if kit_name_lower in bname.lower():
-                                total_qtd += bdata["qtd"]
-                                total_rec += bdata["receita"]
-                        if total_qtd > 0 and kit_name in kit_map:
-                            kit_map[kit_name]["qtd"]     = total_qtd
-                            kit_map[kit_name]["receita"] = total_rec
-            except Exception as e:
-                logger.error(f"Erro no fallback de vendas por nome de bundle para margem: {e}")
-                _aviso_magento_fb = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
-                if avisos_out is not None and _aviso_magento_fb not in avisos_out:
-                    avisos_out.append(_aviso_magento_fb)
+                # Fallback count — bloco independente
                 try:
-                    from app.services.health_alert_service import log_and_alert as _log_alert_fb
-                    _first_pid_fb = projeto_ids[0] if projeto_ids else None
-                    _log_alert_fb(
-                        event_type="MARGEM_MAGENTO_FAILED",
-                        severity="HIGH",
-                        message=f"Falha no fallback Magento na Margem por Kit (projeto_id={_first_pid_fb}): {type(e).__name__}",
-                        detail=str(e)[:1000],
-                    )
-                except Exception as _ha_err_fb:
-                    logger.warning(f"[HealthAlert] Falha ao registrar MARGEM_MAGENTO_FAILED (fallback): {_ha_err_fb}")
+                    with db_module.engine_magento.connect() as conn:
+                        _t_fb0 = _time.monotonic()
+                        for fb_row in conn.execute(fb_count_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall():
+                            fb_qtd_by_name[(fb_row[0] or "").strip()] = int(fb_row[1] or 0)
+                        logger.info(f"[Margem] fallback count_query: {len(fb_bundle_ids)} bundles → {len(fb_qtd_by_name)} em {_time.monotonic()-_t_fb0:.2f}s")
+                except Exception as e:
+                    logger.error(f"Erro no fallback count Magento para margem: {e}")
+                    _log_margem_magento_failed(e, "fallback-count")
+
+                # Fallback receita — bloco independente
+                try:
+                    with db_module.engine_magento.connect() as conn:
+                        _t_fb1 = _time.monotonic()
+                        for fb_row in conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall():
+                            fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
+                        logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_time.monotonic()-_t_fb1:.2f}s")
+                except Exception as e:
+                    logger.error(f"Erro no fallback receita Magento para margem: {e}")
+                    _log_margem_magento_failed(e, "fallback-revenue")
+
+                # Combina e aplica apenas onde qtd ainda é 0
+                all_fb_names = set(fb_qtd_by_name.keys()) | set(fb_rev_by_name.keys())
+                fb_by_name: dict = {
+                    bname: {
+                        "qtd": fb_qtd_by_name.get(bname, 0),
+                        "receita": fb_rev_by_name.get(bname, 0.0),
+                    }
+                    for bname in all_fb_names
+                }
+                for kit_name in kits_sem_venda:
+                    kit_name_lower = kit_name.lower()
+                    total_qtd = 0
+                    total_rec = 0.0
+                    for bname, bdata in fb_by_name.items():
+                        if kit_name_lower in bname.lower():
+                            total_qtd += bdata["qtd"]
+                            total_rec += bdata["receita"]
+                    if total_qtd > 0 and kit_name in kit_map:
+                        kit_map[kit_name]["qtd"]     = total_qtd
+                        kit_map[kit_name]["receita"] = total_rec
 
         # 5. Ativo: query por ds_categoria para os event IDs mapeados como fonte=ATIVO
         #    Todos os kits verificam o Ativo; a contribuição é somada ao Magento (ou zerado se não há match).
