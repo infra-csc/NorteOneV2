@@ -666,22 +666,25 @@ const EventDetail: React.FC = () => {
   const todaySales = todayDailySale?.sales ?? 0;
   const todayExpectedRounded = Math.round(todayDailySale?.expected ?? 0);
   const todayPct = todayExpectedRounded > 0 ? Math.round((todaySales / todayExpectedRounded) * 100) : (todaySales > 0 ? 100 : 0);
-  // Usa o último ponto do cumulativo (incluindo hoje se houver dados),
-  // para alinhar com o gráfico Atingimento que também inclui hoje.
+  // Último ponto do cumulativo (pode incluir hoje) — usado para outros fins.
   const lastCumData = cumulativeData.length > 0
     ? cumulativeData[cumulativeData.length - 1]
     : null;
-  const metaAcumulada = lastCumData ? Math.round(lastCumData.cumulativeExpected) : 0;
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
   // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
   const totalInscritos = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
-  const acumuladoGap = metaAcumulada > 0 ? Math.round(((totalInscritos - metaAcumulada) / metaAcumulada) * 100) : (totalInscritos > 0 ? 100 : 0);
 
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
   const last30Days = completeDailySales.slice(-30);
   // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
   // Usado nos cards que devem refletir somente inscrições consolidadas até ontem.
   const totalInscritosConsolidado = completeDailySales.reduce((sum, d) => sum + d.sales, 0);
+
+  // Card "Meta Acumulada vs Inscritos Total": usa somente dados até ontem (dias fechados).
+  const lastCumDataOntem = cumulativeData.filter(d => d.date < todayStr).at(-1) ?? null;
+  const metaAcumulada = lastCumDataOntem ? Math.round(lastCumDataOntem.cumulativeExpected) : 0;
+  const inscritosOntem = totalInscritosConsolidado;
+  const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosOntem - metaAcumulada) / metaAcumulada) * 100) : (inscritosOntem > 0 ? 100 : 0);
 
   const _rawDMinusCalc = event.dMinusInscricoes != null ? event.dMinusInscricoes : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
   const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
@@ -1957,11 +1960,11 @@ const EventDetail: React.FC = () => {
               </div>
 
               <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total (até o momento)</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Meta Acumulada vs Inscritos Total (até ontem)</p>
                 <div className="flex items-center justify-between mb-2">
                   <div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">Inscritos</p>
-                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(totalInscritos)}</p>
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{formatNumber(inscritosOntem)}</p>
                   </div>
                   <div className="text-gray-300 dark:text-gray-600 text-sm">vs</div>
                   <div className="text-right">
