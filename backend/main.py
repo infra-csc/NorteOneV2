@@ -48,11 +48,14 @@ def _scheduled_isc_refresh():
 def _scheduled_sincronizar_hoje():
     from app.core.database import SessionLocal
     from app.services.snapshot_service import sincronizar_hoje_batch
+    import time as _time
     db = None
     try:
         db = SessionLocal()
         count = sincronizar_hoje_batch(db)
         logger.info(f"Scheduled sincronizar_hoje_batch completed: {count} groups synced")
+        set_last_full_refresh(_time.time())
+        logger.info("last_full_refresh atualizado após sincronizar_hoje_batch")
     except Exception as e:
         logger.error(f"Scheduled sincronizar_hoje_batch failed: {e}")
         try:

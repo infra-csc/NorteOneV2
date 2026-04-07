@@ -594,16 +594,22 @@ const MarketingDashboard: React.FC = () => {
                 <Clock className="w-3.5 h-3.5 opacity-70" />
                 <span>
                   {(() => {
-                    const ts = dataTimestamp || serverLastUpdate;
-                    if (!ts) return 'Horário de atualização indisponível';
+                    const ts = serverLastUpdate || dataTimestamp;
+                    if (!ts) return 'Horário de sincronização indisponível';
                     const d = new Date(ts);
                     const now = new Date();
                     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-                    const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                    if (d >= todayStart) return `Dados de hoje às ${timeStr}`;
-                    if (d >= yesterdayStart) return `Dados de ontem às ${timeStr}`;
-                    return `Dados de ${d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+                    const syncTimeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    const nextSync = new Date(d.getTime() + 30 * 60 * 1000);
+                    const nextStr = nextSync.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    const prefix = d >= todayStart
+                      ? `Sinc. hoje às ${syncTimeStr}`
+                      : d >= yesterdayStart
+                        ? `Sinc. ontem às ${syncTimeStr}`
+                        : `Sinc. ${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${syncTimeStr}`;
+                    const nextLabel = nextSync > now ? ` · próx. ${nextStr}` : '';
+                    return prefix + nextLabel;
                   })()}
                 </span>
               </>

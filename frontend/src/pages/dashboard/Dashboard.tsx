@@ -166,26 +166,8 @@ const Dashboard: React.FC = () => {
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
   const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
 
-  const getNextRefreshMs = (): number => {
-    const now = new Date();
-    const utcH = now.getUTCHours();
-    const utcM = now.getUTCMinutes();
-    // Backend refreshes at 05:00 BRT (08:00 UTC) and 17:00 BRT (20:00 UTC)
-    // Add 10-min buffer so cache expires after the refresh has actually completed
-    const slots = [{ h: 8, m: 10 }, { h: 20, m: 10 }];
-    for (const slot of slots) {
-      if (utcH < slot.h || (utcH === slot.h && utcM < slot.m)) {
-        const next = new Date(now);
-        next.setUTCHours(slot.h, slot.m, 0, 0);
-        return next.getTime();
-      }
-    }
-    // Next window is tomorrow at 08:10 UTC
-    const tomorrow = new Date(now);
-    tomorrow.setUTCDate(now.getUTCDate() + 1);
-    tomorrow.setUTCHours(8, 10, 0, 0);
-    return tomorrow.getTime();
-  };
+  const CACHE_TTL_MS = 30 * 60 * 1000;
+  const getNextRefreshMs = (): number => Date.now() + CACHE_TTL_MS;
 
   const readCache = (key: string) => {
     try {
