@@ -274,7 +274,7 @@ def _calculate_action_impact_from_warmup_cache(acao, projeto) -> dict:
     start_after = data_acao + timedelta(days=1)
     end_after = data_acao + timedelta(days=7)
 
-    today = date.today()
+    today = today_brazil()
     if end_after > today:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None,
                 "status": "aguardando_dados"}
@@ -285,7 +285,7 @@ def _calculate_action_impact_from_warmup_cache(acao, projeto) -> dict:
     if not all_sku_maps:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None}
 
-    ano = data_acao.year if isinstance(data_acao, date) else acao.data_acao.year if acao.data_acao else date.today().year
+    ano = data_acao.year if isinstance(data_acao, date) else acao.data_acao.year if acao.data_acao else today_brazil().year
     sku_maps = [m for m in all_sku_maps if getattr(m, 'ano', None) == ano and getattr(m, 'ativo', False)]
     if not sku_maps:
         sku_maps = [m for m in all_sku_maps if getattr(m, 'ativo', False)]
@@ -353,7 +353,7 @@ def calculate_action_impact(db: Session, acao) -> dict:
     start_after = data_acao + timedelta(days=1)
     end_after = data_acao + timedelta(days=7)
 
-    today = date.today()
+    today = today_brazil()
     if end_after > today:
         return {"vendas_antes": None, "vendas_depois": None, "impacto_percentual": None,
                 "status": "aguardando_dados"}
@@ -827,7 +827,7 @@ def get_active_actions_for_projects(db: Session, projeto_ids: list) -> dict:
     if not projeto_ids:
         return {}
     
-    today = date.today()
+    today = today_brazil()
     cutoff = today - timedelta(days=7)
     
     acoes = db.query(AcaoComercial).filter(
@@ -859,7 +859,7 @@ def check_duplicate_action(db: Session, projeto_id: int, tipo: str) -> dict:
     """
     from ...models.dimensoes import AcaoComercial
     
-    today = date.today()
+    today = today_brazil()
     cutoff = today - timedelta(days=7)
     
     existing = db.query(AcaoComercial).filter(
@@ -1012,7 +1012,7 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
 
     if daily_sales_dict and len(daily_sales_dict) > 0:
         # For past events anchor to close date; for live events anchor to yesterday
-        cutoff = anchor_date if is_past_event and registration_close_date else date.today()
+        cutoff = anchor_date if is_past_event and registration_close_date else today_brazil()
         current_sales = sum(v for k, v in daily_sales_dict.items() if k <= cutoff)
     
     progress_percent = current_sales / sales_goal
@@ -1220,7 +1220,7 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: date = None) -> list:
     from ...services.snapshot_service import get_snapshot_vendas
     
-    today = date.today()
+    today = today_brazil()
     yesterday = today - timedelta(days=1)
     if ano is None:
         ano = today.year
@@ -4087,7 +4087,7 @@ def get_sales_averages(
 ):
     from datetime import timedelta
     
-    today = date.today()
+    today = today_brazil()
     if ano is None:
         ano = today.year
     
@@ -4337,7 +4337,7 @@ def get_event_simulation(
     current_user: Usuario = Depends(get_current_user)
 ):
     from datetime import timedelta
-    today = date.today()
+    today = today_brazil()
     if ano is None:
         ano = today.year
 
@@ -5740,7 +5740,7 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
 
 def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
     from ...models.dimensoes import SkuMapping
-    ano_corrente = date.today().year
+    ano_corrente = today_brazil().year
 
     sku_mapping_date = None
     mapping_with_date = db.query(SkuMapping).filter(
@@ -6075,7 +6075,7 @@ def get_curva_comparativa_evento(
             buckets[bk][f"vendas_{ano_anterior}"] += vals["qtd"]
             buckets[bk][f"receita_{ano_anterior}"] += vals["receita"]
 
-    hoje = date.today()
+    hoje = today_brazil()
     dias_ate_evento_atual = (data_evento_atual - hoje).days if data_evento_atual else 0
 
     total_vendas_atual = sum(v["qtd"] for v in daily_atual.values())
@@ -6512,7 +6512,7 @@ def get_evento_insights(
                 total += daily_map[d]["qtd"]
         return total / window
 
-    hoje = date.today()
+    hoje = today_brazil()
     dias_ate_evento_atual = (data_evento_atual - hoje).days if data_evento_atual else 0
     d_minus_atual = max(0, dias_ate_evento_atual)
 
@@ -6982,7 +6982,7 @@ def get_marketing_event_by_id(
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern, data_evento_real=projeto_data_evento)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
-        _today_detail = date.today()
+        _today_detail = today_brazil()
         current_sales = 0
         if daily_sales_dict and len(daily_sales_dict) > 0:
             current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _today_detail)
@@ -7275,7 +7275,7 @@ def get_marketing_event_by_id(
                 SkuMapping.ativo == True
             ).distinct().order_by(SkuMapping.ano.desc()).all()
         
-        _today_now = date.today()
+        _today_now = today_brazil()
         _event_is_past = bool(projeto_data_evento and projeto_data_evento < _today_now)
         from app.core.cache import get_last_full_refresh as _get_last_full_refresh
         _last_full_ts = _get_last_full_refresh()
@@ -7554,7 +7554,7 @@ def get_marketing_event_by_id(
         "avisos": get_isc_warnings(),
         "_cache_version": _DETAIL_CACHE_VERSION
     }
-    _sa_today = date.today()
+    _sa_today = today_brazil()
     _sa_event_is_past = bool(projeto_data_evento and projeto_data_evento < _sa_today)
     if _sa_event_is_past:
         standalone_result["__is_completed"] = True
@@ -7583,9 +7583,9 @@ def atualizar_vendas_hoje(
     from sqlalchemy import func as _sa_func
 
     if ano is None:
-        ano = datetime.now().year
+        ano = today_brazil().year
 
-    hoje = date.today()
+    hoje = today_brazil()
     is_grouped = evento_id.startswith("grp_")
 
     # --- Collect IDs ---
@@ -7856,7 +7856,7 @@ def debug_snapshot_grupo(
     from app.models.vendas_snapshot import VendasDiariaSnapshot
     import datetime as _diag_dt
 
-    _ano = ano or _diag_dt.date.today().year
+    _ano = ano or today_brazil().year
 
     rows = db.query(
         VendasDiariaSnapshot.data_venda,
