@@ -186,6 +186,7 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   taxas: [],
   retirada_kit: { local: '', data_horario: '' },
   kit_produto: [{ kit: '', produtos: [] }],
+  merchan: [],
   faixas_preco_site: {
     kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
     kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
