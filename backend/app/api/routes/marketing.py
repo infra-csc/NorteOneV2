@@ -4505,6 +4505,31 @@ def get_event_simulation(
 
     total_vendas = sum(all_raw_sales.values())
     total_receita = round(sum(all_raw_receita.values()), 2)
+
+    # ── Align with Dashboard event detail: use ISC cache as the authoritative source
+    # for current totals on live/hybrid events (same logic as get_marketing_event_by_id).
+    # For consolidated events (dias_ate_evento <= 0) snapshot is already authoritative.
+    if evento_grupo_sim and dias_ate_evento > 0:
+        try:
+            _isc_sim = fetch_isc_pricing_data(db=db)
+            _isc_receita_sim = 0.0
+            _isc_qtd_sim = 0
+            _seen_norms_sim: set = set()
+            for _sku_sim in all_skus:
+                _norm_sim = normalize_sku(_sku_sim)
+                if _norm_sim in _seen_norms_sim:
+                    continue
+                _seen_norms_sim.add(_norm_sim)
+                _info_sim = _isc_sim.get(_norm_sim, {})
+                _isc_receita_sim += _info_sim.get('receita_liquida_site', 0.0)
+                _isc_qtd_sim += _info_sim.get('qtd_site', 0)
+            if _isc_qtd_sim > 0:
+                total_receita = round(_isc_receita_sim, 2)
+                if _isc_qtd_sim > total_vendas:
+                    total_vendas = _isc_qtd_sim
+        except Exception as _e_sim:
+            logger.warning(f"[Simulacao] ISC alignment failed, using snapshot totals: {_e_sim}")
+
     ticket_medio_atual = round(total_receita / total_vendas, 2) if total_vendas > 0 else 0.0
 
     sorted_dates = sorted(all_raw_sales.keys())
