@@ -379,7 +379,16 @@ class SmartCache:
                             continue
                         if is_hist or is_completed or db_age < MAX_STALE_AGE:
                             self._data[key] = data
-                            self._timestamps[key] = val["updated_at"]
+                            # isc_pricing has a short TTL (5 min). After a restart the DB
+                            # entry is always older than that, so get(stale_ok=False) would
+                            # return None and force a full 40-second recompute on the first
+                            # user request. Resetting the timestamp to now lets the
+                            # DB-restored entry be served immediately while the background
+                            # startup refresh updates it with fresh Magento data.
+                            if self.name == "isc_pricing":
+                                self._timestamps[key] = now
+                            else:
+                                self._timestamps[key] = val["updated_at"]
                             if is_completed:
                                 self._permanent_keys.add(key)
                             loaded_count += 1
