@@ -165,31 +165,46 @@ const Dashboard: React.FC = () => {
   const CACHE_KEY_OP = `dash_op_${uid}`;
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
   const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
-  const CACHE_TTL_MS = 30 * 60 * 1000;
-  const CACHE_FRESH_MS = 5 * 60 * 1000;
+
+  const getNextRefreshMs = (): number => {
+    const now = new Date();
+    const utcH = now.getUTCHours();
+    const utcM = now.getUTCMinutes();
+    // Backend refreshes at 05:00 BRT (08:00 UTC) and 17:00 BRT (20:00 UTC)
+    // Add 10-min buffer so cache expires after the refresh has actually completed
+    const slots = [{ h: 8, m: 10 }, { h: 20, m: 10 }];
+    for (const slot of slots) {
+      if (utcH < slot.h || (utcH === slot.h && utcM < slot.m)) {
+        const next = new Date(now);
+        next.setUTCHours(slot.h, slot.m, 0, 0);
+        return next.getTime();
+      }
+    }
+    // Next window is tomorrow at 08:10 UTC
+    const tomorrow = new Date(now);
+    tomorrow.setUTCDate(now.getUTCDate() + 1);
+    tomorrow.setUTCHours(8, 10, 0, 0);
+    return tomorrow.getTime();
+  };
 
   const readCache = (key: string) => {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) return null;
-      const { data, ts } = JSON.parse(raw);
-      if (Date.now() - ts > CACHE_TTL_MS) return null;
+      const { data, ts, expiresAt } = JSON.parse(raw);
+      const expired = expiresAt ? Date.now() > expiresAt : Date.now() - ts > 30 * 60 * 1000;
+      if (expired) return null;
       return data;
     } catch { return null; }
   };
 
   const writeCache = (key: string, data: any) => {
-    try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+    try {
+      localStorage.setItem(key, JSON.stringify({ data, ts: Date.now(), expiresAt: getNextRefreshMs() }));
+    } catch {}
   };
 
-  const isCacheStale = (key: string) => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return true;
-      const { ts } = JSON.parse(raw);
-      return Date.now() - ts > CACHE_FRESH_MS;
-    } catch { return true; }
-  };
+  const isCacheStale = (key: string) => readCache(key) === null;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
