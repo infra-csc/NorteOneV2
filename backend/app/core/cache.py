@@ -958,19 +958,13 @@ class CacheRefreshScheduler:
             if not self._running:
                 return
 
-        logger.info("=== EVENING BACKGROUND REFRESH STARTED (17:00 BRT) ===")
-        if self._full_refresh_callback:
+        logger.info("=== EVENING LIGHTWEIGHT REFRESH STARTED (17:00 BRT) — sincronizar_hoje + ISC only ===")
+        for callback in self._refresh_callbacks:
             try:
-                self._full_refresh_callback()
-                logger.info("=== EVENING BACKGROUND REFRESH COMPLETED ===")
+                callback()
             except Exception as e:
-                logger.error(f"Evening background refresh error: {e}")
-        else:
-            for callback in self._refresh_callbacks:
-                try:
-                    callback()
-                except Exception as e:
-                    logger.error(f"Evening refresh callback error: {e}")
+                logger.error(f"Evening refresh callback error: {e}")
+        logger.info("=== EVENING LIGHTWEIGHT REFRESH COMPLETED (17:00 BRT) ===")
 
         self._schedule_evening_refresh()
 
