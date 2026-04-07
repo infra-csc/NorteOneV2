@@ -1003,6 +1003,22 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_nori_insights_evento_id ON nori_insights (evento_id)",
             "CREATE INDEX IF NOT EXISTS ix_nori_insights_gerado_em ON nori_insights (gerado_em DESC)",
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_nori_insights_per_day ON nori_insights (evento_id, tipo, DATE(gerado_em))",
+            # merchan tables (task #53)
+            """
+            CREATE TABLE IF NOT EXISTS cadastro_merchan (
+                id SERIAL PRIMARY KEY,
+                cadastro_id INTEGER NOT NULL REFERENCES cadastro_evento(id) ON DELETE CASCADE,
+                kit VARCHAR(100)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS cadastro_merchan_item (
+                id SERIAL PRIMARY KEY,
+                merchan_id INTEGER NOT NULL REFERENCES cadastro_merchan(id) ON DELETE CASCADE,
+                nome VARCHAR(100) NOT NULL,
+                valor_venda NUMERIC(10,2) DEFAULT 0
+            )
+            """,
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

@@ -79,6 +79,7 @@ class CadastroEvento(Base):
     cortesias = relationship("CadastroCortesia", back_populates="cadastro", cascade="all, delete-orphan")
     taxas = relationship("CadastroTaxa", back_populates="cadastro", cascade="all, delete-orphan")
     kit_produtos = relationship("CadastroKitProduto", back_populates="cadastro", cascade="all, delete-orphan")
+    merchan_kits = relationship("CadastroMerchan", back_populates="cadastro", cascade="all, delete-orphan")
     faixas_preco_site = relationship("CadastroFaixaPrecoSite", back_populates="cadastro", cascade="all, delete-orphan")
     faixas_preco_grupos = relationship("CadastroFaixaPrecoGrupos", back_populates="cadastro", cascade="all, delete-orphan")
 
@@ -132,6 +133,30 @@ class CadastroKitProdutoItem(Base):
     valor_unitario = Column(Numeric(10, 2), default=0)
     
     kit_produto = relationship("CadastroKitProduto", back_populates="produtos")
+
+
+class CadastroMerchan(Base):
+    """Merchan (kits Vip/Plus/Super) com valor de venda"""
+    __tablename__ = "cadastro_merchan"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    kit = Column(String(100))
+
+    cadastro = relationship("CadastroEvento", back_populates="merchan_kits")
+    itens = relationship("CadastroMerchanItem", back_populates="merchan", cascade="all, delete-orphan")
+
+
+class CadastroMerchanItem(Base):
+    """Item de merchan com valor de venda por produto"""
+    __tablename__ = "cadastro_merchan_item"
+
+    id = Column(Integer, primary_key=True, index=True)
+    merchan_id = Column(Integer, ForeignKey("cadastro_merchan.id", ondelete="CASCADE"), nullable=False)
+    nome = Column(String(100), nullable=False)
+    valor_venda = Column(Numeric(10, 2), default=0)
+
+    merchan = relationship("CadastroMerchan", back_populates="itens")
 
 
 class CadastroFaixaPrecoSite(Base):

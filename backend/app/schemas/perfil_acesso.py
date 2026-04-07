@@ -93,6 +93,7 @@ CAMPOS_EVENTOS = [
     {"key": "atletas", "label": "Atletas", "tipo": "aba"},
     {"key": "cortesias", "label": "Cortesias", "tipo": "aba"},
     {"key": "kit_produto", "label": "Kit Produto", "tipo": "aba"},
+    {"key": "merchan", "label": "Merchan", "tipo": "aba"},
     {"key": "faixas_preco_site", "label": "Faixa Preço - Site", "tipo": "aba"},
     {"key": "faixas_preco_grupos", "label": "Faixa Preço - Grupos", "tipo": "aba"},
     {"key": "taxas", "label": "Taxas", "tipo": "aba"},

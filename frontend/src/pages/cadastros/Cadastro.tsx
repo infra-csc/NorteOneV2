@@ -75,6 +75,7 @@ interface CadastroEvento {
     data_horario: string;
   };
   kit_produto: Array<{ kit: string; ativo_categoria?: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
+  merchan: Array<{ kit: string; itens: Array<{ nome: string; valor_venda: number }> }>;
   faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
@@ -115,6 +116,7 @@ interface FormData {
     data_horario: string;
   };
   kit_produto: Array<{ kit: string; ativo_categoria?: string; produtos: Array<{ nome: string; valor_unitario: number }> }>;
+  merchan: Array<{ kit: string; itens: Array<{ nome: string; valor_venda: number }> }>;
   faixas_preco_site: FaixasPrecoSiteByKit;
   faixas_preco_grupos: FaixasPrecoSiteByKit;
 }
@@ -229,6 +231,7 @@ const tabs = [
   { id: 'atletas', label: 'Atletas', icon: Users },
   { id: 'cortesias', label: 'Cortesias', icon: Gift },
   { id: 'kit_produto', label: 'Kit Produto', icon: Gift },
+  { id: 'merchan', label: 'Merchan', icon: ShoppingBag },
   { id: 'faixas_preco_site', label: 'Faixa Preço - Site', icon: Globe },
   { id: 'faixas_preco_grupos', label: 'Faixa Preço - Grupos', icon: UsersRound },
   { id: 'taxas', label: 'Taxas', icon: DollarSign },  
@@ -417,6 +420,7 @@ const Cadastro: React.FC = () => {
       data_horario: ''
     },
     kit_produto: [{ kit: '', produtos: [] }],
+    merchan: [],
     faixas_preco_site: {
       kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
       kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
@@ -650,6 +654,7 @@ const Cadastro: React.FC = () => {
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
       retirada_kit: { ...item.retirada_kit },
       kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, ativo_categoria: k.ativo_categoria ?? '', produtos: k.produtos.map(p => ({ ...p, valor_unitario: Number(p.valor_unitario) || 0 })) })) : [{ kit: '', ativo_categoria: '', produtos: [] }],
+      merchan: (item.merchan || []).map((mk: any) => ({ kit: mk.kit, itens: (mk.itens || []).map((it: any) => ({ nome: it.nome, valor_venda: Number(it.valor_venda) || 0 })) })),
       faixas_preco_site: {
         kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
           ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
@@ -723,6 +728,7 @@ const Cadastro: React.FC = () => {
         taxas: form.taxas,
         retirada_kit: form.retirada_kit,
         kit_produto: form.kit_produto,
+        merchan: form.merchan,
         faixas_preco_site: form.faixas_preco_site,
         faixas_preco_grupos: form.faixas_preco_grupos
       };
@@ -2604,6 +2610,127 @@ const Cadastro: React.FC = () => {
 
           </div>
         );
+
+      case 'merchan': {
+        const kitsMerchan = ['Kit Vip', 'Kit Plus', 'Kit Super'];
+        const merchanKitsFromProduto = form.kit_produto.filter(k => kitsMerchan.includes(k.kit));
+
+        const getMerchanItem = (kitName: string, produtoNome: string) => {
+          const mk = form.merchan.find(m => m.kit === kitName);
+          return mk?.itens.find(it => it.nome === produtoNome) ?? null;
+        };
+
+        const setMerchanValorVenda = (kitName: string, produtoNome: string, valor: number) => {
+          setForm(prev => {
+            const merchan = [...prev.merchan];
+            const mkIdx = merchan.findIndex(m => m.kit === kitName);
+            if (mkIdx === -1) {
+              merchan.push({ kit: kitName, itens: [{ nome: produtoNome, valor_venda: valor }] });
+            } else {
+              const mk = { ...merchan[mkIdx], itens: [...merchan[mkIdx].itens] };
+              const itIdx = mk.itens.findIndex(it => it.nome === produtoNome);
+              if (itIdx === -1) {
+                mk.itens.push({ nome: produtoNome, valor_venda: valor });
+              } else {
+                mk.itens = mk.itens.map((it, i) => i === itIdx ? { ...it, valor_venda: valor } : it);
+              }
+              merchan[mkIdx] = mk;
+            }
+            return { ...prev, merchan };
+          });
+        };
+
+        const calcMarkup = (custo: number, venda: number): string => {
+          if (!custo || custo === 0) return '—';
+          const markup = ((venda - custo) / custo) * 100;
+          return `${markup >= 0 ? '+' : ''}${markup.toFixed(1)}%`;
+        };
+
+        const markupColor = (custo: number, venda: number): string => {
+          if (!custo || custo === 0) return isDark ? 'text-gray-400' : 'text-gray-500';
+          return venda >= custo
+            ? 'text-green-500'
+            : 'text-red-400';
+        };
+
+        if (merchanKitsFromProduto.length === 0) {
+          return (
+            <div className={`flex flex-col items-center justify-center py-12 gap-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              <ShoppingBag className="w-10 h-10 opacity-40" />
+              <p className="text-sm text-center">
+                Nenhum kit Vip, Plus ou Super configurado.<br />
+                Adicione esses kits na aba <strong>Kit Produto</strong> para habilitar o Merchan.
+              </p>
+            </div>
+          );
+        }
+
+        return (
+          <div className="space-y-6">
+            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              Os custos são lidos da aba <strong>Kit Produto</strong>. Informe o valor de venda para calcular o markup.
+            </p>
+            {merchanKitsFromProduto.map(kit => (
+              <div key={kit.kit} className={`p-4 rounded-xl border ${isDark ? 'bg-gray-700/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                <h3 className={`text-sm font-bold mb-4 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                  {kit.kit}
+                </h3>
+                {kit.produtos.length === 0 ? (
+                  <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum produto neste kit.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className={`text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          <th className="text-left pb-2 pr-4">Produto</th>
+                          <th className="text-right pb-2 pr-4">Custo Unit.</th>
+                          <th className="text-right pb-2 pr-4">Valor Venda</th>
+                          <th className="text-right pb-2">Markup</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200/20">
+                        {kit.produtos.map(produto => {
+                          const custo = Number(produto.valor_unitario) || 0;
+                          const merchanIt = getMerchanItem(kit.kit, produto.nome);
+                          const venda = merchanIt ? Number(merchanIt.valor_venda) : 0;
+                          return (
+                            <tr key={produto.nome}>
+                              <td className={`py-2 pr-4 font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
+                                {produto.nome}
+                              </td>
+                              <td className={`py-2 pr-4 text-right ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                {custo > 0 ? `R$ ${custo.toFixed(2).replace('.', ',')}` : <span className="text-gray-400">—</span>}
+                              </td>
+                              <td className="py-2 pr-4 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>R$</span>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={venda || ''}
+                                    onChange={e => setMerchanValorVenda(kit.kit, produto.nome, parseFloat(e.target.value) || 0)}
+                                    placeholder="0,00"
+                                    disabled={!canEditCampo('eventos', 'merchan')}
+                                    className={`w-24 px-2 py-1 text-sm rounded-lg border text-right ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 disabled:opacity-60 disabled:cursor-not-allowed`}
+                                  />
+                                </div>
+                              </td>
+                              <td className={`py-2 text-right font-semibold text-sm ${markupColor(custo, venda)}`}>
+                                {calcMarkup(custo, venda)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      }
 
       default:
         return null;

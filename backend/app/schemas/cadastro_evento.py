@@ -74,6 +74,40 @@ class KitProdutoResponse(BaseModel):
         from_attributes = True
 
 
+class MerchanProdutoItemBase(BaseModel):
+    nome: str
+    valor_venda: Decimal = Decimal("0")
+
+
+class MerchanProdutoItemCreate(MerchanProdutoItemBase):
+    pass
+
+
+class MerchanProdutoItemResponse(MerchanProdutoItemBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class MerchanKitBase(BaseModel):
+    kit: str = ""
+    itens: List[MerchanProdutoItemCreate] = []
+
+
+class MerchanKitCreate(MerchanKitBase):
+    pass
+
+
+class MerchanKitResponse(BaseModel):
+    id: int
+    kit: str
+    itens: List[MerchanProdutoItemResponse] = []
+
+    class Config:
+        from_attributes = True
+
+
 class FaixaPrecoItemBase(BaseModel):
     faixa: str
     qtd: int = 0
@@ -160,6 +194,7 @@ class CadastroEventoBase(BaseModel):
     taxas: List[TaxaItemCreate] = []
     retirada_kit: RetiradaKit = RetiradaKit()
     kit_produto: List[KitProdutoCreate] = []
+    merchan: List[MerchanKitCreate] = []
     faixas_preco_site: FaixasPrecoByKit = FaixasPrecoByKit()
     faixas_preco_grupos: FaixasPrecoByKit = FaixasPrecoByKit()
 
@@ -190,6 +225,7 @@ class CadastroEventoUpdate(BaseModel):
     taxas: Optional[List[TaxaItemCreate]] = None
     retirada_kit: Optional[RetiradaKit] = None
     kit_produto: Optional[List[KitProdutoCreate]] = None
+    merchan: Optional[List[MerchanKitCreate]] = None
     faixas_preco_site: Optional[FaixasPrecoByKit] = None
     faixas_preco_grupos: Optional[FaixasPrecoByKit] = None
 
@@ -217,6 +253,7 @@ class CadastroEventoResponse(BaseModel):
     taxas: List[TaxaItemResponse] = []
     retirada_kit: RetiradaKit = RetiradaKit()
     kit_produto: List[KitProdutoResponse] = []
+    merchan: List[MerchanKitResponse] = []
     faixas_preco_site: FaixasPrecoByKit = FaixasPrecoByKit()
     faixas_preco_grupos: FaixasPrecoByKit = FaixasPrecoByKit()
     created_at: Optional[datetime] = None

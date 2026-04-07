@@ -9,6 +9,7 @@ from ...core.security import get_current_user
 from app.models.cadastro_evento import (
     CadastroEvento, CadastroCortesia, CadastroTaxa,
     CadastroKitProduto, CadastroKitProdutoItem,
+    CadastroMerchan, CadastroMerchanItem,
     CadastroFaixaPrecoSite, CadastroFaixaPrecoGrupos,
     CircuitoProduto, Localizacao
 )
@@ -17,6 +18,7 @@ from app.schemas.cadastro_evento import (
     CadastroEventoCreate, CadastroEventoUpdate, CadastroEventoResponse,
     InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
     CortesiaItemResponse, TaxaItemResponse, KitProdutoResponse, ProdutoItemResponse,
+    MerchanKitResponse, MerchanProdutoItemResponse,
     FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema, AppaiData
 )
 
@@ -26,6 +28,7 @@ _CADASTRO_EAGER = [
     selectinload(CadastroEvento.cortesias),
     selectinload(CadastroEvento.taxas),
     selectinload(CadastroEvento.kit_produtos).selectinload(CadastroKitProduto.produtos),
+    selectinload(CadastroEvento.merchan_kits).selectinload(CadastroMerchan.itens),
     selectinload(CadastroEvento.faixas_preco_site),
     selectinload(CadastroEvento.faixas_preco_grupos),
 ]
@@ -144,7 +147,19 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         )
         for kp in cadastro.kit_produtos
     ]
-    
+
+    merchan = [
+        MerchanKitResponse(
+            id=mk.id,
+            kit=mk.kit or "",
+            itens=[
+                MerchanProdutoItemResponse(id=it.id, nome=it.nome, valor_venda=it.valor_venda or Decimal("0"))
+                for it in mk.itens
+            ]
+        )
+        for mk in cadastro.merchan_kits
+    ]
+
     faixas_site_basico = [
         FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
         for f in cadastro.faixas_preco_site if f.tipo_kit == "kit_basico"
@@ -186,6 +201,7 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "taxas": taxas,
         "retirada_kit": retirada_kit,
         "kit_produto": kit_produto,
+        "merchan": merchan,
         "faixas_preco_site": FaixasPrecoByKit(kit_basico=faixas_site_basico, kit_participacao=faixas_site_participacao),
         "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=faixas_grupos_basico, kit_participacao=faixas_grupos_participacao),
         "created_at": cadastro.created_at,
@@ -363,7 +379,21 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
                 nome=produto.nome,
                 valor_unitario=produto.valor_unitario
             ))
-    
+
+    for mk in data.merchan:
+        mk_obj = CadastroMerchan(
+            cadastro_id=cadastro.id,
+            kit=mk.kit
+        )
+        db.add(mk_obj)
+        db.flush()
+        for item in mk.itens:
+            db.add(CadastroMerchanItem(
+                merchan_id=mk_obj.id,
+                nome=item.nome,
+                valor_venda=item.valor_venda
+            ))
+
     for faixa in data.faixas_preco_site.kit_basico:
         db.add(CadastroFaixaPrecoSite(
             cadastro_id=cadastro.id,
@@ -537,7 +567,25 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                     nome=produto.nome,
                     valor_unitario=produto.valor_unitario
                 ))
-    
+
+    if data.merchan is not None:
+        for mk in cadastro.merchan_kits:
+            db.delete(mk)
+        db.flush()
+        for mk in data.merchan:
+            mk_obj = CadastroMerchan(
+                cadastro_id=cadastro.id,
+                kit=mk.kit
+            )
+            db.add(mk_obj)
+            db.flush()
+            for item in mk.itens:
+                db.add(CadastroMerchanItem(
+                    merchan_id=mk_obj.id,
+                    nome=item.nome,
+                    valor_venda=item.valor_venda
+                ))
+
     if data.faixas_preco_site is not None:
         for f in cadastro.faixas_preco_site:
             db.delete(f)
