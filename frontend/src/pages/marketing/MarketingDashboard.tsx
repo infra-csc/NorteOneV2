@@ -431,8 +431,9 @@ const MarketingDashboard: React.FC = () => {
     const fetchCacheStatus = async () => {
       try {
         const status = await marketingService.getCacheStatus();
-        if (status.ultima_atualizacao_completa) {
-          setServerLastUpdate(status.ultima_atualizacao_completa);
+        const latestSync = status.last_sync_hoje || status.ultima_atualizacao_completa;
+        if (latestSync) {
+          setServerLastUpdate(latestSync);
         }
         setBgRefreshing(status.refresh_in_progress);
         if (!status.refresh_in_progress) {

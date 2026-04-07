@@ -7914,13 +7914,18 @@ def get_cache_status(
     current_user: Usuario = Depends(get_current_user)
 ):
     import time as _cst_time
-    from app.core.cache import get_last_full_refresh, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary, get_gap_detection_result, get_known_tier1_ids
+    from app.core.cache import get_last_full_refresh, get_last_sync_hoje, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary, get_gap_detection_result, get_known_tier1_ids
 
     current_year = datetime.now().year
     last_refresh = get_last_full_refresh()
     last_refresh_str = None
     if last_refresh:
         last_refresh_str = datetime.fromtimestamp(last_refresh, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+
+    last_sync_hoje = get_last_sync_hoje()
+    last_sync_hoje_str = None
+    if last_sync_hoje:
+        last_sync_hoje_str = datetime.fromtimestamp(last_sync_hoje, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
 
     in_progress = is_full_refresh_in_progress()
     progress = get_warmup_progress() if in_progress else None
@@ -7967,6 +7972,7 @@ def get_cache_status(
         "progress": progress,
         "last_error": last_error,
         "ultima_atualizacao_completa": last_refresh_str,
+        "last_sync_hoje": last_sync_hoje_str,
         "warmup_duration_seconds": warmup_summary.get("duration_seconds"),
         "warmup_completed_at": warmup_summary.get("completed_at"),
         "warmup_summary": warmup_summary,

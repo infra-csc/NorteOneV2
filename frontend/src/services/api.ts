@@ -821,16 +821,19 @@ export function getMarketingDashboardCache(params?: {
   status?: string;
   categoria?: string;
   busca?: string;
-}): { data: MarketingEventsResponse; age: number } | null {
+}): { data: MarketingEventsResponse; age: number; isExpired: boolean } | null {
   const key = getCacheKey(params);
   const entry = dashboardCache.get(key);
   if (!entry) return null;
   const age = Date.now() - entry.timestamp;
-  if (age > CACHE_MAX_AGE) {
+  // Only evict entries that are very stale (2× max age = 60 min).
+  // Between CACHE_MAX_AGE and 2×CACHE_MAX_AGE, return the data with isExpired=true
+  // so the caller can show it while revalidating (stale-while-revalidate).
+  if (age > CACHE_MAX_AGE * 2) {
     dashboardCache.delete(key);
     return null;
   }
-  return { data: entry.data, age };
+  return { data: entry.data, age, isExpired: age > CACHE_MAX_AGE };
 }
 
 export function isMarketingCacheStale(params?: {
@@ -1080,6 +1083,7 @@ export const marketingService = {
     progress: { step: number; total_steps: number; label: string; elapsed_seconds: number | null } | null;
     last_error: string | null;
     ultima_atualizacao_completa: string | null;
+    last_sync_hoje: string | null;
     warmup_duration_seconds: number | null;
     warmup_completed_at: string | null;
     warmup_summary: Record<string, any>;

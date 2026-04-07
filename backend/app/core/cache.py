@@ -15,6 +15,8 @@ MAX_STALE_AGE = 172800
 NIGHTLY_CACHE_TTL = 79200
 
 _last_full_refresh_timestamp = None
+_last_sync_hoje_timestamp = None
+_last_sync_hoje_lock = threading.Lock()
 _full_refresh_in_progress = False
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None
@@ -59,6 +61,18 @@ def set_last_full_refresh(ts=None):
         _persist_to_db("__meta__", "last_full_refresh", {"ts": _last_full_refresh_timestamp})
     except Exception as _lfr_err:
         logger.warning(f"set_last_full_refresh: could not persist to DB: {_lfr_err}")
+
+
+def get_last_sync_hoje():
+    global _last_sync_hoje_timestamp
+    with _last_sync_hoje_lock:
+        return _last_sync_hoje_timestamp
+
+
+def set_last_sync_hoje(ts=None):
+    global _last_sync_hoje_timestamp
+    with _last_sync_hoje_lock:
+        _last_sync_hoje_timestamp = ts or time.time()
 
 
 def is_full_refresh_in_progress():

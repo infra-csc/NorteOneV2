@@ -11,6 +11,7 @@ from app.api.routes import auth, users, centros_custo, projetos, categorias_atle
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
+    set_last_sync_hoje,
     register_full_warmup_fn,
     isc_cache, event_detail_cache, curva_cache, medias_cache,
     _full_refresh_lock,
@@ -54,8 +55,8 @@ def _scheduled_sincronizar_hoje():
         db = SessionLocal()
         count = sincronizar_hoje_batch(db)
         logger.info(f"Scheduled sincronizar_hoje_batch completed: {count} groups synced")
-        set_last_full_refresh(_time.time())
-        logger.info("last_full_refresh atualizado após sincronizar_hoje_batch")
+        set_last_sync_hoje(_time.time())
+        logger.info("last_sync_hoje atualizado após sincronizar_hoje_batch")
     except Exception as e:
         logger.error(f"Scheduled sincronizar_hoje_batch failed: {e}")
         try:
