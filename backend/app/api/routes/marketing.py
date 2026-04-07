@@ -4390,7 +4390,11 @@ def get_event_simulation(
         if p.data_evento:
             if data_evento is None or p.data_evento > data_evento:
                 data_evento = p.data_evento
-    dias_ate_evento = (data_evento - today).days if data_evento else 0
+
+    # Use D-Inscrição (registration close date) — same reference used by Dashboard and ISC.
+    # get_dias_encerramento reads dias_encerramento_inscricao from CadastroEvento (default 2).
+    dias_enc_sim = get_dias_encerramento(db, projeto_id=projetos[0].id) if projetos else 2
+    dias_ate_evento = calculate_d_minus(data_evento, dias_encerramento=dias_enc_sim) if data_evento else 0
 
     meta_orcada = get_meta_orcada_projetos(db, projetos)
 
