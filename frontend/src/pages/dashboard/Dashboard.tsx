@@ -164,7 +164,7 @@ const Dashboard: React.FC = () => {
   const uid = user?.id ?? 'anon';
   const CACHE_KEY_OP = `dash_op_${uid}`;
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
-  const CACHE_KEY_FILTROS = `dash_filtros_${uid}`;
+  const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
   const CACHE_TTL_MS = 30 * 60 * 1000;
 
   const readCache = (key: string) => {
@@ -342,7 +342,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {showFilters && (
-          <div className={`p-5 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+          <div className={`relative z-[100] p-5 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <SearchableDropdown label="Ano" options={filterOptions.anos} value={filters.ano}
                 onChange={v => setFilters(p => ({ ...p, ano: v as number }))} placeholder="Selecione o ano" isDark={isDark} />

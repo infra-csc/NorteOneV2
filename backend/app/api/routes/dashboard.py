@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import distinct, extract, func as sa_func
 from typing import Optional
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime as _datetime
+_CURRENT_YEAR = _datetime.now().year
 from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin
 from ...models.dimensoes import DimTempo, DimProjeto
@@ -40,7 +41,15 @@ def get_filtros(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    anos = db.query(distinct(DimTempo.ano)).order_by(DimTempo.ano.desc()).all()
+    from datetime import datetime as _dt
+    _cur_year = _dt.now().year
+    anos_raw = (
+        db.query(distinct(extract('year', DimProjeto.data_evento)))
+        .filter(DimProjeto.data_evento != None)
+        .order_by(extract('year', DimProjeto.data_evento).desc())
+        .all()
+    )
+    anos = anos_raw or [(_cur_year,)]
     meses = [
         {"value": 1, "label": "Janeiro"},
         {"value": 2, "label": "Fevereiro"},
@@ -63,7 +72,7 @@ def get_filtros(
     cidades = db.query(distinct(DimProjeto.cidade)).filter(DimProjeto.cidade != None).all()
 
     return {
-        "anos": [{"value": a[0], "label": str(a[0])} for a in anos] or [{"value": 2025, "label": "2025"}],
+        "anos": [{"value": int(a[0]), "label": str(int(a[0]))} for a in anos],
         "meses": meses,
         "produtos": [{"value": p[0], "label": p[0]} for p in produtos],
         "tipos_evento": [{"value": t[0], "label": t[0]} for t in tipos_evento],
@@ -189,7 +198,7 @@ NOME_MES = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
 
 @router.get("/resumo-geral")
 def get_resumo_geral(
-    ano: int = 2025,
+    ano: int = _CURRENT_YEAR,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
@@ -213,7 +222,7 @@ def get_resumo_geral(
 
 @router.get("/operacional")
 def get_dashboard_operacional(
-    ano: int = 2025,
+    ano: int = _CURRENT_YEAR,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
@@ -402,7 +411,7 @@ def get_dashboard_operacional(
 
 @router.get("/financeiro")
 def get_dashboard_financeiro(
-    ano: int = 2025,
+    ano: int = _CURRENT_YEAR,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
@@ -612,7 +621,7 @@ def get_dashboard_financeiro(
 
 @router.get("/consolidado")
 def get_dashboard_consolidado(
-    ano: int = 2025,
+    ano: int = _CURRENT_YEAR,
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
