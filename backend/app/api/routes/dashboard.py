@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from sqlalchemy import distinct, extract, func as sa_func
 from typing import Optional
 from datetime import date, timedelta
@@ -8,11 +8,8 @@ from ...core.security import get_current_user, is_user_admin
 from ...models.dimensoes import DimTempo, DimProjeto
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from ...models.user import Usuario
-from ...models.perfil_acesso import PerfilPermissaoCampo, PerfilAcesso
+from ...models.perfil_acesso import PerfilPermissaoCampo
 from decimal import Decimal
-import logging
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -499,9 +496,6 @@ def get_dashboard_financeiro(
 
     ticket_medio_realizado = round(total_ticket_realizado / count_com_ticket, 2) if count_com_ticket else 0
     ticket_medio_planejado = round(total_ticket_planejado / count_com_tkt_plan, 2) if count_com_tkt_plan else 0
-
-    eventos_com_ticket = [e for e in events if e["ticket_medio"] > 0]
-    ticket_medio_geral = ticket_medio_realizado
 
     eventos_com_margem = [e for e in events if e["ticket_medio"] > 0 and e["custo_kit"] > 0]
     margem_media = round(
