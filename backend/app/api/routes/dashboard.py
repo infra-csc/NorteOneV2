@@ -220,7 +220,7 @@ def get_dashboard_operacional(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from ..marketing import (
+    from .marketing import (
         fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
         calculate_isc_components, calculate_isc, get_isc_status,
         get_meta_from_cadastro, get_meta_orcada, calculate_d_minus,
@@ -416,7 +416,7 @@ def get_dashboard_financeiro(
             detail="Permissão insuficiente para visualizar dados financeiros do dashboard"
         )
 
-    from ..marketing import (
+    from .marketing import (
         fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
         calculate_isc_components, calculate_isc, get_isc_status,
         get_meta_from_cadastro, calculate_d_minus, get_dias_encerramento,
