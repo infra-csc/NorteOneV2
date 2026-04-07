@@ -157,19 +157,40 @@ const Dashboard: React.FC = () => {
   const { canViewCampo } = usePermissions();
   const canSeeFinancial = canViewCampo('dashboard', 'dados_financeiros');
 
+  const CACHE_KEY_OP = 'dash_op_cache';
+  const CACHE_KEY_FIN = 'dash_fin_cache';
+  const CACHE_KEY_FILTROS = 'dash_filtros_cache';
+  const CACHE_TTL_MS = 30 * 60 * 1000;
+
+  const readCache = (key: string) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const { data, ts } = JSON.parse(raw);
+      if (Date.now() - ts > CACHE_TTL_MS) return null;
+      return data;
+    } catch { return null; }
+  };
+
+  const writeCache = (key: string, data: any) => {
+    try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+  };
+
   const [loading, setLoading] = useState(true);
-  const [dataLoading, setDataLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [opData, setOpData] = useState<any>(null);
-  const [finData, setFinData] = useState<any>(null);
+  const [opData, setOpData] = useState<any>(() => readCache(CACHE_KEY_OP));
+  const [finData, setFinData] = useState<any>(() => canSeeFinancial ? readCache(CACHE_KEY_FIN) : null);
   const [error, setError] = useState<string | null>(null);
   const [defaultAno, setDefaultAno] = useState<number>(new Date().getFullYear());
 
-  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
-    anos: [], meses: [], produtos: [], modalidades: []
-  });
-  const [filters, setFilters] = useState<Filters>({
-    ano: null, mes: null, produto: null, modalidade: null
+  const cachedFiltros = readCache(CACHE_KEY_FILTROS);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>(
+    cachedFiltros || { anos: [], meses: [], produtos: [], modalidades: [] }
+  );
+  const [filters, setFilters] = useState<Filters>(() => {
+    const ano = cachedFiltros?.anos?.[0]?.value || new Date().getFullYear();
+    return { ano: ano as number, mes: null, produto: null, modalidade: null };
   });
 
   const activeFiltersCount = useMemo(() => {
@@ -182,25 +203,34 @@ const Dashboard: React.FC = () => {
 
   const clearFilters = () => setFilters({ ano: defaultAno, mes: null, produto: null, modalidade: null });
 
-  const loadData = useCallback(async (f: Filters) => {
-    setDataLoading(true);
+  const hasDataRef = React.useRef(!!readCache(CACHE_KEY_OP));
+
+  const loadData = useCallback(async (f: Filters, silent = false) => {
+    if (!silent) setRefreshing(true);
     setError(null);
     const apiF = { ano: f.ano, mes: f.mes, produto: f.produto, modalidade: f.modalidade };
     try {
-      const ops = [dashboardService.getOperacional(apiF)];
+      const ops: Promise<any>[] = [dashboardService.getOperacional(apiF)];
       if (canSeeFinancial) ops.push(dashboardService.getFinanceiro(apiF));
       const results = await Promise.all(ops);
       setOpData(results[0]);
-      if (canSeeFinancial) setFinData(results[1]);
+      hasDataRef.current = true;
+      writeCache(CACHE_KEY_OP, results[0]);
+      if (canSeeFinancial) {
+        setFinData(results[1]);
+        writeCache(CACHE_KEY_FIN, results[1]);
+      }
     } catch (err: any) {
+      if (!hasDataRef.current) setError('Erro ao carregar dados do dashboard');
       console.error('Erro ao carregar dashboard:', err);
-      setError('Erro ao carregar dados do dashboard');
     } finally {
-      setDataLoading(false);
+      setRefreshing(false);
     }
   }, [canSeeFinancial]);
 
   useEffect(() => {
+    const hasCachedData = !!readCache(CACHE_KEY_OP);
+
     const init = async () => {
       try {
         const data = await dashboardService.getFiltros();
@@ -212,23 +242,45 @@ const Dashboard: React.FC = () => {
           produtos: data.produtos || [],
           modalidades: data.modalidades || [],
         });
-        setFilters(prev => ({ ...prev, ano: firstAno as number }));
+        writeCache(CACHE_KEY_FILTROS, {
+          anos: data.anos || [],
+          meses: data.meses || [],
+          produtos: data.produtos || [],
+          modalidades: data.modalidades || [],
+        });
+        if (!hasCachedData) {
+          setFilters(prev => ({ ...prev, ano: firstAno as number }));
+        } else {
+          setFilters(prev => {
+            const ano = prev.ano || firstAno as number;
+            return { ...prev, ano };
+          });
+        }
       } catch {
-        setFilters(prev => ({ ...prev, ano: new Date().getFullYear() }));
+        if (!hasCachedData) setFilters(prev => ({ ...prev, ano: new Date().getFullYear() }));
       } finally {
         setLoading(false);
       }
     };
-    init();
+
+    if (hasCachedData) {
+      setLoading(false);
+      init().then(() => {
+        const currentAno = filters.ano || defaultAno;
+        loadData({ ...filters, ano: currentAno }, true);
+      });
+    } else {
+      init();
+    }
   }, []);
 
   useEffect(() => {
-    if (filters.ano) loadData(filters);
-  }, [filters, loadData]);
+    if (!loading && filters.ano) loadData(filters, !!readCache(CACHE_KEY_OP));
+  }, [filters]);
 
   const cardClass = `rounded-2xl p-6 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
 
-  if (loading) return (
+  if (loading && !opData) return (
     <div className="min-h-screen flex items-center justify-center">
       <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
     </div>
@@ -256,11 +308,11 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => loadData(filters)} disabled={dataLoading}
+            <button onClick={() => loadData(filters)} disabled={refreshing}
               className={`flex items-center gap-2 px-4 py-3 rounded-xl border transition-all ${
                 isDark ? 'bg-gray-800/50 border-gray-700 text-gray-300 hover:bg-gray-700' : 'bg-white/70 border-gray-200 text-gray-700 hover:bg-gray-50'
               }`}>
-              <RefreshCw className={`w-4 h-4 ${dataLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               <span className="font-medium text-sm">Atualizar</span>
             </button>
             <button onClick={() => setShowFilters(!showFilters)}
@@ -305,14 +357,15 @@ const Dashboard: React.FC = () => {
           <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
         )}
 
-        {dataLoading && !opData && (
-          <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        {refreshing && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 w-fit">
+            <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            Atualizando dados...
           </div>
         )}
 
         {opData && (
-          <div className={`space-y-6 ${dataLoading ? 'opacity-60 pointer-events-none' : ''}`}>
+          <div className="space-y-6">
 
             <SectionLabel label="Portfólio Operacional" isDark={isDark}
               color={isDark ? 'text-indigo-400 bg-indigo-500/10' : 'text-indigo-600 bg-indigo-50'} />
@@ -640,7 +693,7 @@ const Dashboard: React.FC = () => {
           </div>
         )}
 
-        {!opData && !dataLoading && !error && (
+        {!opData && !refreshing && !error && (
           <div className="flex items-center justify-center py-20">
             <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Selecione um período para visualizar os dados</p>
           </div>
