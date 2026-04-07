@@ -98,8 +98,9 @@ const Login: React.FC = () => {
                 transition={{ delay: 0.6, duration: 0.5 }}
                 className="text-sm tracking-[0.3em] uppercase"
                 style={{ color: 'rgba(255, 255, 255, 0.4)' }}
+                translate="no"
               >
-                Dados que guiam decisoes
+                Dados que guiam decisões
               </motion.p>
             </motion.div>
 
