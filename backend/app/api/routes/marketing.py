@@ -4413,17 +4413,62 @@ def get_event_simulation(
             elif m.fonte == 'MAGENTO':
                 magento_ids.append(str(m.id_externo))
 
+    # Determine evento_grupo for snapshot lookup (same source used by Dashboard)
+    evento_grupo_sim = None
+    if is_consolidated:
+        evento_grupo_sim = grupo_nome
+    else:
+        # Try to get evento_grupo from the mappings
+        for m in year_mappings:
+            if m.evento_grupo:
+                evento_grupo_sim = m.evento_grupo
+                break
+
     all_raw_sales = {}
     all_raw_receita = {}
 
-    if ativo_ids:
-        ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
-        for row in ativo_rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
-            all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
+    # Priority 1: use the snapshot table (same source as Dashboard)
+    snapshot_used_sim = False
+    if evento_grupo_sim:
+        from ...services.snapshot_service import get_snapshot_vendas_com_receita
+        snap_rows = get_snapshot_vendas_com_receita(db, evento_grupo_sim)
+        if snap_rows:
+            snapshot_used_sim = True
+            for row in snap_rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+                all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
 
-    if magento_ids:
+    # If snapshot was used, also fetch today's live data if today is not already covered
+    if snapshot_used_sim:
+        event_already_happened = data_evento and data_evento < today
+        today_in_snap = today in all_raw_sales
+        if not event_already_happened and not today_in_snap:
+            if ativo_ids:
+                try:
+                    today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
+                    for d, qty in today_sales.items():
+                        all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
+                except Exception as e:
+                    logger.warning(f"[Simulacao] Failed to fetch today's Ativo sales: {e}")
+            if magento_ids:
+                try:
+                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
+                    for d, qty in today_sales.items():
+                        all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
+                except Exception as e:
+                    logger.warning(f"[Simulacao] Failed to fetch today's Magento sales: {e}")
+
+    # Priority 2 (fallback): query external sources directly when no snapshot exists
+    if not snapshot_used_sim:
+        if ativo_ids:
+            ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+            for row in ativo_rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+                all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
+
+    if not snapshot_used_sim and magento_ids:
         magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
         for row in magento_rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
