@@ -245,6 +245,7 @@ def get_dashboard_operacional(
     window_end = today + timedelta(days=28)
 
     total_atletas_orcado = 0
+    total_atletas_confirmados = 0
     total_capacidade = 0
     total_eventos = len(projetos)
 
@@ -295,6 +296,12 @@ def get_dashboard_operacional(
             current_sales = atletas_site + atletas_grupos + atletas_cortesia
 
         total_atletas_orcado += current_sales
+        if cadastro:
+            total_atletas_confirmados += (
+                int(cadastro.atletas_site_pago or 0) +
+                int(cadastro.atletas_grupos_pago or 0) +
+                int(cadastro.atletas_cortesia or 0)
+            )
 
         taxa_ocupacao = round((current_sales / cap * 100), 1) if cap > 0 else 0
 
@@ -374,9 +381,13 @@ def get_dashboard_operacional(
 
     taxa_ocupacao_media = round((total_atletas_orcado / total_capacidade * 100), 1) if total_capacidade > 0 else 0
 
+    progresso_atletas = round(total_atletas_confirmados / total_atletas_orcado * 100, 1) if total_atletas_orcado > 0 else 0
+
     return {
         "kpis": {
             "total_atletas_orcado": total_atletas_orcado,
+            "total_atletas_confirmados": total_atletas_confirmados,
+            "progresso_atletas_pct": progresso_atletas,
             "total_eventos": total_eventos,
             "isc_acelerando": isc_acelerando,
             "isc_estavel": isc_estavel,
@@ -408,6 +419,13 @@ def get_dashboard_financeiro(
             detail="Permissão insuficiente para visualizar dados financeiros do dashboard"
         )
 
+    from ..marketing import (
+        fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
+        calculate_isc_components, calculate_isc, get_isc_status,
+        get_meta_from_cadastro, calculate_d_minus, get_dias_encerramento,
+        get_data_regime, normalize_sku, _get_snapshot_metrics_for_grupo
+    )
+
     projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
@@ -415,13 +433,75 @@ def get_dashboard_financeiro(
     cadastro_ids = [c.id for c in cadastros_map.values()]
     kit_costs_map = get_kit_costs_map(db, cadastro_ids)
 
+    isc_cfg = _get_isc_settings(db)
+    isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
+    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+
     events = compute_event_metrics(projetos, cadastros_map, kit_costs_map)
 
+    isc_status_map: dict = {}
+    for p in projetos:
+        projeto_codigo = str(p.codigo) if p.codigo else None
+        sku_norm = normalize_sku(projeto_codigo) if projeto_codigo else None
+        grupo_nome = sku_to_grupo.get(sku_norm) if sku_norm else None
+        cadastro = cadastros_map.get(p.id)
+        cap = get_meta_from_cadastro(cadastro) if cadastro else 0
+        dias_enc = get_dias_encerramento(db, projeto_id=p.id, cadastro=cadastro)
+        d_minus_inscricoes = calculate_d_minus(p.data_evento, dias_encerramento=dias_enc) if p.data_evento else 0
+        regime = get_data_regime(p.data_evento, dias_enc) if p.data_evento else "live"
+
+        current_sales = 0
+        m7d = m14d = m30d = 0.0
+        if regime == "consolidated" and grupo_nome:
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            if snap:
+                current_sales = snap.get("qtd_site", 0)
+        else:
+            if sku_norm and sku_norm in isc_data:
+                current_sales = isc_data[sku_norm].get("qtd_site", 0)
+                m7d = isc_data[sku_norm].get("media_7d", 0.0)
+                m14d = isc_data[sku_norm].get("media_14d", 0.0)
+                m30d = isc_data[sku_norm].get("media_30d", 0.0)
+
+        if current_sales == 0 and cadastro:
+            current_sales = int(cadastro.atletas_site_pago or 0) + int(cadastro.atletas_grupos_pago or 0) + int(cadastro.atletas_cortesia or 0)
+
+        isc_comps = calculate_isc_components(
+            current_sales, cap or 1, d_minus_inscricoes,
+            media_7d=m7d, media_14d=m14d, media_30d=m30d,
+            hist_pattern=None, registration_close_date=None
+        )
+        isc_val = calculate_isc(isc_comps, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status_map[p.id] = get_isc_status(isc_val, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
+
+    for e in events:
+        e["isc_status"] = isc_status_map.get(e["id"], "stable")
+
     total_receita_projetada = sum(e["receita_projetada"] for e in events)
+
+    total_atletas_orcado = sum(e["atletas_orcado"] for e in events)
+    total_atletas_confirmados_site = sum(e["atletas_site"] for e in events)
+    total_atletas_confirmados = sum(e["atletas_site"] + e["atletas_grupos"] + e["atletas_cortesia"] for e in events)
+
+    total_receita_orcada = sum(
+        (e["atletas_orcado"] * decimal_to_float(cadastros_map[e["id"]].atletas_site_tkt_medio)
+         if e["id"] in cadastros_map and cadastros_map[e["id"]].atletas_site_tkt_medio else 0)
+        for e in events
+    )
+    total_ticket_realizado = sum(e["ticket_medio"] for e in events if e["ticket_medio"] > 0)
+    total_ticket_planejado = sum(
+        decimal_to_float(cadastros_map[e["id"]].atletas_site_tkt_medio)
+        for e in events
+        if e["id"] in cadastros_map and cadastros_map[e["id"]].atletas_site_tkt_medio
+    )
+    count_com_ticket = sum(1 for e in events if e["ticket_medio"] > 0)
+    count_com_tkt_plan = sum(1 for e in events if e["id"] in cadastros_map and cadastros_map[e["id"]].atletas_site_tkt_medio)
+
+    ticket_medio_realizado = round(total_ticket_realizado / count_com_ticket, 2) if count_com_ticket else 0
+    ticket_medio_planejado = round(total_ticket_planejado / count_com_tkt_plan, 2) if count_com_tkt_plan else 0
+
     eventos_com_ticket = [e for e in events if e["ticket_medio"] > 0]
-    ticket_medio_geral = round(
-        sum(e["ticket_medio"] for e in eventos_com_ticket) / len(eventos_com_ticket), 2
-    ) if eventos_com_ticket else 0
+    ticket_medio_geral = ticket_medio_realizado
 
     eventos_com_margem = [e for e in events if e["ticket_medio"] > 0 and e["custo_kit"] > 0]
     margem_media = round(
@@ -436,10 +516,11 @@ def get_dashboard_financeiro(
             "evento": e["evento"],
             "taxa_ocupacao": e["taxa_ocupacao"],
             "receita_projetada": e["receita_projetada"],
+            "isc_status": e["isc_status"],
             "cidade": e["cidade"],
         }
         for e in events
-        if e["taxa_ocupacao"] < 60 and e["receita_projetada"] > 0
+        if e["isc_status"] == "decelerating" and e["receita_projetada"] > 0
     ]
     eventos_em_risco.sort(key=lambda x: x["receita_projetada"], reverse=True)
     receita_em_risco = sum(e["receita_projetada"] for e in eventos_em_risco)
@@ -451,10 +532,12 @@ def get_dashboard_financeiro(
             "ticket_medio": e["ticket_medio"],
             "vagas_restantes": e["capacidade"] - e["atletas_orcado"],
             "receita_projetada": e["receita_projetada"],
+            "isc_status": e["isc_status"],
         }
         for e in events
-        if e["taxa_ocupacao"] >= 70 and e["taxa_ocupacao"] < 95
-        and e["capacidade"] - e["atletas_orcado"] > 0
+        if e["isc_status"] == "accelerating"
+        and e["capacidade"] > 0
+        and (e["capacidade"] - e["atletas_orcado"]) / e["capacidade"] >= 0.10
         and e["ticket_medio"] > 0
     ]
     oportunidades_yield.sort(key=lambda x: x["taxa_ocupacao"], reverse=True)
@@ -512,11 +595,19 @@ def get_dashboard_financeiro(
     return {
         "kpis": {
             "receita_total_projetada": round(total_receita_projetada, 2),
-            "ticket_medio_geral": ticket_medio_geral,
+            "receita_total_orcada": round(total_receita_orcada, 2),
+            "variacao_receita": round(total_receita_projetada - total_receita_orcada, 2),
+            "ticket_medio_realizado": ticket_medio_realizado,
+            "ticket_medio_planejado": ticket_medio_planejado,
+            "variacao_ticket": round(ticket_medio_realizado - ticket_medio_planejado, 2),
+            "ticket_medio_geral": ticket_medio_realizado,
             "margem_media_liquida": margem_media,
             "percentual_margem_media": percentual_margem_media,
             "receita_em_risco": round(receita_em_risco, 2),
             "total_oportunidades_yield": len(oportunidades_yield),
+            "atletas_orcado_total": total_atletas_orcado,
+            "atletas_confirmados_total": total_atletas_confirmados,
+            "atletas_site_total": total_atletas_confirmados_site,
         },
         "eventos_em_risco": eventos_em_risco[:5],
         "oportunidades_yield": oportunidades_yield[:5],

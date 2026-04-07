@@ -318,9 +318,25 @@ const Dashboard: React.FC = () => {
               color={isDark ? 'text-indigo-400 bg-indigo-500/10' : 'text-indigo-600 bg-indigo-50'} />
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KpiCard title="Atletas Confirmados" value={formatNumber(opData.kpis?.total_atletas_orcado || 0)}
-                subtitle={`Cap. total: ${formatNumber(opData.kpis?.total_capacidade || 0)}`}
-                icon={<Users className="w-5 h-5 text-white" />} gradient="from-indigo-500 to-blue-500" isDark={isDark} />
+              <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
+                <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-indigo-500" />
+                <div className="relative flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Atletas Orçados vs Confirmados</p>
+                    <p className={`text-2xl font-black mt-1.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(opData.kpis?.total_atletas_orcado || 0)}</p>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Confirmados: {formatNumber(opData.kpis?.total_atletas_confirmados || 0)}</p>
+                    {opData.kpis?.progresso_atletas_pct !== undefined && (
+                      <div className="mt-1.5">
+                        <div className="w-full h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(opData.kpis.progresso_atletas_pct, 100)}%` }} />
+                        </div>
+                        <p className="text-xs mt-0.5 text-indigo-400 font-medium">{opData.kpis.progresso_atletas_pct}% confirmados</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 shadow-lg"><Users className="w-5 h-5 text-white" /></div>
+                </div>
+              </div>
               <KpiCard title="Ocupação Média" value={`${opData.kpis?.taxa_ocupacao_media || 0}%`}
                 subtitle={`${opData.kpis?.total_eventos || 0} eventos no portfólio`}
                 icon={<Percent className="w-5 h-5 text-white" />} gradient="from-purple-500 to-pink-500" isDark={isDark} />
@@ -472,18 +488,46 @@ const Dashboard: React.FC = () => {
                   color={isDark ? 'text-emerald-400 bg-emerald-500/10' : 'text-emerald-600 bg-emerald-50'} />
 
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <KpiCard title="Receita Projetada" value={formatCurrency(finData.kpis?.receita_total_projetada || 0)}
-                    subtitle="Total do portfólio"
-                    icon={<DollarSign className="w-5 h-5 text-white" />} gradient="from-emerald-500 to-teal-500" isDark={isDark} />
-                  <KpiCard title="Ticket Médio Geral" value={formatCurrency(finData.kpis?.ticket_medio_geral || 0)}
-                    subtitle="Média ponderada"
-                    icon={<TrendingUp className="w-5 h-5 text-white" />} gradient="from-blue-500 to-cyan-500" isDark={isDark} />
+                  <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
+                    <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-emerald-500" />
+                    <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Receita Projetada vs Orçada</p>
+                    <p className={`text-2xl font-black mt-1.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(finData.kpis?.receita_total_projetada || 0)}</p>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(finData.kpis?.receita_total_orcada || 0)}</p>
+                    {finData.kpis?.variacao_receita !== undefined && (
+                      <p className={`text-xs font-semibold mt-0.5 ${finData.kpis.variacao_receita >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {finData.kpis.variacao_receita >= 0 ? '+' : ''}{formatCurrency(finData.kpis.variacao_receita)} vs orçado
+                      </p>
+                    )}
+                  </div>
+                  <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
+                    <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-blue-500" />
+                    <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Realizado vs Planejado</p>
+                    <p className={`text-2xl font-black mt-1.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(finData.kpis?.ticket_medio_realizado || 0)}</p>
+                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Planejado: {formatCurrency(finData.kpis?.ticket_medio_planejado || 0)}</p>
+                    {finData.kpis?.variacao_ticket !== undefined && (
+                      <p className={`text-xs font-semibold mt-0.5 ${finData.kpis.variacao_ticket >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {finData.kpis.variacao_ticket >= 0 ? '+' : ''}{formatCurrency(finData.kpis.variacao_ticket)} vs planejado
+                      </p>
+                    )}
+                  </div>
                   <KpiCard title="Margem Líquida Média" value={formatCurrency(finData.kpis?.margem_media_liquida || 0)}
                     subtitle={finData.kpis?.percentual_margem_media ? `${finData.kpis.percentual_margem_media}% do ticket` : 'Após custo de kit'}
                     icon={<Percent className="w-5 h-5 text-white" />} gradient="from-violet-500 to-purple-500" isDark={isDark} />
-                  <KpiCard title="Receita em Risco" value={formatCurrency(finData.kpis?.receita_em_risco || 0)}
-                    subtitle={`${finData.eventos_em_risco?.length || 0} eventos abaixo de 60%`}
+                  <KpiCard title="Receita em Risco (ISC)" value={formatCurrency(finData.kpis?.receita_em_risco || 0)}
+                    subtitle={`${finData.eventos_em_risco?.length || 0} eventos desacelerando`}
                     icon={<TrendingDown className="w-5 h-5 text-white" />} gradient="from-red-500 to-rose-500" isDark={isDark} />
+                </div>
+
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                  <KpiCard title="Atletas Orçados" value={formatNumber(finData.kpis?.atletas_orcado_total || 0)}
+                    subtitle={`Confirmados: ${formatNumber(finData.kpis?.atletas_confirmados_total || 0)}`}
+                    icon={<Users className="w-5 h-5 text-white" />} gradient="from-indigo-500 to-blue-500" isDark={isDark} />
+                  <KpiCard title="Atletas via Site" value={formatNumber(finData.kpis?.atletas_site_total || 0)}
+                    subtitle="Inscrições pagas canal site"
+                    icon={<Target className="w-5 h-5 text-white" />} gradient="from-purple-500 to-pink-500" isDark={isDark} />
+                  <KpiCard title="Oportunidades Yield (ISC)" value={String(finData.kpis?.total_oportunidades_yield || 0)}
+                    subtitle="Acelerando c/ ≥10% cap. disponível"
+                    icon={<Zap className="w-5 h-5 text-white" />} gradient="from-amber-500 to-orange-500" isDark={isDark} />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
