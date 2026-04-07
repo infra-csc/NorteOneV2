@@ -654,7 +654,7 @@ const Cadastro: React.FC = () => {
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
       retirada_kit: { ...item.retirada_kit },
       kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, ativo_categoria: k.ativo_categoria ?? '', produtos: k.produtos.map(p => ({ ...p, valor_unitario: Number(p.valor_unitario) || 0 })) })) : [{ kit: '', ativo_categoria: '', produtos: [] }],
-      merchan: (item.merchan || []).map((mk: any) => ({ kit: mk.kit, itens: (mk.itens || []).map((it: any) => ({ nome: it.nome, valor_venda: Number(it.valor_venda) || 0 })) })),
+      merchan: (item.merchan || []).map(mk => ({ kit: mk.kit, itens: (mk.itens || []).map(it => ({ nome: it.nome, valor_venda: Number(it.valor_venda) || 0 })) })),
       faixas_preco_site: {
         kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
           ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
