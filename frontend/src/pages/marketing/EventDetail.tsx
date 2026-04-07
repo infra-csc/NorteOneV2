@@ -945,7 +945,14 @@ const EventDetail: React.FC = () => {
       </div>
 
       {activeTab === 'simulator' ? (
-        <EventSimulator eventoId={id!} ano={anoParam ?? new Date().getFullYear()} isDark={isDark} />
+        <EventSimulator
+          eventoId={id!}
+          ano={anoParam ?? new Date().getFullYear()}
+          isDark={isDark}
+          dashTicketMedio={ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined}
+          dashMargem={margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined)}
+          dashTotalVendas={event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined}
+        />
       ) : activeTab === 'controle' ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
           <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>

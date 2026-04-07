@@ -33,6 +33,10 @@ interface EventSimulatorProps {
   eventoId: string;
   ano: number;
   isDark: boolean;
+  /** Valores vindos do Dashboard (kit-level Magento) para alinhar o baseline */
+  dashTicketMedio?: number;
+  dashMargem?: number;
+  dashTotalVendas?: number;
 }
 
 const fmt = (n: number) => n.toLocaleString('pt-BR');
@@ -57,7 +61,7 @@ const MargemBadge = ({ pct, isDark }: { pct: number; isDark: boolean }) => {
   );
 };
 
-export default function EventSimulator({ eventoId, ano, isDark }: EventSimulatorProps) {
+export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas }: EventSimulatorProps) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,9 +97,35 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
     return () => controller.abort();
   }, [eventoId, ano]);
 
-  const custoKit = data?.atual?.custo_kit ?? 50;
+  // Baseline alinhado com o Dashboard — quando o pai passa valores kit-level do Magento,
+  // esses sobrescrevem os valores ISC do Simulator para garantir consistência visual.
+  const atualEfetivo = useMemo(() => {
+    if (!data?.atual) return null;
+    const base = data.atual;
+    if (dashTicketMedio != null && dashTotalVendas != null && dashTicketMedio > 0 && dashTotalVendas > 0) {
+      const custo = base.custo_kit ?? 50;
+      const totalReceita = Math.round(dashTicketMedio * dashTotalVendas * 100) / 100;
+      const margemUnit = Math.round((dashTicketMedio - custo) * 100) / 100;
+      const margemTotal = dashMargem != null
+        ? dashMargem
+        : Math.round((totalReceita - custo * dashTotalVendas) * 100) / 100;
+      const margemPct = totalReceita > 0 ? Math.round((margemTotal / totalReceita) * 1000) / 10 : 0;
+      return {
+        ...base,
+        ticket_medio: dashTicketMedio,
+        total_vendas: dashTotalVendas,
+        total_receita: totalReceita,
+        margem_total: margemTotal,
+        margem_unit: margemUnit,
+        margem_pct: margemPct,
+      };
+    }
+    return base;
+  }, [data, dashTicketMedio, dashMargem, dashTotalVendas]);
+
+  const custoKit = atualEfetivo?.custo_kit ?? 50;
   const meta = metaCustom ?? data?.evento?.meta_orcada ?? 0;
-  const ticketAtual = data?.atual?.ticket_medio ?? 0;
+  const ticketAtual = atualEfetivo?.ticket_medio ?? 0;
   const ticketAlvo = novoTicket ?? Math.round(ticketAtual);
 
   // ───────────────────────────────────────────────
@@ -103,8 +133,9 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
   // Mantém o ticket, ajusta o ritmo de vendas
   // ───────────────────────────────────────────────
   const cenarioVolume = useMemo(() => {
-    if (!data) return null;
-    const { atual, evento } = data;
+    if (!data || !atualEfetivo) return null;
+    const atual = atualEfetivo;
+    const { evento } = data;
     const diasRestantes = Math.max(0, evento.dias_ate_evento);
     const multiplicador = 1 + ajusteRitmo / 100;
 
@@ -145,7 +176,7 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
       ganho_margem: Math.round(ganho_margem * 100) / 100,
       diasRestantes,
     };
-  }, [data, ajusteRitmo, custoKit, ticketAtual, meta]);
+  }, [data, atualEfetivo, ajusteRitmo, custoKit, ticketAtual, meta]);
 
   // ───────────────────────────────────────────────
   // Cenário 2 — Estratégia Ticket
@@ -153,8 +184,9 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
   // Elasticidade: 1% de variação de preço → -elasticidade% de variação no volume
   // ───────────────────────────────────────────────
   const cenarioTicket = useMemo(() => {
-    if (!data) return null;
-    const { atual, evento } = data;
+    if (!data || !atualEfetivo) return null;
+    const atual = atualEfetivo;
+    const { evento } = data;
     const diasRestantes = Math.max(0, evento.dias_ate_evento);
 
     const delta_pct_ticket = ticketAtual > 0 ? ((ticketAlvo - ticketAtual) / ticketAtual) * 100 : 0;
@@ -195,7 +227,7 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
       ganho_margem: Math.round(ganho_margem * 100) / 100,
       diasRestantes,
     };
-  }, [data, ticketAlvo, ticketAtual, elasticidade, custoKit, meta]);
+  }, [data, atualEfetivo, ticketAlvo, ticketAtual, elasticidade, custoKit, meta]);
 
   // ───────────────────────────────────────────────
   // Recomendação: qual cenário maximiza margem?
@@ -307,7 +339,8 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
     );
   }
 
-  const { atual, evento } = data;
+  const atual = atualEfetivo ?? data.atual;
+  const { evento } = data;
   const cardBase = `rounded-xl border shadow-sm`;
   const cardBg = isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200';
   const labelCls = `text-xs font-medium text-gray-500 dark:text-gray-400`;
