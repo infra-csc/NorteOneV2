@@ -166,6 +166,7 @@ const Dashboard: React.FC = () => {
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
   const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
   const CACHE_TTL_MS = 30 * 60 * 1000;
+  const CACHE_FRESH_MS = 5 * 60 * 1000;
 
   const readCache = (key: string) => {
     try {
@@ -179,6 +180,15 @@ const Dashboard: React.FC = () => {
 
   const writeCache = (key: string, data: any) => {
     try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+  };
+
+  const isCacheStale = (key: string) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return true;
+      const { ts } = JSON.parse(raw);
+      return Date.now() - ts > CACHE_FRESH_MS;
+    } catch { return true; }
   };
 
   const [loading, setLoading] = useState(true);
@@ -210,6 +220,7 @@ const Dashboard: React.FC = () => {
   const clearFilters = () => setFilters({ ano: defaultAno, mes: null, produto: null, modalidade: null, cidade: null });
 
   const hasDataRef = React.useRef(!!readCache(CACHE_KEY_OP));
+  const mountHandlingRef = React.useRef(false);
 
   const loadData = useCallback(async (f: Filters, silent = false) => {
     if (!silent) setRefreshing(true);
@@ -268,9 +279,13 @@ const Dashboard: React.FC = () => {
 
     if (hasCachedData) {
       setLoading(false);
+      mountHandlingRef.current = true;
       init().then(() => {
-        const currentAno = filters.ano || defaultAno;
-        loadData({ ...filters, ano: currentAno }, true);
+        if (isCacheStale(CACHE_KEY_OP)) {
+          const currentAno = filters.ano || defaultAno;
+          loadData({ ...filters, ano: currentAno }, true);
+        }
+        mountHandlingRef.current = false;
       });
     } else {
       init();
@@ -278,7 +293,8 @@ const Dashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!loading && filters.ano) loadData(filters, !!readCache(CACHE_KEY_OP));
+    if (mountHandlingRef.current) return;
+    if (!loading && filters.ano) loadData(filters, false);
   }, [filters]);
 
   const cardClass = `rounded-2xl p-6 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
