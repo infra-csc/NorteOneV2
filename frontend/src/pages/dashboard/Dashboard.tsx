@@ -8,9 +8,8 @@ import {
 } from 'recharts';
 import {
   Filter, Search, ChevronDown, LayoutDashboard, RotateCcw,
-  Users, CalendarDays, TrendingUp, Trophy, AlertTriangle,
-  RefreshCw, Target, Percent, Zap, DollarSign, TrendingDown,
-  Lock, ArrowRight, CheckCircle, Clock
+  Users, CalendarDays, TrendingUp, AlertTriangle,
+  RefreshCw, Target, Percent, Zap, DollarSign, TrendingDown, ArrowRight
 } from 'lucide-react';
 
 const formatCurrency = (value: number) =>
@@ -35,8 +34,13 @@ interface FilterOptions {
   modalidades: FilterOption[];
 }
 
-const CHART_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6'];
 const PIE_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6'];
+
+const ISC_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  accelerating: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', label: 'Acelerando' },
+  stable: { bg: 'bg-amber-500/20', text: 'text-amber-400', label: 'Estável' },
+  decelerating: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Desacelerando' },
+};
 
 const SearchableDropdown: React.FC<{
   label: string; options: FilterOption[]; value: string | number | null;
@@ -114,17 +118,10 @@ const SectionLabel: React.FC<{ label: string; isDark: boolean; color: string }> 
   </div>
 );
 
-const CustomTooltip = ({ active, payload, label, isDark }: any) => {
-  if (!active || !payload || !payload.length) return null;
+const IscBadge: React.FC<{ status: string }> = ({ status }) => {
+  const info = ISC_BADGE[status] || { bg: 'bg-gray-500/20', text: 'text-gray-400', label: status };
   return (
-    <div className={`rounded-xl p-3 shadow-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-      <p className={`text-sm font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</p>
-      {payload.map((entry: any, i: number) => (
-        <p key={i} className="text-xs" style={{ color: entry.color }}>
-          {entry.name}: {typeof entry.value === 'number' ? formatNumber(entry.value) : entry.value}
-        </p>
-      ))}
-    </div>
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${info.bg} ${info.text}`}>{info.label}</span>
   );
 };
 
@@ -137,6 +134,20 @@ const OcupacaoBar: React.FC<{ taxa: number }> = ({ taxa }) => {
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(taxa, 100)}%` }} />
       </div>
       <span className={`text-xs font-medium ${textColor}`}>{taxa}%</span>
+    </div>
+  );
+};
+
+const CustomTooltip = ({ active, payload, label, isDark }: any) => {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className={`rounded-xl p-3 shadow-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+      <p className={`text-sm font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</p>
+      {payload.map((entry: any, i: number) => (
+        <p key={i} className="text-xs" style={{ color: entry.color }}>
+          {entry.name}: {typeof entry.value === 'number' ? formatNumber(entry.value) : entry.value}
+        </p>
+      ))}
     </div>
   );
 };
@@ -241,9 +252,7 @@ const Dashboard: React.FC = () => {
                 Dashboard
                 <span className="bg-gradient-to-r from-indigo-400 via-purple-500 to-pink-500 bg-clip-text text-transparent"> Consolidado</span>
               </h1>
-              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                Visão geral do portfólio de eventos
-              </p>
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Visão geral do portfólio de eventos</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -309,33 +318,50 @@ const Dashboard: React.FC = () => {
               color={isDark ? 'text-indigo-400 bg-indigo-500/10' : 'text-indigo-600 bg-indigo-50'} />
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <KpiCard title="Atletas Orçados" value={formatNumber(opData.kpis?.total_atletas_orcado || 0)}
-                subtitle={`${opData.kpis?.total_eventos || 0} eventos`}
-                icon={<Users className="w-5 h-5 text-white" />} gradient="from-indigo-500 to-blue-500" isDark={isDark} />
-              <KpiCard title="Total Eventos" value={formatNumber(opData.kpis?.total_eventos || 0)}
-                subtitle={`${opData.kpis?.eventos_planejados || 0} planejados`}
-                icon={<CalendarDays className="w-5 h-5 text-white" />} gradient="from-purple-500 to-pink-500" isDark={isDark} />
-              <KpiCard title="Taxa de Ocupação" value={`${opData.kpis?.taxa_ocupacao_media || 0}%`}
+              <KpiCard title="Atletas Confirmados" value={formatNumber(opData.kpis?.total_atletas_orcado || 0)}
                 subtitle={`Cap. total: ${formatNumber(opData.kpis?.total_capacidade || 0)}`}
-                icon={<Percent className="w-5 h-5 text-white" />} gradient="from-amber-500 to-orange-500" isDark={isDark} />
-              <KpiCard title="Candidatos Sell-out" value={`${opData.candidatos_sellout?.length || 0}`}
+                icon={<Users className="w-5 h-5 text-white" />} gradient="from-indigo-500 to-blue-500" isDark={isDark} />
+              <KpiCard title="Ocupação Média" value={`${opData.kpis?.taxa_ocupacao_media || 0}%`}
+                subtitle={`${opData.kpis?.total_eventos || 0} eventos no portfólio`}
+                icon={<Percent className="w-5 h-5 text-white" />} gradient="from-purple-500 to-pink-500" isDark={isDark} />
+              <KpiCard title="Sell-out Projetado" value={`${opData.kpis?.candidatos_sellout || 0}`}
                 subtitle="Ocupação ≥ 80%"
-                icon={<Zap className="w-5 h-5 text-white" />} gradient="from-emerald-500 to-teal-500" isDark={isDark} />
+                icon={<Zap className="w-5 h-5 text-white" />} gradient="from-amber-500 to-orange-500" isDark={isDark} />
+              <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
+                <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Saúde ISC</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-emerald-400">Acelerando</span>
+                    <span className="text-sm font-bold text-emerald-400">{opData.kpis?.isc_acelerando || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-amber-400">Estável</span>
+                    <span className="text-sm font-bold text-amber-400">{opData.kpis?.isc_estavel || 0}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-red-400">Desacelerando</span>
+                    <span className="text-sm font-bold text-red-400">{opData.kpis?.isc_desacelerando || 0}</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {opData.proximos_eventos?.length > 0 && (
                 <div className={`${cardClass} md:col-span-2`}>
                   <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    <Clock className="w-4 h-4 text-indigo-400" />
-                    Próximos 28 dias
+                    <CalendarDays className="w-4 h-4 text-indigo-400" />
+                    Próximas 4 semanas
                   </h3>
                   <div className="space-y-2">
-                    {opData.proximos_eventos.slice(0, 6).map((ev: any, i: number) => (
+                    {opData.proximos_eventos.slice(0, 7).map((ev: any, i: number) => (
                       <div key={i} className={`flex items-center justify-between p-2.5 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-gray-50'}`}>
                         <div className="flex-1 min-w-0">
                           <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento}</p>
-                          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{ev.cidade} · {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{ev.cidade} · {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                            {ev.isc_status && <IscBadge status={ev.isc_status} />}
+                          </div>
                         </div>
                         <div className="flex items-center gap-3 ml-3">
                           <OcupacaoBar taxa={ev.taxa_ocupacao} />
@@ -345,17 +371,10 @@ const Dashboard: React.FC = () => {
                               : ev.dias_para_evento <= 14
                               ? 'bg-amber-500/20 text-amber-400'
                               : 'bg-indigo-500/20 text-indigo-400'
-                          }`}>
-                            D-{ev.dias_para_evento}
-                          </span>
+                          }`}>D-{ev.dias_para_evento}</span>
                         </div>
                       </div>
                     ))}
-                    {opData.proximos_eventos.length === 0 && (
-                      <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                        Nenhum evento nos próximos 28 dias
-                      </p>
-                    )}
                   </div>
                 </div>
               )}
@@ -365,13 +384,16 @@ const Dashboard: React.FC = () => {
                   <div className={cardClass}>
                     <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
                       <AlertTriangle className="w-4 h-4 text-red-400" />
-                      Alertas de Ocupação
+                      Abaixo da Curva
                     </h3>
                     <div className="space-y-2">
                       {opData.alertas_ocupacao.slice(0, 4).map((ev: any, i: number) => (
                         <div key={i} className={`flex items-center justify-between p-2 rounded-lg ${isDark ? 'bg-gray-700/40' : 'bg-red-50'}`}>
                           <p className={`text-xs font-medium truncate flex-1 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{ev.evento}</p>
-                          <span className="ml-2 text-xs font-bold text-red-400">{ev.taxa_ocupacao}%</span>
+                          <div className="flex items-center gap-1.5 ml-2">
+                            {ev.isc_status && <IscBadge status={ev.isc_status} />}
+                            <span className="text-xs font-bold text-red-400">{ev.taxa_ocupacao}%</span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -381,13 +403,18 @@ const Dashboard: React.FC = () => {
                 {opData.candidatos_sellout?.length > 0 && (
                   <div className={cardClass}>
                     <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      <CheckCircle className="w-4 h-4 text-emerald-400" />
-                      Próximos do Sell-out
+                      <Zap className="w-4 h-4 text-emerald-400" />
+                      Sell-out Projetado
                     </h3>
                     <div className="space-y-2">
                       {opData.candidatos_sellout.slice(0, 4).map((ev: any, i: number) => (
                         <div key={i} className={`flex items-center justify-between p-2 rounded-lg ${isDark ? 'bg-gray-700/40' : 'bg-emerald-50'}`}>
-                          <p className={`text-xs font-medium truncate flex-1 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{ev.evento}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-medium truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{ev.evento}</p>
+                            {ev.vagas_restantes !== undefined && (
+                              <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{formatNumber(ev.vagas_restantes)} vagas restantes</p>
+                            )}
+                          </div>
                           <span className="ml-2 text-xs font-bold text-emerald-400">{ev.taxa_ocupacao}%</span>
                         </div>
                       ))}
@@ -398,19 +425,19 @@ const Dashboard: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {opData.top_eventos_atletas?.length > 0 && (
+              {opData.top_por_velocity?.length > 0 && (
                 <div className={cardClass}>
                   <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    <Trophy className="w-4 h-4 text-amber-400" />
-                    Top Eventos por Atletas
+                    <TrendingUp className="w-4 h-4 text-amber-400" />
+                    Top Eventos — Velocidade Rolling 14d
                   </h3>
                   <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={opData.top_eventos_atletas} layout="vertical" margin={{ left: 8, right: 16 }}>
+                    <BarChart data={opData.top_por_velocity} layout="vertical" margin={{ left: 8, right: 16 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                      <XAxis type="number" tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={v => formatNumber(v)} />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={v => `${v.toFixed(1)}`} />
                       <YAxis type="category" dataKey="evento" width={140} tick={{ fontSize: 10, fill: isDark ? '#9ca3af' : '#6b7280' }} />
                       <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                      <Bar dataKey="atletas" name="Atletas" fill="#6366f1" radius={[0, 6, 6, 0]} barSize={16} />
+                      <Bar dataKey="rolling14d" name="Vel. 14d (inscrições/dia)" fill="#f59e0b" radius={[0, 6, 6, 0]} barSize={16} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -517,7 +544,7 @@ const Dashboard: React.FC = () => {
                           Oportunidades de Yield
                         </h3>
                         <div className={`p-2 rounded-lg mb-2 text-xs ${isDark ? 'text-gray-400 bg-gray-700/40' : 'text-gray-500 bg-amber-50'}`}>
-                          Eventos com boa ocupação e vagas disponíveis — candidatos a aumento de preço
+                          Eventos com boa ocupação e vagas disponíveis — candidatos a ajuste de preço
                         </div>
                         <div className="space-y-2">
                           {finData.oportunidades_yield.slice(0, 4).map((ev: any, i: number) => (
@@ -565,20 +592,6 @@ const Dashboard: React.FC = () => {
                   </div>
                 )}
               </>
-            )}
-
-            {!canSeeFinancial && (
-              <div className={`rounded-2xl p-8 border-2 border-dashed flex flex-col items-center justify-center text-center gap-3 ${isDark ? 'border-gray-700 bg-gray-800/30' : 'border-gray-200 bg-gray-50'}`}>
-                <div className={`p-4 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                  <Lock className={`w-6 h-6 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
-                </div>
-                <div>
-                  <p className={`font-semibold ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Dados financeiros restritos</p>
-                  <p className={`text-sm mt-1 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                    Receita, margem e ticket médio estão disponíveis apenas para perfis autorizados.
-                  </p>
-                </div>
-              </div>
             )}
           </div>
         )}

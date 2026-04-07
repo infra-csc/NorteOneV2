@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Query, HTTPException, status
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import distinct, extract, func as sa_func
 from typing import Optional
 from datetime import date, timedelta
 from ...core.database import get_db
-from ...core.security import get_current_user
+from ...core.security import get_current_user, is_user_admin
 from ...models.dimensoes import DimTempo, DimProjeto
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from ...models.user import Usuario
+from ...models.perfil_acesso import PerfilPermissaoCampo, PerfilAcesso
 from decimal import Decimal
 import logging
 
@@ -20,6 +21,21 @@ def decimal_to_float(val):
     if isinstance(val, Decimal):
         return float(val)
     return val or 0
+
+
+def user_can_view_campo(db: Session, user: Usuario, entidade: str, campo: str) -> bool:
+    if is_user_admin(user):
+        return True
+    if not user.perfil_acesso_id:
+        return False
+    record = db.query(PerfilPermissaoCampo).filter(
+        PerfilPermissaoCampo.perfil_acesso_id == user.perfil_acesso_id,
+        PerfilPermissaoCampo.entidade == entidade,
+        PerfilPermissaoCampo.campo == campo,
+    ).first()
+    if record is None:
+        return False
+    return record.pode_visualizar
 
 
 @router.get("/filtros")
@@ -207,96 +223,172 @@ def get_dashboard_operacional(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from ..marketing import (
+        fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
+        calculate_isc_components, calculate_isc, get_isc_status,
+        get_meta_from_cadastro, get_meta_orcada, calculate_d_minus,
+        get_dias_encerramento, get_data_regime, normalize_sku,
+        _get_snapshot_metrics_for_grupo
+    )
+    from ...models.cadastro_evento import CadastroEvento as CadEvento
+    from datetime import datetime as dt
+
     projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
-    events = compute_event_metrics(projetos, cadastros_map)
+
+    isc_cfg = _get_isc_settings(db)
+    isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
+    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
 
     today = date.today()
     window_end = today + timedelta(days=28)
 
-    total_atletas = sum(e["atletas_orcado"] for e in events)
-    total_capacidade = sum(e["capacidade"] for e in events)
-    total_eventos = len(events)
+    total_atletas_orcado = 0
+    total_capacidade = 0
+    total_eventos = len(projetos)
+
+    isc_acelerando = 0
+    isc_estavel = 0
+    isc_desacelerando = 0
 
     upcoming_events = []
-    for e in events:
-        d = e["data_evento"]
-        if d and today <= d <= window_end:
+    baixa_ocupacao = []
+    sellout_candidates = []
+    top_por_velocity = []
+    atletas_por_modalidade: dict = {}
+
+    for p in projetos:
+        cadastro = cadastros_map.get(p.id)
+        projeto_codigo = str(p.codigo) if p.codigo else None
+
+        cap = get_meta_from_cadastro(cadastro) if cadastro else get_meta_orcada(db, p.id)
+        total_capacidade += cap
+
+        sku_norm = normalize_sku(projeto_codigo) if projeto_codigo else None
+        grupo_nome = sku_to_grupo.get(sku_norm) if sku_norm else None
+
+        dias_enc = get_dias_encerramento(db, projeto_id=p.id, cadastro=cadastro)
+        d_minus_inscricoes = calculate_d_minus(p.data_evento, dias_encerramento=dias_enc) if p.data_evento else 0
+        regime = get_data_regime(p.data_evento, dias_enc) if p.data_evento else "live"
+
+        current_sales = 0
+        m7d = 0.0
+        m14d = 0.0
+        m30d = 0.0
+
+        if regime == "consolidated" and grupo_nome:
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            if snap:
+                current_sales = snap.get("qtd_site", 0)
+        else:
+            if sku_norm and sku_norm in isc_data:
+                current_sales = isc_data[sku_norm].get("qtd_site", 0)
+                m7d = isc_data[sku_norm].get("media_7d", 0.0)
+                m14d = isc_data[sku_norm].get("media_14d", 0.0)
+                m30d = isc_data[sku_norm].get("media_30d", 0.0)
+
+        if current_sales == 0:
+            atletas_site = int(cadastro.atletas_site_pago or 0) if cadastro else 0
+            atletas_grupos = int(cadastro.atletas_grupos_pago or 0) if cadastro else 0
+            atletas_cortesia = int(cadastro.atletas_cortesia or 0) if cadastro else 0
+            current_sales = atletas_site + atletas_grupos + atletas_cortesia
+
+        total_atletas_orcado += current_sales
+
+        taxa_ocupacao = round((current_sales / cap * 100), 1) if cap > 0 else 0
+
+        isc_components = calculate_isc_components(
+            current_sales, cap, d_minus_inscricoes,
+            media_7d=m7d, media_14d=m14d, media_30d=m30d,
+            hist_pattern=None, registration_close_date=None
+        )
+        isc_val = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_status = get_isc_status(isc_val, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
+
+        if d_minus_inscricoes > 0:
+            if isc_status == "accelerating":
+                isc_acelerando += 1
+            elif isc_status == "stable":
+                isc_estavel += 1
+            else:
+                isc_desacelerando += 1
+
+        nome_evento = (str(cadastro.nome) if cadastro and cadastro.nome else None) or (str(p.evento) if p.evento else f"Evento {p.id}")
+        cidade = str(cadastro.localizacao_evento) if cadastro and cadastro.localizacao_evento else (str(p.cidade) if p.cidade else "N/D")
+
+        if p.data_evento and today <= p.data_evento <= window_end:
             upcoming_events.append({
-                "evento": e["evento"],
-                "data_evento": d.isoformat(),
-                "cidade": e["cidade"],
-                "taxa_ocupacao": e["taxa_ocupacao"],
-                "atletas_orcado": e["atletas_orcado"],
-                "capacidade": e["capacidade"],
-                "dias_para_evento": (d - today).days,
+                "evento": nome_evento,
+                "data_evento": p.data_evento.isoformat(),
+                "cidade": cidade,
+                "taxa_ocupacao": taxa_ocupacao,
+                "isc": round(isc_val, 3),
+                "isc_status": isc_status,
+                "atletas_orcado": current_sales,
+                "capacidade": cap,
+                "dias_para_evento": (p.data_evento - today).days,
             })
-    upcoming_events.sort(key=lambda x: x["dias_para_evento"])
 
-    baixa_ocupacao = [
-        {
-            "evento": e["evento"],
-            "taxa_ocupacao": e["taxa_ocupacao"],
-            "cidade": e["cidade"],
-            "atletas_orcado": e["atletas_orcado"],
-            "capacidade": e["capacidade"],
-        }
-        for e in events
-        if e["taxa_ocupacao"] < 50 and e["capacidade"] > 0
-    ]
-    baixa_ocupacao.sort(key=lambda x: x["taxa_ocupacao"])
+        if d_minus_inscricoes > 0:
+            if taxa_ocupacao < 50 and cap > 0:
+                baixa_ocupacao.append({
+                    "evento": nome_evento,
+                    "taxa_ocupacao": taxa_ocupacao,
+                    "isc_status": isc_status,
+                    "cidade": cidade,
+                    "atletas_orcado": current_sales,
+                    "capacidade": cap,
+                })
 
-    sellout_candidates = [
-        {
-            "evento": e["evento"],
-            "taxa_ocupacao": e["taxa_ocupacao"],
-            "cidade": e["cidade"],
-            "atletas_orcado": e["atletas_orcado"],
-            "capacidade": e["capacidade"],
-            "vagas_restantes": e["capacidade"] - e["atletas_orcado"],
-        }
-        for e in events
-        if e["taxa_ocupacao"] >= 80 and e["capacidade"] > 0
-    ]
-    sellout_candidates.sort(key=lambda x: x["taxa_ocupacao"], reverse=True)
+            if taxa_ocupacao >= 80 and cap > 0:
+                sellout_candidates.append({
+                    "evento": nome_evento,
+                    "taxa_ocupacao": taxa_ocupacao,
+                    "isc_status": isc_status,
+                    "cidade": cidade,
+                    "atletas_orcado": current_sales,
+                    "capacidade": cap,
+                    "vagas_restantes": cap - current_sales,
+                })
 
-    top_por_atletas = sorted(events, key=lambda x: x["atletas_orcado"], reverse=True)[:8]
+            top_por_velocity.append({
+                "evento": nome_evento,
+                "rolling14d": round(m14d, 1),
+                "taxa_ocupacao": taxa_ocupacao,
+                "isc_status": isc_status,
+                "atletas_orcado": current_sales,
+            })
 
-    atletas_por_modalidade = {}
-    for e in events:
-        mod = e["modalidade"]
+        mod = (str(cadastro.modalidade) if cadastro and cadastro.modalidade else None) or (str(p.modalidade) if p.modalidade else "N/D")
         if mod not in atletas_por_modalidade:
             atletas_por_modalidade[mod] = {"modalidade": mod, "atletas": 0, "eventos": 0}
-        atletas_por_modalidade[mod]["atletas"] += e["atletas_orcado"]
+        atletas_por_modalidade[mod]["atletas"] += current_sales
         atletas_por_modalidade[mod]["eventos"] += 1
+
+    upcoming_events.sort(key=lambda x: x["dias_para_evento"])
+    baixa_ocupacao.sort(key=lambda x: x["taxa_ocupacao"])
+    sellout_candidates.sort(key=lambda x: x["taxa_ocupacao"], reverse=True)
+    top_por_velocity.sort(key=lambda x: x["rolling14d"], reverse=True)
     modalidade_list = sorted(atletas_por_modalidade.values(), key=lambda x: x["atletas"], reverse=True)
 
-    taxa_ocupacao_media = round((total_atletas / total_capacidade * 100), 1) if total_capacidade > 0 else 0
-
-    eventos_realizados = sum(1 for e in events if e["status"].lower() in ["concluido", "concluído", "realizado"])
-    eventos_planejados = total_eventos - eventos_realizados
+    taxa_ocupacao_media = round((total_atletas_orcado / total_capacidade * 100), 1) if total_capacidade > 0 else 0
 
     return {
         "kpis": {
-            "total_atletas_orcado": total_atletas,
+            "total_atletas_orcado": total_atletas_orcado,
             "total_eventos": total_eventos,
-            "eventos_realizados": eventos_realizados,
-            "eventos_planejados": eventos_planejados,
+            "isc_acelerando": isc_acelerando,
+            "isc_estavel": isc_estavel,
+            "isc_desacelerando": isc_desacelerando,
             "taxa_ocupacao_media": taxa_ocupacao_media,
             "total_capacidade": total_capacidade,
+            "candidatos_sellout": len(sellout_candidates),
         },
         "proximos_eventos": upcoming_events[:8],
         "alertas_ocupacao": baixa_ocupacao[:5],
         "candidatos_sellout": sellout_candidates[:5],
-        "top_eventos_atletas": [
-            {
-                "evento": e["evento"],
-                "atletas": e["atletas_orcado"],
-                "taxa_ocupacao": e["taxa_ocupacao"],
-            }
-            for e in top_por_atletas
-        ],
+        "top_por_velocity": top_por_velocity[:8],
         "distribuicao_modalidade": modalidade_list,
     }
 
@@ -310,6 +402,12 @@ def get_dashboard_financeiro(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    if not user_can_view_campo(db, current_user, "dashboard", "dados_financeiros"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permissão insuficiente para visualizar dados financeiros do dashboard"
+        )
+
     projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
