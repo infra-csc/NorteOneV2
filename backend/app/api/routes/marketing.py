@@ -17,6 +17,15 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
+_TZ_BRAZIL = ZoneInfo("America/Sao_Paulo")
+
+def today_brazil() -> date:
+    """Returns the current date in Brazil's timezone (America/Sao_Paulo = UTC-3).
+    Using date.today() on a UTC server causes off-by-one errors for D- calculations
+    after 21:00 UTC (18:00 BRT), because the server has already ticked to the next day.
+    """
+    return datetime.now(_TZ_BRAZIL).date()
+
 _rolling_avg_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="mkt_io")
 
 _cadastro_cache: dict = {}
@@ -893,7 +902,7 @@ def calculate_d_minus(event_date: date, reference_year: int = None, dias_encerra
     if not event_date:
         return 0
     registration_close = event_date - timedelta(days=dias_encerramento)
-    today = date.today()
+    today = today_brazil()
     if reference_year is not None and reference_year != today.year:
         try:
             today = today.replace(year=reference_year)
@@ -923,7 +932,7 @@ def get_data_regime(event_date, dias_encerramento: int = 2) -> str:
     if not event_date:
         return "live"
     registration_close = event_date - timedelta(days=dias_encerramento)
-    real_d_minus = (registration_close - date.today()).days
+    real_d_minus = (registration_close - today_brazil()).days
     return get_event_regime(real_d_minus)
 
 
@@ -992,13 +1001,13 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     # NOTE: d_minus may arrive clamped to 0 for consolidated events (dMinusInscricoes=0),
     # so we also check registration_close_date to correctly identify past events.
     is_past_event = d_minus < 0 or (
-        registration_close_date is not None and registration_close_date < date.today()
+        registration_close_date is not None and registration_close_date < today_brazil()
     )
     if is_past_event and registration_close_date is not None:
         anchor_date = registration_close_date - timedelta(days=1)
         d_minus_effective = 0  # treat as D-0 for curvaDPercent and rolling window
     else:
-        anchor_date = date.today() - timedelta(days=1)
+        anchor_date = today_brazil() - timedelta(days=1)
         d_minus_effective = d_minus
 
     if daily_sales_dict and len(daily_sales_dict) > 0:
@@ -3186,7 +3195,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
             _live_count = 0
             for _gn, _evt_date in _isc_grupo_latest.items():
                 _rc = _evt_date - timedelta(days=2)
-                _raw_dm = (_rc - date.today()).days
+                _raw_dm = (_rc - today_brazil()).days
                 _regime = get_event_regime(_raw_dm)
                 if _regime == "consolidated":
                     consolidated_grupos.add(_gn)
@@ -3253,7 +3262,7 @@ def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> d
             }
 
         _evt_date = _isc_grupo_latest.get(_gn)
-        dias_ate_evento = (_evt_date - date.today()).days if _evt_date else 0
+        dias_ate_evento = (_evt_date - today_brazil()).days if _evt_date else 0
 
         for _i, _sn in enumerate(_skus):
             if not _sn:

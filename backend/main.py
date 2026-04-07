@@ -89,7 +89,7 @@ def _full_cache_warmup():
     from app.models.dimensoes import DimProjeto, SkuMapping
     from app.api.routes.marketing import (
         fetch_isc_pricing_data, normalize_sku, calculate_d_minus,
-        get_event_regime,
+        get_event_regime, today_brazil,
         _build_sku_to_grupo_map,
         clear_warmup_daily_cache,
         _hist_pattern_cache, _hist_pattern_cache_lock
@@ -209,7 +209,6 @@ def _full_cache_warmup():
         grupo_names_seen = set()
         grupo_d_minus = {}
 
-        from datetime import date as _warmup_date
         for cad in all_cadastros:
             if not cad.projeto_id:
                 continue
@@ -218,7 +217,7 @@ def _full_cache_warmup():
                 continue
 
             _reg_close = projeto.data_evento - _warmup_timedelta(days=2)
-            _raw_dm = (_reg_close - _warmup_date.today()).days
+            _raw_dm = (_reg_close - today_brazil()).days
             _regime = get_event_regime(_raw_dm)
             if _regime == "consolidated":
                 continue
@@ -266,7 +265,7 @@ def _full_cache_warmup():
             if not _rproj or not _rproj.data_evento:
                 continue
             _rreg_close = _rproj.data_evento - _warmup_timedelta(days=2)
-            _rraw_dm = (_rreg_close - _warmup_date.today()).days
+            _rraw_dm = (_rreg_close - today_brazil()).days
             if _rraw_dm >= -1 or _rraw_dm < -RECENTLY_COMPLETED_DAYS:
                 continue  # Only want events 2–14 days in the past
             _rsku_norm = normalize_sku(str(_rproj.codigo)) if _rproj.codigo else None
@@ -544,7 +543,7 @@ def _startup_tier1_gap_warmup():
     from app.models.cadastro_evento import CadastroEvento
     from app.models.dimensoes import DimProjeto, SkuMapping
     from app.api.routes.marketing import (
-        normalize_sku, calculate_d_minus, get_event_regime,
+        normalize_sku, calculate_d_minus, get_event_regime, today_brazil,
         _build_sku_to_grupo_map, get_marketing_event_by_id
     )
     from datetime import datetime as _dt, timedelta as _td, date as _date
@@ -566,7 +565,7 @@ def _startup_tier1_gap_warmup():
 
         sku_to_grupo = _build_sku_to_grupo_map(db, ano)
 
-        today = _date.today()
+        today = today_brazil()
         grupo_min_dm: dict = {}
         standalone_dm: dict = {}
 
@@ -727,7 +726,7 @@ def _prewarm_revenue_cache():
             from app.core.database import SessionLocal
             from app.models.kit_config import KitConfig
             from app.models.dimensoes import DimProjeto, SkuMapping
-            from app.api.routes.marketing import get_margem_por_kit, _margem_rev_cache
+            from app.api.routes.marketing import get_margem_por_kit, _margem_rev_cache, today_brazil
             import app.core.database as _db_mod
 
             if _db_mod.engine_magento is None:
@@ -737,7 +736,7 @@ def _prewarm_revenue_cache():
             db = SessionLocal()
             try:
                 from datetime import date as _date, timedelta as _td
-                today = _date.today()
+                today = today_brazil()
 
                 # Coleta todos os projetos com data futura ou recente (últimos 30d)
                 projetos = db.query(DimProjeto).filter(
