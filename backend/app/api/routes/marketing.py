@@ -4535,6 +4535,27 @@ def get_event_simulation(
     gap_vendas = max(0, meta_orcada - total_vendas)
     gap_receita = round(max(0, receita_orcada - total_receita), 2)
 
+    # Custo de kit e margem
+    projeto_ids_list = [p.id for p in projetos]
+    kit_costs = get_kit_basico_costs_batch(db, projeto_ids_list)
+    custo_kit = round(sum(kit_costs.values()) / len(kit_costs), 2) if kit_costs else 50.0
+
+    margem_unit_atual = round(ticket_medio_atual - custo_kit, 2) if ticket_medio_atual > 0 else 0.0
+    margem_total_atual = round(total_receita - custo_kit * total_vendas, 2) if total_vendas > 0 else 0.0
+    margem_pct_atual = round((margem_unit_atual / ticket_medio_atual) * 100, 1) if ticket_medio_atual > 0 else 0.0
+
+    margem_orcada_unit = round(ticket_medio_orcado - custo_kit, 2) if ticket_medio_orcado > 0 else 0.0
+    margem_orcada_total = round(margem_orcada_unit * meta_orcada, 2) if meta_orcada > 0 and ticket_medio_orcado > 0 else 0.0
+
+    # Enrich cenários with margin data
+    for nome in cenarios:
+        c = cenarios[nome]
+        pv = c["vendas_projetadas"]
+        pr = c["receita_projetada"]
+        c["margem_projetada_unit"] = round(ticket_7d - custo_kit, 2)
+        c["margem_projetada_total"] = round(pr - custo_kit * pv, 2) if pv > 0 else 0.0
+        c["margem_projetada_pct"] = round(((ticket_7d - custo_kit) / ticket_7d) * 100, 1) if ticket_7d > 0 else 0.0
+
     return {
         "status": "success",
         "evento": {
@@ -4543,6 +4564,9 @@ def get_event_simulation(
             "meta_orcada": meta_orcada,
             "ticket_medio_orcado": ticket_medio_orcado,
             "receita_orcada": receita_orcada,
+            "custo_kit": custo_kit,
+            "margem_orcada_unit": margem_orcada_unit,
+            "margem_orcada_total": margem_orcada_total,
         },
         "atual": {
             "total_vendas": total_vendas,
@@ -4557,6 +4581,10 @@ def get_event_simulation(
             "dias_em_venda": dias_em_venda,
             "ritmo_necessario": ritmo_necessario,
             "gap_vendas": gap_vendas,
+            "custo_kit": custo_kit,
+            "margem_unit": margem_unit_atual,
+            "margem_total": margem_total_atual,
+            "margem_pct": margem_pct_atual,
             "gap_receita": gap_receita,
         },
         "cenarios": cenarios,
