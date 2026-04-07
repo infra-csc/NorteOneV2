@@ -2051,6 +2051,15 @@ GROUP BY soi_parent.product_id
         # contra as chaves do kit_map (ex: "Kit Básico" está contido em "Kit Básico Bravus Race - Speed I")
         kits_sem_venda = [k for k, v in kit_map.items() if v["qtd"] == 0]
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
+            import time as _time  # may not have been imported if primary block was skipped
+
+            try:
+                _log_margem_magento_failed  # noqa: defined in primary block above, if reachable
+            except NameError:
+                def _log_margem_magento_failed(e_exc, label=""):
+                    _aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                    if avisos_out is not None and _aviso not in avisos_out:
+                        avisos_out.append(_aviso)
             ev_ids_fb = list(seen_magento_events)
 
             # Estratégia do fallback: pré-busca os product_ids via cpev1 (tabela pequena,
@@ -4439,16 +4448,25 @@ def get_event_simulation(
                 all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
                 all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
 
-    # If snapshot was used, also fetch today's live data if today is not already covered
+    # If snapshot was used, also fetch today's live data if today is not already covered.
+    # We estimate today's revenue using the snapshot ticket_medio so that total_receita
+    # stays proportional to total_vendas (same ratio used by the Dashboard event detail).
     if snapshot_used_sim:
         event_already_happened = data_evento and data_evento < today
         today_in_snap = today in all_raw_sales
         if not event_already_happened and not today_in_snap:
+            # Compute snapshot ticket_medio to estimate today's revenue
+            snap_qty_total = sum(all_raw_sales.values())
+            snap_receita_total = sum(all_raw_receita.values())
+            snap_ticket_medio = (snap_receita_total / snap_qty_total) if snap_qty_total > 0 else 0.0
+
+            today_live_qty = 0
             if ativo_ids:
                 try:
                     today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
                     for d, qty in today_sales.items():
                         all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
+                        today_live_qty += qty
                 except Exception as e:
                     logger.warning(f"[Simulacao] Failed to fetch today's Ativo sales: {e}")
             if magento_ids:
@@ -4456,8 +4474,14 @@ def get_event_simulation(
                     today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
                     for d, qty in today_sales.items():
                         all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
+                        today_live_qty += qty
                 except Exception as e:
                     logger.warning(f"[Simulacao] Failed to fetch today's Magento sales: {e}")
+
+            # Estimate today's revenue using the snapshot ticket_medio so the ticket
+            # and margem remain consistent with the Dashboard (no artificial dilution)
+            if today_live_qty > 0 and snap_ticket_medio > 0:
+                all_raw_receita[today] = all_raw_receita.get(today, 0.0) + today_live_qty * snap_ticket_medio
 
     # Priority 2 (fallback): query external sources directly when no snapshot exists
     if not snapshot_used_sim:
