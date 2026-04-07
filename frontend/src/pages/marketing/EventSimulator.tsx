@@ -12,7 +12,6 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
-  Package,
   Lightbulb,
   ChevronRight,
   Star,
@@ -73,9 +72,6 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
   // Meta customizável
   const [metaCustom, setMetaCustom] = useState<number | null>(null);
 
-  // Custo de kit customizável
-  const [custoKitCustom, setCustoKitCustom] = useState<number | null>(null);
-
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -86,7 +82,6 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
           setData(res);
           setMetaCustom(res.evento.meta_orcada || null);
           setNovoTicket(Math.round(res.atual.ticket_medio) || null);
-          setCustoKitCustom(null);
         }
       })
       .catch((err: any) => {
@@ -98,7 +93,7 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
     return () => controller.abort();
   }, [eventoId, ano]);
 
-  const custoKit = custoKitCustom ?? data?.atual?.custo_kit ?? 50;
+  const custoKit = data?.atual?.custo_kit ?? 50;
   const meta = metaCustom ?? data?.evento?.meta_orcada ?? 0;
   const ticketAtual = data?.atual?.ticket_medio ?? 0;
   const ticketAlvo = novoTicket ?? Math.round(ticketAtual);
@@ -362,36 +357,15 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
           </div>
         </div>
 
-        {/* Custo kit editável */}
-        <div className={`mt-4 pt-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'} flex items-center gap-4`}>
-          <div className="flex items-center gap-2">
-            <Package className="w-4 h-4 text-gray-400" />
-            <span className="text-xs text-gray-500 dark:text-gray-400">Ajustar custo do kit:</span>
+        {meta > 0 && (
+          <div className={`mt-4 pt-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'} flex items-center gap-2`}>
+            <Target className="w-4 h-4 text-gray-400" />
+            <span className="text-xs text-gray-500 dark:text-gray-400">Meta: <strong>{fmt(meta)}</strong> inscritos</span>
+            {metaCustom && metaCustom !== evento.meta_orcada && (
+              <button onClick={() => setMetaCustom(evento.meta_orcada)} className="text-xs text-indigo-500 hover:text-indigo-700">Resetar</button>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">R$</span>
-            <input
-              type="number"
-              value={custoKitCustom ?? custoKit}
-              onChange={e => setCustoKitCustom(Number(e.target.value) || 0)}
-              className={`w-20 text-sm font-semibold ${isDark ? 'bg-gray-700 text-white border-gray-600' : 'bg-gray-50 text-gray-900 border-gray-300'} border rounded-lg px-2 py-1 text-center`}
-            />
-          </div>
-          {custoKitCustom !== null && (
-            <button onClick={() => setCustoKitCustom(null)} className="text-xs text-indigo-500 hover:text-indigo-700">
-              Resetar
-            </button>
-          )}
-          {meta > 0 && (
-            <div className="ml-auto flex items-center gap-2">
-              <Target className="w-4 h-4 text-gray-400" />
-              <span className="text-xs text-gray-500 dark:text-gray-400">Meta: <strong>{fmt(meta)}</strong> inscritos</span>
-              {metaCustom && metaCustom !== evento.meta_orcada && (
-                <button onClick={() => setMetaCustom(evento.meta_orcada)} className="text-xs text-indigo-500 hover:text-indigo-700">Resetar</button>
-              )}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* ── Dois cenários lado a lado ── */}
@@ -405,7 +379,7 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
             </div>
             <h4 className="text-sm font-bold text-indigo-700 dark:text-indigo-300">Cenário 1 — Estratégia Volume</h4>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          <p className={`text-sm font-medium mb-4 px-3 py-2 rounded-lg ${isDark ? 'bg-indigo-900/40 text-indigo-200' : 'bg-indigo-100 text-indigo-800'}`}>
             Mantenho o ticket em <strong>{fmtR$(ticketAtual)}</strong> e trabalho o ritmo de vendas
           </p>
 
@@ -484,7 +458,7 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
             </div>
             <h4 className="text-sm font-bold text-emerald-700 dark:text-emerald-300">Cenário 2 — Estratégia Ticket</h4>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          <p className={`text-sm font-medium mb-4 px-3 py-2 rounded-lg ${isDark ? 'bg-emerald-900/40 text-emerald-200' : 'bg-emerald-100 text-emerald-800'}`}>
             Mudo o preço e modelo o impacto no volume via elasticidade de demanda
           </p>
 
@@ -700,10 +674,16 @@ export default function EventSimulator({ eventoId, ano, isDark }: EventSimulator
       )}
 
       {/* ── Nota sobre elasticidade ── */}
-      <div className={`rounded-lg p-3 text-xs ${isDark ? 'bg-gray-800/50 text-gray-400 border border-gray-700' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>
-        <strong className="text-gray-600 dark:text-gray-300">Como interpretar:</strong> O Cenário 2 usa um modelo de elasticidade de demanda — um parâmetro configurável que estima o quanto o volume de vendas reage à variação de preço.
-        Elasticidade 0.5 (padrão) significa que um aumento de 10% no ticket reduz o volume futuro em 5%.
-        Ajuste a elasticidade de acordo com o perfil do seu evento: eventos premium tendem a ser menos elásticos (0.2–0.4), enquanto eventos populares são mais elásticos (0.6–1.0).
+      <div className={`rounded-xl p-4 border ${isDark ? 'bg-gray-800 border-gray-600 text-gray-300' : 'bg-amber-50 border-amber-200 text-gray-700'}`}>
+        <div className="flex items-center gap-2 mb-2">
+          <Info className="w-4 h-4 text-amber-500 flex-shrink-0" />
+          <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Como interpretar:</span>
+        </div>
+        <p className="text-sm leading-relaxed">
+          O Cenário 2 usa um modelo de elasticidade de demanda — um parâmetro configurável que estima o quanto o volume de vendas reage à variação de preço.
+          Elasticidade <strong>0.5</strong> (padrão) significa que um aumento de 10% no ticket reduz o volume futuro em 5%.
+          Ajuste a elasticidade de acordo com o perfil do seu evento: eventos premium tendem a ser menos elásticos (0.2–0.4), enquanto eventos populares são mais elásticos (0.6–1.0).
+        </p>
       </div>
     </div>
   );
