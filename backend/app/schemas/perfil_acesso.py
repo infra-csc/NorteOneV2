@@ -98,6 +98,10 @@ CAMPOS_EVENTOS = [
     {"key": "taxas", "label": "Taxas", "tipo": "aba"},
 ]
 
+CAMPOS_DASHBOARD = [
+    {"key": "dados_financeiros", "label": "Dados Financeiros (Receita, Margem, Ticket)", "tipo": "visibilidade"},
+]
+
 
 class PermissaoCampoBase(BaseModel):
     entidade: str

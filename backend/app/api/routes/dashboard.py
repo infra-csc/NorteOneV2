@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import distinct, extract
+from sqlalchemy import distinct, extract, func as sa_func
 from typing import Optional
+from datetime import date, timedelta
 from ...core.database import get_db
 from ...core.security import get_current_user
 from ...models.dimensoes import DimTempo, DimProjeto
-from ...models.cadastro_evento import CadastroEvento
+from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from ...models.user import Usuario
 from decimal import Decimal
 import logging
@@ -80,10 +81,97 @@ def build_project_filter(db, ano=None, mes=None, produto=None, tipo_evento=None,
 
 
 def get_all_cadastros_map(db, projeto_ids):
+    if not projeto_ids:
+        return {}
     cadastros = db.query(CadastroEvento).filter(
-        CadastroEvento.projeto_id.in_(projeto_ids)
+        CadastroEvento.projeto_id.in_(projeto_ids),
+        CadastroEvento.deleted_at == None
     ).all()
     return {c.projeto_id: c for c in cadastros}
+
+
+def get_kit_costs_map(db, cadastro_ids):
+    if not cadastro_ids:
+        return {}
+    rows = db.query(
+        CadastroKitProduto.cadastro_id,
+        sa_func.sum(CadastroKitProdutoItem.valor_unitario).label("custo_total")
+    ).join(
+        CadastroKitProdutoItem, CadastroKitProdutoItem.kit_produto_id == CadastroKitProduto.id
+    ).filter(
+        CadastroKitProduto.cadastro_id.in_(cadastro_ids)
+    ).group_by(CadastroKitProduto.cadastro_id).all()
+    return {r.cadastro_id: float(r.custo_total or 0) for r in rows}
+
+
+def compute_event_metrics(projetos, cadastros_map, kit_costs_map=None):
+    events = []
+    for p in projetos:
+        cadastro = cadastros_map.get(p.id)
+
+        atletas_site = int(cadastro.atletas_site_pago or 0) if cadastro else 0
+        atletas_grupos = int(cadastro.atletas_grupos_pago or 0) if cadastro else 0
+        atletas_cortesia = int(cadastro.atletas_cortesia or 0) if cadastro else 0
+        atletas_total = atletas_site + atletas_grupos + atletas_cortesia
+
+        if atletas_total == 0:
+            atletas_total = int(p.capacidade_maxima or 0)
+
+        tkt_site = decimal_to_float(cadastro.atletas_site_tkt_medio) if cadastro else 0
+        tkt_grupos = decimal_to_float(cadastro.atletas_grupos_tkt_medio) if cadastro else 0
+
+        tkt_medio = 0
+        if atletas_site > 0 and atletas_grupos > 0:
+            tkt_medio = ((tkt_site * atletas_site) + (tkt_grupos * atletas_grupos)) / (atletas_site + atletas_grupos)
+        elif atletas_site > 0:
+            tkt_medio = tkt_site
+        elif atletas_grupos > 0:
+            tkt_medio = tkt_grupos
+
+        capacidade = int(p.capacidade_maxima or 0)
+        if capacidade == 0 and cadastro:
+            capacidade = int(cadastro.capacidade_maxima or 0)
+
+        taxa_ocupacao = round((atletas_total / capacidade * 100), 1) if capacidade > 0 else 0
+
+        status = (cadastro.status if cadastro else p.status) or "Em andamento"
+
+        custo_kit = 0
+        if kit_costs_map and cadastro:
+            custo_kit = kit_costs_map.get(cadastro.id, 0)
+
+        receita_projetada = round(atletas_total * tkt_medio, 2) if atletas_total > 0 and tkt_medio > 0 else 0
+        margem_liquida = round(tkt_medio - custo_kit, 2) if tkt_medio > 0 else 0
+        percentual_margem = round((margem_liquida / tkt_medio * 100), 1) if tkt_medio > 0 else 0
+
+        events.append({
+            "id": p.id,
+            "evento": p.evento,
+            "codigo": p.codigo,
+            "data_evento": p.data_evento,
+            "cidade": p.cidade or "N/D",
+            "estado": p.estado or "N/D",
+            "modalidade": p.modalidade or "N/D",
+            "produto": p.produto or "N/D",
+            "tipo_evento": p.tipo_evento or "N/D",
+            "status": status,
+            "capacidade": capacidade,
+            "atletas_orcado": atletas_total,
+            "atletas_site": atletas_site,
+            "atletas_grupos": atletas_grupos,
+            "atletas_cortesia": atletas_cortesia,
+            "ticket_medio": round(tkt_medio, 2),
+            "taxa_ocupacao": taxa_ocupacao,
+            "custo_kit": round(custo_kit, 2),
+            "receita_projetada": receita_projetada,
+            "margem_liquida": margem_liquida,
+            "percentual_margem": percentual_margem,
+        })
+    return events
+
+
+NOME_MES = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+            "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 
 @router.get("/resumo-geral")
@@ -110,8 +198,233 @@ def get_resumo_geral(
     }
 
 
-NOME_MES = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-            "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+@router.get("/operacional")
+def get_dashboard_operacional(
+    ano: int = 2025,
+    mes: Optional[int] = Query(None),
+    produto: Optional[str] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
+    projeto_ids = [p.id for p in projetos]
+    cadastros_map = get_all_cadastros_map(db, projeto_ids)
+    events = compute_event_metrics(projetos, cadastros_map)
+
+    today = date.today()
+    window_end = today + timedelta(days=28)
+
+    total_atletas = sum(e["atletas_orcado"] for e in events)
+    total_capacidade = sum(e["capacidade"] for e in events)
+    total_eventos = len(events)
+
+    upcoming_events = []
+    for e in events:
+        d = e["data_evento"]
+        if d and today <= d <= window_end:
+            upcoming_events.append({
+                "evento": e["evento"],
+                "data_evento": d.isoformat(),
+                "cidade": e["cidade"],
+                "taxa_ocupacao": e["taxa_ocupacao"],
+                "atletas_orcado": e["atletas_orcado"],
+                "capacidade": e["capacidade"],
+                "dias_para_evento": (d - today).days,
+            })
+    upcoming_events.sort(key=lambda x: x["dias_para_evento"])
+
+    baixa_ocupacao = [
+        {
+            "evento": e["evento"],
+            "taxa_ocupacao": e["taxa_ocupacao"],
+            "cidade": e["cidade"],
+            "atletas_orcado": e["atletas_orcado"],
+            "capacidade": e["capacidade"],
+        }
+        for e in events
+        if e["taxa_ocupacao"] < 50 and e["capacidade"] > 0
+    ]
+    baixa_ocupacao.sort(key=lambda x: x["taxa_ocupacao"])
+
+    sellout_candidates = [
+        {
+            "evento": e["evento"],
+            "taxa_ocupacao": e["taxa_ocupacao"],
+            "cidade": e["cidade"],
+            "atletas_orcado": e["atletas_orcado"],
+            "capacidade": e["capacidade"],
+            "vagas_restantes": e["capacidade"] - e["atletas_orcado"],
+        }
+        for e in events
+        if e["taxa_ocupacao"] >= 80 and e["capacidade"] > 0
+    ]
+    sellout_candidates.sort(key=lambda x: x["taxa_ocupacao"], reverse=True)
+
+    top_por_atletas = sorted(events, key=lambda x: x["atletas_orcado"], reverse=True)[:8]
+
+    atletas_por_modalidade = {}
+    for e in events:
+        mod = e["modalidade"]
+        if mod not in atletas_por_modalidade:
+            atletas_por_modalidade[mod] = {"modalidade": mod, "atletas": 0, "eventos": 0}
+        atletas_por_modalidade[mod]["atletas"] += e["atletas_orcado"]
+        atletas_por_modalidade[mod]["eventos"] += 1
+    modalidade_list = sorted(atletas_por_modalidade.values(), key=lambda x: x["atletas"], reverse=True)
+
+    taxa_ocupacao_media = round((total_atletas / total_capacidade * 100), 1) if total_capacidade > 0 else 0
+
+    eventos_realizados = sum(1 for e in events if e["status"].lower() in ["concluido", "concluído", "realizado"])
+    eventos_planejados = total_eventos - eventos_realizados
+
+    return {
+        "kpis": {
+            "total_atletas_orcado": total_atletas,
+            "total_eventos": total_eventos,
+            "eventos_realizados": eventos_realizados,
+            "eventos_planejados": eventos_planejados,
+            "taxa_ocupacao_media": taxa_ocupacao_media,
+            "total_capacidade": total_capacidade,
+        },
+        "proximos_eventos": upcoming_events[:8],
+        "alertas_ocupacao": baixa_ocupacao[:5],
+        "candidatos_sellout": sellout_candidates[:5],
+        "top_eventos_atletas": [
+            {
+                "evento": e["evento"],
+                "atletas": e["atletas_orcado"],
+                "taxa_ocupacao": e["taxa_ocupacao"],
+            }
+            for e in top_por_atletas
+        ],
+        "distribuicao_modalidade": modalidade_list,
+    }
+
+
+@router.get("/financeiro")
+def get_dashboard_financeiro(
+    ano: int = 2025,
+    mes: Optional[int] = Query(None),
+    produto: Optional[str] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
+    projeto_ids = [p.id for p in projetos]
+    cadastros_map = get_all_cadastros_map(db, projeto_ids)
+
+    cadastro_ids = [c.id for c in cadastros_map.values()]
+    kit_costs_map = get_kit_costs_map(db, cadastro_ids)
+
+    events = compute_event_metrics(projetos, cadastros_map, kit_costs_map)
+
+    total_receita_projetada = sum(e["receita_projetada"] for e in events)
+    eventos_com_ticket = [e for e in events if e["ticket_medio"] > 0]
+    ticket_medio_geral = round(
+        sum(e["ticket_medio"] for e in eventos_com_ticket) / len(eventos_com_ticket), 2
+    ) if eventos_com_ticket else 0
+
+    eventos_com_margem = [e for e in events if e["ticket_medio"] > 0 and e["custo_kit"] > 0]
+    margem_media = round(
+        sum(e["margem_liquida"] for e in eventos_com_margem) / len(eventos_com_margem), 2
+    ) if eventos_com_margem else 0
+    percentual_margem_media = round(
+        sum(e["percentual_margem"] for e in eventos_com_margem) / len(eventos_com_margem), 1
+    ) if eventos_com_margem else 0
+
+    eventos_em_risco = [
+        {
+            "evento": e["evento"],
+            "taxa_ocupacao": e["taxa_ocupacao"],
+            "receita_projetada": e["receita_projetada"],
+            "cidade": e["cidade"],
+        }
+        for e in events
+        if e["taxa_ocupacao"] < 60 and e["receita_projetada"] > 0
+    ]
+    eventos_em_risco.sort(key=lambda x: x["receita_projetada"], reverse=True)
+    receita_em_risco = sum(e["receita_projetada"] for e in eventos_em_risco)
+
+    oportunidades_yield = [
+        {
+            "evento": e["evento"],
+            "taxa_ocupacao": e["taxa_ocupacao"],
+            "ticket_medio": e["ticket_medio"],
+            "vagas_restantes": e["capacidade"] - e["atletas_orcado"],
+            "receita_projetada": e["receita_projetada"],
+        }
+        for e in events
+        if e["taxa_ocupacao"] >= 70 and e["taxa_ocupacao"] < 95
+        and e["capacidade"] - e["atletas_orcado"] > 0
+        and e["ticket_medio"] > 0
+    ]
+    oportunidades_yield.sort(key=lambda x: x["taxa_ocupacao"], reverse=True)
+
+    margem_por_modalidade = {}
+    for e in events:
+        mod = e["modalidade"]
+        if mod not in margem_por_modalidade:
+            margem_por_modalidade[mod] = {
+                "modalidade": mod,
+                "receita_projetada": 0,
+                "margem_sum": 0,
+                "margem_count": 0,
+                "eventos": 0,
+            }
+        margem_por_modalidade[mod]["receita_projetada"] += e["receita_projetada"]
+        margem_por_modalidade[mod]["eventos"] += 1
+        if e["ticket_medio"] > 0 and e["custo_kit"] > 0:
+            margem_por_modalidade[mod]["margem_sum"] += e["margem_liquida"]
+            margem_por_modalidade[mod]["margem_count"] += 1
+
+    margem_por_modalidade_list = []
+    for v in margem_por_modalidade.values():
+        margem_avg = round(v["margem_sum"] / v["margem_count"], 2) if v["margem_count"] > 0 else None
+        margem_por_modalidade_list.append({
+            "modalidade": v["modalidade"],
+            "receita_projetada": round(v["receita_projetada"], 2),
+            "margem_media": margem_avg,
+            "eventos": v["eventos"],
+        })
+    margem_por_modalidade_list.sort(key=lambda x: x["receita_projetada"], reverse=True)
+
+    receita_por_produto = {}
+    for e in events:
+        prod = e["produto"]
+        if prod not in receita_por_produto:
+            receita_por_produto[prod] = {"produto": prod, "receita_projetada": 0, "atletas": 0, "ticket_medio_sum": 0, "ticket_count": 0}
+        receita_por_produto[prod]["receita_projetada"] += e["receita_projetada"]
+        receita_por_produto[prod]["atletas"] += e["atletas_orcado"]
+        if e["ticket_medio"] > 0:
+            receita_por_produto[prod]["ticket_medio_sum"] += e["ticket_medio"]
+            receita_por_produto[prod]["ticket_count"] += 1
+
+    receita_por_produto_list = []
+    for v in receita_por_produto.values():
+        ticket_avg = round(v["ticket_medio_sum"] / v["ticket_count"], 2) if v["ticket_count"] > 0 else 0
+        receita_por_produto_list.append({
+            "produto": v["produto"],
+            "receita_projetada": round(v["receita_projetada"], 2),
+            "atletas": v["atletas"],
+            "ticket_medio": ticket_avg,
+        })
+    receita_por_produto_list.sort(key=lambda x: x["receita_projetada"], reverse=True)
+
+    return {
+        "kpis": {
+            "receita_total_projetada": round(total_receita_projetada, 2),
+            "ticket_medio_geral": ticket_medio_geral,
+            "margem_media_liquida": margem_media,
+            "percentual_margem_media": percentual_margem_media,
+            "receita_em_risco": round(receita_em_risco, 2),
+            "total_oportunidades_yield": len(oportunidades_yield),
+        },
+        "eventos_em_risco": eventos_em_risco[:5],
+        "oportunidades_yield": oportunidades_yield[:5],
+        "margem_por_modalidade": margem_por_modalidade_list,
+        "receita_por_produto": receita_por_produto_list,
+    }
 
 
 @router.get("/consolidado")
@@ -129,141 +442,96 @@ def get_dashboard_consolidado(
     projetos = build_project_filter(db, ano, mes, produto, tipo_evento, projeto_id, modalidade, cidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids) if projeto_ids else {}
+    events = compute_event_metrics(projetos, cadastros_map)
 
-    total_atletas_orcado = 0
-    total_ticket_medio_sum = 0
-    total_ticket_medio_count = 0
-    total_capacidade = 0
-    total_eventos = len(projetos)
-    eventos_realizados = 0
-    eventos_planejados = 0
+    total_atletas_orcado = sum(e["atletas_orcado"] for e in events)
+    eventos_com_ticket = [e for e in events if e["ticket_medio"] > 0]
+    ticket_medio_geral = round(
+        sum(e["ticket_medio"] for e in eventos_com_ticket) / len(eventos_com_ticket), 2
+    ) if eventos_com_ticket else 0
+    total_capacidade = sum(e["capacidade"] for e in events)
+    total_eventos = len(events)
+    eventos_realizados = sum(1 for e in events if e["status"].lower() in ["concluido", "concluído", "realizado"])
+    eventos_planejados = total_eventos - eventos_realizados
+    taxa_ocupacao_media = round((total_atletas_orcado / total_capacidade * 100), 1) if total_capacidade > 0 else 0
 
     eventos_por_modalidade = {}
     eventos_por_cidade = {}
     eventos_por_estado = {}
     eventos_por_mes = {}
     eventos_por_produto = {}
-    tabela_detalhada = []
 
-    for p in projetos:
-        cadastro = cadastros_map.get(p.id)
-
-        atletas_orcado_site = int(cadastro.atletas_site_pago or 0) if cadastro else 0
-        atletas_orcado_grupos = int(cadastro.atletas_grupos_pago or 0) if cadastro else 0
-        atletas_cortesia = int(cadastro.atletas_cortesia or 0) if cadastro else 0
-        atletas_orcado = atletas_orcado_site + atletas_orcado_grupos + atletas_cortesia
-
-        if atletas_orcado == 0:
-            atletas_orcado = int(p.capacidade_maxima or 0)
-
-        tkt_medio_site = decimal_to_float(cadastro.atletas_site_tkt_medio) if cadastro else 0
-        tkt_medio_grupos = decimal_to_float(cadastro.atletas_grupos_tkt_medio) if cadastro else 0
-
-        tkt_medio = 0
-        if atletas_orcado_site > 0 and atletas_orcado_grupos > 0:
-            total_val = (tkt_medio_site * atletas_orcado_site) + (tkt_medio_grupos * atletas_orcado_grupos)
-            total_qtd = atletas_orcado_site + atletas_orcado_grupos
-            tkt_medio = total_val / total_qtd if total_qtd > 0 else 0
-        elif atletas_orcado_site > 0:
-            tkt_medio = tkt_medio_site
-        elif atletas_orcado_grupos > 0:
-            tkt_medio = tkt_medio_grupos
-
-        capacidade = int(p.capacidade_maxima or 0)
-        if capacidade == 0 and cadastro:
-            capacidade = int(cadastro.capacidade_maxima or 0)
-
-        status_evento = (cadastro.status if cadastro else p.status) or "Em andamento"
-        is_realizado = status_evento.lower() in ['concluido', 'concluído', 'realizado']
-        if is_realizado:
-            eventos_realizados += 1
-        else:
-            eventos_planejados += 1
-
-        total_atletas_orcado += atletas_orcado
-        total_capacidade += capacidade
-
-        if tkt_medio > 0:
-            total_ticket_medio_sum += tkt_medio
-            total_ticket_medio_count += 1
-
-        mes_evento = p.data_evento.month if p.data_evento else 0
-        mes_label = NOME_MES[mes_evento] if 0 < mes_evento <= 12 else "N/D"
-
-        mod = p.modalidade or "N/D"
+    for e in events:
+        mod = e["modalidade"]
         eventos_por_modalidade[mod] = eventos_por_modalidade.get(mod, 0) + 1
 
-        cid = p.cidade or "N/D"
+        cid = e["cidade"]
         eventos_por_cidade[cid] = eventos_por_cidade.get(cid, 0) + 1
 
-        est = p.estado or "N/D"
+        est = e["estado"]
         eventos_por_estado[est] = eventos_por_estado.get(est, 0) + 1
 
-        if mes_label != "N/D":
-            if mes_label not in eventos_por_mes:
-                eventos_por_mes[mes_label] = {"mes": mes_label, "mes_num": mes_evento, "orcado": 0, "eventos": 0}
-            eventos_por_mes[mes_label]["orcado"] += atletas_orcado
-            eventos_por_mes[mes_label]["eventos"] += 1
+        d = e["data_evento"]
+        if d:
+            mes_num = d.month
+            mes_label = NOME_MES[mes_num] if 0 < mes_num <= 12 else "N/D"
+            if mes_label != "N/D":
+                if mes_label not in eventos_por_mes:
+                    eventos_por_mes[mes_label] = {"mes": mes_label, "mes_num": mes_num, "orcado": 0, "eventos": 0}
+                eventos_por_mes[mes_label]["orcado"] += e["atletas_orcado"]
+                eventos_por_mes[mes_label]["eventos"] += 1
 
-        prod = p.produto or "N/D"
+        prod = e["produto"]
         if prod not in eventos_por_produto:
             eventos_por_produto[prod] = {"produto": prod, "ticket_medio_sum": 0, "ticket_medio_count": 0, "atletas": 0, "eventos": 0}
-        eventos_por_produto[prod]["atletas"] += atletas_orcado
+        eventos_por_produto[prod]["atletas"] += e["atletas_orcado"]
         eventos_por_produto[prod]["eventos"] += 1
-        if tkt_medio > 0:
-            eventos_por_produto[prod]["ticket_medio_sum"] += tkt_medio
+        if e["ticket_medio"] > 0:
+            eventos_por_produto[prod]["ticket_medio_sum"] += e["ticket_medio"]
             eventos_por_produto[prod]["ticket_medio_count"] += 1
 
-        taxa_ocupacao = round((atletas_orcado / capacidade * 100), 1) if capacidade > 0 else 0
-
-        tabela_detalhada.append({
-            "id": p.id,
-            "evento": p.evento,
-            "codigo": p.codigo,
-            "data_evento": p.data_evento.isoformat() if p.data_evento else None,
-            "cidade": p.cidade or "N/D",
-            "estado": p.estado or "N/D",
-            "modalidade": p.modalidade or "N/D",
-            "produto": p.produto or "N/D",
-            "tipo_evento": p.tipo_evento or "N/D",
-            "status": status_evento,
-            "capacidade": capacidade,
-            "atletas_orcado": atletas_orcado,
-            "atletas_site": atletas_orcado_site,
-            "atletas_grupos": atletas_orcado_grupos,
-            "atletas_cortesia": atletas_cortesia,
-            "ticket_medio": round(tkt_medio, 2),
-            "taxa_ocupacao": taxa_ocupacao,
-        })
-
-    ticket_medio_geral = round(total_ticket_medio_sum / total_ticket_medio_count, 2) if total_ticket_medio_count > 0 else 0
-    taxa_ocupacao_media = round((total_atletas_orcado / total_capacidade * 100), 1) if total_capacidade > 0 else 0
+    tabela_detalhada = [
+        {
+            "id": e["id"],
+            "evento": e["evento"],
+            "codigo": e["codigo"],
+            "data_evento": e["data_evento"].isoformat() if e["data_evento"] else None,
+            "cidade": e["cidade"],
+            "estado": e["estado"],
+            "modalidade": e["modalidade"],
+            "produto": e["produto"],
+            "tipo_evento": e["tipo_evento"],
+            "status": e["status"],
+            "capacidade": e["capacidade"],
+            "atletas_orcado": e["atletas_orcado"],
+            "atletas_site": e["atletas_site"],
+            "atletas_grupos": e["atletas_grupos"],
+            "atletas_cortesia": e["atletas_cortesia"],
+            "ticket_medio": e["ticket_medio"],
+            "taxa_ocupacao": e["taxa_ocupacao"],
+        }
+        for e in events
+    ]
 
     evolucao_mensal = sorted(eventos_por_mes.values(), key=lambda x: x["mes_num"])
-
     atletas_por_modalidade = [
         {"modalidade": k, "quantidade": v}
         for k, v in sorted(eventos_por_modalidade.items(), key=lambda x: x[1], reverse=True)
     ]
-
     top_eventos = sorted(tabela_detalhada, key=lambda x: x["atletas_orcado"], reverse=True)[:10]
-
     distribuicao_geografica = [
         {"cidade": k, "quantidade": v}
         for k, v in sorted(eventos_por_cidade.items(), key=lambda x: x[1], reverse=True)
     ][:15]
-
     distribuicao_estado = [
         {"estado": k, "quantidade": v}
         for k, v in sorted(eventos_por_estado.items(), key=lambda x: x[1], reverse=True)
     ]
-
     taxa_ocupacao_eventos = sorted(
         [{"evento": e["evento"], "taxa": e["taxa_ocupacao"], "atletas": e["atletas_orcado"], "capacidade": e["capacidade"]}
          for e in tabela_detalhada if e["capacidade"] > 0],
         key=lambda x: x["taxa"], reverse=True
     )
-
     ticket_medio_por_produto = [
         {
             "produto": v["produto"],

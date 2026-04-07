@@ -9,7 +9,7 @@ from ...models.user import Usuario
 from ...schemas.perfil_acesso import (
     PerfilAcessoCreate, PerfilAcessoUpdate, PerfilAcessoResponse,
     PerfilAcessoListResponse, ModuloInfo, MODULOS_SISTEMA,
-    UserPermissoesResponse, CAMPOS_EVENTOS, PermissaoCampoBase,
+    UserPermissoesResponse, CAMPOS_EVENTOS, CAMPOS_DASHBOARD, PermissaoCampoBase,
     PermissaoCampoResponse, CampoEventoInfo
 )
 from ...models.perfil_acesso import PerfilPermissaoCampo
@@ -25,6 +25,11 @@ def list_modulos(current_user: Usuario = Depends(get_current_user)):
 @router.get("/campos-eventos", response_model=List[CampoEventoInfo])
 def list_campos_eventos(current_user: Usuario = Depends(get_current_user)):
     return CAMPOS_EVENTOS
+
+
+@router.get("/campos-dashboard", response_model=List[CampoEventoInfo])
+def list_campos_dashboard(current_user: Usuario = Depends(get_current_user)):
+    return CAMPOS_DASHBOARD
 
 
 @router.get("/", response_model=List[PerfilAcessoListResponse])
@@ -241,9 +246,15 @@ def get_my_permissions(
                 "pode_editar": True,
                 "pode_deletar": True,
             }
-        all_campos = {}
+        campos_eventos = {}
         for campo in CAMPOS_EVENTOS:
-            all_campos[campo["key"]] = {
+            campos_eventos[campo["key"]] = {
+                "pode_visualizar": True,
+                "pode_editar": True,
+            }
+        campos_dashboard = {}
+        for campo in CAMPOS_DASHBOARD:
+            campos_dashboard[campo["key"]] = {
                 "pode_visualizar": True,
                 "pode_editar": True,
             }
@@ -252,7 +263,7 @@ def get_my_permissions(
             perfil_acesso_nome=current_user.perfil_acesso_rel.nome if current_user.perfil_acesso_rel else "Administrador",
             is_admin=True,
             permissoes=all_perms,
-            permissoes_campo={"eventos": all_campos},
+            permissoes_campo={"eventos": campos_eventos, "dashboard": campos_dashboard},
         )
 
     if not current_user.perfil_acesso_id:

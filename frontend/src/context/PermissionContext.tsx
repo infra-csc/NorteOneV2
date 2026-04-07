@@ -85,23 +85,27 @@ export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children
     return permissions.permissoes[modulo]?.pode_deletar || false;
   };
 
+  const DENY_BY_DEFAULT_ENTIDADES = ['dashboard'];
+
   const canViewCampo = (entidade: string, campo: string): boolean => {
     if (!permissions) return false;
     if (permissions.is_admin) return true;
+    const defaultValue = DENY_BY_DEFAULT_ENTIDADES.includes(entidade) ? false : true;
     const entidadePerms = permissions.permissoes_campo?.[entidade];
-    if (!entidadePerms) return true;
+    if (!entidadePerms) return defaultValue;
     const campoPerms = entidadePerms[campo];
-    if (!campoPerms) return true;
+    if (!campoPerms) return defaultValue;
     return campoPerms.pode_visualizar;
   };
 
   const canEditCampo = (entidade: string, campo: string): boolean => {
     if (!permissions) return false;
     if (permissions.is_admin) return true;
+    const defaultValue = DENY_BY_DEFAULT_ENTIDADES.includes(entidade) ? false : true;
     const entidadePerms = permissions.permissoes_campo?.[entidade];
-    if (!entidadePerms) return true;
+    if (!entidadePerms) return defaultValue;
     const campoPerms = entidadePerms[campo];
-    if (!campoPerms) return true;
+    if (!campoPerms) return defaultValue;
     return campoPerms.pode_editar;
   };
 

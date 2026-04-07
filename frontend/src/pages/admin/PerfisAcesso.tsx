@@ -56,19 +56,23 @@ const PerfisAcesso: React.FC = () => {
 
   const [camposEventos, setCamposEventos] = useState<{key: string; label: string; tipo: string}[]>([]);
   const [formPermissoesCampo, setFormPermissoesCampo] = useState<Record<string, {pode_visualizar: boolean; pode_editar: boolean}>>({});
+  const [camposDashboard, setCamposDashboard] = useState<{key: string; label: string; tipo: string}[]>([]);
+  const [formPermissoesCampoDashboard, setFormPermissoesCampoDashboard] = useState<Record<string, {pode_visualizar: boolean}>>({});
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [perfisRes, modulosRes, camposRes] = await Promise.all([
+      const [perfisRes, modulosRes, camposRes, camposDashRes] = await Promise.all([
         api.get('/perfis-acesso/'),
         api.get('/perfis-acesso/modulos'),
-        api.get('/perfis-acesso/campos-eventos')
+        api.get('/perfis-acesso/campos-eventos'),
+        api.get('/perfis-acesso/campos-dashboard'),
       ]);
       setPerfis(perfisRes.data);
       setModulos(modulosRes.data);
       setCamposEventos(camposRes.data);
+      setCamposDashboard(camposDashRes.data);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao carregar dados');
     } finally {
@@ -131,6 +135,17 @@ const PerfisAcesso: React.FC = () => {
     return map;
   };
 
+  const initFormPermissoesCampoDashboard = (permsCampo?: {entidade: string; campo: string; pode_visualizar: boolean; pode_editar: boolean}[]) => {
+    const map: Record<string, {pode_visualizar: boolean}> = {};
+    camposDashboard.forEach(c => {
+      const existing = permsCampo?.find(p => p.entidade === 'dashboard' && p.campo === c.key);
+      map[c.key] = {
+        pode_visualizar: existing ? existing.pode_visualizar : false,
+      };
+    });
+    return map;
+  };
+
   const openCreateModal = () => {
     setEditingPerfil(null);
     setFormNome('');
@@ -138,6 +153,7 @@ const PerfisAcesso: React.FC = () => {
     setFormIsAdmin(false);
     setFormPermissoes(initFormPermissoes());
     setFormPermissoesCampo(initFormPermissoesCampo());
+    setFormPermissoesCampoDashboard(initFormPermissoesCampoDashboard());
     setFormError(null);
     setShowModal(true);
   };
@@ -155,6 +171,7 @@ const PerfisAcesso: React.FC = () => {
       setFormIsAdmin(perfilRes.data.is_admin || false);
       setFormPermissoes(initFormPermissoes(perfilRes.data.permissoes));
       setFormPermissoesCampo(initFormPermissoesCampo(camposRes.data));
+      setFormPermissoesCampoDashboard(initFormPermissoesCampoDashboard(camposRes.data));
       setShowModal(true);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Erro ao carregar perfil');
@@ -224,12 +241,20 @@ const PerfisAcesso: React.FC = () => {
       p.pode_visualizar || p.pode_criar || p.pode_editar || p.pode_deletar
     );
 
-    const permissoesCampoList = Object.entries(formPermissoesCampo).map(([campo, perms]) => ({
-      entidade: 'eventos',
-      campo,
-      pode_visualizar: perms.pode_visualizar,
-      pode_editar: perms.pode_editar,
-    }));
+    const permissoesCampoList = [
+      ...Object.entries(formPermissoesCampo).map(([campo, perms]) => ({
+        entidade: 'eventos',
+        campo,
+        pode_visualizar: perms.pode_visualizar,
+        pode_editar: perms.pode_editar,
+      })),
+      ...Object.entries(formPermissoesCampoDashboard).map(([campo, perms]) => ({
+        entidade: 'dashboard',
+        campo,
+        pode_visualizar: perms.pode_visualizar,
+        pode_editar: false,
+      })),
+    ];
 
     try {
       if (editingPerfil) {
@@ -657,6 +682,65 @@ const PerfisAcesso: React.FC = () => {
                     </table>
                   </div>
                 </div>
+
+                {camposDashboard.length > 0 && (
+                  <div>
+                    <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                      <Layers className="w-4 h-4 text-emerald-500" />
+                      Dashboard – Dados Financeiros
+                      {formIsAdmin && <span className="text-xs font-normal text-indigo-400 ml-2">(Administradores possuem acesso total automaticamente)</span>}
+                    </h3>
+                    <div className={`p-3 rounded-lg mb-2 text-xs ${isDark ? 'bg-gray-700/50 text-gray-400' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                      Controla a visibilidade dos blocos de Receita, Margem e Ticket Médio na tela inicial. Por padrão, esses dados ficam ocultos para todos os perfis.
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className={`${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                            <th className={`text-left text-xs font-medium uppercase px-3 py-2 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                              Permissão
+                            </th>
+                            <th className="text-center text-xs font-medium uppercase px-3 py-2">
+                              <div className={`flex items-center justify-center gap-1 ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                                <Eye className="w-3 h-3" /> Visualizar
+                              </div>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {camposDashboard.map(campo => {
+                            const perm = formPermissoesCampoDashboard[campo.key] || { pode_visualizar: false };
+                            return (
+                              <tr key={campo.key} className={`${isDark ? 'hover:bg-gray-700/30 border-gray-700/50' : 'hover:bg-gray-50 border-gray-100'} border-b`}>
+                                <td className={`px-3 py-2 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                  {campo.label}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFormPermissoesCampoDashboard(prev => ({
+                                        ...prev,
+                                        [campo.key]: { pode_visualizar: !perm.pode_visualizar },
+                                      }));
+                                    }}
+                                    className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-colors mx-auto ${
+                                      perm.pode_visualizar
+                                        ? 'bg-emerald-500 border-emerald-500 text-white'
+                                        : isDark ? 'border-gray-600 hover:border-gray-500' : 'border-gray-300 hover:border-gray-400'
+                                    }`}
+                                  >
+                                    {perm.pode_visualizar && <Check className="w-4 h-4" />}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {camposEventos.length > 0 && (
                   <div>
