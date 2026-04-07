@@ -80,21 +80,23 @@ export const dashboardService = {
     const response = await api.get(`/dashboard/consolidado?${params}`);
     return response.data;
   },
-  getOperacional: async (filters: { ano?: number | null; mes?: number | null; produto?: string | null; modalidade?: string | null }) => {
+  getOperacional: async (filters: { ano?: number | null; mes?: number | null; produto?: string | null; modalidade?: string | null; cidade?: string | null }) => {
     const params = new URLSearchParams();
     if (filters.ano) params.append('ano', filters.ano.toString());
     if (filters.mes) params.append('mes', filters.mes.toString());
     if (filters.produto) params.append('produto', filters.produto);
     if (filters.modalidade) params.append('modalidade', filters.modalidade);
+    if (filters.cidade) params.append('cidade', filters.cidade);
     const response = await api.get(`/dashboard/operacional?${params.toString()}`);
     return response.data;
   },
-  getFinanceiro: async (filters: { ano?: number | null; mes?: number | null; produto?: string | null; modalidade?: string | null }) => {
+  getFinanceiro: async (filters: { ano?: number | null; mes?: number | null; produto?: string | null; modalidade?: string | null; cidade?: string | null }) => {
     const params = new URLSearchParams();
     if (filters.ano) params.append('ano', filters.ano.toString());
     if (filters.mes) params.append('mes', filters.mes.toString());
     if (filters.produto) params.append('produto', filters.produto);
     if (filters.modalidade) params.append('modalidade', filters.modalidade);
+    if (filters.cidade) params.append('cidade', filters.cidade);
     const response = await api.get(`/dashboard/financeiro?${params.toString()}`);
     return response.data;
   },

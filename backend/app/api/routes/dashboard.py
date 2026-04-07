@@ -44,7 +44,7 @@ def get_filtros(
     meses = [
         {"value": 1, "label": "Janeiro"},
         {"value": 2, "label": "Fevereiro"},
-        {"value": 3, "label": "Marco"},
+        {"value": 3, "label": "Março"},
         {"value": 4, "label": "Abril"},
         {"value": 5, "label": "Maio"},
         {"value": 6, "label": "Junho"},
@@ -217,6 +217,7 @@ def get_dashboard_operacional(
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -227,10 +228,8 @@ def get_dashboard_operacional(
         get_dias_encerramento, get_data_regime, normalize_sku,
         _get_snapshot_metrics_for_grupo
     )
-    from ...models.cadastro_evento import CadastroEvento as CadEvento
-    from datetime import datetime as dt
 
-    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
+    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade, cidade=cidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
 
@@ -407,6 +406,7 @@ def get_dashboard_financeiro(
     mes: Optional[int] = Query(None),
     produto: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -423,7 +423,7 @@ def get_dashboard_financeiro(
         get_data_regime, normalize_sku, _get_snapshot_metrics_for_grupo
     )
 
-    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade)
+    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade, cidade=cidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
 

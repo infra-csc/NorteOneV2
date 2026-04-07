@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { dashboardService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
+import { useAuth } from '../../context/AuthContext';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -25,6 +26,7 @@ interface Filters {
   mes: number | null;
   produto: string | null;
   modalidade: string | null;
+  cidade: string | null;
 }
 
 interface FilterOptions {
@@ -32,6 +34,7 @@ interface FilterOptions {
   meses: FilterOption[];
   produtos: FilterOption[];
   modalidades: FilterOption[];
+  cidades: FilterOption[];
 }
 
 const PIE_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6'];
@@ -155,11 +158,13 @@ const CustomTooltip = ({ active, payload, label, isDark }: any) => {
 const Dashboard: React.FC = () => {
   const { isDark } = useTheme();
   const { canViewCampo } = usePermissions();
+  const { user } = useAuth();
   const canSeeFinancial = canViewCampo('dashboard', 'dados_financeiros');
 
-  const CACHE_KEY_OP = 'dash_op_cache';
-  const CACHE_KEY_FIN = 'dash_fin_cache';
-  const CACHE_KEY_FILTROS = 'dash_filtros_cache';
+  const uid = user?.id ?? 'anon';
+  const CACHE_KEY_OP = `dash_op_${uid}`;
+  const CACHE_KEY_FIN = `dash_fin_${uid}`;
+  const CACHE_KEY_FILTROS = `dash_filtros_${uid}`;
   const CACHE_TTL_MS = 30 * 60 * 1000;
 
   const readCache = (key: string) => {
@@ -186,11 +191,11 @@ const Dashboard: React.FC = () => {
 
   const cachedFiltros = readCache(CACHE_KEY_FILTROS);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>(
-    cachedFiltros || { anos: [], meses: [], produtos: [], modalidades: [] }
+    cachedFiltros || { anos: [], meses: [], produtos: [], modalidades: [], cidades: [] }
   );
   const [filters, setFilters] = useState<Filters>(() => {
     const ano = cachedFiltros?.anos?.[0]?.value || new Date().getFullYear();
-    return { ano: ano as number, mes: null, produto: null, modalidade: null };
+    return { ano: ano as number, mes: null, produto: null, modalidade: null, cidade: null };
   });
 
   const activeFiltersCount = useMemo(() => {
@@ -198,17 +203,18 @@ const Dashboard: React.FC = () => {
     if (filters.mes) c++;
     if (filters.produto) c++;
     if (filters.modalidade) c++;
+    if (filters.cidade) c++;
     return c;
   }, [filters]);
 
-  const clearFilters = () => setFilters({ ano: defaultAno, mes: null, produto: null, modalidade: null });
+  const clearFilters = () => setFilters({ ano: defaultAno, mes: null, produto: null, modalidade: null, cidade: null });
 
   const hasDataRef = React.useRef(!!readCache(CACHE_KEY_OP));
 
   const loadData = useCallback(async (f: Filters, silent = false) => {
     if (!silent) setRefreshing(true);
     setError(null);
-    const apiF = { ano: f.ano, mes: f.mes, produto: f.produto, modalidade: f.modalidade };
+    const apiF = { ano: f.ano, mes: f.mes, produto: f.produto, modalidade: f.modalidade, cidade: f.cidade };
     try {
       const ops: Promise<any>[] = [dashboardService.getOperacional(apiF)];
       if (canSeeFinancial) ops.push(dashboardService.getFinanceiro(apiF));
@@ -236,18 +242,15 @@ const Dashboard: React.FC = () => {
         const data = await dashboardService.getFiltros();
         const firstAno = data.anos?.[0]?.value || new Date().getFullYear();
         setDefaultAno(firstAno as number);
-        setFilterOptions({
+        const newFiltros = {
           anos: data.anos || [],
           meses: data.meses || [],
           produtos: data.produtos || [],
           modalidades: data.modalidades || [],
-        });
-        writeCache(CACHE_KEY_FILTROS, {
-          anos: data.anos || [],
-          meses: data.meses || [],
-          produtos: data.produtos || [],
-          modalidades: data.modalidades || [],
-        });
+          cidades: data.cidades || [],
+        };
+        setFilterOptions(newFiltros);
+        writeCache(CACHE_KEY_FILTROS, newFiltros);
         if (!hasCachedData) {
           setFilters(prev => ({ ...prev, ano: firstAno as number }));
         } else {
@@ -340,7 +343,7 @@ const Dashboard: React.FC = () => {
 
         {showFilters && (
           <div className={`p-5 rounded-2xl ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <SearchableDropdown label="Ano" options={filterOptions.anos} value={filters.ano}
                 onChange={v => setFilters(p => ({ ...p, ano: v as number }))} placeholder="Selecione o ano" isDark={isDark} />
               <SearchableDropdown label="Mês" options={filterOptions.meses} value={filters.mes}
@@ -349,6 +352,8 @@ const Dashboard: React.FC = () => {
                 onChange={v => setFilters(p => ({ ...p, produto: v as string | null }))} placeholder="Todos" isDark={isDark} />
               <SearchableDropdown label="Modalidade" options={filterOptions.modalidades} value={filters.modalidade}
                 onChange={v => setFilters(p => ({ ...p, modalidade: v as string | null }))} placeholder="Todas" isDark={isDark} />
+              <SearchableDropdown label="Cidade" options={filterOptions.cidades} value={filters.cidade}
+                onChange={v => setFilters(p => ({ ...p, cidade: v as string | null }))} placeholder="Todas" isDark={isDark} />
             </div>
           </div>
         )}
