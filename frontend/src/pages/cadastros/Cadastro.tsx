@@ -245,6 +245,7 @@ const Cadastro: React.FC = () => {
   const isAdmin = permissions?.is_admin || false;
   const [cadastros, setCadastros] = useState<CadastroEvento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingEditId, setLoadingEditId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedCadastro, setSelectedCadastro] = useState<CadastroEvento | null>(null);
@@ -683,14 +684,14 @@ const Cadastro: React.FC = () => {
 
   const handleEdit = async (item: CadastroEvento) => {
     if (!item.id) return;
+    setLoadingEditId(item.id);
     try {
-      setLoading(true);
       const full = await cadastrosService.get(item.id);
       populateForm(full);
     } catch {
       populateForm(item);
     } finally {
-      setLoading(false);
+      setLoadingEditId(null);
     }
   };
 
@@ -3217,10 +3218,15 @@ const Cadastro: React.FC = () => {
                     </button>
                     <button
                       onClick={() => handleEdit(cadastro)}
-                      className="flex-1 py-2.5 rounded-xl font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all flex items-center justify-center gap-2"
+                      disabled={loadingEditId === cadastro.id}
+                      className="flex-1 py-2.5 rounded-xl font-semibold bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40 transition-all flex items-center justify-center gap-2 disabled:opacity-70"
                     >
-                      <Pencil className="w-4 h-4" />
-                      Editar
+                      {loadingEditId === cadastro.id ? (
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Pencil className="w-4 h-4" />
+                      )}
+                      {loadingEditId === cadastro.id ? 'Abrindo...' : 'Editar'}
                     </button>
                     {isAdmin && (
                       <button
