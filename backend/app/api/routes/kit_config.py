@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 _kits_cache: dict = {"data": None, "ts": 0.0}
 _KITS_TTL = 120
 
+_unconfigured_cache: dict = {"data": None, "ts": 0.0}
+_UNCONFIGURED_TTL = 300  # 5 minutes
+
 router = APIRouter(prefix="/api/kit-config", tags=["Kit Config"])
 
 MAGENTO_KITS_QUERY = """
@@ -454,6 +457,106 @@ def get_kits_with_config(
     return kits
 
 
+@router.get("/unconfigured-summary")
+def get_unconfigured_summary(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Returns a lightweight summary of bundles without KitConfig mapping.
+
+    Reuses the in-memory cache from /kits when available so it does not
+    hit the Magento database on every call.  Falls back to a direct query
+    only when the cache is cold.
+    """
+    now = _time.time()
+
+    # ── served from the detailed-kits cache when it is hot ──────────────
+    if (
+        _kits_cache["data"] is not None
+        and (now - _kits_cache["ts"]) < _KITS_TTL
+    ):
+        source = "cache"
+        all_kits = _kits_cache["data"]
+        unconfigured = [k for k in all_kits if not k.is_configured]
+    elif (
+        _unconfigured_cache["data"] is not None
+        and (now - _unconfigured_cache["ts"]) < _UNCONFIGURED_TTL
+    ):
+        return _unconfigured_cache["data"]
+    else:
+        # ── lightweight fallback: only bundle_entity_id + name ──────────
+        source = "query"
+        if db_module.engine_magento is None:
+            result = {"total_unconfigured": 0, "events": [], "magento_available": False}
+            _unconfigured_cache["data"] = result
+            _unconfigured_cache["ts"] = now
+            return result
+
+        _LIGHT_QUERY = """
+            SELECT
+                cpe.entity_id                   AS bundle_entity_id,
+                cpev_event_name.value           AS nome_evento,
+                cpev_kit_name.value             AS nome_kit
+            FROM catalog_product_entity cpe
+            JOIN catalog_product_entity_varchar cpev1
+                ON cpe.entity_id = cpev1.entity_id
+               AND cpev1.attribute_id = 321
+            LEFT JOIN catalog_product_entity_varchar cpev_event_name
+                ON cpe.entity_id = cpev_event_name.entity_id
+               AND cpev_event_name.attribute_id = 73
+            LEFT JOIN catalog_product_entity_varchar cpev_kit_name
+                ON cpe.entity_id = cpev_kit_name.entity_id
+               AND cpev_kit_name.attribute_id = 73
+            WHERE cpe.type_id = 'bundle'
+        """
+        try:
+            with db_module.engine_magento.connect() as conn:
+                res = conn.execute(text(_LIGHT_QUERY))
+                rows = [dict(zip(res.keys(), r)) for r in res.fetchall()]
+        except Exception as exc:
+            logger.error(f"[UnconfiguredSummary] Magento query error: {exc}")
+            result = {"total_unconfigured": 0, "events": [], "magento_available": False}
+            _unconfigured_cache["data"] = result
+            _unconfigured_cache["ts"] = now
+            return result
+
+        all_configs = {c.bundle_entity_id for c in db.query(KitConfig).all()}
+
+        class _FakeKit:
+            def __init__(self, row):
+                self.is_configured = int(row["bundle_entity_id"]) in all_configs
+                self.nome_evento = row.get("nome_evento") or "Evento desconhecido"
+
+        all_kits = [_FakeKit(r) for r in rows]
+        unconfigured = [k for k in all_kits if not k.is_configured]
+
+    # ── build summary ────────────────────────────────────────────────────
+    event_counts: dict = {}
+    for k in unconfigured:
+        nome = getattr(k, "nome_evento", None) or "Evento desconhecido"
+        event_counts[nome] = event_counts.get(nome, 0) + 1
+
+    events_list = [
+        {"nome_evento": nome, "count": cnt}
+        for nome, cnt in sorted(event_counts.items(), key=lambda x: -x[1])
+    ]
+
+    result = {
+        "total_unconfigured": len(unconfigured),
+        "events": events_list,
+        "magento_available": True,
+        "source": source,
+    }
+
+    _unconfigured_cache["data"] = result
+    _unconfigured_cache["ts"] = now
+    logger.info(
+        f"[UnconfiguredSummary] {len(unconfigured)} unconfigured kits across "
+        f"{len(events_list)} events (source={source})"
+    )
+    return result
+
+
 def _invalidate_event_detail_for_bundle(
     db: Session,
     bundle_entity_id: int,
@@ -553,6 +656,8 @@ def upsert_kit_config(
             db.refresh(existing)
             _kits_cache["data"] = None
             _kits_cache["ts"] = 0.0
+            _unconfigured_cache["data"] = None
+            _unconfigured_cache["ts"] = 0.0
             clear_ticket_atual_cache()
             _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
             return existing
@@ -572,6 +677,8 @@ def upsert_kit_config(
         db.refresh(new_config)
         _kits_cache["data"] = None
         _kits_cache["ts"] = 0.0
+        _unconfigured_cache["data"] = None
+        _unconfigured_cache["ts"] = 0.0
         clear_ticket_atual_cache()
         _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
         return new_config

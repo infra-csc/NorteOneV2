@@ -28,7 +28,8 @@ import {
   Monitor,
   BookOpen,
   Layers,
-  Shield
+  Shield,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -74,6 +75,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [marketingOpen, setMarketingOpen] = useState(location.pathname.startsWith('/marketing'));
   const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin'));
   const [healthStatus, setHealthStatus] = useState<'healthy' | 'warning' | 'critical' | 'info' | null>(null);
+  const [unconfiguredKits, setUnconfiguredKits] = useState<{
+    total: number;
+    events: Array<{ nome_evento: string; count: number }>;
+  } | null>(null);
+  const [kitsBannerDismissed, setKitsBannerDismissed] = useState(false);
 
   const isAdmin = canView('admin_monitoramento');
 
@@ -87,11 +93,31 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   }, [isAdmin]);
 
+  const fetchUnconfiguredKits = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const { kitConfigService } = await import('../../services/api');
+      const data = await kitConfigService.getUnconfiguredSummary();
+      if (data.total_unconfigured > 0) {
+        setUnconfiguredKits({ total: data.total_unconfigured, events: data.events });
+      } else {
+        setUnconfiguredKits(null);
+      }
+    } catch {
+    }
+  }, [isAdmin]);
+
   useEffect(() => {
     fetchHealthStatus();
     const interval = setInterval(fetchHealthStatus, 60000);
     return () => clearInterval(interval);
   }, [fetchHealthStatus]);
+
+  useEffect(() => {
+    fetchUnconfiguredKits();
+    const interval = setInterval(fetchUnconfiguredKits, 300000);
+    return () => clearInterval(interval);
+  }, [fetchUnconfiguredKits]);
 
   const handleLogout = () => {
     logout();
@@ -312,6 +338,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
           
           <div className="flex items-center space-x-3">
+            {isAdmin && unconfiguredKits && unconfiguredKits.total > 0 && (
+              <Link
+                to="/admin/kit-config"
+                title={`${unconfiguredKits.total} kit(s) sem configuração em ${unconfiguredKits.events.length} evento(s)`}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border bg-amber-500/10 text-amber-500 border-amber-500/40 hover:bg-amber-500/20"
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {unconfiguredKits.total} kit{unconfiguredKits.total !== 1 ? 's' : ''} sem config
+              </Link>
+            )}
             {isAdmin && healthStatus !== null && (
               <Link
                 to="/admin/saude-sistema"
@@ -349,6 +385,41 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </button>
           </div>
         </header>
+
+        {isAdmin && unconfiguredKits && unconfiguredKits.total > 0 && !kitsBannerDismissed && (
+          <div className={`flex items-start gap-3 px-4 py-3 border-b ${isDark ? 'bg-amber-900/20 border-amber-700/40' : 'bg-amber-50 border-amber-200'}`}>
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className={`text-sm font-medium ${isDark ? 'text-amber-300' : 'text-amber-800'}`}>
+                {unconfiguredKits.total} kit{unconfiguredKits.total !== 1 ? 's' : ''} sem configuração encontrado{unconfiguredKits.total !== 1 ? 's' : ''}
+              </p>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-amber-400/80' : 'text-amber-700'}`}>
+                {unconfiguredKits.events.slice(0, 3).map(e => `${e.nome_evento} (${e.count})`).join(' · ')}
+                {unconfiguredKits.events.length > 3 && ` · +${unconfiguredKits.events.length - 3} evento(s)`}
+                {' '}— Kits sem mapeamento podem causar divergência nos relatórios de margem.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link
+                to="/admin/kit-config"
+                className={`text-xs font-medium px-3 py-1 rounded-md transition-colors ${
+                  isDark
+                    ? 'bg-amber-700/40 text-amber-300 hover:bg-amber-700/60'
+                    : 'bg-amber-200 text-amber-800 hover:bg-amber-300'
+                }`}
+              >
+                Configurar kits
+              </Link>
+              <button
+                onClick={() => setKitsBannerDismissed(true)}
+                className={`p-1 rounded-md transition-colors ${isDark ? 'text-amber-400 hover:bg-amber-700/30' : 'text-amber-600 hover:bg-amber-100'}`}
+                title="Dispensar aviso"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
 
         <main className="p-6">
           {children}

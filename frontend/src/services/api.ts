@@ -485,6 +485,17 @@ export const atletasExternosService = {
   }
 };
 
+export const kitConfigService = {
+  getUnconfiguredSummary: async (): Promise<{
+    total_unconfigured: number;
+    events: Array<{ nome_evento: string; count: number }>;
+    magento_available: boolean;
+  }> => {
+    const response = await api.get('/kit-config/unconfigured-summary');
+    return response.data;
+  },
+};
+
 export const adminService = {
   getUserActivity: async () => {
     const response = await api.get('/admin/user-activity');
