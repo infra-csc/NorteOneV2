@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Brain,
   TrendingUp,
@@ -14,6 +14,9 @@ import {
   ChevronUp,
   Sparkles,
   Loader2,
+  Search,
+  X,
+  Filter,
 } from 'lucide-react';
 import { noriInsightsService, NoriInsight } from '../../services/api';
 
@@ -69,6 +72,13 @@ const DEFAULT_TIPO = {
   borderColor: 'border-indigo-400 dark:border-indigo-600',
   icon: Sparkles,
 };
+
+const IMPACTO_OPTIONS = [
+  { label: 'Todos', value: 0 },
+  { label: '> R$ 5k', value: 5000 },
+  { label: '> R$ 10k', value: 10000 },
+  { label: '> R$ 50k', value: 50000 },
+];
 
 interface InsightCardProps {
   insight: NoriInsight;
@@ -212,10 +222,13 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
   const [lastGenerated, setLastGenerated] = useState<string | null>(null);
   const [generateResult, setGenerateResult] = useState<string | null>(null);
 
+  const [searchEvento, setSearchEvento] = useState('');
+  const [selectedTipos, setSelectedTipos] = useState<Set<string>>(new Set());
+  const [minImpacto, setMinImpacto] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+
   useEffect(() => {
-    if (visible) {
-      loadInsights();
-    }
+    if (visible) loadInsights();
   }, [visible]);
 
   const loadInsights = async () => {
@@ -268,9 +281,43 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
     }
   };
 
+  const toggleTipo = (tipo: string) => {
+    setSelectedTipos(prev => {
+      const next = new Set(prev);
+      if (next.has(tipo)) next.delete(tipo);
+      else next.add(tipo);
+      return next;
+    });
+  };
+
+  const clearFilters = () => {
+    setSearchEvento('');
+    setSelectedTipos(new Set());
+    setMinImpacto(0);
+  };
+
+  const hasActiveFilters = searchEvento.trim() !== '' || selectedTipos.size > 0 || minImpacto > 0;
+
+  const tiposPresentes = useMemo(
+    () => Array.from(new Set(insights.map(i => i.tipo))),
+    [insights]
+  );
+
+  const baseInsights = showVisto ? insights : insights.filter(i => i.status !== 'visto');
+
+  const filteredInsights = useMemo(() => {
+    return baseInsights.filter(i => {
+      if (selectedTipos.size > 0 && !selectedTipos.has(i.tipo)) return false;
+      if (searchEvento.trim() && !i.evento_nome.toLowerCase().includes(searchEvento.trim().toLowerCase())) return false;
+      if (minImpacto > 0 && (i.impacto_estimado_reais == null || i.impacto_estimado_reais < minImpacto)) return false;
+      return true;
+    });
+  }, [baseInsights, selectedTipos, searchEvento, minImpacto]);
+
   const novosInsights = insights.filter(i => i.status === 'novo');
   const vistoInsights = insights.filter(i => i.status === 'visto');
-  const displayedInsights = showVisto ? insights : novosInsights;
+  const filteredNovos = filteredInsights.filter(i => i.status === 'novo');
+  const filteredVistos = filteredInsights.filter(i => i.status === 'visto');
 
   if (!visible) return null;
 
@@ -323,6 +370,113 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
         </div>
       )}
 
+      {insights.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={searchEvento}
+                onChange={e => setSearchEvento(e.target.value)}
+                placeholder="Buscar por evento..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {searchEvento && (
+                <button onClick={() => setSearchEvento('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                showFilters || hasActiveFilters
+                  ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              Filtros
+              {hasActiveFilters && (
+                <span className="ml-1 bg-indigo-600 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                  {(selectedTipos.size > 0 ? 1 : 0) + (minImpacto > 0 ? 1 : 0)}
+                </span>
+              )}
+            </button>
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 transition-colors"
+              >
+                <X className="w-3 h-3" />
+                Limpar
+              </button>
+            )}
+          </div>
+
+          {showFilters && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-3 space-y-3">
+              {tiposPresentes.length > 1 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                    Tipo de Insight
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {tiposPresentes.map(tipo => {
+                      const cfg = TIPO_CONFIG[tipo] || DEFAULT_TIPO;
+                      const TipoIcon = cfg.icon as React.ComponentType<{ className?: string }>;
+                      const active = selectedTipos.has(tipo);
+                      return (
+                        <button
+                          key={tipo}
+                          onClick={() => toggleTipo(tipo)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${
+                            active
+                              ? `${cfg.bgColor} ${cfg.color} ${cfg.borderColor}`
+                              : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                          }`}
+                        >
+                          <TipoIcon className="w-3 h-3" />
+                          {cfg.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                  Impacto Mínimo
+                </p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {IMPACTO_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setMinImpacto(opt.value)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                        minImpacto === opt.value
+                          ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-400 dark:border-emerald-600'
+                          : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {hasActiveFilters && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Exibindo <span className="font-semibold text-gray-700 dark:text-gray-300">{filteredInsights.length}</span> de {insights.filter(i => showVisto || i.status !== 'visto').length} insights
+            </p>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
@@ -330,47 +484,63 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
             <p className="text-sm text-gray-500 dark:text-gray-400">Carregando insights...</p>
           </div>
         </div>
-      ) : displayedInsights.length === 0 ? (
+      ) : filteredInsights.length === 0 ? (
         <div className="text-center py-12 space-y-3">
           <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center mx-auto">
             <Brain className="w-8 h-8 text-indigo-500" />
           </div>
           <div>
-            <p className="font-medium text-gray-700 dark:text-gray-300">Nenhum insight para hoje</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              O Nori exibe apenas insights gerados hoje, com dados atuais de cada evento.
-              Clique em "Analisar Agora" para gerar uma nova análise.
-            </p>
+            {hasActiveFilters ? (
+              <>
+                <p className="font-medium text-gray-700 dark:text-gray-300">Nenhum insight com esses filtros</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Tente remover alguns filtros para ver mais resultados.
+                </p>
+                <button onClick={clearFilters} className="mt-2 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                  Limpar filtros
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-gray-700 dark:text-gray-300">Nenhum insight para hoje</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  O Nori exibe apenas insights gerados hoje, com dados atuais de cada evento.
+                  Clique em "Analisar Agora" para gerar uma nova análise.
+                </p>
+              </>
+            )}
           </div>
         </div>
       ) : (
         <div className="space-y-3">
-          {novosInsights.length > 0 && (
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Novos ({novosInsights.length})
-              </span>
-              <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-            </div>
-          )}
-          {displayedInsights.filter(i => i.status === 'novo').map(insight => (
-            <InsightCard
-              key={insight.id}
-              insight={insight}
-              onMarkVisto={handleMarkVisto}
-              onDescartar={handleDescartar}
-            />
-          ))}
-
-          {showVisto && vistoInsights.length > 0 && (
+          {filteredNovos.length > 0 && (
             <>
-              <div className="flex items-center gap-2 mt-4 mb-2">
-                <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                  Vistos ({vistoInsights.length})
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  Novos ({filteredNovos.length}{hasActiveFilters && filteredNovos.length !== novosInsights.length ? ` de ${novosInsights.length}` : ''})
                 </span>
                 <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
               </div>
-              {vistoInsights.map(insight => (
+              {filteredNovos.map(insight => (
+                <InsightCard
+                  key={insight.id}
+                  insight={insight}
+                  onMarkVisto={handleMarkVisto}
+                  onDescartar={handleDescartar}
+                />
+              ))}
+            </>
+          )}
+
+          {showVisto && filteredVistos.length > 0 && (
+            <>
+              <div className="flex items-center gap-2 mt-4 mb-2">
+                <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
+                  Vistos ({filteredVistos.length}{hasActiveFilters && filteredVistos.length !== vistoInsights.length ? ` de ${vistoInsights.length}` : ''})
+                </span>
+                <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+              </div>
+              {filteredVistos.map(insight => (
                 <InsightCard
                   key={insight.id}
                   insight={insight}
