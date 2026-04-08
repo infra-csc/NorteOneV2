@@ -73,6 +73,11 @@ def set_last_sync_hoje(ts=None):
     global _last_sync_hoje_timestamp
     with _last_sync_hoje_lock:
         _last_sync_hoje_timestamp = ts or time.time()
+    # Persist so the timestamp survives server restarts and deploys.
+    try:
+        _persist_to_db("__meta__", "last_sync_hoje", {"ts": _last_sync_hoje_timestamp})
+    except Exception as _lsh_err:
+        logger.warning(f"set_last_sync_hoje: could not persist to DB: {_lsh_err}")
 
 
 def is_full_refresh_in_progress():
@@ -747,7 +752,7 @@ def get_known_tier1_ids() -> list:
 
 
 def warm_all_caches_from_db():
-    global _last_full_refresh_timestamp
+    global _last_full_refresh_timestamp, _last_sync_hoje_timestamp
     logger.info("Warming all caches from PostgreSQL...")
     start = time.time()
     for cache in ALL_CACHES:
@@ -755,24 +760,33 @@ def warm_all_caches_from_db():
             cache.warm_from_db()
         except Exception as e:
             logger.error(f"Failed to warm cache '{cache.name}' from DB: {e}")
-    # Restore the last_full_refresh timestamp from DB so it survives restarts.
+    # Restore the last_full_refresh and last_sync_hoje timestamps from DB so they survive restarts.
     try:
         db = _get_db_session()
         if db is not None:
             try:
                 from app.models.cache_entry import CacheEntry
+                from datetime import datetime as _dt_meta
                 row = db.query(CacheEntry).filter_by(cache_name="__meta__", cache_key="last_full_refresh").first()
                 if row:
                     data = json.loads(row.data) if isinstance(row.data, str) else row.data
                     _last_full_refresh_timestamp = float(data.get("ts", 0)) or None
                     if _last_full_refresh_timestamp:
-                        from datetime import datetime as _dt_lfr
-                        _hr = _dt_lfr.fromtimestamp(_last_full_refresh_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                        _hr = _dt_meta.fromtimestamp(_last_full_refresh_timestamp).strftime('%Y-%m-%d %H:%M:%S')
                         logger.info(f"Restored last_full_refresh from DB: {_hr}")
+                row_lsh = db.query(CacheEntry).filter_by(cache_name="__meta__", cache_key="last_sync_hoje").first()
+                if row_lsh:
+                    data_lsh = json.loads(row_lsh.data) if isinstance(row_lsh.data, str) else row_lsh.data
+                    _ts_lsh = float(data_lsh.get("ts", 0)) or None
+                    if _ts_lsh:
+                        with _last_sync_hoje_lock:
+                            _last_sync_hoje_timestamp = _ts_lsh
+                        _hr_lsh = _dt_meta.fromtimestamp(_ts_lsh).strftime('%Y-%m-%d %H:%M:%S')
+                        logger.info(f"Restored last_sync_hoje from DB: {_hr_lsh}")
             finally:
                 db.close()
     except Exception as _lfr_load_err:
-        logger.warning(f"warm_all_caches_from_db: could not load last_full_refresh: {_lfr_load_err}")
+        logger.warning(f"warm_all_caches_from_db: could not load meta timestamps: {_lfr_load_err}")
     elapsed = time.time() - start
     logger.info(f"All caches warmed from DB in {elapsed:.1f}s")
 
