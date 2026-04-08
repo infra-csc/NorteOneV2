@@ -1715,6 +1715,11 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
 _margem_rev_cache: dict = {}  # frozenset(bundle_ids) → (rev_by_bid: dict, timestamp: float)
 _MARGEM_REV_TTL_SECONDS = 14400  # 4 horas
 
+# Cache de falhas da revenue query: evita re-tentar o Magento repetidamente quando
+# a query já falhou recentemente (ex: timeout). Após o cooldown, tenta novamente.
+_margem_rev_failure_cache: dict = {}  # frozenset(bundle_ids) → timestamp da última falha
+_MARGEM_REV_FAILURE_COOLDOWN_SECONDS = 1800  # 30 minutos
+
 
 def get_margem_por_kit(
     db: Session,
@@ -1982,10 +1987,15 @@ GROUP BY soi_parent.product_id
             _now_mono = _time.monotonic()
             if force_refresh:
                 _margem_rev_cache.pop(_rev_cache_key, None)
+                _margem_rev_failure_cache.pop(_rev_cache_key, None)
             _cached = _margem_rev_cache.get(_rev_cache_key)
+            _last_failure = _margem_rev_failure_cache.get(_rev_cache_key)
             if _cached and (_now_mono - _cached[1]) < _MARGEM_REV_TTL_SECONDS:
                 rev_by_bid = dict(_cached[0])
                 logger.info(f"[Margem] revenue_query cache HIT: {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (TTL restante: {int(_MARGEM_REV_TTL_SECONDS - (_now_mono - _cached[1]))}s)")
+            elif _last_failure and (_now_mono - _last_failure) < _MARGEM_REV_FAILURE_COOLDOWN_SECONDS:
+                _cooldown_restante = int(_MARGEM_REV_FAILURE_COOLDOWN_SECONDS - (_now_mono - _last_failure))
+                logger.info(f"[Margem] revenue_query SKIPPED (cooldown pós-falha ativo, {_cooldown_restante}s restantes): {len(bundle_ids)} bundles")
             else:
                 try:
                     with db_module.engine_magento.connect() as conn:
@@ -1996,8 +2006,10 @@ GROUP BY soi_parent.product_id
                         _elapsed = _time.monotonic() - _t1
                         logger.info(f"[Margem] revenue_query: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
                         _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
+                        _margem_rev_failure_cache.pop(_rev_cache_key, None)
                 except Exception as e:
                     logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
+                    _margem_rev_failure_cache[_rev_cache_key] = _time.monotonic()
                     _log_margem_magento_failed(e, "revenue")
 
             # Consolida: usa qtd da query 1 + receita da query 2 (independentes)
