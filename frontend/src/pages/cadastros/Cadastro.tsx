@@ -11,7 +11,7 @@ import {
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
   TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
-  Box, Flag, Activity, Scale, Download, Trash2, RefreshCw
+  Box, Flag, Activity, Scale, Download, Trash2, RefreshCw, Percent
 } from 'lucide-react';
 
 interface CortesiaItem {
@@ -22,6 +22,7 @@ interface CortesiaItem {
 interface TaxaItem {
   valor_unitario: number;
   percentual_inscricao: number;
+  tipo_calculo: 'unitario' | 'percentual';
   validado: boolean;
   data_validacao: string;
 }
@@ -652,7 +653,10 @@ const Cadastro: React.FC = () => {
         appai: item.atletas.appai ? { ...item.atletas.appai } : { pago: 0, tkt_medio: 0 }
       },
       cortesias: item.cortesias?.length > 0 ? item.cortesias.map(c => ({ ...c })) : [],
-      taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({ ...t })) : [],
+      taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({
+        ...t,
+        tipo_calculo: ((t.percentual_inscricao || 0) > 0 ? 'percentual' : 'unitario') as 'unitario' | 'percentual'
+      })) : [],
       retirada_kit: { ...item.retirada_kit },
       kit_produto: item.kit_produto.length > 0 ? item.kit_produto.map(k => ({ kit: k.kit, ativo_categoria: k.ativo_categoria ?? '', produtos: k.produtos.map(p => ({ ...p, valor_unitario: Number(p.valor_unitario) || 0 })) })) : [{ kit: '', ativo_categoria: '', produtos: [] }],
       merchan: (item.merchan || []).map(mk => ({ kit: mk.kit, itens: (mk.itens || []).map(it => ({ nome: it.nome, valor_venda: Number(it.valor_venda) || 0 })) })),
@@ -755,7 +759,7 @@ const Cadastro: React.FC = () => {
     const defaults: Record<string, any> = {
       kit_produto: { kit: '', ativo_categoria: '', produtos: [] },
       cortesias: { cliente: '', quantidade: 0 },
-      taxas: { valor_unitario: 0, percentual_inscricao: 0, validado: false, data_validacao: '' }
+      taxas: { valor_unitario: 0, percentual_inscricao: 0, tipo_calculo: 'unitario' as const, validado: false, data_validacao: '' }
     };
     setForm(prev => ({
       ...prev,
@@ -2337,8 +2341,45 @@ const Cadastro: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
+                <div className="mb-4">
+                  <label className={`block text-xs font-semibold mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Tipo de cálculo
+                  </label>
+                  <div className={`inline-flex rounded-lg p-0.5 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                    {(['unitario', 'percentual'] as const).map(tipo => (
+                      <button
+                        key={tipo}
+                        type="button"
+                        onClick={() => {
+                          setForm(prev => {
+                            const taxas = [...prev.taxas];
+                            taxas[index] = {
+                              ...taxas[index],
+                              tipo_calculo: tipo,
+                              valor_unitario: tipo === 'unitario' ? taxas[index].valor_unitario : 0,
+                              percentual_inscricao: tipo === 'percentual' ? taxas[index].percentual_inscricao : 0,
+                            };
+                            return { ...prev, taxas };
+                          });
+                        }}
+                        className={`flex items-center gap-1.5 px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                          taxa.tipo_calculo === tipo
+                            ? 'bg-purple-600 text-white shadow'
+                            : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-600 hover:text-gray-800'
+                        }`}
+                      >
+                        {tipo === 'unitario' ? (
+                          <><DollarSign className="w-3.5 h-3.5" /> Valor Unitário</>
+                        ) : (
+                          <><Percent className="w-3.5 h-3.5" /> % do Valor Inscrição</>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {taxa.tipo_calculo === 'unitario' ? (
+                  <div className="mb-4">
                     <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                       <DollarSign className="w-4 h-4 inline mr-2 text-green-500" />
                       Valor Unitário
@@ -2351,30 +2392,30 @@ const Cadastro: React.FC = () => {
                       allowDecimal
                       className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                     />
+                    <div className={`mt-3 w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600/50 border-gray-500 text-emerald-400' : 'bg-gray-100 border-gray-300 text-emerald-600'} font-bold text-base flex items-center gap-2`}>
+                      <TrendingUp className="w-4 h-4 flex-shrink-0" />
+                      <span>Total: R$ {((taxa.valor_unitario || 0) * (form.atletas.site.pago || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      <span className={`text-xs font-normal ml-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>({form.atletas.site.pago || 0} atletas × R$ {(taxa.valor_unitario || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})</span>
+                    </div>
                   </div>
-                  <div>
+                ) : (
+                  <div className="mb-4">
                     <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                       % do Valor Inscrição
                     </label>
-                    <FormattedInput
-                      value={taxa.percentual_inscricao || 0}
-                      onChange={(val) => updateArrayField('taxas', index, 'percentual_inscricao', val)}
-                      label="Percentual"
-                      placeholder="0"
-                      allowDecimal
-                      className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
-                    />
+                    <div className="flex items-center gap-2">
+                      <FormattedInput
+                        value={taxa.percentual_inscricao || 0}
+                        onChange={(val) => updateArrayField('taxas', index, 'percentual_inscricao', val)}
+                        label="Percentual"
+                        placeholder="0,00"
+                        allowDecimal
+                        className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                      />
+                      <span className={`text-lg font-bold ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>%</span>
+                    </div>
                   </div>
-                </div>
-                <div className="mb-4">
-                  <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                    <TrendingUp className="w-4 h-4 inline mr-2 text-blue-500" />
-                    Valor Total (Valor Unitário × Atletas Site Pago: {form.atletas.site.pago || 0})
-                  </label>
-                  <div className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-600/50 border-gray-500 text-emerald-400' : 'bg-gray-100 border-gray-300 text-emerald-600'} font-bold text-lg`}>
-                    R$ {((taxa.valor_unitario || 0) * (form.atletas.site.pago || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center gap-3">
                     <label className={`block text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
