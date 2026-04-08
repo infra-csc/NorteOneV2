@@ -330,36 +330,7 @@ const Cadastro: React.FC = () => {
     try {
       setLoading(true);
       setLoadError(false);
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-      let data: CadastroEvento[];
-      try {
-        const resp = await fetch('/api/cadastros/', {
-          signal: controller.signal,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}),
-          },
-        });
-        clearTimeout(timeoutId);
-        if (resp.status === 401) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          window.location.href = '/login';
-          return;
-        }
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        data = await resp.json();
-      } catch (fetchErr: any) {
-        clearTimeout(timeoutId);
-        if (fetchErr?.name === 'AbortError') {
-          console.warn('Cadastros list request timed out after 20s');
-        } else {
-          console.error('Erro ao carregar cadastros:', fetchErr);
-        }
-        setLoadError(true);
-        return;
-      }
+      const data = await cadastrosService.list();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const processed = data.map((item: CadastroEvento) => {

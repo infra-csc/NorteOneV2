@@ -1112,6 +1112,17 @@ async def lifespan(app: FastAPI):
             logger.error(f"Startup resync projetos failed: {e}")
 
         try:
+            from app.core.database import SessionLocal as _SL
+            from app.api.routes.cadastros import warm_list_cache as _warm_cadastros
+            _db_warm = _SL()
+            try:
+                _warm_cadastros(_db_warm)
+            finally:
+                _db_warm.close()
+        except Exception as e:
+            logger.error(f"Cadastros list cache warmup failed: {e}")
+
+        try:
             _sync_id_evento_magento()
         except Exception as e:
             logger.error(f"Startup id_evento_magento sync failed: {e}")

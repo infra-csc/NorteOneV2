@@ -3,9 +3,44 @@ from sqlalchemy.orm import Session, selectinload
 from typing import List
 from datetime import datetime, date
 from decimal import Decimal
+import threading
+import time as _time
 
 from app.core.database import get_db
 from ...core.security import get_current_user
+
+_list_cache: dict = {"data": None, "ts": 0.0}
+_list_cache_lock = threading.Lock()
+_LIST_CACHE_TTL = 300
+
+
+def _invalidate_list_cache():
+    with _list_cache_lock:
+        _list_cache["data"] = None
+        _list_cache["ts"] = 0.0
+
+
+def warm_list_cache(db: Session):
+    """Pré-aquece o cache da listagem de cadastros durante o startup."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    try:
+        t0 = _time.time()
+        cadastros = (
+            db.query(CadastroEvento)
+            .filter(CadastroEvento.deleted_at.is_(None))
+            .order_by(CadastroEvento.id.desc())
+            .all()
+        )
+        items = [db_to_list_response(c) for c in cadastros]
+        with _list_cache_lock:
+            _list_cache["data"] = items
+            _list_cache["ts"] = _time.time()
+        _log.info(f"[CadastrosCache] Pré-aquecido: {len(items)} eventos em {_time.time()-t0:.2f}s")
+    except Exception as e:
+        _log.error(f"[CadastrosCache] Falha no pré-aquecimento: {e}")
+
+
 from app.models.cadastro_evento import (
     CadastroEvento, CadastroCortesia, CadastroTaxa,
     CadastroKitProduto, CadastroKitProdutoItem,
@@ -267,14 +302,28 @@ def listar_cadastros(
     db: Session = Depends(get_db)
 ):
     """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
+    if not status and skip == 0:
+        with _list_cache_lock:
+            cached = _list_cache["data"]
+            age = _time.time() - _list_cache["ts"]
+        if cached is not None and age < _LIST_CACHE_TTL:
+            result = cached[:limit]
+            return result
+
     query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
 
     if status:
         query = query.filter(CadastroEvento.status == status)
 
     cadastros = query.order_by(CadastroEvento.id.desc()).offset(skip).limit(limit).all()
+    items = [db_to_list_response(c) for c in cadastros]
 
-    return [db_to_list_response(c) for c in cadastros]
+    if not status and skip == 0:
+        with _list_cache_lock:
+            _list_cache["data"] = items
+            _list_cache["ts"] = _time.time()
+
+    return items
 
 
 @router.get("/lixeira/itens")
@@ -306,6 +355,7 @@ def restaurar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Cadastro não está na lixeira")
     cadastro.deleted_at = None
     db.commit()
+    _invalidate_list_cache()
     return {"message": "Cadastro restaurado com sucesso"}
 
 
@@ -486,7 +536,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     
     db.commit()
     db.refresh(cadastro)
-    
+    _invalidate_list_cache()
     return db_to_response(cadastro)
 
 
@@ -697,7 +747,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
             invalidate_cadastro_caches(cadastro.projeto_id)
         except Exception:
             pass
-    
+    _invalidate_list_cache()
     return db_to_response(cadastro)
 
 
@@ -757,7 +807,7 @@ def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
     
     cadastro.deleted_at = datetime.utcnow()
     db.commit()
-    
+    _invalidate_list_cache()
     return {"message": "Cadastro movido para a lixeira. Você tem 30 dias para restaurá-lo."}
 
 
