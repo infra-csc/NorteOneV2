@@ -2193,6 +2193,132 @@ GROUP BY soi_parent.name
                         kit_map[kit_name]["qtd"]     = total_qtd
                         kit_map[kit_name]["receita"] = total_rec
 
+        # 4.5 Suplementar: bundles no Magento (via atributo cpev1) que NÃO estão no KitConfig
+        # têm inscrições contadas pelo card principal mas ignoradas pelo bloco primário.
+        # O fallback acima só atualiza kits_sem_venda (qtd=0), então inscrições de bundles extras
+        # cujos tipos de kit já têm dados são perdidas. Este bloco as recupera e acumula.
+        if seen_magento_events and global_bundle_tipo_map and db_module.engine_magento is not None:
+            _kc_bid_set = set(global_bundle_tipo_map.keys())
+            _supp_extra_bids: list = []
+            try:
+                _cpev1_supp = text("""
+SELECT DISTINCT entity_id
+FROM   catalog_product_entity_varchar
+WHERE  attribute_id = 321
+AND    store_id     = 0
+AND    value        IN :ev_ids
+""").bindparams(bindparam("ev_ids", expanding=True))
+                with db_module.engine_magento.connect() as _csupp:
+                    _supp_extra_bids = [
+                        int(r[0]) for r in
+                        _csupp.execute(_cpev1_supp, {"ev_ids": list(seen_magento_events)}).fetchall()
+                        if int(r[0]) not in _kc_bid_set
+                    ]
+                if _supp_extra_bids:
+                    logger.info(f"[Margem] supplementary: {len(seen_magento_events)} ev_ids → {len(_supp_extra_bids)} bundles extras fora do KitConfig")
+            except Exception as _e_supp0:
+                logger.warning(f"[Margem] supplementary cpev1 prefetch falhou: {_e_supp0}")
+
+            if _supp_extra_bids:
+                import time as _time_supp
+                _supp_cnt_q = text("""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    soi_parent.name                        AS bundle_name,
+    COUNT(DISTINCT soi_parent.item_id)     AS qtd
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+      AND soi_parent.product_id   IN :supp_bids
+WHERE
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+AND so.state != 'canceled'
+AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+GROUP BY soi_parent.name
+""").bindparams(bindparam("supp_bids", expanding=True))
+
+                _supp_rev_q = text("""
+SELECT /*+ MAX_EXECUTION_TIME(55000) */
+    soi_parent.name                                                                    AS bundle_name,
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+      AND soi_parent.product_id   IN :supp_bids
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND soi_child.price - soi_child.discount_amount > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
+WHERE
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+AND so.state != 'canceled'
+AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+GROUP BY soi_parent.name
+""").bindparams(bindparam("supp_bids", expanding=True))
+
+                _supp_qtd_by_name: dict = {}
+                _supp_rev_by_name: dict = {}
+
+                try:
+                    _supp_t0 = _time_supp.monotonic()
+                    with db_module.engine_magento.connect() as _csupp2:
+                        for _sr in _csupp2.execute(_supp_cnt_q, {"supp_bids": _supp_extra_bids}).fetchall():
+                            _supp_qtd_by_name[(_sr[0] or "").strip()] = int(_sr[1] or 0)
+                    logger.info(f"[Margem] supplementary count: {len(_supp_extra_bids)} bundles extras → {sum(_supp_qtd_by_name.values())} inscrições em {_time_supp.monotonic()-_supp_t0:.2f}s")
+                except Exception as _e_supp1:
+                    logger.warning(f"[Margem] supplementary count query falhou: {_e_supp1}")
+
+                _supp_rev_cache_key = frozenset(_supp_extra_bids)
+                _cached_supp = _margem_rev_cache.get(_supp_rev_cache_key)
+                if _cached_supp and (_time_supp.monotonic() - _cached_supp[1]) < _MARGEM_REV_TTL_SECONDS:
+                    _supp_rev_by_name = dict(_cached_supp[0])
+                else:
+                    try:
+                        _supp_t1 = _time_supp.monotonic()
+                        with db_module.engine_magento.connect() as _csupp3:
+                            for _sr2 in _csupp3.execute(_supp_rev_q, {"supp_bids": _supp_extra_bids}).fetchall():
+                                _supp_rev_by_name[(_sr2[0] or "").strip()] = float(_sr2[1] or 0)
+                        _margem_rev_cache[_supp_rev_cache_key] = (dict(_supp_rev_by_name), _time_supp.monotonic())
+                        logger.info(f"[Margem] supplementary revenue: {len(_supp_extra_bids)} bundles extras → {len(_supp_rev_by_name)} em {_time_supp.monotonic()-_supp_t1:.2f}s")
+                    except Exception as _e_supp2:
+                        logger.warning(f"[Margem] supplementary revenue query falhou: {_e_supp2}")
+
+                for _sname, _sqtd in _supp_qtd_by_name.items():
+                    if _sqtd <= 0:
+                        continue
+                    _sname_lower = _sname.lower()
+                    _srec = _supp_rev_by_name.get(_sname, 0.0)
+                    _matched = False
+                    for _kit_nm in sorted(kit_map.keys()):
+                        if _kit_nm.lower() in _sname_lower:
+                            kit_map[_kit_nm]["qtd"]     += _sqtd
+                            kit_map[_kit_nm]["receita"] += _srec
+                            logger.info(f"[Margem] supplementary: +{_sqtd} inscrições de '{_sname}' → kit '{_kit_nm}'")
+                            _matched = True
+                            break
+                    if not _matched:
+                        logger.debug(f"[Margem] supplementary: bundle '{_sname}' sem correspondência no kit_map")
+
         # 5. Ativo: query por ds_categoria para os event IDs mapeados como fonte=ATIVO
         #    Todos os kits verificam o Ativo; a contribuição é somada ao Magento (ou zerado se não há match).
         ativo_event_ids: list = []
