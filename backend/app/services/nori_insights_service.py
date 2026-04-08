@@ -219,6 +219,25 @@ def save_insights_to_db(db: Session, insights: list, events_context: Optional[di
 async def run_proactive_insights_job(db: Session) -> dict:
     logger.info("[NoriInsights] Iniciando job de insights proativos...")
 
+    # Discard all non-dismissed insights from previous days before generating fresh ones.
+    try:
+        from app.models.nori_insights import NoriInsight as _NI
+        brasilia_tz = ZoneInfo('America/Sao_Paulo')
+        today_start = datetime.combine(datetime.now(brasilia_tz).date(), datetime.min.time())
+        stale_deleted = (
+            db.query(_NI)
+            .filter(
+                _NI.gerado_em < today_start,
+                _NI.status.in_(["novo", "visto"]),
+            )
+            .delete(synchronize_session=False)
+        )
+        if stale_deleted:
+            db.commit()
+            logger.info(f"[NoriInsights] {stale_deleted} insights desatualizados de dias anteriores removidos")
+    except Exception as _cleanup_err:
+        logger.warning(f"[NoriInsights] Erro ao limpar insights antigos: {_cleanup_err}")
+
     try:
         from datetime import datetime as _dt
         ano = _dt.now().year
@@ -228,7 +247,7 @@ async def run_proactive_insights_job(db: Session) -> dict:
             status="active",
             categoria=None,
             busca=None,
-            force_refresh=False,
+            force_refresh=True,
             db=db,
             current_user=None,
             response=None,

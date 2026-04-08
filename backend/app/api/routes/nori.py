@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
 import asyncio
+from zoneinfo import ZoneInfo
 from app.services.nori_service import chat_with_nori, analyze_marketing_data, get_greeting, OpenAIQuotaError, OpenAIConfigError
 from app.core.security import get_current_user
 from app.core.database import get_db
@@ -112,9 +113,11 @@ def nori_analyze(
 def list_insights(
     status: Optional[str] = Query(None, description="Filtrar por status: novo, visto, descartado"),
     tipo: Optional[str] = Query(None, description="Filtrar por tipo"),
+    apenas_hoje: bool = Query(True, description="Retornar apenas insights do dia atual (padrão: True)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    brasilia_tz = ZoneInfo('America/Sao_Paulo')
     query = db.query(NoriInsight)
     if status:
         query = query.filter(NoriInsight.status == status)
@@ -122,6 +125,9 @@ def list_insights(
         query = query.filter(NoriInsight.status.in_(["novo", "visto"]))
     if tipo:
         query = query.filter(NoriInsight.tipo == tipo)
+    if apenas_hoje:
+        today_start = datetime.combine(datetime.now(brasilia_tz).date(), datetime.min.time())
+        query = query.filter(NoriInsight.gerado_em >= today_start)
     query = query.order_by(
         NoriInsight.impacto_estimado_reais.desc().nullslast(),
         NoriInsight.gerado_em.desc()

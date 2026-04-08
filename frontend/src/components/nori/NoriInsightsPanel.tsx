@@ -336,9 +336,10 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
             <Brain className="w-8 h-8 text-indigo-500" />
           </div>
           <div>
-            <p className="font-medium text-gray-700 dark:text-gray-300">Nenhum insight disponível</p>
+            <p className="font-medium text-gray-700 dark:text-gray-300">Nenhum insight para hoje</p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Clique em "Analisar Agora" para que o Nori examine todos os eventos e identifique oportunidades de melhoria de margem.
+              O Nori exibe apenas insights gerados hoje, com dados atuais de cada evento.
+              Clique em "Analisar Agora" para gerar uma nova análise.
             </p>
           </div>
         </div>
