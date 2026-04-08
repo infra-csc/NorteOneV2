@@ -571,7 +571,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
             except:
                 pass
     
-    if data.cortesias is not None:
+    if data.cortesias is not None and len(data.cortesias) > 0:
         for c in cadastro.cortesias:
             db.delete(c)
         for cortesia in data.cortesias:
@@ -580,8 +580,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                 cliente=cortesia.cliente,
                 quantidade=cortesia.quantidade
             ))
-    
-    if data.taxas is not None:
+
+    if data.taxas is not None and len(data.taxas) > 0:
         for t in cadastro.taxas:
             db.delete(t)
         for taxa in data.taxas:
@@ -598,8 +598,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                 validado=taxa.validado,
                 data_validacao=data_validacao
             ))
-    
-    if data.kit_produto is not None:
+
+    if data.kit_produto is not None and len(data.kit_produto) > 0:
         for kp in cadastro.kit_produtos:
             db.delete(kp)
         db.flush()
@@ -618,7 +618,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                     valor_unitario=produto.valor_unitario
                 ))
 
-    if data.merchan is not None:
+    if data.merchan is not None and len(data.merchan) > 0:
         for mk in cadastro.merchan_kits:
             db.delete(mk)
         db.flush()
@@ -636,7 +636,10 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                     valor_venda=item.valor_venda
                 ))
 
-    if data.faixas_preco_site is not None:
+    _faixas_site_tem_dados = data.faixas_preco_site is not None and (
+        len(data.faixas_preco_site.kit_basico) > 0 or len(data.faixas_preco_site.kit_participacao) > 0
+    )
+    if _faixas_site_tem_dados:
         for f in cadastro.faixas_preco_site:
             db.delete(f)
         for faixa in data.faixas_preco_site.kit_basico:
@@ -657,8 +660,11 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                 tkt_medio=faixa.tkt_medio,
                 total=faixa.total
             ))
-    
-    if data.faixas_preco_grupos is not None:
+
+    _faixas_grupos_tem_dados = data.faixas_preco_grupos is not None and (
+        len(data.faixas_preco_grupos.kit_basico) > 0 or len(data.faixas_preco_grupos.kit_participacao) > 0
+    )
+    if _faixas_grupos_tem_dados:
         for f in cadastro.faixas_preco_grupos:
             db.delete(f)
         for faixa in data.faixas_preco_grupos.kit_basico:
