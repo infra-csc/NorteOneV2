@@ -452,6 +452,7 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
     from sqlalchemy import case as sa_case
 
     today = date.today()
+    yesterday = today - timedelta(days=1)
     d7  = today - timedelta(days=7)
     d14 = today - timedelta(days=14)
     d30 = today - timedelta(days=30)
@@ -471,15 +472,15 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
         func.sum(VendasDiariaSnapshot.quantidade).label("qtd_total"),
         func.sum(VendasDiariaSnapshot.receita).label("receita_total"),
         func.sum(sa_case(
-            (VendasDiariaSnapshot.data_venda >= d7,  VendasDiariaSnapshot.quantidade),
+            (and_(VendasDiariaSnapshot.data_venda >= d7,  VendasDiariaSnapshot.data_venda <= yesterday), VendasDiariaSnapshot.quantidade),
             else_=0
         )).label("qtd_7d"),
         func.sum(sa_case(
-            (VendasDiariaSnapshot.data_venda >= d14, VendasDiariaSnapshot.quantidade),
+            (and_(VendasDiariaSnapshot.data_venda >= d14, VendasDiariaSnapshot.data_venda <= yesterday), VendasDiariaSnapshot.quantidade),
             else_=0
         )).label("qtd_14d"),
         func.sum(sa_case(
-            (VendasDiariaSnapshot.data_venda >= d30, VendasDiariaSnapshot.quantidade),
+            (and_(VendasDiariaSnapshot.data_venda >= d30, VendasDiariaSnapshot.data_venda <= yesterday), VendasDiariaSnapshot.quantidade),
             else_=0
         )).label("qtd_30d"),
     ).filter(
