@@ -686,7 +686,7 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
                 <YAxis tick={{ fill: isDark ? '#9ca3af' : '#6b7280', fontSize: 12 }} />
                 <Tooltip
                   contentStyle={{ backgroundColor: isDark ? '#1f2937' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: '8px', color: isDark ? '#fff' : '#111' }}
-                  formatter={(v: any, n: any) => [fmt(Number(v)), { real: 'Real', proj_volume: 'Cenário Volume', proj_ticket: 'Cenário Ticket' }[n] || n]}
+                  formatter={(v: any, n: any) => [fmt(Number(v)), ({ real: 'Real', proj_volume: 'Cenário Volume', proj_ticket: 'Cenário Ticket' } as Record<string, string>)[n as string] || n]}
                 />
                 <Legend formatter={(v: string) => ({ real: 'Inscrições Reais', proj_volume: 'Cenário 1 — Volume', proj_ticket: 'Cenário 2 — Ticket' }[v] || v)} />
                 {meta > 0 && (
