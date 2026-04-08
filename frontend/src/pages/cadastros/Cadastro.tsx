@@ -627,7 +627,7 @@ const Cadastro: React.FC = () => {
     setShowDetailsModal(true);
   };
 
-  const handleEdit = (item: CadastroEvento) => {
+  const populateForm = (item: CadastroEvento) => {
     setEditItem(item);
     setForm({
       projeto_id: item.projeto_id,
@@ -679,6 +679,19 @@ const Cadastro: React.FC = () => {
     });
     setActiveTab('info_geral');
     setShowModal(true);
+  };
+
+  const handleEdit = async (item: CadastroEvento) => {
+    if (!item.id) return;
+    try {
+      setLoading(true);
+      const full = await cadastrosService.get(item.id);
+      populateForm(full);
+    } catch {
+      populateForm(item);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

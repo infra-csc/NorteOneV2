@@ -209,6 +209,56 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
     }
 
 
+def db_to_list_response(cadastro: CadastroEvento) -> dict:
+    """Versão leve de db_to_response para listagem — sem relacionamentos aninhados."""
+    info_geral = InfoGeral(
+        data=cadastro.data_evento.isoformat() if cadastro.data_evento else "",
+        horario_largada=cadastro.horario_largada or "",
+        local=cadastro.local or "",
+        distancias=cadastro.distancias or [],
+        dias_encerramento_inscricao=cadastro.dias_encerramento_inscricao if cadastro.dias_encerramento_inscricao is not None else 2
+    )
+    atletas = AtletasData(
+        site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
+        grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
+        cortesia=cadastro.atletas_cortesia or 0,
+        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0))
+    )
+    retirada_kit = RetiradaKit(
+        local=cadastro.retirada_kit_local or "",
+        data_horario=cadastro.retirada_kit_data_horario.isoformat() if cadastro.retirada_kit_data_horario else ""
+    )
+    return {
+        "id": cadastro.id,
+        "projeto_id": cadastro.projeto_id,
+        "nome": cadastro.nome,
+        "circuito_produto": cadastro.circuito_produto or None,
+        "localizacao_evento": cadastro.localizacao_evento or None,
+        "ano_evento": cadastro.ano_evento or None,
+        "imagem_kv": cadastro.imagem_kv or "",
+        "status": cadastro.status or "Em andamento",
+        "modalidade": cadastro.modalidade or "Corrida",
+        "sku": cadastro.sku or None,
+        "produto": cadastro.produto or None,
+        "tipo_evento": cadastro.tipo_evento or None,
+        "lei": cadastro.lei or None,
+        "capacidade_maxima": cadastro.capacidade_maxima or None,
+        "cidade": cadastro.cidade or None,
+        "estado": cadastro.estado or None,
+        "info_geral": info_geral,
+        "atletas": atletas,
+        "cortesias": [],
+        "taxas": [],
+        "retirada_kit": retirada_kit,
+        "kit_produto": [],
+        "merchan": [],
+        "faixas_preco_site": FaixasPrecoByKit(kit_basico=[], kit_participacao=[]),
+        "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=[], kit_participacao=[]),
+        "created_at": cadastro.created_at,
+        "updated_at": cadastro.updated_at
+    }
+
+
 @router.get("/", response_model=List[CadastroEventoResponse])
 def listar_cadastros(
     skip: int = 0,
@@ -216,15 +266,15 @@ def listar_cadastros(
     status: str = None,
     db: Session = Depends(get_db)
 ):
-    """Lista todos os cadastros de eventos ativos (não deletados)"""
-    query = db.query(CadastroEvento).options(*_CADASTRO_EAGER).filter(CadastroEvento.deleted_at.is_(None))
-    
+    """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
+    query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
+
     if status:
         query = query.filter(CadastroEvento.status == status)
-    
+
     cadastros = query.order_by(CadastroEvento.id.desc()).offset(skip).limit(limit).all()
-    
-    return [db_to_response(c) for c in cadastros]
+
+    return [db_to_list_response(c) for c in cadastros]
 
 
 @router.get("/lixeira/itens")
