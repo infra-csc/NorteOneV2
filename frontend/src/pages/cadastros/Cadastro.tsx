@@ -2614,7 +2614,16 @@ const Cadastro: React.FC = () => {
 
       case 'merchan': {
         const kitsMerchan = ['Kit Vip', 'Kit Plus', 'Kit Super'];
-        const merchanKitsFromProduto = form.kit_produto.filter(k => kitsMerchan.includes(k.kit));
+        const kitBasicoProdutos = new Set(
+          (form.kit_produto.find(k => k.kit === 'Kit Básico')?.produtos ?? []).map(p => p.nome)
+        );
+        const merchanKitsFromProduto = form.kit_produto
+          .filter(k => kitsMerchan.includes(k.kit))
+          .map(k => ({
+            ...k,
+            produtos: k.produtos.filter(p => !kitBasicoProdutos.has(p.nome))
+          }))
+          .filter(k => k.produtos.length > 0);
 
         const getMerchanItem = (kitName: string, produtoNome: string) => {
           const mk = form.merchan.find(m => m.kit === kitName);
@@ -2659,8 +2668,8 @@ const Cadastro: React.FC = () => {
             <div className={`flex flex-col items-center justify-center py-12 gap-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
               <ShoppingBag className="w-10 h-10 opacity-40" />
               <p className="text-sm text-center">
-                Nenhum kit Vip, Plus ou Super configurado.<br />
-                Adicione esses kits na aba <strong>Kit Produto</strong> para habilitar o Merchan.
+                Nenhum produto exclusivo de Merchan encontrado.<br />
+                Configure os kits Vip, Plus ou Super na aba <strong>Kit Produto</strong> com itens além do Kit Básico.
               </p>
             </div>
           );
@@ -2669,7 +2678,7 @@ const Cadastro: React.FC = () => {
         return (
           <div className="space-y-6">
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              Os custos são lidos da aba <strong>Kit Produto</strong>. Informe o valor de venda para calcular o markup.
+              Exibindo apenas os itens exclusivos de cada kit (não presentes no Kit Básico). Informe o valor de venda para calcular o markup.
             </p>
             {merchanKitsFromProduto.map(kit => (
               <div key={kit.kit} className={`p-4 rounded-xl border ${isDark ? 'bg-gray-700/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
