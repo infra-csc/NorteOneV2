@@ -182,6 +182,7 @@ def get_health_events(
     event_type: Optional[str] = Query(default=None),
     date_from: Optional[str] = Query(default=None, description="ISO date string (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(default=None, description="ISO date string (YYYY-MM-DD)"),
+    show_resolved: Optional[str] = Query(default=None, description="'true'=only resolved, 'false'=only unresolved, omit=all"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
@@ -208,6 +209,10 @@ def get_health_events(
             query = query.filter(SystemHealthEvent.created_at < dt_to)
         except ValueError:
             pass
+    if show_resolved == "true":
+        query = query.filter(SystemHealthEvent.resolved_at.isnot(None))
+    elif show_resolved == "false":
+        query = query.filter(SystemHealthEvent.resolved_at.is_(None))
     total_count = query.count()
     offset = (page - 1) * page_size
     events = query.offset(offset).limit(page_size).all()
@@ -218,6 +223,38 @@ def get_health_events(
         "page_size": page_size,
         "total_pages": max(1, (total_count + page_size - 1) // page_size),
     }
+
+
+@router.post("/health-events/{event_id}/resolve")
+def resolve_health_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from ...models.system_health import SystemHealthEvent
+    event = db.query(SystemHealthEvent).filter(SystemHealthEvent.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    event.resolved_at = datetime.utcnow()
+    event.resolved_by = current_user.nome or current_user.email
+    db.commit()
+    return {"status": "ok", "event": event.to_dict()}
+
+
+@router.post("/health-events/{event_id}/reopen")
+def reopen_health_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    from ...models.system_health import SystemHealthEvent
+    event = db.query(SystemHealthEvent).filter(SystemHealthEvent.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    event.resolved_at = None
+    event.resolved_by = None
+    db.commit()
+    return {"status": "ok", "event": event.to_dict()}
 
 
 @router.get("/health-events/summary")

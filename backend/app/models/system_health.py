@@ -12,6 +12,8 @@ class SystemHealthEvent(Base):
     message = Column(Text, nullable=False)
     detail = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by = Column(String(255), nullable=True)
 
     def to_dict(self):
         return {
@@ -21,6 +23,8 @@ class SystemHealthEvent(Base):
             "message": self.message,
             "detail": self.detail,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "resolved_by": self.resolved_by,
         }
 
 

@@ -4,7 +4,7 @@ import { adminService } from '../../services/api';
 import {
   ShieldCheck, ShieldAlert, AlertTriangle, Info, RefreshCw, Settings,
   Save, Send, ChevronDown, ChevronUp, Filter, Clock, Activity,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, CheckCircle2, RotateCcw
 } from 'lucide-react';
 
 interface HealthEvent {
@@ -14,6 +14,8 @@ interface HealthEvent {
   message: string;
   detail: string | null;
   created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
 }
 
 interface DataSourceStatus {
@@ -114,8 +116,10 @@ const SaudeSistema: React.FC = () => {
   const [filterSeverity, setFilterSeverity] = useState<string>('');
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
   const [filterDateTo, setFilterDateTo] = useState<string>('');
+  const [filterResolved, setFilterResolved] = useState<string>('');
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
   const [showConfig, setShowConfig] = useState(false);
+  const [resolvingEvents, setResolvingEvents] = useState<Set<number>>(new Set());
   const [formConfig, setFormConfig] = useState<AlertConfig>({
     email_enabled: false, email_recipients: '', email_from: '', smtp_host: '',
     smtp_port: 587, smtp_user: '', smtp_password: '', slack_enabled: false,
@@ -137,6 +141,7 @@ const SaudeSistema: React.FC = () => {
         severity: filterSeverity || undefined,
         date_from: filterDateFrom || undefined,
         date_to: filterDateTo || undefined,
+        show_resolved: filterResolved || undefined,
         page,
         page_size: PAGE_SIZE,
       });
@@ -148,7 +153,7 @@ const SaudeSistema: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filterSeverity, filterDateFrom, filterDateTo]);
+  }, [filterSeverity, filterDateFrom, filterDateTo, filterResolved]);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -192,7 +197,7 @@ const SaudeSistema: React.FC = () => {
   useEffect(() => {
     setCurrentPage(1);
     fetchEvents(1);
-  }, [filterSeverity, filterDateFrom, filterDateTo]);
+  }, [filterSeverity, filterDateFrom, filterDateTo, filterResolved]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -202,6 +207,32 @@ const SaudeSistema: React.FC = () => {
   const handleApplyFilters = () => {
     setCurrentPage(1);
     fetchEvents(1);
+  };
+
+  const handleResolve = async (eventId: number) => {
+    setResolvingEvents(prev => new Set(prev).add(eventId));
+    try {
+      const data = await adminService.resolveHealthEvent(eventId);
+      setEvents(prev => prev.map(e => e.id === eventId ? data.event : e));
+      fetchSummary();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setResolvingEvents(prev => { const s = new Set(prev); s.delete(eventId); return s; });
+    }
+  };
+
+  const handleReopen = async (eventId: number) => {
+    setResolvingEvents(prev => new Set(prev).add(eventId));
+    try {
+      const data = await adminService.reopenHealthEvent(eventId);
+      setEvents(prev => prev.map(e => e.id === eventId ? data.event : e));
+      fetchSummary();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setResolvingEvents(prev => { const s = new Set(prev); s.delete(eventId); return s; });
+    }
   };
 
   const handleSaveConfig = async () => {
@@ -503,6 +534,15 @@ const SaudeSistema: React.FC = () => {
               <option value="LOW">Baixo</option>
               <option value="INFO">Info</option>
             </select>
+            <select
+              value={filterResolved}
+              onChange={e => setFilterResolved(e.target.value)}
+              className={selectClass}
+            >
+              <option value="">Todos os status</option>
+              <option value="false">Apenas não resolvidos</option>
+              <option value="true">Apenas resolvidos</option>
+            </select>
             <div className="flex items-center gap-1">
               <label className={`text-xs ${textSecondary}`}>De:</label>
               <input
@@ -521,9 +561,9 @@ const SaudeSistema: React.FC = () => {
                 className={selectClass}
               />
             </div>
-            {(filterSeverity || filterDateFrom || filterDateTo) && (
+            {(filterSeverity || filterDateFrom || filterDateTo || filterResolved) && (
               <button
-                onClick={() => { setFilterSeverity(''); setFilterDateFrom(''); setFilterDateTo(''); }}
+                onClick={() => { setFilterSeverity(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterResolved(''); }}
                 className={`text-xs ${textSecondary} hover:text-red-400 underline`}
               >
                 Limpar filtros
@@ -548,31 +588,81 @@ const SaudeSistema: React.FC = () => {
                 const sev = SEVERITY_CONFIG[event.severity] || SEVERITY_CONFIG.INFO;
                 const isExpanded = expandedEvents.has(event.id);
                 const typeLabel = EVENT_TYPE_LABELS[event.event_type] || event.event_type;
+                const isResolved = !!event.resolved_at;
+                const isActioning = resolvingEvents.has(event.id);
+                const canResolve = event.severity !== 'INFO';
                 return (
-                  <div key={event.id} className={`px-4 py-3 transition-colors ${isDark ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50'}`}>
-                    <div
-                      className="flex items-start justify-between gap-3 cursor-pointer"
-                      onClick={() => event.detail && toggleExpand(event.id)}
-                    >
-                      <div className="flex items-start gap-3 min-w-0">
-                        <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${sev.dot}`} />
+                  <div
+                    key={event.id}
+                    className={`px-4 py-3 transition-colors ${
+                      isResolved
+                        ? isDark ? 'bg-emerald-950/10 hover:bg-emerald-950/20' : 'bg-emerald-50/50 hover:bg-emerald-50'
+                        : isDark ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div
+                        className="flex items-start gap-3 min-w-0 flex-1 cursor-pointer"
+                        onClick={() => event.detail && toggleExpand(event.id)}
+                      >
+                        <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${isResolved ? 'bg-emerald-500' : sev.dot}`} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${sev.badge}`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${isResolved ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 line-through opacity-60' : sev.badge}`}>
                               {sev.label}
                             </span>
-                            <span className={`text-xs font-medium ${textSecondary}`}>{typeLabel}</span>
+                            <span className={`text-xs font-medium ${isResolved ? 'opacity-50 ' + textSecondary : textSecondary}`}>{typeLabel}</span>
+                            {isResolved && (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400`}>
+                                <CheckCircle2 className="w-3 h-3" />
+                                Resolvido
+                              </span>
+                            )}
                           </div>
-                          <p className={`text-sm mt-1 ${textPrimary}`}>{event.message}</p>
+                          <p className={`text-sm mt-1 ${isResolved ? 'opacity-50 ' + textPrimary : textPrimary}`}>{event.message}</p>
+                          {isResolved && event.resolved_by && (
+                            <p className={`text-xs mt-0.5 ${isDark ? 'text-emerald-500' : 'text-emerald-600'}`}>
+                              Resolvido por <span className="font-medium">{event.resolved_by}</span>
+                              {event.resolved_at && <> · {timeAgo(event.resolved_at)}</>}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="text-right">
+                        <div className="text-right hidden sm:block">
                           <p className={`text-xs ${textSecondary}`}>{timeAgo(event.created_at)}</p>
-                          <p className={`text-xs ${textSecondary} hidden sm:block`}>{formatDatetime(event.created_at)}</p>
+                          <p className={`text-xs ${textSecondary}`}>{formatDatetime(event.created_at)}</p>
                         </div>
+                        {canResolve && (
+                          isResolved ? (
+                            <button
+                              onClick={() => handleReopen(event.id)}
+                              disabled={isActioning}
+                              title="Reabrir este evento"
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-40 border
+                                ${isDark ? 'border-gray-600 text-gray-400 hover:border-amber-500 hover:text-amber-400' : 'border-gray-300 text-gray-500 hover:border-amber-500 hover:text-amber-600'}`}
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              <span className="hidden sm:inline">Reabrir</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleResolve(event.id)}
+                              disabled={isActioning}
+                              title="Marcar como resolvido"
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all disabled:opacity-40 border
+                                ${isDark ? 'border-emerald-700 text-emerald-400 hover:bg-emerald-900/30' : 'border-emerald-500 text-emerald-700 hover:bg-emerald-50'}`}
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              <span className="hidden sm:inline">{isActioning ? '...' : 'Resolver'}</span>
+                            </button>
+                          )
+                        )}
                         {event.detail && (
-                          <div className={textSecondary}>
+                          <div
+                            className={`cursor-pointer ${textSecondary}`}
+                            onClick={() => toggleExpand(event.id)}
+                          >
                             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                           </div>
                         )}

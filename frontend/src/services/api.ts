@@ -505,8 +505,16 @@ export const adminService = {
     const response = await api.get('/admin/health-events/summary');
     return response.data;
   },
-  getHealthEvents: async (params?: { severity?: string; event_type?: string; date_from?: string; date_to?: string; page?: number; page_size?: number }) => {
+  getHealthEvents: async (params?: { severity?: string; event_type?: string; date_from?: string; date_to?: string; show_resolved?: string; page?: number; page_size?: number }) => {
     const response = await api.get('/admin/health-events', { params });
+    return response.data;
+  },
+  resolveHealthEvent: async (eventId: number) => {
+    const response = await api.post(`/admin/health-events/${eventId}/resolve`);
+    return response.data;
+  },
+  reopenHealthEvent: async (eventId: number) => {
+    const response = await api.post(`/admin/health-events/${eventId}/reopen`);
     return response.data;
   },
   getAlertConfig: async () => {
