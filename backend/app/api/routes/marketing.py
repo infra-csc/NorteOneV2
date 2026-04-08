@@ -4708,7 +4708,7 @@ def get_event_simulation(
     if sorted_dates:
         for window, attr_name in [(7, 'media_7d'), (14, 'media_14d'), (30, 'media_30d')]:
             cutoff = today - timedelta(days=window)
-            sales_in = sum(v for d, v in all_raw_sales.items() if d > cutoff and d <= today)
+            sales_in = sum(v for d, v in all_raw_sales.items() if d > cutoff and d < today)
             if attr_name == 'media_7d':
                 media_7d = round(sales_in / window, 1)
             elif attr_name == 'media_14d':
