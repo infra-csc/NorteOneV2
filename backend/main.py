@@ -1322,6 +1322,19 @@ async def lifespan(app: FastAPI):
         # Start the dedicated 05:30 BRT daily timer for insights generation
         _schedule_daily_nori_insights()
 
+    # Warmup do cache de cadastros no main thread (antes de aceitar requests)
+    try:
+        from app.api.routes.cadastros import warm_list_cache as _warm_cadastros
+        from app.core.database import SessionLocal as _SL
+        _db_warm = _SL()
+        try:
+            _warm_cadastros(_db_warm)
+        finally:
+            _db_warm.close()
+    except Exception as e:
+        import traceback
+        logger.error(f"[Startup] Cadastros cache warmup FALHOU: {e}\n{traceback.format_exc()}")
+
     init_thread = threading.Thread(target=_all_background_init, daemon=True, name="startup-bg-init")
     init_thread.start()
 
