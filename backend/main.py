@@ -690,9 +690,15 @@ def _startup_resync_projetos():
     from app.core.database import SessionLocal
     from app.models.cadastro_evento import CadastroEvento
     from app.api.routes.cadastros import _sync_dim_projeto
+    _ACTIVE_STATUSES = {'Em andamento', 'Em breve', 'Suspenso'}
     try:
         db = SessionLocal()
-        cadastros = db.query(CadastroEvento).all()
+        cadastros = (
+            db.query(CadastroEvento)
+            .filter(CadastroEvento.deleted_at.is_(None))
+            .filter(CadastroEvento.status.in_(list(_ACTIVE_STATUSES)))
+            .all()
+        )
         synced = 0
         for c in cadastros:
             try:
@@ -705,7 +711,7 @@ def _startup_resync_projetos():
                     db.rollback()
                 except Exception:
                     pass
-        logger.info(f"Startup resync: {synced}/{len(cadastros)} cadastros synced to dim_projeto")
+        logger.info(f"Startup resync: {synced}/{len(cadastros)} active cadastros synced to dim_projeto (Concluído/Cancelado skipped)")
         db.close()
     except Exception as e:
         logger.error(f"Startup resync failed: {e}")

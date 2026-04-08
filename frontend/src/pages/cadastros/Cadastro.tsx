@@ -245,6 +245,7 @@ const Cadastro: React.FC = () => {
   const isAdmin = permissions?.is_admin || false;
   const [cadastros, setCadastros] = useState<CadastroEvento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [loadingEditId, setLoadingEditId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -328,7 +329,37 @@ const Cadastro: React.FC = () => {
   const loadCadastros = async () => {
     try {
       setLoading(true);
-      const data = await cadastrosService.list();
+      setLoadError(false);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      let data: CadastroEvento[];
+      try {
+        const resp = await fetch('/api/cadastros/', {
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}),
+          },
+        });
+        clearTimeout(timeoutId);
+        if (resp.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+          return;
+        }
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        data = await resp.json();
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr?.name === 'AbortError') {
+          console.warn('Cadastros list request timed out after 20s');
+        } else {
+          console.error('Erro ao carregar cadastros:', fetchErr);
+        }
+        setLoadError(true);
+        return;
+      }
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const processed = data.map((item: CadastroEvento) => {
@@ -345,6 +376,7 @@ const Cadastro: React.FC = () => {
       setCadastros(processed);
     } catch (error) {
       console.error('Erro ao carregar cadastros:', error);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -3110,6 +3142,19 @@ const Cadastro: React.FC = () => {
                 <div className="absolute top-0 left-0 w-16 h-16 border-4 border-transparent border-t-purple-500 rounded-full animate-spin" />
               </div>
               <p className={`mt-4 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Carregando cadastros...</p>
+            </div>
+          ) : loadError ? (
+            <div className="col-span-full flex flex-col items-center justify-center py-20 gap-4">
+              <div className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                <p className="text-lg font-medium mb-1">Não foi possível carregar os eventos</p>
+                <p className="text-sm">O servidor pode estar inicializando. Aguarde alguns instantes e tente novamente.</p>
+              </div>
+              <button
+                onClick={loadCadastros}
+                className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
+              >
+                Tentar novamente
+              </button>
             </div>
           ) : filteredCadastros.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center py-20">
