@@ -1,15 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, selectinload
 from typing import List
 from datetime import datetime, date
 from decimal import Decimal
 import threading
 import time as _time
+import logging
 
 from app.core.database import get_db
 from ...core.security import get_current_user
 
-_list_cache: dict = {"data": None, "ts": 0.0}
+logger = logging.getLogger(__name__)
+
+_list_cache: dict = {"data": None, "json": None, "ts": 0.0}
 _list_cache_lock = threading.Lock()
 _LIST_CACHE_TTL = 300
 
@@ -17,6 +21,7 @@ _LIST_CACHE_TTL = 300
 def _invalidate_list_cache():
     with _list_cache_lock:
         _list_cache["data"] = None
+        _list_cache["json"] = None
         _list_cache["ts"] = 0.0
 
 
@@ -33,10 +38,13 @@ def warm_list_cache(db: Session):
             .all()
         )
         items = [db_to_list_response(c) for c in cadastros]
+        from fastapi.encoders import jsonable_encoder
+        json_data = jsonable_encoder(items)
         with _list_cache_lock:
             _list_cache["data"] = items
+            _list_cache["json"] = json_data
             _list_cache["ts"] = _time.time()
-        _log.info(f"[CadastrosCache] Pré-aquecido: {len(items)} eventos em {_time.time()-t0:.2f}s")
+        _log.warning(f"[CadastrosCache] Pré-aquecido: {len(items)} eventos em {_time.time()-t0:.2f}s (json pré-serializado)")
     except Exception as e:
         _log.error(f"[CadastrosCache] Falha no pré-aquecimento: {e}")
 
@@ -294,7 +302,7 @@ def db_to_list_response(cadastro: CadastroEvento) -> dict:
     }
 
 
-@router.get("/", response_model=List[CadastroEventoResponse])
+@router.get("/")
 def listar_cadastros(
     skip: int = 0,
     limit: int = 1000,
@@ -302,14 +310,20 @@ def listar_cadastros(
     db: Session = Depends(get_db)
 ):
     """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
+    t0 = _time.time()
     if not status and skip == 0:
         with _list_cache_lock:
-            cached = _list_cache["data"]
+            cached_json = _list_cache.get("json")
+            cached_data = _list_cache["data"]
             age = _time.time() - _list_cache["ts"]
-        if cached is not None and age < _LIST_CACHE_TTL:
-            result = cached[:limit]
-            return result
+        if cached_json is not None and age < _LIST_CACHE_TTL:
+            logger.warning(f"[CadastrosCache] HIT: {len(cached_data)} eventos em {_time.time()-t0:.4f}s (age={age:.0f}s)")
+            return JSONResponse(content=cached_json)
+        if cached_data is not None and age < _LIST_CACHE_TTL:
+            logger.warning(f"[CadastrosCache] HIT(raw): {len(cached_data)} eventos em {_time.time()-t0:.4f}s")
+            return cached_data[:limit]
 
+    logger.warning(f"[CadastrosCache] MISS — consultando banco (status={status}, skip={skip})")
     query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
 
     if status:
@@ -317,10 +331,14 @@ def listar_cadastros(
 
     cadastros = query.order_by(CadastroEvento.id.desc()).offset(skip).limit(limit).all()
     items = [db_to_list_response(c) for c in cadastros]
+    logger.warning(f"[CadastrosCache] DB query: {len(items)} eventos em {_time.time()-t0:.4f}s")
 
     if not status and skip == 0:
+        from fastapi.encoders import jsonable_encoder
+        json_data = jsonable_encoder(items)
         with _list_cache_lock:
             _list_cache["data"] = items
+            _list_cache["json"] = json_data
             _list_cache["ts"] = _time.time()
 
     return items
