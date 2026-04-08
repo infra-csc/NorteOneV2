@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, Float, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Date, DateTime, Float, Numeric, UniqueConstraint, Index
 from sqlalchemy.sql import func
 from ..core.database import Base
 
@@ -38,3 +38,17 @@ class CurvaHistoricaSnapshot(Base):
         UniqueConstraint('evento_grupo', 'ano_referencia', 'd_minus', name='uq_curva_grupo_ano_dminus'),
         Index('ix_curva_grupo_ano', 'evento_grupo', 'ano_referencia'),
     )
+
+
+class MargemBundleRevSnapshot(Base):
+    """Cache persistente de receita Magento por bundle_entity_id.
+
+    Pré-computado pelo job diário das 4h (antes do full warmup das 5h).
+    Elimina o timeout da revenue query em get_margem_por_kit para eventos
+    de alto volume (ex: Circuito das Estações - BH) sem alterar a lógica de cálculo.
+    """
+    __tablename__ = "margem_bundle_rev_snapshot"
+
+    bundle_entity_id = Column(Integer, primary_key=True)
+    receita_liquida = Column(Numeric(14, 2), nullable=False, default=0)
+    calculado_em = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

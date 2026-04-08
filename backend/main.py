@@ -1217,13 +1217,18 @@ async def lifespan(app: FastAPI):
         def _run_snapshot_consolidation():
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch
+                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
                 logger.info("Starting snapshot consolidation (parallel)...")
                 db = SessionLocal()
                 try:
                     snapshot_diario_batch(db)
                     consolidar_curvas_historicas_batch(db)
                     sincronizar_hoje_batch(db)
+                    try:
+                        result_margem = sincronizar_margem_bundle_rev_batch(db)
+                        logger.info(f"[Startup] sincronizar_margem_bundle_rev_batch: {result_margem}")
+                    except Exception as _e_margem:
+                        logger.error(f"[Startup] sincronizar_margem_bundle_rev_batch falhou (não bloqueante): {_e_margem}")
                     logger.info("Startup snapshot consolidation completed")
                 finally:
                     db.close()
@@ -1237,6 +1242,31 @@ async def lifespan(app: FastAPI):
             # Snapshots are fresh — mark thread as not started (join will return immediately)
             snapshot_thread = threading.Thread(target=lambda: None, daemon=True)
             snapshot_thread.start()
+
+        # Se a tabela margem_bundle_rev_snapshot estiver vazia (deploy inicial ou primeiro boot
+        # após criação da tabela), dispara o sync em background independentemente da freshness
+        # dos outros snapshots.
+        def _maybe_sync_margem_rev():
+            try:
+                from app.core.database import SessionLocal as _SL2
+                from app.models.vendas_snapshot import MargemBundleRevSnapshot as _MBR2
+                from app.services.snapshot_service import sincronizar_margem_bundle_rev_batch as _smrb
+                _db2 = _SL2()
+                try:
+                    _empty = _db2.query(_MBR2).count() == 0
+                    if _empty:
+                        logger.info("[Startup] margem_bundle_rev_snapshot vazio — disparando sync inicial em background")
+                        result = _smrb(_db2)
+                        logger.info(f"[Startup] margem_bundle_rev_snapshot sync inicial: {result}")
+                    else:
+                        logger.info("[Startup] margem_bundle_rev_snapshot já populado — sync inicial ignorado")
+                finally:
+                    _db2.close()
+            except Exception as _e_m:
+                logger.error(f"[Startup] Erro no sync inicial de margem_bundle_rev_snapshot: {_e_m}")
+
+        _margem_thread = threading.Thread(target=_maybe_sync_margem_rev, daemon=True, name="startup-margem-rev-sync")
+        _margem_thread.start()
 
         # Decide whether to run a full warmup on startup.
         # If targeted warmup resolved all gaps (gap count == 0 now), skip the full warmup.

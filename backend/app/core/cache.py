@@ -890,12 +890,17 @@ class CacheRefreshScheduler:
         logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (04:00 BRT) ===")
         try:
             from app.core.database import SessionLocal
-            from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch
+            from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
             db = SessionLocal()
             try:
                 snapshot_diario_batch(db)
                 consolidar_curvas_historicas_batch(db)
                 sincronizar_hoje_batch(db)
+                try:
+                    result_margem = sincronizar_margem_bundle_rev_batch(db)
+                    logger.info(f"[Daily] sincronizar_margem_bundle_rev_batch: {result_margem}")
+                except Exception as _e_margem:
+                    logger.error(f"[Daily] sincronizar_margem_bundle_rev_batch falhou (não bloqueante): {_e_margem}")
                 logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")
             finally:
                 db.close()

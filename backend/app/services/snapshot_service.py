@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot
+from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot, MargemBundleRevSnapshot
 from ..models.dimensoes import SkuMapping, DimProjeto
 import logging
 
@@ -510,6 +510,109 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
             "media_30d":           round(q30 / 30.0, 2),
         }
     return result
+
+
+def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
+    """Pré-computa receita Magento por bundle_entity_id e persiste em margem_bundle_rev_snapshot.
+
+    Executa a mesma revenue query de get_margem_por_kit, mas de forma centralizada
+    para todos os bundles mapeados, com timeout maior (5 min) por ser job de background.
+    O resultado elimina timeouts na tela Margem por Kit para eventos de alto volume.
+
+    Chamado pelo job de consolidação das 4h (antes do full warmup das 5h).
+    """
+    from ..core.database import engine_magento
+    from ..models.kit_config import KitConfig
+    from sqlalchemy import text, bindparam
+    from datetime import timezone
+
+    if engine_magento is None:
+        logger.warning("[MargemRevSync] engine_magento não disponível — sync ignorado")
+        return {"status": "skipped", "motivo": "engine_magento indisponível"}
+
+    bundle_ids_all = [
+        row[0] for row in
+        db.query(KitConfig.bundle_entity_id)
+        .filter(KitConfig.tipo_kit.isnot(None))
+        .distinct()
+        .all()
+    ]
+
+    if not bundle_ids_all:
+        logger.info("[MargemRevSync] Nenhum bundle_entity_id encontrado em kit_config")
+        return {"status": "ok", "bundles_processados": 0}
+
+    logger.info(f"[MargemRevSync] Iniciando sync de receita para {len(bundle_ids_all)} bundles")
+
+    # Mesma lógica de receita do get_margem_por_kit, timeout elevado para background (5 min)
+    rev_query = text("""
+SELECT /*+ MAX_EXECUTION_TIME(300000) */
+    soi_parent.product_id                                                              AS bundle_entity_id,
+    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
+FROM sales_order so
+INNER JOIN sales_order_item soi_parent
+       ON soi_parent.order_id     = so.entity_id
+      AND soi_parent.product_type = 'bundle'
+      AND soi_parent.product_id   IN :bundle_ids
+INNER JOIN sales_order_item soi_child
+       ON soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND soi_child.price          > 0
+      AND soi_child.price - soi_child.discount_amount > 0
+      AND (
+            soi_child.name LIKE '%%Distância%%'
+         OR soi_child.name LIKE '%%Distancia%%'
+         OR soi_child.name LIKE '%%Distâncias%%'
+         OR soi_child.name LIKE '%%Modalidade%%'
+      )
+WHERE
+    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
+AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+AND so.state != 'canceled'
+AND so.base_grand_total > 0
+AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+AND so.created_at < CURDATE() + INTERVAL 1 DAY
+AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+AND so.increment_id NOT REGEXP '-[0-9]'
+GROUP BY soi_parent.product_id
+""").bindparams(bindparam("bundle_ids", expanding=True))
+
+    rev_by_bid: dict = {}
+    BATCH_SIZE = 80
+
+    for i in range(0, len(bundle_ids_all), BATCH_SIZE):
+        batch = bundle_ids_all[i:i + BATCH_SIZE]
+        try:
+            with engine_magento.connect() as conn:
+                rows = conn.execute(rev_query, {"bundle_ids": batch}).fetchall()
+                for row in rows:
+                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+            logger.info(f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → {len(rows)} com receita")
+        except Exception as e:
+            logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
+
+    if not rev_by_bid:
+        logger.warning("[MargemRevSync] Nenhuma receita retornada do Magento — snapshot não atualizado")
+        return {"status": "sem_dados", "bundles_processados": len(bundle_ids_all)}
+
+    agora = datetime.now(timezone.utc)
+    upserted = 0
+    for bid, receita in rev_by_bid.items():
+        stmt = pg_insert(MargemBundleRevSnapshot).values(
+            bundle_entity_id=bid,
+            receita_liquida=receita,
+            calculado_em=agora,
+        ).on_conflict_do_update(
+            index_elements=["bundle_entity_id"],
+            set_={"receita_liquida": receita, "calculado_em": agora},
+        )
+        db.execute(stmt)
+        upserted += 1
+
+    db.commit()
+    logger.info(f"[MargemRevSync] Snapshot atualizado: {upserted} bundles gravados em margem_bundle_rev_snapshot")
+    return {"status": "ok", "bundles_processados": len(bundle_ids_all), "bundles_com_receita": upserted}
 
 
 def backfill_historico(db: Session, ano: int, data_inicio: date = None, data_fim: date = None):

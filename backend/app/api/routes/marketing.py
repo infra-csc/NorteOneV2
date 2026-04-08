@@ -1993,24 +1993,54 @@ GROUP BY soi_parent.product_id
             if _cached and (_now_mono - _cached[1]) < _MARGEM_REV_TTL_SECONDS:
                 rev_by_bid = dict(_cached[0])
                 logger.info(f"[Margem] revenue_query cache HIT: {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (TTL restante: {int(_MARGEM_REV_TTL_SECONDS - (_now_mono - _cached[1]))}s)")
-            elif _last_failure and (_now_mono - _last_failure) < _MARGEM_REV_FAILURE_COOLDOWN_SECONDS:
-                _cooldown_restante = int(_MARGEM_REV_FAILURE_COOLDOWN_SECONDS - (_now_mono - _last_failure))
-                logger.info(f"[Margem] revenue_query SKIPPED (cooldown pós-falha ativo, {_cooldown_restante}s restantes): {len(bundle_ids)} bundles")
             else:
-                try:
-                    with db_module.engine_magento.connect() as conn:
-                        _t1 = _time.monotonic()
-                        rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
-                        for row in rev_result.fetchall():
-                            rev_by_bid[int(row[0])] = float(row[1] or 0)
-                        _elapsed = _time.monotonic() - _t1
-                        logger.info(f"[Margem] revenue_query: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
-                        _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
-                        _margem_rev_failure_cache.pop(_rev_cache_key, None)
-                except Exception as e:
-                    logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
-                    _margem_rev_failure_cache[_rev_cache_key] = _time.monotonic()
-                    _log_margem_magento_failed(e, "revenue")
+                # --- Tentar snapshot PostgreSQL antes do Magento ao vivo ---
+                _snap_loaded = False
+                if not force_refresh:
+                    try:
+                        from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBR
+                        from datetime import timezone as _tz, timedelta as _td
+                        _snap_rows = db.query(_MBR).filter(
+                            _MBR.bundle_entity_id.in_(bundle_ids)
+                        ).all()
+                        if _snap_rows:
+                            _SNAP_MAX_AGE_H = 25
+                            _agora_utc = _time.time()
+                            _oldest = min(
+                                r.calculado_em.replace(tzinfo=_tz.utc).timestamp()
+                                if r.calculado_em.tzinfo is None
+                                else r.calculado_em.timestamp()
+                                for r in _snap_rows
+                            )
+                            _snap_age_h = (_agora_utc - _oldest) / 3600
+                            if _snap_age_h <= _SNAP_MAX_AGE_H:
+                                rev_by_bid = {r.bundle_entity_id: float(r.receita_liquida) for r in _snap_rows}
+                                _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _now_mono)
+                                _margem_rev_failure_cache.pop(_rev_cache_key, None)
+                                _snap_loaded = True
+                                logger.info(f"[Margem] revenue_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_snap_age_h:.1f}h)")
+                    except Exception as _snap_err:
+                        logger.warning(f"[Margem] Erro ao ler margem_bundle_rev_snapshot: {_snap_err}")
+
+                if not _snap_loaded:
+                    if _last_failure and (_now_mono - _last_failure) < _MARGEM_REV_FAILURE_COOLDOWN_SECONDS:
+                        _cooldown_restante = int(_MARGEM_REV_FAILURE_COOLDOWN_SECONDS - (_now_mono - _last_failure))
+                        logger.info(f"[Margem] revenue_query SKIPPED (cooldown pós-falha ativo, {_cooldown_restante}s restantes): {len(bundle_ids)} bundles")
+                    else:
+                        try:
+                            with db_module.engine_magento.connect() as conn:
+                                _t1 = _time.monotonic()
+                                rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
+                                for row in rev_result.fetchall():
+                                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+                                _elapsed = _time.monotonic() - _t1
+                                logger.info(f"[Margem] revenue_query LIVE: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
+                                _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
+                                _margem_rev_failure_cache.pop(_rev_cache_key, None)
+                        except Exception as e:
+                            logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
+                            _margem_rev_failure_cache[_rev_cache_key] = _time.monotonic()
+                            _log_margem_magento_failed(e, "revenue")
 
             # Consolida: usa qtd da query 1 + receita da query 2 (independentes)
             all_bids = set(qtd_by_bid.keys()) | set(rev_by_bid.keys())
