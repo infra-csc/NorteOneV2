@@ -203,12 +203,13 @@ def delete_insight(
 
 @router.post("/insights/gerar")
 def trigger_insights_generation(
+    force_refresh: bool = Query(True, description="Substituir insights de hoje e regenerar com dados frescos (padrão: True)"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
     try:
         from app.services.nori_insights_service import run_proactive_insights_job
-        result = asyncio.run(run_proactive_insights_job(db))
+        result = asyncio.run(run_proactive_insights_job(db, force_refresh=force_refresh))
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro ao gerar insights: {str(e)}")

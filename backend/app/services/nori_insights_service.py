@@ -216,25 +216,42 @@ def save_insights_to_db(db: Session, insights: list, events_context: Optional[di
     return saved
 
 
-async def run_proactive_insights_job(db: Session) -> dict:
-    logger.info("[NoriInsights] Iniciando job de insights proativos...")
+async def run_proactive_insights_job(db: Session, force_refresh: bool = False) -> dict:
+    logger.info(f"[NoriInsights] Iniciando job de insights proativos (force_refresh={force_refresh})...")
+    _today_deleted = 0
 
-    # Discard all non-dismissed insights from previous days before generating fresh ones.
+    # On manual refresh: also wipe today's non-dismissed insights so we regenerate with fresh data.
+    # On scheduled run: only remove stale insights from previous days.
     try:
         from app.models.nori_insights import NoriInsight as _NI
         brasilia_tz = ZoneInfo('America/Sao_Paulo')
         today_start = datetime.combine(datetime.now(brasilia_tz).date(), datetime.min.time())
-        stale_deleted = (
+
+        stale_q = (
             db.query(_NI)
             .filter(
                 _NI.gerado_em < today_start,
                 _NI.status.in_(["novo", "visto"]),
             )
-            .delete(synchronize_session=False)
         )
-        if stale_deleted:
+        stale_deleted = stale_q.delete(synchronize_session=False)
+
+        if force_refresh:
+            _today_deleted = (
+                db.query(_NI)
+                .filter(
+                    _NI.gerado_em >= today_start,
+                    _NI.status.in_(["novo", "visto"]),
+                )
+                .delete(synchronize_session=False)
+            )
+
+        if stale_deleted or _today_deleted:
             db.commit()
-            logger.info(f"[NoriInsights] {stale_deleted} insights desatualizados de dias anteriores removidos")
+            if stale_deleted:
+                logger.info(f"[NoriInsights] {stale_deleted} insights de dias anteriores removidos")
+            if _today_deleted:
+                logger.info(f"[NoriInsights] {_today_deleted} insights de hoje substituídos pela atualização forçada")
     except Exception as _cleanup_err:
         logger.warning(f"[NoriInsights] Erro ao limpar insights antigos: {_cleanup_err}")
 
@@ -307,6 +324,7 @@ async def run_proactive_insights_job(db: Session) -> dict:
         "events_analyzed": len(events_raw),
         "insights_generated": len(insights),
         "insights_saved": saved,
+        "insights_replaced": _today_deleted,
     }
 
 

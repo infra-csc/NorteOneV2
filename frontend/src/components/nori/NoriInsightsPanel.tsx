@@ -269,7 +269,15 @@ const NoriInsightsPanel: React.FC<NoriInsightsPanelProps> = ({ visible }) => {
     setGenerateResult(null);
     try {
       const result = await noriInsightsService.generate();
-      const msg = `${result.insights_saved ?? 0} novos insights gerados (${result.events_analyzed ?? 0} eventos analisados)`;
+      const saved = result.insights_saved ?? 0;
+      const replaced = result.insights_replaced ?? 0;
+      const analyzed = result.events_analyzed ?? 0;
+      let msg = '';
+      if (replaced > 0) {
+        msg = `Análise atualizada com dados frescos: ${saved} insights gerados (${analyzed} eventos analisados)`;
+      } else {
+        msg = `${saved} insights gerados (${analyzed} eventos analisados)`;
+      }
       setGenerateResult(msg);
       setLastGenerated(new Date().toLocaleTimeString('pt-BR'));
       await loadInsights();
