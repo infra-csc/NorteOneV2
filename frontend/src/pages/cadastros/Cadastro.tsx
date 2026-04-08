@@ -3753,7 +3753,7 @@ const Cadastro: React.FC = () => {
               )}
             </div>
 
-            <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-700/50">
+            <div className="flex overflow-x-auto scrollbar-hide border-b border-gray-700/50 flex-shrink-0">
               {visibleTabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -3763,14 +3763,14 @@ const Cadastro: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-2 px-5 py-4 font-medium whitespace-nowrap transition-all relative ${
+                    className={`flex items-center gap-1.5 px-3 py-3 font-medium whitespace-nowrap transition-all relative flex-shrink-0 ${
                       isActive
                         ? isDark ? 'text-purple-400' : 'text-purple-600'
                         : isDark ? 'text-gray-400 hover:text-gray-300' : 'text-gray-600 hover:text-gray-800'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-purple-500' : ''}`} />
-                    <span className="text-sm">{tab.label}</span>
+                    <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? 'text-purple-500' : ''}`} />
+                    <span className="text-xs font-medium">{tab.label}</span>
                     {isActive && (
                       <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500" />
                     )}
