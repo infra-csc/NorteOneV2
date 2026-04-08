@@ -2371,7 +2371,7 @@ const Cadastro: React.FC = () => {
                         {tipo === 'unitario' ? (
                           <><DollarSign className="w-3.5 h-3.5" /> Valor Unitário</>
                         ) : (
-                          <><Percent className="w-3.5 h-3.5" /> % do Valor Inscrição</>
+                          <><Percent className="w-3.5 h-3.5" /> do Valor Inscrição</>
                         )}
                       </button>
                     ))}
