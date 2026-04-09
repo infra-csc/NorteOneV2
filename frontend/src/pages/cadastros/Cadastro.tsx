@@ -11,7 +11,8 @@ import {
   Hash, Award, Ticket, Droplets, Gift, Layers,
   UserPlus, Building2, ShoppingBag, Ruler, Palette,
   TrendingUp, TrendingDown, AlertCircle, Globe, UsersRound,
-  Box, Flag, Activity, Scale, Download, Trash2, RefreshCw, Percent
+  Box, Flag, Activity, Scale, Download, Trash2, RefreshCw, Percent,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 
 interface CortesiaItem {
@@ -277,6 +278,8 @@ const Cadastro: React.FC = () => {
   const [showLixeira, setShowLixeira] = useState(false);
   const [loadingLixeira, setLoadingLixeira] = useState(false);
   const [merchanMode, setMerchanMode] = useState<'venda' | 'planejamento'>('venda');
+  const [collapsedSite, setCollapsedSite] = useState<{ kit_basico: boolean; kit_participacao: boolean }>({ kit_basico: false, kit_participacao: false });
+  const [collapsedGrupos, setCollapsedGrupos] = useState<{ kit_basico: boolean; kit_participacao: boolean }>({ kit_basico: false, kit_participacao: false });
 
   const visibleTabs = useMemo(() => {
     return tabs.filter(tab => canViewCampo('eventos', tab.id));
@@ -901,6 +904,7 @@ const Cadastro: React.FC = () => {
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
     const margemKit = totalValor - custoTotalKit;
+    const isCollapsed = collapsedSite[kitType];
 
     return (
       <div className="space-y-3">
@@ -908,14 +912,25 @@ const Cadastro: React.FC = () => {
           <div className="flex items-center gap-2">
             <Box className={`w-5 h-5 ${colorClass}`} />
             <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h4>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'}`}>{faixas.length} faixa{faixas.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className={`text-right px-2 py-1 rounded ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/50'}`}>
-            <p className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Kit</p>
-            <p className={`text-xs font-bold ${colorClass}`}>{formatCurrency(custoUnitarioKit)}</p>
+          <div className="flex items-center gap-2">
+            <div className={`text-right px-2 py-1 rounded ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/50'}`}>
+              <p className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Kit</p>
+              <p className={`text-xs font-bold ${colorClass}`}>{formatCurrency(custoUnitarioKit)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCollapsedSite(prev => ({ ...prev, [kitType]: !prev[kitType] }))}
+              className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-600 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`}
+              title={isCollapsed ? 'Expandir faixas' : 'Recolher faixas'}
+            >
+              {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
           </div>
         </div>
         
-        {faixas.map((faixa, index) => (
+        {!isCollapsed && faixas.map((faixa, index) => (
           <div key={index} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
             <div className="flex justify-between items-center mb-2">
               <span className={`text-xs font-bold px-2 py-1 rounded ${isDark ? 'bg-gray-600 text-gray-200' : 'bg-gray-200 text-gray-700'}`}>
@@ -968,14 +983,16 @@ const Cadastro: React.FC = () => {
           </div>
         ))}
         
-        <button
-          type="button"
-          onClick={() => addFaixaSiteByKit(kitType)}
-          className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.includes('blue') ? 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10' : 'border-green-500/50 text-green-400 hover:bg-green-500/10'} transition-colors flex items-center justify-center gap-2 text-sm`}
-        >
-          <Plus className="w-4 h-4" />
-          Adicionar Faixa ({faixas.length})
-        </button>
+        {!isCollapsed && (
+          <button
+            type="button"
+            onClick={() => addFaixaSiteByKit(kitType)}
+            className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.includes('blue') ? 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10' : 'border-green-500/50 text-green-400 hover:bg-green-500/10'} transition-colors flex items-center justify-center gap-2 text-sm`}
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar Faixa ({faixas.length})
+          </button>
+        )}
 
         {faixas.length > 0 && faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
           <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-100'}`}>
@@ -1265,6 +1282,7 @@ const Cadastro: React.FC = () => {
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
     const margemKit = totalValor - custoTotalKit;
+    const isCollapsed = collapsedGrupos[kitType];
 
     return (
       <div className="space-y-3">
@@ -1272,14 +1290,25 @@ const Cadastro: React.FC = () => {
           <div className="flex items-center gap-2">
             <Box className={`w-5 h-5 ${colorClass}`} />
             <h4 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{title}</h4>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'}`}>{faixas.length} faixa{faixas.length !== 1 ? 's' : ''}</span>
           </div>
-          <div className={`text-right px-2 py-1 rounded ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/50'}`}>
-            <p className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Kit</p>
-            <p className={`text-xs font-bold ${colorClass}`}>{formatCurrency(custoUnitarioKit)}</p>
+          <div className="flex items-center gap-2">
+            <div className={`text-right px-2 py-1 rounded ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/50'}`}>
+              <p className={`text-[10px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Kit</p>
+              <p className={`text-xs font-bold ${colorClass}`}>{formatCurrency(custoUnitarioKit)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCollapsedGrupos(prev => ({ ...prev, [kitType]: !prev[kitType] }))}
+              className={`p-1.5 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-600 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`}
+              title={isCollapsed ? 'Expandir faixas' : 'Recolher faixas'}
+            >
+              {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </button>
           </div>
         </div>
         
-        {faixas.map((faixa, index) => (
+        {!isCollapsed && faixas.map((faixa, index) => (
           <div key={index} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/30' : 'bg-gray-100'}`}>
             <div className="flex justify-between items-center mb-2">
               <span className={`text-xs font-bold px-2 py-0.5 rounded ${isDark ? 'bg-gray-600 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
@@ -1332,14 +1361,16 @@ const Cadastro: React.FC = () => {
           </div>
         ))}
         
-        <button
-          type="button"
-          onClick={() => addFaixaGruposByKit(kitType)}
-          className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.replace('text-', 'border-').replace('400', '500/50')} ${colorClass} hover:bg-gray-700/30 transition-colors flex items-center justify-center gap-1 text-sm`}
-        >
-          <Plus className="w-4 h-4" />
-          Adicionar ({faixas.length})
-        </button>
+        {!isCollapsed && (
+          <button
+            type="button"
+            onClick={() => addFaixaGruposByKit(kitType)}
+            className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.replace('text-', 'border-').replace('400', '500/50')} ${colorClass} hover:bg-gray-700/30 transition-colors flex items-center justify-center gap-1 text-sm`}
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar ({faixas.length})
+          </button>
+        )}
 
         {faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
           <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} mt-2`}>
