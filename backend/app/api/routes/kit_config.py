@@ -453,6 +453,9 @@ def get_kits_with_config(
 
     _kits_cache["data"] = kits
     _kits_cache["ts"] = _time.time()
+    # Invalidate the unconfigured summary cache so it is rebuilt from fresh kit data
+    _unconfigured_cache["data"] = None
+    _unconfigured_cache["ts"] = 0.0
     logger.info(f"[KitConfig] Kit list refreshed and cached ({len(kits)} kits)")
     return kits
 
@@ -501,13 +504,18 @@ def get_unconfigured_summary(
             JOIN catalog_product_entity_varchar cpev1
                 ON cpe.entity_id = cpev1.entity_id
                AND cpev1.attribute_id = 321
+            JOIN catalog_product_entity_datetime cped_date
+                ON cped_date.entity_id = cpev1.value
+               AND cped_date.attribute_id = 195
             LEFT JOIN catalog_product_entity_varchar cpev_event_name
-                ON cpe.entity_id = cpev_event_name.entity_id
+                ON cpev_event_name.entity_id = cpev1.value
                AND cpev_event_name.attribute_id = 73
             LEFT JOIN catalog_product_entity_varchar cpev_kit_name
-                ON cpe.entity_id = cpev_kit_name.entity_id
+                ON cpev_kit_name.entity_id = cpe.entity_id
                AND cpev_kit_name.attribute_id = 73
             WHERE cpe.type_id = 'bundle'
+              AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+              AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
         """
         try:
             with db_module.engine_magento.connect() as conn:
