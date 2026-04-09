@@ -22,13 +22,19 @@ INSIGHTS_SYSTEM_PROMPT = """Você é um analista financeiro especialista em prec
 
 Seu objetivo é identificar oportunidades de aumento de margem que os gestores humanos frequentemente não percebem no dia a dia, analisando os dados de todos os eventos ativos.
 
+DEFINIÇÕES DAS MÉTRICAS DE MARGEM (use corretamente em suas análises):
+- **margem_bruta_pct** (ex: 70%): % de margem por ticket = (ticket_medio - custo_kit) / ticket_medio. Indica a eficiência de custo por inscrição.
+- **margem_orcada_bruta_pct** (ex: 74%): % de margem por ticket no orçamento = (ticket_orcado - custo_kit) / ticket_orcado.
+- **margem_realizacao_rate_pct** (ex: 45%): % da margem total orçada que já foi capturada = margem_realizada_R$ / margem_orcada_R$. É a métrica mais importante para avaliar o progresso financeiro real do evento.
+- **pct_vendas_meta**: % de vendas realizadas sobre a meta (ex: 55% = vendeu 55% da meta). Serve de referência — o margem_realizacao_rate_pct deveria ser próximo ao pct_vendas_meta se o ticket estiver conforme planejado.
+
 CRITÉRIOS DE ANÁLISE:
 
 1. **ticket_abaixo_orcado**: Ticket realizado < ticket orçado. O evento está vendendo abaixo do planejado. Calcule o impacto: (ticket_orcado - ticket_atual) × vendas_atuais.
 
 2. **aceleracao_sem_reajuste**: ISC > 1.12 (forte/acelerando) mas ticket_atual está próximo ou abaixo do ticket_orcado. Demanda alta e preço não foi ajustado — é o momento ideal para subir o preço.
 
-3. **margem_oportunidade**: margem_realizada_pct < margem_orcada_pct em mais de 5 pontos percentuais. A margem está sendo corroída.
+3. **margem_oportunidade**: margem_realizacao_rate_pct está mais de 8 pontos percentuais abaixo de pct_vendas_meta. Isso significa que o evento está capturando menos margem do que deveria proporcionalmente às suas vendas — o ticket realizado está abaixo do orçado. Exemplo: se pct_vendas_meta = 55% mas margem_realizacao_rate_pct = 45%, há uma defasagem de 10 pontos. NÃO use margem_bruta_pct vs margem_orcada_bruta_pct para disparar esse insight.
 
 4. **preco_defasado**: Evento no estágio Estratégico (D 32-50) ou Operacional (D<32) com ISC forte e preço não reajustado nos últimos 30 dias.
 
@@ -37,6 +43,7 @@ CRITÉRIOS DE ANÁLISE:
 6. **isc_alerta**: ISC < 0.90 em evento com D < 50 dias. Janela de promoção pode estar se fechando (regra D-40).
 
 IMPORTANTE: 
+- Ao mencionar margem em seu texto, use SEMPRE o margem_realizacao_rate_pct (ex: "A margem realizada atingiu 45% do total orçado, com 55% das vendas concluídas"). Não mencione margem_bruta_pct como "margem realizada" para evitar confusão.
 - Foque nos eventos com MAIOR IMPACTO FINANCEIRO potencial
 - Calcule impactos realistas (não exagere)
 - Seja específico nas ações sugeridas (ex: "Aumentar preço do kit básico de R$150 para R$170")
@@ -85,11 +92,15 @@ def _format_events_for_insights(events_data: list) -> str:
         budget_ticket = evt.get("budgetTicket", 0) or 0
         ticket_atual = evt.get("ticketAtual", 0) or 0
         kit_cost = evt.get("kitCostPerUnit", 0) or 0
-        margem_realizada_pct = evt.get("margemRealizadaPct", 0) or 0
-        margem_orcada_pct = evt.get("margemOrcadaPct", 0) or 0
+        margem_bruta_pct = evt.get("margemRealizadaPct", 0) or 0
+        margem_orcada_bruta_pct = evt.get("margemOrcadaPct", 0) or 0
         margem_realizada_reais = evt.get("margemRealizadaTotal", 0) or 0
+        margem_orcada_reais = evt.get("margemOrcadaTotal", 0) or 0
+        margem_realizacao_rate = evt.get("margemRealizacaoRate", 0) or 0
         current_sales = evt.get("currentSales", 0) or 0
         sales_goal = evt.get("salesGoal", 1) or 1
+
+        pct_vendas_meta = round(current_sales / sales_goal * 100, 1) if sales_goal > 0 else 0
 
         sa = evt.get("suggestedAction") or {}
         pb_letter = sa.get("letter", "?")
@@ -104,14 +115,19 @@ def _format_events_for_insights(events_data: list) -> str:
             "playbook": f"{pb_letter} ({pb_stage})",
             "vendas_atuais": current_sales,
             "meta_vendas": sales_goal,
-            "pct_meta": round(current_sales / sales_goal * 100, 1),
+            "pct_vendas_meta": pct_vendas_meta,
             "ticket_medio_realizado": round(avg_ticket, 2),
             "ticket_orcado": round(budget_ticket, 2),
             "ticket_atual_magento": round(ticket_atual, 2),
             "custo_kit": round(kit_cost, 2),
-            "margem_realizada_pct": round(margem_realizada_pct, 1),
-            "margem_orcada_pct": round(margem_orcada_pct, 1),
+            # Margem bruta % por ticket (eficiência de custo por inscrição)
+            "margem_bruta_pct": round(margem_bruta_pct, 1),
+            "margem_orcada_bruta_pct": round(margem_orcada_bruta_pct, 1),
+            # Taxa de realização: quanto do total de margem orçada foi capturado
+            # Esta é a métrica principal de progresso financeiro do evento
+            "margem_realizacao_rate_pct": round(margem_realizacao_rate, 1),
             "margem_realizada_total_R$": round(margem_realizada_reais, 2),
+            "margem_orcada_total_R$": round(margem_orcada_reais, 2),
         })
 
     return json.dumps(simplified, ensure_ascii=False, indent=2)
@@ -296,21 +312,27 @@ async def run_proactive_insights_job(db: Session, force_refresh: bool = False) -
         if not evt_id:
             continue
         # Store the same simplified view that was sent to the AI
+        _sales = evt.get("currentSales") or 0
+        _goal = evt.get("salesGoal") or 1
+        _pct_vendas = round(_sales / _goal * 100, 1) if _goal > 0 else 0
         events_context[evt_id] = {
             "id": evt_id,
             "nome": evt.get("name", "") or evt.get("nome", ""),
             "d_minus": evt.get("dMinus"),
             "isc": evt.get("isc"),
             "isc_status": evt.get("iscStatus"),
-            "vendas_atuais": evt.get("currentSales"),
-            "meta_vendas": evt.get("salesGoal"),
+            "vendas_atuais": _sales,
+            "meta_vendas": _goal,
+            "pct_vendas_meta": _pct_vendas,
             "ticket_medio_realizado": evt.get("averageTicket"),
             "ticket_orcado": evt.get("budgetTicket"),
             "ticket_atual_magento": evt.get("ticketAtual"),
             "custo_kit": evt.get("kitCostPerUnit"),
-            "margem_realizada_pct": evt.get("margemRealizadaPct"),
-            "margem_orcada_pct": evt.get("margemOrcadaPct"),
+            "margem_bruta_pct": evt.get("margemRealizadaPct"),
+            "margem_orcada_bruta_pct": evt.get("margemOrcadaPct"),
+            "margem_realizacao_rate_pct": evt.get("margemRealizacaoRate"),
             "margem_realizada_total_R$": evt.get("margemRealizadaTotal"),
+            "margem_orcada_total_R$": evt.get("margemOrcadaTotal"),
         }
 
     insights = await generate_insights_for_events(events_raw)

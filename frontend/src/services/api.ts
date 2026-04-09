@@ -233,6 +233,26 @@ export const noriService = {
   }
 };
 
+export interface NoriInsightContexto {
+  vendas_atuais?: number;
+  meta_vendas?: number;
+  pct_vendas_meta?: number;
+  ticket_medio_realizado?: number;
+  ticket_orcado?: number;
+  ticket_atual_magento?: number;
+  custo_kit?: number;
+  margem_bruta_pct?: number;
+  margem_orcada_bruta_pct?: number;
+  margem_realizacao_rate_pct?: number;
+  'margem_realizada_total_R$'?: number;
+  'margem_orcada_total_R$'?: number;
+  // Campos legados (formato anterior — mantidos para compatibilidade com insights antigos)
+  margem_realizada_pct?: number;
+  margem_orcada_pct?: number;
+  isc?: number;
+  d_minus?: number;
+}
+
 export interface NoriInsight {
   id: number;
   evento_id?: string;
@@ -243,6 +263,7 @@ export interface NoriInsight {
   acao_sugerida?: string;
   impacto_estimado_reais?: number;
   impacto_estimado_percentual?: number;
+  dados_contexto?: NoriInsightContexto;
   status: 'novo' | 'visto' | 'descartado';
   gerado_em: string;
 }

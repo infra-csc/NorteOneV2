@@ -17,8 +17,9 @@ import {
   Search,
   X,
   Filter,
+  BarChart2,
 } from 'lucide-react';
-import { noriInsightsService, NoriInsight } from '../../services/api';
+import { noriInsightsService, NoriInsight, NoriInsightContexto } from '../../services/api';
 
 const TIPO_CONFIG: Record<string, { label: string; color: string; bgColor: string; borderColor: string; icon: React.ElementType }> = {
   margem_oportunidade: {
@@ -79,6 +80,118 @@ const IMPACTO_OPTIONS = [
   { label: '> R$ 10k', value: 10000 },
   { label: '> R$ 50k', value: 50000 },
 ];
+
+const fmt = (v: number | undefined | null, prefix = '', suffix = '', decimals = 0) => {
+  if (v == null) return '—';
+  return `${prefix}${v.toLocaleString('pt-BR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}${suffix}`;
+};
+
+const MetricasMargem: React.FC<{ ctx: NoriInsightContexto }> = ({ ctx }) => {
+  const realizacao = ctx.margem_realizacao_rate_pct;
+  const pctVendas = ctx.pct_vendas_meta ?? (
+    ctx.vendas_atuais != null && ctx.meta_vendas != null && ctx.meta_vendas > 0
+      ? Math.round(ctx.vendas_atuais / ctx.meta_vendas * 1000) / 10
+      : undefined
+  );
+  const margemBruta = ctx.margem_bruta_pct ?? ctx.margem_realizada_pct;
+  const margemOrcadaBruta = ctx.margem_orcada_bruta_pct ?? ctx.margem_orcada_pct;
+  const margemRealR = ctx['margem_realizada_total_R$'];
+  const margemOrcR = ctx['margem_orcada_total_R$'];
+
+  const defasagemRate = realizacao != null && pctVendas != null ? pctVendas - realizacao : null;
+
+  const hasUsefulData = realizacao != null || margemBruta != null || ctx.ticket_medio_realizado != null;
+  if (!hasUsefulData) return null;
+
+  return (
+    <div className="mt-3 p-3 bg-white/70 dark:bg-gray-800/70 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide flex items-center gap-1.5">
+        <BarChart2 className="w-3.5 h-3.5" />
+        Métricas do Evento
+      </p>
+
+      {realizacao != null && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-600 dark:text-gray-400">Taxa de realização da margem</span>
+            <span className={`text-sm font-bold ${realizacao >= (pctVendas ?? 0) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+              {realizacao.toFixed(1)}%
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+            <div
+              className={`h-2 rounded-full ${realizacao >= (pctVendas ?? 0) ? 'bg-emerald-500' : 'bg-amber-500'}`}
+              style={{ width: `${Math.min(realizacao, 100)}%` }}
+            />
+          </div>
+          {margemRealR != null && margemOrcR != null && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {fmt(margemRealR, 'R$ ')} realizados de {fmt(margemOrcR, 'R$ ')} orçados
+            </p>
+          )}
+        </div>
+      )}
+
+      {pctVendas != null && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-600 dark:text-gray-400">Vendas realizadas / meta</span>
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{pctVendas.toFixed(1)}%</span>
+          </div>
+          <div className="w-full h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+            <div className="h-1.5 rounded-full bg-blue-400" style={{ width: `${Math.min(pctVendas, 100)}%` }} />
+          </div>
+          {ctx.vendas_atuais != null && ctx.meta_vendas != null && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {ctx.vendas_atuais.toLocaleString('pt-BR')} de {ctx.meta_vendas.toLocaleString('pt-BR')} inscrições
+            </p>
+          )}
+        </div>
+      )}
+
+      {defasagemRate != null && Math.abs(defasagemRate) >= 2 && (
+        <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium ${defasagemRate > 0 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'}`}>
+          {defasagemRate > 0
+            ? `⚠️ Margem ${defasagemRate.toFixed(1)}pp abaixo do esperado proporcional`
+            : `✅ Margem ${Math.abs(defasagemRate).toFixed(1)}pp acima do esperado`}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        {ctx.ticket_medio_realizado != null && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+            <p className="text-gray-500 dark:text-gray-400">Ticket médio</p>
+            <p className="font-semibold text-gray-800 dark:text-gray-200">{fmt(ctx.ticket_medio_realizado, 'R$ ', '', 2)}</p>
+          </div>
+        )}
+        {ctx.ticket_orcado != null && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+            <p className="text-gray-500 dark:text-gray-400">Ticket orçado</p>
+            <p className="font-semibold text-gray-800 dark:text-gray-200">{fmt(ctx.ticket_orcado, 'R$ ', '', 2)}</p>
+          </div>
+        )}
+        {margemBruta != null && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+            <p className="text-gray-500 dark:text-gray-400">Margem bruta</p>
+            <p className="font-semibold text-gray-800 dark:text-gray-200">{margemBruta.toFixed(1)}%</p>
+          </div>
+        )}
+        {margemOrcadaBruta != null && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+            <p className="text-gray-500 dark:text-gray-400">Margem bruta orçada</p>
+            <p className="font-semibold text-gray-800 dark:text-gray-200">{margemOrcadaBruta.toFixed(1)}%</p>
+          </div>
+        )}
+        {ctx.custo_kit != null && (
+          <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
+            <p className="text-gray-500 dark:text-gray-400">Custo do kit</p>
+            <p className="font-semibold text-gray-800 dark:text-gray-200">{fmt(ctx.custo_kit, 'R$ ', '', 2)}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 interface InsightCardProps {
   insight: NoriInsight;
@@ -150,6 +263,9 @@ const InsightCard: React.FC<InsightCardProps> = ({ insight, onMarkVisto, onDesca
 
             {expanded && (
               <div className="mt-2 space-y-2">
+                {insight.dados_contexto && (
+                  <MetricasMargem ctx={insight.dados_contexto} />
+                )}
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
                   {insight.conteudo}
                 </p>

@@ -47,6 +47,7 @@ class InsightResponse(BaseModel):
     acao_sugerida: Optional[str]
     impacto_estimado_reais: Optional[float]
     impacto_estimado_percentual: Optional[float]
+    dados_contexto: Optional[dict] = None
     status: str
     gerado_em: str
 
@@ -144,6 +145,7 @@ def list_insights(
             acao_sugerida=ins.acao_sugerida,
             impacto_estimado_reais=ins.impacto_estimado_reais,
             impacto_estimado_percentual=ins.impacto_estimado_percentual,
+            dados_contexto=ins.dados_contexto,
             status=ins.status,
             gerado_em=ins.gerado_em.isoformat() if ins.gerado_em else "",
         )

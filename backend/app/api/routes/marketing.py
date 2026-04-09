@@ -640,6 +640,7 @@ class MarketingEvent(BaseModel):
     margemRealizadaUnit: float = 0.0
     margemRealizadaTotal: float = 0.0
     margemRealizadaPct: float = 0.0
+    margemRealizacaoRate: float = 0.0
     ticketAtual: float = 0.0
     ticketKitNome: Optional[str] = None
     margemPorKit: Optional[List[dict]] = None
@@ -1688,11 +1689,20 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
 
     margem_orcada_unit = round(budget_ticket - kit_cost, 2) if has_budget else 0.0
     margem_orcada_total = round(margem_orcada_unit * sales_goal, 2) if has_budget else 0.0
+    # Margem bruta orçada % = (ticket_orcado - custo_kit) / ticket_orcado
     margem_orcada_pct = round((margem_orcada_unit / budget_ticket) * 100, 1) if has_budget else 0.0
 
     margem_realizada_unit = round(avg_ticket - kit_cost, 2) if has_sales else 0.0
     margem_realizada_total = round(current_receita - (kit_cost * current_sales), 2) if has_sales else 0.0
+    # Margem bruta realizada % = (ticket_medio - custo_kit) / ticket_medio
     margem_realizada_pct = round((margem_realizada_unit / avg_ticket) * 100, 1) if has_sales else 0.0
+
+    # Taxa de realização da margem = quanto do total de margem orçada foi capturado até agora
+    # Fórmula: margem_realizada_R$ / margem_orcada_R$ * 100
+    # Indica o progresso financeiro real vs. o plano (ex: 45% = capturou 45% da margem total planejada)
+    margem_realizacao_rate = 0.0
+    if margem_orcada_total > 0 and has_sales:
+        margem_realizacao_rate = round((margem_realizada_total / margem_orcada_total) * 100, 1)
 
     receita_orcada_total = round(budget_ticket * sales_goal, 2) if has_budget else 0.0
 
@@ -1706,6 +1716,7 @@ def _calc_margin_fields(budget_ticket: float, kit_cost: float, sales_goal: int,
         "margemRealizadaUnit": margem_realizada_unit,
         "margemRealizadaTotal": margem_realizada_total,
         "margemRealizadaPct": margem_realizada_pct,
+        "margemRealizacaoRate": margem_realizacao_rate,
     }
 
 
