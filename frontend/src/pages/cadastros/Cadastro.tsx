@@ -897,8 +897,6 @@ const Cadastro: React.FC = () => {
   const renderFaixaKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
     const faixas = form.faixas_preco_site[kitType];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const canAddMore = faixas.length < 5;
-    
     const kitName = kitType === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
@@ -970,16 +968,14 @@ const Cadastro: React.FC = () => {
           </div>
         ))}
         
-        {canAddMore && (
-          <button
-            type="button"
-            onClick={() => addFaixaSiteByKit(kitType)}
-            className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.includes('blue') ? 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10' : 'border-green-500/50 text-green-400 hover:bg-green-500/10'} transition-colors flex items-center justify-center gap-2 text-sm`}
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar Faixa ({faixas.length}/5)
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => addFaixaSiteByKit(kitType)}
+          className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.includes('blue') ? 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10' : 'border-green-500/50 text-green-400 hover:bg-green-500/10'} transition-colors flex items-center justify-center gap-2 text-sm`}
+        >
+          <Plus className="w-4 h-4" />
+          Adicionar Faixa ({faixas.length})
+        </button>
 
         {faixas.length > 0 && faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
           <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-100'}`}>
@@ -1265,8 +1261,6 @@ const Cadastro: React.FC = () => {
   const renderFaixaGruposKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
     const faixas = form.faixas_preco_grupos[kitType];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const canAddMore = faixas.length < 5;
-    
     const kitName = kitType === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
@@ -1338,16 +1332,14 @@ const Cadastro: React.FC = () => {
           </div>
         ))}
         
-        {canAddMore && (
-          <button
-            type="button"
-            onClick={() => addFaixaGruposByKit(kitType)}
-            className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.replace('text-', 'border-').replace('400', '500/50')} ${colorClass} hover:bg-gray-700/30 transition-colors flex items-center justify-center gap-1 text-sm`}
-          >
-            <Plus className="w-4 h-4" />
-            Adicionar ({faixas.length}/5)
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => addFaixaGruposByKit(kitType)}
+          className={`w-full py-2 rounded-lg border-2 border-dashed ${colorClass.replace('text-', 'border-').replace('400', '500/50')} ${colorClass} hover:bg-gray-700/30 transition-colors flex items-center justify-center gap-1 text-sm`}
+        >
+          <Plus className="w-4 h-4" />
+          Adicionar ({faixas.length})
+        </button>
 
         {faixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
           <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'} mt-2`}>
