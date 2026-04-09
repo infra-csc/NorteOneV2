@@ -2742,7 +2742,12 @@ const Cadastro: React.FC = () => {
               </p>
               <div className={`flex items-center rounded-lg p-0.5 gap-0.5 self-start sm:self-auto ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
                 <button
-                  onClick={() => setMerchanMode('venda')}
+                  onClick={() => {
+                    if (merchanMode !== 'venda') {
+                      setMerchanMode('venda');
+                      setForm(prev => ({ ...prev, merchan: [] }));
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                     merchanMode === 'venda'
                       ? isDark ? 'bg-gray-600 text-white shadow-sm' : 'bg-white text-gray-800 shadow-sm'
@@ -2752,7 +2757,12 @@ const Cadastro: React.FC = () => {
                   Já sei o preço de venda
                 </button>
                 <button
-                  onClick={() => setMerchanMode('planejamento')}
+                  onClick={() => {
+                    if (merchanMode !== 'planejamento') {
+                      setMerchanMode('planejamento');
+                      setForm(prev => ({ ...prev, merchan: [] }));
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                     merchanMode === 'planejamento'
                       ? isDark ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-600 text-white shadow-sm'
