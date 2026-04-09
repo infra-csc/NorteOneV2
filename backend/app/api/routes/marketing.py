@@ -5144,7 +5144,6 @@ FROM (
         b.id_evento,
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao IN (
                      'Funcionário', 'Cortesia Faturada',
                      'Coligados', 'Eventos Terceiros'
@@ -5171,8 +5170,7 @@ FROM (
         AND b.id_evento IN :id_eventos
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     GROUP BY b.id_evento, DATE(c.dt_pedido),
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+             CASE WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
@@ -5291,7 +5289,6 @@ FROM (
     SELECT
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao IN (
                      'Funcionário', 'Cortesia Faturada',
                      'Coligados', 'Eventos Terceiros'
@@ -5303,7 +5300,7 @@ FROM (
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
         SUM(GREATEST(
             CASE
-                WHEN a.nr_preco = 0 OR cupom.en_cupom_classificacao IN (
+                WHEN cupom.en_cupom_classificacao IN (
                          'Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros'
                      ) THEN 0
                 ELSE a.nr_preco - COALESCE(a.nr_desconto_individual, 0)
@@ -5326,8 +5323,7 @@ FROM (
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     GROUP BY DATE(c.dt_pedido),
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+             CASE WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
@@ -5359,7 +5355,6 @@ FROM (
     SELECT
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao IN (
                      'Funcionário', 'Cortesia Faturada',
                      'Coligados', 'Eventos Terceiros'
@@ -5386,8 +5381,7 @@ FROM (
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND DATE(c.dt_pedido) = CURDATE()
     GROUP BY DATE(c.dt_pedido),
-             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
+             CASE WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados', 'Eventos Terceiros') THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
