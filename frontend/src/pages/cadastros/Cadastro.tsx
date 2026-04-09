@@ -276,6 +276,7 @@ const Cadastro: React.FC = () => {
   const [lixeira, setLixeira] = useState<any[]>([]);
   const [showLixeira, setShowLixeira] = useState(false);
   const [loadingLixeira, setLoadingLixeira] = useState(false);
+  const [merchanMode, setMerchanMode] = useState<'venda' | 'planejamento'>('venda');
 
   const visibleTabs = useMemo(() => {
     return tabs.filter(tab => canViewCampo('eventos', tab.id));
@@ -2708,14 +2709,14 @@ const Cadastro: React.FC = () => {
           });
         };
 
-        const calcMarkup = (custo: number, venda: number): string => {
-          if (!custo || custo === 0) return '—';
-          const markup = ((venda - custo) / custo) * 100;
-          return `${markup >= 0 ? '+' : ''}${markup.toFixed(1)}%`;
+        const calcMarkupMultiplier = (custo: number, venda: number): string => {
+          if (!custo || custo === 0 || !venda || venda === 0) return '—';
+          const markup = venda / custo;
+          return `${markup.toFixed(2).replace('.', ',')}x`;
         };
 
         const markupColor = (custo: number, venda: number): string => {
-          if (!custo || custo === 0) return isDark ? 'text-gray-400' : 'text-gray-500';
+          if (!custo || custo === 0 || !venda || venda === 0) return isDark ? 'text-gray-400' : 'text-gray-500';
           return venda >= custo
             ? 'text-green-500'
             : 'text-red-400';
@@ -2735,9 +2736,41 @@ const Cadastro: React.FC = () => {
 
         return (
           <div className="space-y-6">
-            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              Exibindo apenas os itens exclusivos de cada kit (não presentes no Kit Básico). Informe o valor de venda para calcular o markup.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                Exibindo apenas os itens exclusivos de cada kit (não presentes no Kit Básico).
+              </p>
+              <div className={`flex items-center rounded-lg p-0.5 gap-0.5 self-start sm:self-auto ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
+                <button
+                  onClick={() => setMerchanMode('venda')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    merchanMode === 'venda'
+                      ? isDark ? 'bg-gray-600 text-white shadow-sm' : 'bg-white text-gray-800 shadow-sm'
+                      : isDark ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Já sei o preço de venda
+                </button>
+                <button
+                  onClick={() => setMerchanMode('planejamento')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    merchanMode === 'planejamento'
+                      ? isDark ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-600 text-white shadow-sm'
+                      : isDark ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Simular preço de venda
+                </button>
+              </div>
+            </div>
+
+            {merchanMode === 'planejamento' && (
+              <div className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs ${isDark ? 'bg-purple-900/20 border border-purple-700/30 text-purple-300' : 'bg-purple-50 border border-purple-200 text-purple-700'}`}>
+                <span className="mt-0.5">💡</span>
+                <span>Defina o <strong>markup desejado</strong> (multiplicador) e o preço de venda será calculado automaticamente. Ex: markup 2,5x sobre custo de R$ 10,00 → venda R$ 25,00.</span>
+              </div>
+            )}
+
             {merchanKitsFromProduto.map(kit => (
               <div key={kit.kit} className={`p-4 rounded-xl border ${isDark ? 'bg-gray-700/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
                 <h3 className={`text-sm font-bold mb-4 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
@@ -2752,8 +2785,17 @@ const Cadastro: React.FC = () => {
                         <tr className={`text-xs font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                           <th className="text-left pb-2 pr-4">Produto</th>
                           <th className="text-right pb-2 pr-4">Custo Unit.</th>
-                          <th className="text-right pb-2 pr-4">Valor Venda</th>
-                          <th className="text-right pb-2">Markup</th>
+                          {merchanMode === 'venda' ? (
+                            <>
+                              <th className="text-right pb-2 pr-4">Valor Venda</th>
+                              <th className="text-right pb-2">Markup</th>
+                            </>
+                          ) : (
+                            <>
+                              <th className="text-right pb-2 pr-4">Markup Desejado</th>
+                              <th className="text-right pb-2">Preço Sugerido</th>
+                            </>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200/20">
@@ -2761,6 +2803,8 @@ const Cadastro: React.FC = () => {
                           const custo = Number(produto.valor_unitario) || 0;
                           const merchanIt = getMerchanItem(kit.kit, produto.nome);
                           const venda = merchanIt ? Number(merchanIt.valor_venda) : 0;
+                          const markupAtual = custo > 0 && venda > 0 ? venda / custo : 0;
+
                           return (
                             <tr key={produto.nome}>
                               <td className={`py-2 pr-4 font-medium ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
@@ -2769,24 +2813,60 @@ const Cadastro: React.FC = () => {
                               <td className={`py-2 pr-4 text-right ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                                 {custo > 0 ? `R$ ${custo.toFixed(2).replace('.', ',')}` : <span className="text-gray-400">—</span>}
                               </td>
-                              <td className="py-2 pr-4 text-right">
-                                <div className="flex items-center justify-end gap-1">
-                                  <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>R$</span>
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    value={venda || ''}
-                                    onChange={e => setMerchanValorVenda(kit.kit, produto.nome, parseFloat(e.target.value) || 0)}
-                                    placeholder="0,00"
-                                    disabled={!canEditCampo('eventos', 'merchan')}
-                                    className={`w-24 px-2 py-1 text-sm rounded-lg border text-right ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 disabled:opacity-60 disabled:cursor-not-allowed`}
-                                  />
-                                </div>
-                              </td>
-                              <td className={`py-2 text-right font-semibold text-sm ${markupColor(custo, venda)}`}>
-                                {calcMarkup(custo, venda)}
-                              </td>
+
+                              {merchanMode === 'venda' ? (
+                                <>
+                                  <td className="py-2 pr-4 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>R$</span>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={venda || ''}
+                                        onChange={e => setMerchanValorVenda(kit.kit, produto.nome, parseFloat(e.target.value) || 0)}
+                                        placeholder="0,00"
+                                        disabled={!canEditCampo('eventos', 'merchan')}
+                                        className={`w-24 px-2 py-1 text-sm rounded-lg border text-right ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 disabled:opacity-60 disabled:cursor-not-allowed`}
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className={`py-2 text-right font-semibold text-sm ${markupColor(custo, venda)}`}>
+                                    {calcMarkupMultiplier(custo, venda)}
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="py-2 pr-4 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <input
+                                        type="number"
+                                        step="0.1"
+                                        min="0"
+                                        value={markupAtual > 0 ? markupAtual.toFixed(2) : ''}
+                                        onChange={e => {
+                                          const m = parseFloat(e.target.value) || 0;
+                                          if (custo > 0 && m > 0) {
+                                            setMerchanValorVenda(kit.kit, produto.nome, custo * m);
+                                          } else {
+                                            setMerchanValorVenda(kit.kit, produto.nome, 0);
+                                          }
+                                        }}
+                                        placeholder="ex: 2.5"
+                                        disabled={!canEditCampo('eventos', 'merchan') || custo === 0}
+                                        className={`w-24 px-2 py-1 text-sm rounded-lg border text-right ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500 disabled:opacity-60 disabled:cursor-not-allowed`}
+                                      />
+                                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>x</span>
+                                    </div>
+                                    {custo === 0 && (
+                                      <p className={`text-xs mt-0.5 text-right ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>sem custo cadastrado</p>
+                                    )}
+                                  </td>
+                                  <td className={`py-2 text-right font-semibold text-sm ${venda > 0 ? 'text-green-500' : isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                    {venda > 0 ? `R$ ${venda.toFixed(2).replace('.', ',')}` : '—'}
+                                  </td>
+                                </>
+                              )}
                             </tr>
                           );
                         })}
