@@ -2742,6 +2742,7 @@ const Cadastro: React.FC = () => {
               </p>
               <div className={`flex items-center rounded-lg p-0.5 gap-0.5 self-start sm:self-auto ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
                 <button
+                  type="button"
                   onClick={() => {
                     if (merchanMode !== 'venda') {
                       setMerchanMode('venda');
@@ -2757,6 +2758,7 @@ const Cadastro: React.FC = () => {
                   Já sei o preço de venda
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     if (merchanMode !== 'planejamento') {
                       setMerchanMode('planejamento');
