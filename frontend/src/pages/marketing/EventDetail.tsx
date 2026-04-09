@@ -1902,6 +1902,87 @@ const EventDetail: React.FC = () => {
                   );
                 })}
               </div>
+
+              {/* AÇÃO FINAL — liberada a partir de D-7 */}
+              {(() => {
+                const finalAction = (event.commercialActions ?? []).find(a => a.ponto_corte === 'D-7');
+                const isLocked = dInscricoes > 7;
+                if (isLocked) {
+                  return (
+                    <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/40 p-4 flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">Ação Final</span>
+                        <span className="text-lg font-black font-mono text-gray-400 dark:text-gray-600 leading-none">D-7</span>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">disponível na semana do evento · faltam {dInscricoes - 7}d</span>
+                      </div>
+                      <span className="text-2xl select-none">🔒</span>
+                    </div>
+                  );
+                }
+                if (finalAction) {
+                  return (
+                    <div className="rounded-xl border-2 border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 p-4 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Ação Final</span>
+                          {finalAction.snapshot_isc != null && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">ISC {finalAction.snapshot_isc.toFixed(2)}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] font-black font-mono text-emerald-700 dark:text-emerald-300">D-7</span>
+                          <button onClick={() => handleDeleteAction(finalAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug">{finalAction.description}</p>
+                      <div className="flex flex-wrap gap-1">
+                        {finalAction.snapshot_d_minus != null && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">D-<span className="font-bold ml-0.5">{finalAction.snapshot_d_minus}</span></span>
+                        )}
+                        {finalAction.snapshot_ia730 != null && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">IA730 <span className="font-bold ml-0.5">{finalAction.snapshot_ia730.toFixed(2)}</span></span>
+                        )}
+                        {finalAction.snapshot_rolling14d != null && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">14d <span className="font-bold ml-0.5">{finalAction.snapshot_rolling14d.toFixed(2)}</span></span>
+                        )}
+                        {finalAction.snapshot_curva_percent != null && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Curva <span className="font-bold ml-0.5">{(finalAction.snapshot_curva_percent * 100).toFixed(0)}%</span></span>
+                        )}
+                        {finalAction.snapshot_vendas_acumuladas != null && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-white/70 dark:bg-gray-700/70 border border-gray-200 dark:border-gray-600 text-[10px] text-gray-600 dark:text-gray-300">Vnd <span className="font-bold ml-0.5">{finalAction.snapshot_vendas_acumuladas.toLocaleString('pt-BR')}</span></span>
+                        )}
+                        {finalAction.snapshot_playbook_letter && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-700 text-[10px] font-bold text-blue-700 dark:text-blue-300">{finalAction.snapshot_playbook_letter}</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{new Date(finalAction.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="rounded-xl border-2 border-dashed border-emerald-400 dark:border-emerald-700 p-4 flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Ação Final</span>
+                      <span className="text-lg font-black font-mono text-emerald-700 dark:text-emerald-300 leading-none">D-7</span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400">semana do evento — registre a ação final</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setActionForm(f => ({ ...f, forced_ponto_corte: 'D-7', forced_estagio: 'final' }));
+                        setShowActionModal(true);
+                        setActionError(null);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Registrar
+                    </button>
+                  </div>
+                );
+              })()}
+
               {legacyActions.length > 0 && (
                 <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">Histórico</p>
@@ -2830,11 +2911,12 @@ const EventDetail: React.FC = () => {
         const cutoffInfo = actionForm.forced_ponto_corte && actionForm.forced_estagio
           ? { ponto_corte: actionForm.forced_ponto_corte, estagio: actionForm.forced_estagio }
           : getActionCutoffInfo(dMinus);
-        const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional' };
+        const stageLabel: Record<string, string> = { analitico: 'Analítico', estrategico: 'Estratégico', operacional: 'Operacional', final: 'Ação Final' };
         const stageColor: Record<string, string> = {
           analitico: 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
           estrategico: 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800',
           operacional: 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+          final: 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
         };
         const iscStatusMap: Record<string, string> = { accelerating: 'Forte', stable: 'Estável', decelerating: 'Fraco' };
         const iscColorMap: Record<string, string> = { accelerating: 'text-green-600 dark:text-green-400', stable: 'text-yellow-600 dark:text-yellow-400', decelerating: 'text-red-500 dark:text-red-400' };
