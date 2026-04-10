@@ -9195,30 +9195,38 @@ def diagnostico_inscricoes(
                 ]
                 for name, pedido_filter, canal_filter in scenarios:
                     canal_clause = f"AND {canal_case} = 'Site'" if canal_filter == "Site" else ""
-                    q = text(f"""
-SELECT COUNT(DISTINCT a.id_pedido_evento) AS total
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido AND {pedido_filter}
-{cupom_join}
-WHERE b.id_evento = :eid {sf_filter} {canal_clause}
-""")
+                    # All interpolated fragments (canal_case, cupom_join, sf_filter,
+                    # pedido_filter, canal_clause) are hardcoded SQL constants defined
+                    # above — none originate from user input. Only :eid (ativo_id) is
+                    # user-supplied and is passed as a named parameter below.
+                    sql_scenario = (
+                        "SELECT COUNT(DISTINCT a.id_pedido_evento) AS total\n"
+                        "FROM sa_pedido_evento AS a\n"
+                        "INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento\n"
+                        f"INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido AND {pedido_filter}\n"
+                        f"{cupom_join}\n"
+                        f"WHERE b.id_evento = :eid {sf_filter} {canal_clause}\n"
+                    )
+                    q = text(sql_scenario)
                     r = conn.execute(q, {"eid": ativo_id}).scalar()
                     result["ativo"][name] = int(r or 0)
 
                 # Breakdown por status e fl_local (sem filtro de canal para ver tudo)
-                q_breakdown = text(f"""
-SELECT c.id_pedido_status, c.fl_local_inscricao,
-       {canal_case} AS canal,
-       COUNT(DISTINCT a.id_pedido_evento) AS cnt
-FROM sa_pedido_evento AS a
-INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
-INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
-{cupom_join}
-WHERE b.id_evento = :eid {sf_filter}
-GROUP BY c.id_pedido_status, c.fl_local_inscricao, {canal_case}
-ORDER BY c.id_pedido_status, c.fl_local_inscricao, canal
-""")
+                # All interpolated fragments are hardcoded SQL constants; :eid is the
+                # only user-supplied value and is passed as a named parameter.
+                sql_breakdown = (
+                    "SELECT c.id_pedido_status, c.fl_local_inscricao,\n"
+                    f"       {canal_case} AS canal,\n"
+                    "       COUNT(DISTINCT a.id_pedido_evento) AS cnt\n"
+                    "FROM sa_pedido_evento AS a\n"
+                    "INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento\n"
+                    "INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido\n"
+                    f"{cupom_join}\n"
+                    f"WHERE b.id_evento = :eid {sf_filter}\n"
+                    f"GROUP BY c.id_pedido_status, c.fl_local_inscricao, {canal_case}\n"
+                    f"ORDER BY c.id_pedido_status, c.fl_local_inscricao, canal\n"
+                )
+                q_breakdown = text(sql_breakdown)
                 rows = conn.execute(q_breakdown, {"eid": ativo_id}).fetchall()
                 result["ativo"]["breakdown"] = [
                     {"status": r[0], "fl_local": r[1], "canal": r[2], "cnt": int(r[3])}
