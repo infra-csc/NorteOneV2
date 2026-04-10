@@ -7046,6 +7046,7 @@ def _fetch_commercial_actions_from_db(db: Session, projeto_ids: list) -> list:
     tipo_map = {
         'AUMENTO_PRECO': 'price_increase', 'REDUCAO_PRECO': 'price_decrease',
         'PROMOCAO': 'promotion', 'CAMPANHA': 'campaign', 'COMUNICACAO': 'communication',
+        'NENHUMA_ACAO': 'communication', 'OUTROS': 'communication',
     }
     acoes = db.query(AcaoComercial).filter(
         AcaoComercial.projeto_id.in_(projeto_ids)
@@ -7057,6 +7058,7 @@ def _fetch_commercial_actions_from_db(db: Session, projeto_ids: list) -> list:
         impact_str = (f"+{ip}%" if ip and ip > 0 else f"{ip}%") if ip is not None else None
         result.append({
             "id": str(a.id),
+            "tipo": a.tipo,
             "type": tipo_map.get(a.tipo, 'communication'),
             "description": a.descricao,
             "date": a.data_acao.isoformat() if a.data_acao else None,

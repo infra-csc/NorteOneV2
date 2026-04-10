@@ -19,6 +19,7 @@ import {
   Plus,
   X,
   Trash2,
+  Pencil,
   RefreshCw,
   TableProperties,
   ChevronDown,
@@ -53,6 +54,7 @@ import DailySalesTable from './DailySalesTable';
 
 interface CommercialAction {
   id: string;
+  tipo?: string;
   type: 'price_increase' | 'price_decrease' | 'promotion' | 'campaign' | 'communication';
   description: string;
   date: string;
@@ -109,6 +111,7 @@ const EventDetail: React.FC = () => {
     forced_ponto_corte: '',
     forced_estagio: '',
   });
+  const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [savingAction, setSavingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
@@ -452,6 +455,7 @@ const EventDetail: React.FC = () => {
   const mapEventResponseToActions = (actions: any[]): CommercialAction[] =>
     actions.map((a: any) => ({
       id: a.id,
+      tipo: a.tipo,
       type: a.type as CommercialAction['type'],
       description: a.description,
       date: a.date,
@@ -510,42 +514,60 @@ const EventDetail: React.FC = () => {
         snapshot_playbook_letter: event?.suggestedAction?.letter,
       };
 
-      const result = await marketingService.createAcaoComercial({
-        projeto_id: projetoIdParaAcao,
-        tipo: actionForm.tipo,
-        descricao: actionForm.descricao,
-        data_acao: actionForm.data_acao,
-        ponto_corte: cutoffInfo.ponto_corte,
-        estagio: cutoffInfo.estagio,
-        ...snapshotData,
-      });
+      if (editingActionId) {
+        await marketingService.updateAcaoComercial(parseInt(editingActionId), {
+          tipo: actionForm.tipo,
+          descricao: actionForm.descricao,
+          data_acao: actionForm.data_acao,
+        });
+        setEvent(prev => prev ? {
+          ...prev,
+          commercialActions: (prev.commercialActions ?? []).map(a =>
+            a.id === editingActionId
+              ? { ...a, tipo: actionForm.tipo, description: actionForm.descricao, date: actionForm.data_acao }
+              : a
+          )
+        } : prev);
+      } else {
+        const result = await marketingService.createAcaoComercial({
+          projeto_id: projetoIdParaAcao,
+          tipo: actionForm.tipo,
+          descricao: actionForm.descricao,
+          data_acao: actionForm.data_acao,
+          ponto_corte: cutoffInfo.ponto_corte,
+          estagio: cutoffInfo.estagio,
+          ...snapshotData,
+        });
 
-      const newAction: CommercialAction = {
-        id: String(result.acao?.id ?? Date.now()),
-        type: actionForm.tipo === 'AUMENTO_PRECO' ? 'price_increase'
-            : actionForm.tipo === 'REDUCAO_PRECO' ? 'price_decrease'
-            : actionForm.tipo === 'CAMPANHA' ? 'campaign'
-            : actionForm.tipo === 'COMUNICACAO' ? 'communication'
-            : 'promotion',
-        description: actionForm.descricao,
-        date: actionForm.data_acao,
-        impact: undefined,
-        impacto_percentual: undefined,
-        vendas_antes: undefined,
-        vendas_depois: undefined,
-        status_impacto: undefined,
-        ponto_corte: cutoffInfo.ponto_corte,
-        estagio: cutoffInfo.estagio,
-        ...snapshotData,
-      };
+        const newAction: CommercialAction = {
+          id: String(result.acao?.id ?? Date.now()),
+          tipo: actionForm.tipo,
+          type: actionForm.tipo === 'AUMENTO_PRECO' ? 'price_increase'
+              : actionForm.tipo === 'REDUCAO_PRECO' ? 'price_decrease'
+              : actionForm.tipo === 'CAMPANHA' ? 'campaign'
+              : actionForm.tipo === 'COMUNICACAO' ? 'communication'
+              : 'promotion',
+          description: actionForm.descricao,
+          date: actionForm.data_acao,
+          impact: undefined,
+          impacto_percentual: undefined,
+          vendas_antes: undefined,
+          vendas_depois: undefined,
+          status_impacto: undefined,
+          ponto_corte: cutoffInfo.ponto_corte,
+          estagio: cutoffInfo.estagio,
+          ...snapshotData,
+        };
 
-      setEvent(prev => prev ? {
-        ...prev,
-        commercialActions: [...(prev.commercialActions ?? []), newAction]
-      } : prev);
+        setEvent(prev => prev ? {
+          ...prev,
+          commercialActions: [...(prev.commercialActions ?? []), newAction]
+        } : prev);
+      }
 
       setShowActionModal(false);
       setActionError(null);
+      setEditingActionId(null);
       setActionForm({
         tipo: '',
         descricao: '',
@@ -1844,13 +1866,37 @@ const EventDetail: React.FC = () => {
                     );
                   }
                   if (slotAction) {
+                    const canEdit = slotAction.date === getTodayLocalDate();
                     return (
                       <div key={slot.ponto_corte} className={`rounded-xl border-2 ${meta.border} ${meta.bg} p-3 flex flex-col gap-1.5`}>
                         <div className="flex items-center justify-between">
                           <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
-                          <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            {canEdit && (
+                              <button
+                                onClick={() => {
+                                  setEditingActionId(slotAction.id);
+                                  setActionForm(f => ({
+                                    ...f,
+                                    tipo: slotAction.tipo ?? '',
+                                    descricao: slotAction.description,
+                                    data_acao: slotAction.date,
+                                    forced_ponto_corte: slotAction.ponto_corte ?? '',
+                                    forced_estagio: slotAction.estagio ?? '',
+                                  }));
+                                  setShowActionModal(true);
+                                  setActionError(null);
+                                }}
+                                className="p-0.5 text-gray-300 hover:text-blue-400 transition-colors"
+                                title="Editar"
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
+                            <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
@@ -1923,6 +1969,7 @@ const EventDetail: React.FC = () => {
                   );
                 }
                 if (finalAction) {
+                  const canEditFinal = finalAction.date === getTodayLocalDate();
                   return (
                     <div className="rounded-xl border-2 border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 p-4 flex flex-col gap-2">
                       <div className="flex items-center justify-between">
@@ -1934,6 +1981,27 @@ const EventDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-black font-mono text-emerald-700 dark:text-emerald-300">D-7</span>
+                          {canEditFinal && (
+                            <button
+                              onClick={() => {
+                                setEditingActionId(finalAction.id);
+                                setActionForm(f => ({
+                                  ...f,
+                                  tipo: finalAction.tipo ?? '',
+                                  descricao: finalAction.description,
+                                  data_acao: finalAction.date,
+                                  forced_ponto_corte: finalAction.ponto_corte ?? 'D-7',
+                                  forced_estagio: finalAction.estagio ?? 'operacional',
+                                }));
+                                setShowActionModal(true);
+                                setActionError(null);
+                              }}
+                              className="p-0.5 text-gray-300 hover:text-blue-400 transition-colors"
+                              title="Editar"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
                           <button onClick={() => handleDeleteAction(finalAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -2927,8 +2995,8 @@ const EventDetail: React.FC = () => {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-5 pb-0">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Registrar Ação Comercial</h3>
-                <button onClick={() => { setShowActionModal(false); setActionError(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{editingActionId ? 'Editar Ação Comercial' : 'Registrar Ação Comercial'}</h3>
+                <button onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -3036,7 +3104,7 @@ const EventDetail: React.FC = () => {
 
               <div className="flex gap-3 p-5 pt-0">
                 <button
-                  onClick={() => { setShowActionModal(false); setActionError(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }}
+                  onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
                 >
                   Cancelar
@@ -3048,7 +3116,7 @@ const EventDetail: React.FC = () => {
                 >
                   {savingAction ? (
                     <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
-                  ) : 'Salvar Ação'}
+                  ) : editingActionId ? 'Salvar Edição' : 'Salvar Ação'}
                 </button>
               </div>
             </div>
