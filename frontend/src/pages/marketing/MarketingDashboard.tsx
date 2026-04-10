@@ -1127,20 +1127,19 @@ const MarketingDashboard: React.FC = () => {
                     {(() => {
                       const cutoff = getCutoffAlert(event.dMinusInscricoes);
                       if (!cutoff || !event.suggestedAction) return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>;
+                      const dotColor = event.suggestedAction.iscState === 'forte'
+                        ? 'bg-green-500'
+                        : event.suggestedAction.iscState === 'estável'
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500';
                       return (
-                        <div className={`inline-flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border ${
-                          event.suggestedAction.iscState === 'forte'
-                            ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900/30 dark:text-green-400 dark:border-green-700'
-                            : event.suggestedAction.iscState === 'estável'
-                            ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-700'
-                            : 'bg-red-100 text-red-800 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-700'
-                        }`}>
-                          <span className="text-[10px] font-semibold uppercase tracking-wider opacity-75 leading-none">{cutoff.label}</span>
-                          <span className="text-base font-bold leading-none">{event.suggestedAction.letter}</span>
-                          <span className="text-[10px] font-medium leading-tight text-center max-w-[100px] break-words opacity-90">
-                            {event.suggestedAction.name}
-                          </span>
-                        </div>
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-xs font-mono font-semibold text-gray-700 dark:text-gray-300"
+                          title={`${cutoff.label} · ${event.suggestedAction.letter} — ${event.suggestedAction.name}`}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotColor}`} />
+                          {event.suggestedAction.letter}
+                        </span>
                       );
                     })()}
                   </td>
