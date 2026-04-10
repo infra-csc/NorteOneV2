@@ -2401,8 +2401,7 @@ GROUP BY soi_parent.name
                         # No explicit mapping: exact case-insensitive kit name fallback
                         _cat_to_kit.setdefault(_kn.lower(), _kn)
 
-                _ativo_placeholders = ", ".join(str(eid) for eid in _ativo_ids_unique)
-                _ativo_query = text(f"""
+                _ativo_query = text("""
 SELECT
     sub.id_evento,
     sub.ds_categoria,
@@ -2439,7 +2438,7 @@ FROM (
     ) AS cupom
         ON cupom.id_cupom_desconto_item = a.id_cupom_individual
     WHERE
-        b.id_evento IN ({_ativo_placeholders})
+        b.id_evento IN :ativo_ids
         AND (b.id_campanha_salesforce IS NULL
              OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND c.nr_total > 0
@@ -2464,9 +2463,9 @@ FROM (
 ) AS sub
 WHERE sub.canal = 'Site'
 GROUP BY sub.id_evento, sub.ds_categoria
-""")
+""").bindparams(bindparam("ativo_ids", expanding=True))
                 with db_module.engine_ssh.connect() as _conn_ativo:
-                    _ativo_result = _conn_ativo.execute(_ativo_query)
+                    _ativo_result = _conn_ativo.execute(_ativo_query, {"ativo_ids": _ativo_ids_unique})
                     _ativo_rows = _ativo_result.fetchall()
 
                 for _ar in _ativo_rows:
