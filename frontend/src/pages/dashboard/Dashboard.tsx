@@ -165,7 +165,7 @@ const Dashboard: React.FC = () => {
   const uid = user?.id ?? 'anon';
   const CACHE_KEY_OP = `dash_op_${uid}`;
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
-  const CACHE_KEY_REL = `dash_rel_${uid}`;
+  const CACHE_KEY_REL = `dash_rel_v2_${uid}`;
   const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
 
   const CACHE_TTL_MS = 30 * 60 * 1000;
