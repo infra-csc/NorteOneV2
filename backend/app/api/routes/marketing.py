@@ -3730,9 +3730,9 @@ def get_playbook():
             entries.append({**entry, "stageInfo": stage, "iscInfo": isc})
     return {"stages": stages, "iscStates": isc_states, "entries": entries}
 
-_CUTOFF_VALUES = [70, 50, 45, 35, 30, 15]
-_CUTOFF_ESTAGIO = {70: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional"}
-_CUTOFF_ESTAGIO_LABEL = {70: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional"}
+_CUTOFF_VALUES = [70, 50, 45, 35, 30, 15, 7]
+_CUTOFF_ESTAGIO = {70: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional", 7: "final"}
+_CUTOFF_ESTAGIO_LABEL = {70: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional", 7: "Final"}
 
 @router.get("/cutoff-alerts")
 def get_cutoff_alerts(

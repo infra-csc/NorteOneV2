@@ -430,16 +430,19 @@ const NoriAssistant: React.FC = () => {
                   analitico: 'bg-indigo-50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800',
                   estrategico: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800',
                   operacional: 'bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800',
+                  final: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700',
                 };
                 const stageBadge: Record<string, string> = {
                   analitico: 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300',
                   estrategico: 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300',
                   operacional: 'bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300',
+                  final: 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300',
                 };
                 const cutoffBadge: Record<string, string> = {
                   analitico: 'bg-indigo-600 text-white',
                   estrategico: 'bg-amber-500 text-white',
                   operacional: 'bg-rose-600 text-white',
+                  final: 'bg-emerald-600 text-white',
                 };
                 const iscColor = alert.iscStatus === 'green'
                   ? 'text-green-600 dark:text-green-400'
