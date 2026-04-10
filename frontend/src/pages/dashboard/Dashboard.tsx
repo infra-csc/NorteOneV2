@@ -3,6 +3,7 @@ import { dashboardService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 import { useAuth } from '../../context/AuthContext';
+import RelatorioFinanceiro from './RelatorioFinanceiro';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -164,6 +165,7 @@ const Dashboard: React.FC = () => {
   const uid = user?.id ?? 'anon';
   const CACHE_KEY_OP = `dash_op_${uid}`;
   const CACHE_KEY_FIN = `dash_fin_${uid}`;
+  const CACHE_KEY_REL = `dash_rel_${uid}`;
   const CACHE_KEY_FILTROS = `dash_filtros_v2_${uid}`;
 
   const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -193,6 +195,8 @@ const Dashboard: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [opData, setOpData] = useState<any>(() => readCache(CACHE_KEY_OP));
   const [finData, setFinData] = useState<any>(() => canSeeFinancial ? readCache(CACHE_KEY_FIN) : null);
+  const [relData, setRelData] = useState<any>(() => canSeeFinancial ? readCache(CACHE_KEY_REL) : null);
+  const [relLoading, setRelLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [defaultAno, setDefaultAno] = useState<number>(new Date().getFullYear());
 
@@ -239,6 +243,19 @@ const Dashboard: React.FC = () => {
       console.error('Erro ao carregar dashboard:', err);
     } finally {
       setRefreshing(false);
+    }
+
+    if (canSeeFinancial) {
+      setRelLoading(true);
+      try {
+        const rel = await dashboardService.getRelatorioFinanceiro(apiF);
+        setRelData(rel);
+        writeCache(CACHE_KEY_REL, rel);
+      } catch (err: any) {
+        console.error('Erro ao carregar relatório financeiro:', err);
+      } finally {
+        setRelLoading(false);
+      }
     }
   }, [canSeeFinancial]);
 
@@ -379,6 +396,17 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 w-fit">
             <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
             Atualizando dados...
+          </div>
+        )}
+
+        {canSeeFinancial && (
+          <div className="space-y-4">
+            <SectionLabel label="Relatório Financeiro" isDark={isDark}
+              color={isDark ? 'text-emerald-400 bg-emerald-500/10' : 'text-emerald-600 bg-emerald-50'} />
+            <RelatorioFinanceiro
+              data={relData || { meses: [] }}
+              loading={relLoading && !relData}
+            />
           </div>
         )}
 

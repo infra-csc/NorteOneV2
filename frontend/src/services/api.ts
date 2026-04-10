@@ -100,6 +100,16 @@ export const dashboardService = {
     const response = await api.get(`/dashboard/financeiro?${params.toString()}`);
     return response.data;
   },
+  getRelatorioFinanceiro: async (filters: { ano?: number | null; mes?: number | null; produto?: string | null; modalidade?: string | null; cidade?: string | null }) => {
+    const params = new URLSearchParams();
+    if (filters.ano) params.append('ano', filters.ano.toString());
+    if (filters.mes) params.append('mes', filters.mes.toString());
+    if (filters.produto) params.append('produto', filters.produto);
+    if (filters.modalidade) params.append('modalidade', filters.modalidade);
+    if (filters.cidade) params.append('cidade', filters.cidade);
+    const response = await api.get(`/dashboard/relatorio-financeiro?${params.toString()}`);
+    return response.data;
+  },
   getCamposDashboard: async () => {
     const response = await api.get('/perfis-acesso/campos-dashboard');
     return response.data;

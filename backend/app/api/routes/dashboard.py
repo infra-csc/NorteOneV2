@@ -619,6 +619,111 @@ def get_dashboard_financeiro(
     }
 
 
+NOME_MES_FULL = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+                  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
+
+@router.get("/relatorio-financeiro")
+def get_relatorio_financeiro(
+    ano: int = _CURRENT_YEAR,
+    mes: Optional[int] = Query(None),
+    produto: Optional[str] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    cidade: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    if not user_can_view_campo(db, current_user, "dashboard", "dados_financeiros"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Permissão insuficiente para visualizar dados financeiros do dashboard"
+        )
+
+    projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade, cidade=cidade)
+    projeto_ids = [p.id for p in projetos]
+    cadastros_map = get_all_cadastros_map(db, projeto_ids)
+    cadastro_ids = [c.id for c in cadastros_map.values()]
+    kit_costs_map = get_kit_costs_map(db, cadastro_ids)
+
+    events = compute_event_metrics(projetos, cadastros_map, kit_costs_map)
+
+    projetos_by_id = {p.id: p for p in projetos}
+
+    meses_dict: dict = {}
+
+    for e in events:
+        projeto = projetos_by_id.get(e["id"])
+        data_ev = e.get("data_evento") or (projeto.data_evento if projeto else None)
+
+        if data_ev is None:
+            continue
+
+        mes_num = data_ev.month
+        ano_num = data_ev.year
+        mes_key = f"{ano_num}-{mes_num:02d}"
+        mes_label = f"{NOME_MES_FULL[mes_num]} {ano_num}"
+
+        cadastro = cadastros_map.get(e["id"])
+        ticket_planejado = decimal_to_float(cadastro.atletas_site_tkt_medio) if cadastro else 0
+        atletas_total = e["atletas_orcado"]
+
+        receita_orcada = round(atletas_total * ticket_planejado, 2) if ticket_planejado > 0 else 0
+        receita_realizada = e["receita_projetada"]
+        custo_kit_unit = e["custo_kit"]
+        custo_kit_total = round(custo_kit_unit * atletas_total, 2) if atletas_total > 0 else 0
+        margem_liquida_total = round(receita_realizada - custo_kit_total, 2)
+        margem_percentual = round((margem_liquida_total / receita_realizada * 100), 1) if receita_realizada > 0 else 0
+
+        evento_row = {
+            "id_evento": e["id"],
+            "nome_evento": (str(cadastro.nome) if cadastro and cadastro.nome else None) or e.get("evento") or f"Evento {e['id']}",
+            "data_evento": data_ev.isoformat(),
+            "receita_orcada": receita_orcada,
+            "receita_realizada": receita_realizada,
+            "ticket_medio": e["ticket_medio"],
+            "custo_kit_unit": custo_kit_unit,
+            "custo_kit_total": custo_kit_total,
+            "margem_liquida_total": margem_liquida_total,
+            "margem_percentual": margem_percentual,
+            "atletas": atletas_total,
+        }
+
+        if mes_key not in meses_dict:
+            meses_dict[mes_key] = {
+                "mes_key": mes_key,
+                "mes_num": mes_num,
+                "ano_num": ano_num,
+                "mes_label": mes_label,
+                "eventos": [],
+                "receita_orcada_total": 0,
+                "receita_realizada_total": 0,
+                "custo_kit_total": 0,
+                "margem_liquida_total": 0,
+                "n_eventos": 0,
+            }
+
+        meses_dict[mes_key]["eventos"].append(evento_row)
+        meses_dict[mes_key]["receita_orcada_total"] += receita_orcada
+        meses_dict[mes_key]["receita_realizada_total"] += receita_realizada
+        meses_dict[mes_key]["custo_kit_total"] += custo_kit_total
+        meses_dict[mes_key]["margem_liquida_total"] += margem_liquida_total
+        meses_dict[mes_key]["n_eventos"] += 1
+
+    meses_list = sorted(meses_dict.values(), key=lambda x: (x["ano_num"], x["mes_num"]))
+
+    for m in meses_list:
+        m["receita_orcada_total"] = round(m["receita_orcada_total"], 2)
+        m["receita_realizada_total"] = round(m["receita_realizada_total"], 2)
+        m["custo_kit_total"] = round(m["custo_kit_total"], 2)
+        m["margem_liquida_total"] = round(m["margem_liquida_total"], 2)
+        m["margem_percentual"] = round(
+            (m["margem_liquida_total"] / m["receita_realizada_total"] * 100), 1
+        ) if m["receita_realizada_total"] > 0 else 0
+        m["eventos"].sort(key=lambda x: x["data_evento"])
+
+    return {"meses": meses_list}
+
+
 @router.get("/consolidado")
 def get_dashboard_consolidado(
     ano: int = _CURRENT_YEAR,
