@@ -611,6 +611,15 @@ const EventDetail: React.FC = () => {
     { value: 'NENHUMA_ACAO', label: 'Nenhuma Ação Tomada' },
     { value: 'OUTROS', label: 'Outros' },
   ];
+  const tipoLabelMap: Record<string, string> = {
+    AUMENTO_PRECO: 'Aumento de Preço',
+    REDUCAO_PRECO: 'Redução de Preço',
+    PROMOCAO: 'Promoção/Desconto',
+    CAMPANHA: 'Campanha de Marketing',
+    COMUNICACAO: 'Comunicação/Email',
+    NENHUMA_ACAO: 'Nenhuma Ação Tomada',
+    OUTROS: 'Outros',
+  };
 
   const cumulativeData = (event.dailySales || []).reduce((acc, day, index) => {
     const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
@@ -1870,7 +1879,12 @@ const EventDetail: React.FC = () => {
                     return (
                       <div key={slot.ponto_corte} className={`rounded-xl border-2 ${meta.border} ${meta.bg} p-3 flex flex-col gap-1.5`}>
                         <div className="flex items-center justify-between">
-                          <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
+                          <div className="flex flex-col gap-0">
+                            <span className={`text-[10px] font-semibold uppercase tracking-wide ${meta.text}`}>{meta.label}</span>
+                            {slotAction.tipo && tipoLabelMap[slotAction.tipo] && (
+                              <span className="text-[9px] text-gray-500 dark:text-gray-400 font-normal leading-tight normal-case">{tipoLabelMap[slotAction.tipo]}</span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1">
                             {canEdit && (
                               <button
@@ -1974,7 +1988,12 @@ const EventDetail: React.FC = () => {
                     <div className="rounded-xl border-2 border-emerald-400 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 p-4 flex flex-col gap-2">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Ação Final</span>
+                          <div className="flex flex-col gap-0">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Ação Final</span>
+                            {finalAction.tipo && tipoLabelMap[finalAction.tipo] && (
+                              <span className="text-[9px] text-gray-500 dark:text-gray-400 font-normal leading-tight normal-case">{tipoLabelMap[finalAction.tipo]}</span>
+                            )}
+                          </div>
                           {finalAction.snapshot_isc != null && (
                             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">ISC {finalAction.snapshot_isc.toFixed(2)}</span>
                           )}
