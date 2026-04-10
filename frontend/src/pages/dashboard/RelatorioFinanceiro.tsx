@@ -162,7 +162,6 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/30' : 'divide-gray-100'}`}>
             {meses.map((mes, mIdx) => {
               const isExpanded = expandedMonths.has(mes.mes_key);
-              const allEventsHaveCusto = mes.eventos.some(ev => ev.custo_kit_total > 0);
 
               return (
                 <React.Fragment key={mes.mes_key}>
@@ -200,10 +199,10 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                       {mes.receita_liquida > 0 ? formatCurrency(mes.receita_liquida) : <span className="text-gray-400">—</span>}
                     </td>
                     <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {allEventsHaveCusto ? formatCurrency(mes.custo_total) : <span className="text-xs text-gray-400">sem custo</span>}
+                      {mes.custo_total > 0 ? formatCurrency(mes.custo_total) : <span className="text-xs text-gray-400">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {mes.receita_liquida > 0 && allEventsHaveCusto
+                      {mes.receita_liquida > 0
                         ? <MargemBadge value={mes.margem_bruta} pct={mes.margem_percentual} />
                         : <span className="text-xs text-gray-400">—</span>
                       }
@@ -246,11 +245,9 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                           : <span className="text-xs text-gray-400">sem custo</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right">
-                        {ev.receita_realizada > 0 && ev.custo_kit_total > 0
+                        {ev.receita_realizada > 0
                           ? <MargemBadge value={ev.margem_liquida} pct={ev.margem_percentual} />
-                          : ev.receita_realizada > 0
-                            ? <span className="text-xs text-gray-400">sem custo kit</span>
-                            : <span className="text-xs text-gray-400">—</span>
+                          : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
                     </tr>
@@ -278,7 +275,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                 {totalCusto > 0 ? formatCurrency(totalCusto) : '—'}
               </td>
               <td className="px-4 py-3 text-right">
-                {totalReceita > 0 && totalCusto > 0
+                {totalReceita > 0
                   ? <MargemBadge value={totalMargem} pct={totalMargemPct} />
                   : <span className="text-xs text-gray-400">—</span>}
               </td>
