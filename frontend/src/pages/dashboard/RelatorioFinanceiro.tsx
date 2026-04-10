@@ -47,6 +47,17 @@ interface Props {
   loading?: boolean;
 }
 
+const DeltaBadge: React.FC<{ value: number }> = ({ value }) => {
+  const positive = value >= 0;
+  return (
+    <div className="flex flex-col items-end">
+      <span className={`text-sm font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+        {positive ? '+' : ''}{formatCurrency(value)}
+      </span>
+    </div>
+  );
+};
+
 const MargemBadge: React.FC<{ value: number; pct?: number }> = ({ value, pct }) => {
   const positive = value >= 0;
   return (
@@ -156,6 +167,9 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
               <th className={`px-4 py-3 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 Margem Realizada
               </th>
+              <th className={`px-4 py-3 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                Real vs Orç
+              </th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/30' : 'divide-gray-100'}`}>
@@ -206,6 +220,12 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                         : <span className="text-xs text-gray-400">—</span>
                       }
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      {mes.receita_orcada_total > 0 || mes.receita_liquida > 0
+                        ? <DeltaBadge value={mes.margem_realizada_total - mes.margem_orcada_total} />
+                        : <span className="text-xs text-gray-400">—</span>
+                      }
+                    </td>
                   </tr>
 
                   {isExpanded && mes.eventos.map((ev, evIdx) => (
@@ -247,6 +267,12 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {ev.receita_realizada > 0 || ev.margem_orcada !== 0
+                          ? <DeltaBadge value={ev.margem_realizada - ev.margem_orcada} />
+                          : <span className="text-xs text-gray-400">—</span>
+                        }
+                      </td>
                     </tr>
                   ))}
                 </React.Fragment>
@@ -273,6 +299,11 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
               <td className="px-4 py-3 text-right">
                 {totalReceita > 0
                   ? <MargemBadge value={totalMargemRealizada} pct={totalMargemRealizadaPct} />
+                  : <span className="text-xs text-gray-400">—</span>}
+              </td>
+              <td className="px-4 py-3 text-right">
+                {totalOrcado > 0 || totalReceita > 0
+                  ? <DeltaBadge value={totalMargemRealizada - totalMargemOrcada} />
                   : <span className="text-xs text-gray-400">—</span>}
               </td>
             </tr>
