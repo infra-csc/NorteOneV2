@@ -94,7 +94,7 @@ class AcaoComercial(Base):
     
     __table_args__ = (
         CheckConstraint(
-            "tipo IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO')",
+            "tipo IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO', 'NENHUMA_ACAO', 'OUTROS')",
             name="check_tipo_acao"
         ),
     )
