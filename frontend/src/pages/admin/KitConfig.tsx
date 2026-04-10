@@ -406,6 +406,52 @@ const KitConfig: React.FC = () => {
 
   const unconfiguredCount = kits.filter((k) => !k.is_configured).length;
 
+  const custoPendingIds = useMemo(() => {
+    return kits
+      .filter((k) => {
+        if (k.custo_cadastro != null) return false;
+        const custoKitStr = (custoKitValues[k.bundle_entity_id] ?? '').trim();
+        if (custoKitStr === '') return false;
+        return parseFloat(custoKitStr) !== (k.custo_kit ?? 0);
+      })
+      .map((k) => k.bundle_entity_id);
+  }, [kits, custoKitValues]);
+
+  const [savingCustoPending, setSavingCustoPending] = useState(false);
+
+  const handleSaveAllCustoPending = async () => {
+    if (custoPendingIds.length === 0) return;
+    setSavingCustoPending(true);
+    const items = custoPendingIds.map((id) => {
+      const kit = kits.find((k) => k.bundle_entity_id === id);
+      const mult = editValues[id] ?? kit?.multiplicador ?? 1;
+      const isBasico = basicoValues[id] ?? kit?.is_kit_basico ?? false;
+      const isPromoPrincipal = promoValues[id] ?? kit?.is_promo_principal ?? false;
+      const tipoKit = (tipoKitValues[id] ?? kit?.tipo_kit ?? '').trim() || null;
+      const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
+      const custoKitStr = (custoKitValues[id] ?? '').trim();
+      const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
+      const ativoCateg = (ativoCategValues[id] ?? kit?.ativo_categoria ?? '').trim() || null;
+      return {
+        bundle_entity_id: id,
+        multiplicador: mult,
+        is_kit_basico: isBasico,
+        is_promo_principal: isPromoPrincipal,
+        id_evento: idEvento,
+        tipo_kit: tipoKit,
+        custo_kit: custoKit,
+        ativo_categoria: ativoCateg,
+      };
+    });
+    try {
+      await api.post('/kit-config/bulk', { items });
+    } catch {
+      alert('Erro ao salvar custos pendentes');
+    }
+    setSavingCustoPending(false);
+    await fetchKits();
+  };
+
   const eventosUniqueIds = new Set(kits.map((k) => k.id_evento).filter(Boolean));
   const eventosComBasico = new Set(
     kits.filter((k) => k.is_kit_basico).map((k) => k.id_evento).filter(Boolean),
@@ -464,8 +510,36 @@ const KitConfig: React.FC = () => {
         </div>
       </div>
 
-      {(unconfiguredCount > 0 || eventosSemBasico > 0) && !loading && (
+      {(unconfiguredCount > 0 || eventosSemBasico > 0 || custoPendingIds.length > 0) && !loading && (
         <div className="flex flex-col gap-2 mb-4">
+          {custoPendingIds.length > 0 && (
+            <div
+              className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${
+                isDark
+                  ? 'bg-amber-900/20 border-amber-600 text-amber-300'
+                  : 'bg-amber-50 border-amber-400 text-amber-800'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">
+                  <strong>{custoPendingIds.length}</strong> kit(s) com custo preenchido mas ainda não salvo no banco (borda amarela). Clique em "Salvar todos os custos" para persistir.
+                </span>
+              </div>
+              <button
+                onClick={handleSaveAllCustoPending}
+                disabled={savingCustoPending}
+                className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  isDark
+                    ? 'bg-amber-600 text-white hover:bg-amber-500 disabled:bg-gray-600 disabled:text-gray-400'
+                    : 'bg-amber-500 text-white hover:bg-amber-600 disabled:bg-gray-300 disabled:text-gray-500'
+                }`}
+              >
+                <Save className="w-4 h-4" />
+                {savingCustoPending ? 'Salvando...' : 'Salvar todos os custos'}
+              </button>
+            </div>
+          )}
           {unconfiguredCount > 0 && (
             <div
               className={`flex items-center gap-3 p-3 rounded-lg border ${
