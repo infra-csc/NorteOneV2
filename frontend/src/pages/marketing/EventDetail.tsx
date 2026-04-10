@@ -102,7 +102,7 @@ const EventDetail: React.FC = () => {
   };
 
   const [actionForm, setActionForm] = useState({
-    tipo: 'PROMOCAO',
+    tipo: '',
     descricao: '',
     data_acao: getTodayLocalDate(),
     projeto_id_selecionado: 0,
@@ -547,7 +547,7 @@ const EventDetail: React.FC = () => {
       setShowActionModal(false);
       setActionError(null);
       setActionForm({
-        tipo: 'PROMOCAO',
+        tipo: '',
         descricao: '',
         data_acao: getTodayLocalDate(),
         projeto_id_selecionado: 0,
@@ -580,11 +580,14 @@ const EventDetail: React.FC = () => {
   };
 
   const tipoOptions = [
+    { value: '', label: '' },
     { value: 'AUMENTO_PRECO', label: 'Aumento de Preço' },
     { value: 'REDUCAO_PRECO', label: 'Redução de Preço' },
     { value: 'PROMOCAO', label: 'Promoção/Desconto' },
     { value: 'CAMPANHA', label: 'Campanha de Marketing' },
-    { value: 'COMUNICACAO', label: 'Comunicação/Email' }
+    { value: 'COMUNICACAO', label: 'Comunicação/Email' },
+    { value: 'NENHUMA_ACAO', label: 'Nenhuma Ação Tomada' },
+    { value: 'OUTROS', label: 'Outros' },
   ];
 
   const cumulativeData = (event.dailySales || []).reduce((acc, day, index) => {
