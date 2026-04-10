@@ -417,39 +417,12 @@ const KitConfig: React.FC = () => {
       .map((k) => k.bundle_entity_id);
   }, [kits, custoKitValues]);
 
-  const [savingCustoPending, setSavingCustoPending] = useState(false);
-
-  const handleSaveAllCustoPending = async () => {
-    if (custoPendingIds.length === 0) return;
-    setSavingCustoPending(true);
-    const items = custoPendingIds.map((id) => {
-      const kit = kits.find((k) => k.bundle_entity_id === id);
-      const mult = editValues[id] ?? kit?.multiplicador ?? 1;
-      const isBasico = basicoValues[id] ?? kit?.is_kit_basico ?? false;
-      const isPromoPrincipal = promoValues[id] ?? kit?.is_promo_principal ?? false;
-      const tipoKit = (tipoKitValues[id] ?? kit?.tipo_kit ?? '').trim() || null;
-      const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
-      const custoKitStr = (custoKitValues[id] ?? '').trim();
-      const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
-      const ativoCateg = (ativoCategValues[id] ?? kit?.ativo_categoria ?? '').trim() || null;
-      return {
-        bundle_entity_id: id,
-        multiplicador: mult,
-        is_kit_basico: isBasico,
-        is_promo_principal: isPromoPrincipal,
-        id_evento: idEvento,
-        tipo_kit: tipoKit,
-        custo_kit: custoKit,
-        ativo_categoria: ativoCateg,
-      };
+  const handleSelectCustoPending = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      custoPendingIds.forEach((id) => next.add(id));
+      return next;
     });
-    try {
-      await api.post('/kit-config/bulk', { items });
-    } catch {
-      alert('Erro ao salvar custos pendentes');
-    }
-    setSavingCustoPending(false);
-    await fetchKits();
   };
 
   const eventosUniqueIds = new Set(kits.map((k) => k.id_evento).filter(Boolean));
@@ -523,20 +496,18 @@ const KitConfig: React.FC = () => {
               <div className="flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
                 <span className="text-sm">
-                  <strong>{custoPendingIds.length}</strong> kit(s) com custo preenchido mas ainda não salvo no banco (borda amarela). Clique em "Salvar todos os custos" para persistir.
+                  <strong>{custoPendingIds.length}</strong> kit(s) com custo preenchido mas ainda não salvo no banco (borda amarela).
                 </span>
               </div>
               <button
-                onClick={handleSaveAllCustoPending}
-                disabled={savingCustoPending}
+                onClick={handleSelectCustoPending}
                 className={`flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   isDark
-                    ? 'bg-amber-600 text-white hover:bg-amber-500 disabled:bg-gray-600 disabled:text-gray-400'
-                    : 'bg-amber-500 text-white hover:bg-amber-600 disabled:bg-gray-300 disabled:text-gray-500'
+                    ? 'bg-amber-600 text-white hover:bg-amber-500'
+                    : 'bg-amber-500 text-white hover:bg-amber-600'
                 }`}
               >
-                <Save className="w-4 h-4" />
-                {savingCustoPending ? 'Salvando...' : 'Salvar todos os custos'}
+                Selecionar todos pendentes
               </button>
             </div>
           )}
