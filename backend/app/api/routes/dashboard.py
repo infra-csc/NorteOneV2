@@ -671,20 +671,23 @@ def get_relatorio_financeiro(
         receita_realizada = e["receita_projetada"]
         custo_kit_unit = e["custo_kit"]
         custo_kit_total = round(custo_kit_unit * atletas_total, 2) if atletas_total > 0 else 0
-        margem_liquida_total = round(receita_realizada - custo_kit_total, 2)
-        margem_percentual = round((margem_liquida_total / receita_realizada * 100), 1) if receita_realizada > 0 else 0
+
+        margem_orcada = round(receita_orcada - custo_kit_total, 2)
+        margem_orcada_pct = round((margem_orcada / receita_orcada * 100), 1) if receita_orcada > 0 else 0
+
+        margem_realizada = round(receita_realizada - custo_kit_total, 2)
+        margem_realizada_pct = round((margem_realizada / receita_realizada * 100), 1) if receita_realizada > 0 else 0
 
         evento_row = {
             "id_evento": e["id"],
             "nome_evento": (str(cadastro.nome) if cadastro and cadastro.nome else None) or e.get("evento") or f"Evento {e['id']}",
             "data_evento": data_ev.isoformat(),
-            "receita_orcada": receita_orcada,
             "receita_realizada": receita_realizada,
             "ticket_medio": e["ticket_medio"],
-            "custo_kit_unit": custo_kit_unit,
-            "custo_kit_total": custo_kit_total,
-            "margem_liquida": margem_liquida_total,
-            "margem_percentual": margem_percentual,
+            "margem_orcada": margem_orcada,
+            "margem_orcada_pct": margem_orcada_pct,
+            "margem_realizada": margem_realizada,
+            "margem_realizada_pct": margem_realizada_pct,
             "atletas": atletas_total,
         }
 
@@ -697,16 +700,16 @@ def get_relatorio_financeiro(
                 "eventos": [],
                 "receita_orcada_total": 0,
                 "receita_liquida": 0,
-                "custo_total": 0,
-                "margem_bruta": 0,
+                "margem_orcada_total": 0,
+                "margem_realizada_total": 0,
                 "n_eventos": 0,
             }
 
         meses_dict[mes_key]["eventos"].append(evento_row)
         meses_dict[mes_key]["receita_orcada_total"] += receita_orcada
         meses_dict[mes_key]["receita_liquida"] += receita_realizada
-        meses_dict[mes_key]["custo_total"] += custo_kit_total
-        meses_dict[mes_key]["margem_bruta"] += margem_liquida_total
+        meses_dict[mes_key]["margem_orcada_total"] += margem_orcada
+        meses_dict[mes_key]["margem_realizada_total"] += margem_realizada
         meses_dict[mes_key]["n_eventos"] += 1
 
     meses_list = sorted(meses_dict.values(), key=lambda x: (x["ano_num"], x["mes_num"]))
@@ -714,10 +717,13 @@ def get_relatorio_financeiro(
     for m in meses_list:
         m["receita_orcada_total"] = round(m["receita_orcada_total"], 2)
         m["receita_liquida"] = round(m["receita_liquida"], 2)
-        m["custo_total"] = round(m["custo_total"], 2)
-        m["margem_bruta"] = round(m["margem_bruta"], 2)
-        m["margem_percentual"] = round(
-            (m["margem_bruta"] / m["receita_liquida"] * 100), 1
+        m["margem_orcada_total"] = round(m["margem_orcada_total"], 2)
+        m["margem_orcada_pct"] = round(
+            (m["margem_orcada_total"] / m["receita_orcada_total"] * 100), 1
+        ) if m["receita_orcada_total"] > 0 else 0
+        m["margem_realizada_total"] = round(m["margem_realizada_total"], 2)
+        m["margem_realizada_pct"] = round(
+            (m["margem_realizada_total"] / m["receita_liquida"] * 100), 1
         ) if m["receita_liquida"] > 0 else 0
         m["eventos"].sort(key=lambda x: x["data_evento"])
 

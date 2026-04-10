@@ -18,13 +18,12 @@ interface EventoRow {
   id_evento: number;
   nome_evento: string;
   data_evento: string;
-  receita_orcada: number;
   receita_realizada: number;
   ticket_medio: number;
-  custo_kit_unit: number;
-  custo_kit_total: number;
-  margem_liquida: number;
-  margem_percentual: number;
+  margem_orcada: number;
+  margem_orcada_pct: number;
+  margem_realizada: number;
+  margem_realizada_pct: number;
   atletas: number;
 }
 
@@ -36,9 +35,10 @@ interface MesRow {
   eventos: EventoRow[];
   receita_orcada_total: number;
   receita_liquida: number;
-  custo_total: number;
-  margem_bruta: number;
-  margem_percentual: number;
+  margem_orcada_total: number;
+  margem_orcada_pct: number;
+  margem_realizada_total: number;
+  margem_realizada_pct: number;
   n_eventos: number;
 }
 
@@ -50,7 +50,7 @@ interface Props {
 const MargemBadge: React.FC<{ value: number; pct: number }> = ({ value, pct }) => {
   const positive = value >= 0;
   return (
-    <div className={`flex flex-col items-end`}>
+    <div className="flex flex-col items-end">
       <span className={`text-sm font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
         {formatCurrency(value)}
       </span>
@@ -86,10 +86,11 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
   const meses = data?.meses || [];
 
   const totalReceita = meses.reduce((s, m) => s + m.receita_liquida, 0);
+  const totalMargemOrcada = meses.reduce((s, m) => s + m.margem_orcada_total, 0);
   const totalOrcado = meses.reduce((s, m) => s + m.receita_orcada_total, 0);
-  const totalCusto = meses.reduce((s, m) => s + m.custo_total, 0);
-  const totalMargem = meses.reduce((s, m) => s + m.margem_bruta, 0);
-  const totalMargemPct = totalReceita > 0 ? totalMargem / totalReceita * 100 : 0;
+  const totalMargemOrcadaPct = totalOrcado > 0 ? totalMargemOrcada / totalOrcado * 100 : 0;
+  const totalMargemRealizada = meses.reduce((s, m) => s + m.margem_realizada_total, 0);
+  const totalMargemRealizadaPct = totalReceita > 0 ? totalMargemRealizada / totalReceita * 100 : 0;
 
   if (loading) {
     return (
@@ -120,16 +121,16 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
           </h3>
           <div className="flex items-center gap-6 text-xs flex-wrap">
             <div className="flex flex-col items-end">
-              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Receita Total</span>
-              <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(totalReceita)}</span>
+              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Receita Realizada</span>
+              <span className={`font-bold text-sm ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>{formatCurrency(totalReceita)}</span>
             </div>
             <div className="flex flex-col items-end">
-              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Custo de Kit</span>
-              <span className={`font-bold text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{formatCurrency(totalCusto)}</span>
+              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Orçada</span>
+              <MargemBadge value={totalMargemOrcada} pct={totalMargemOrcadaPct} />
             </div>
             <div className="flex flex-col items-end">
-              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Total</span>
-              <MargemBadge value={totalMargem} pct={totalMargemPct} />
+              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Realizada</span>
+              <MargemBadge value={totalMargemRealizada} pct={totalMargemRealizadaPct} />
             </div>
           </div>
         </div>
@@ -146,16 +147,13 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                 Atletas
               </th>
               <th className={`px-4 py-3 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Rec. Orçada
-              </th>
-              <th className={`px-4 py-3 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 Rec. Realizada
               </th>
               <th className={`px-4 py-3 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Custo Kit
+                Margem Orçada
               </th>
               <th className={`px-4 py-3 text-right text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                Margem
+                Margem Realizada
               </th>
             </tr>
           </thead>
@@ -175,7 +173,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className={`text-emerald-400 flex-shrink-0`}>
+                        <span className="text-emerald-400 flex-shrink-0">
                           {isExpanded
                             ? <ChevronDown className="w-4 h-4" />
                             : <ChevronRight className="w-4 h-4" />}
@@ -192,18 +190,18 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                     <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                       {formatNumber(mes.eventos.reduce((s, ev) => s + ev.atletas, 0))}
                     </td>
-                    <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {mes.receita_orcada_total > 0 ? formatCurrency(mes.receita_orcada_total) : <span className="text-gray-400">—</span>}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+                    <td className={`px-4 py-3 text-right text-xs ${isDark ? 'text-blue-300/80' : 'text-blue-600/80'}`}>
                       {mes.receita_liquida > 0 ? formatCurrency(mes.receita_liquida) : <span className="text-gray-400">—</span>}
                     </td>
-                    <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {mes.custo_total > 0 ? formatCurrency(mes.custo_total) : <span className="text-xs text-gray-400">—</span>}
+                    <td className="px-4 py-3 text-right">
+                      {mes.receita_orcada_total > 0
+                        ? <MargemBadge value={mes.margem_orcada_total} pct={mes.margem_orcada_pct} />
+                        : <span className="text-xs text-gray-400">—</span>
+                      }
                     </td>
                     <td className="px-4 py-3 text-right">
                       {mes.receita_liquida > 0
-                        ? <MargemBadge value={mes.margem_bruta} pct={mes.margem_percentual} />
+                        ? <MargemBadge value={mes.margem_realizada_total} pct={mes.margem_realizada_pct} />
                         : <span className="text-xs text-gray-400">—</span>
                       }
                     </td>
@@ -233,20 +231,18 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                       <td className={`px-4 py-2.5 text-right text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                         {formatNumber(ev.atletas)}
                       </td>
-                      <td className={`px-4 py-2.5 text-right text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {ev.receita_orcada > 0 ? formatCurrency(ev.receita_orcada) : <span className="text-gray-400">—</span>}
-                      </td>
-                      <td className={`px-4 py-2.5 text-right text-xs font-medium ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>
+                      <td className={`px-4 py-2.5 text-right text-xs ${isDark ? 'text-blue-300/70' : 'text-blue-600/70'}`}>
                         {ev.receita_realizada > 0 ? formatCurrency(ev.receita_realizada) : <span className="text-gray-400">—</span>}
                       </td>
-                      <td className={`px-4 py-2.5 text-right text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {ev.custo_kit_total > 0
-                          ? formatCurrency(ev.custo_kit_total)
-                          : <span className="text-xs text-gray-400">sem custo</span>}
+                      <td className="px-4 py-2.5 text-right">
+                        {ev.margem_orcada !== 0 || ev.margem_orcada_pct !== 0
+                          ? <MargemBadge value={ev.margem_orcada} pct={ev.margem_orcada_pct} />
+                          : <span className="text-xs text-gray-400">—</span>
+                        }
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {ev.receita_realizada > 0
-                          ? <MargemBadge value={ev.margem_liquida} pct={ev.margem_percentual} />
+                          ? <MargemBadge value={ev.margem_realizada} pct={ev.margem_realizada_pct} />
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
@@ -265,18 +261,17 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
               <td className={`px-4 py-3 text-right font-bold text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                 {formatNumber(meses.reduce((s, m) => s + m.eventos.reduce((a, e) => a + e.atletas, 0), 0))}
               </td>
-              <td className={`px-4 py-3 text-right font-semibold text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                {totalOrcado > 0 ? formatCurrency(totalOrcado) : '—'}
-              </td>
-              <td className={`px-4 py-3 text-right font-bold text-xs ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+              <td className={`px-4 py-3 text-right font-bold text-xs ${isDark ? 'text-blue-300/80' : 'text-blue-700/80'}`}>
                 {formatCurrency(totalReceita)}
               </td>
-              <td className={`px-4 py-3 text-right font-semibold text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                {totalCusto > 0 ? formatCurrency(totalCusto) : '—'}
+              <td className="px-4 py-3 text-right">
+                {totalOrcado > 0
+                  ? <MargemBadge value={totalMargemOrcada} pct={totalMargemOrcadaPct} />
+                  : <span className="text-xs text-gray-400">—</span>}
               </td>
               <td className="px-4 py-3 text-right">
                 {totalReceita > 0
-                  ? <MargemBadge value={totalMargem} pct={totalMargemPct} />
+                  ? <MargemBadge value={totalMargemRealizada} pct={totalMargemRealizadaPct} />
                   : <span className="text-xs text-gray-400">—</span>}
               </td>
             </tr>
