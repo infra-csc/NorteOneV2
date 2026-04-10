@@ -47,19 +47,21 @@ interface Props {
   loading?: boolean;
 }
 
-const MargemBadge: React.FC<{ value: number; pct: number }> = ({ value, pct }) => {
+const MargemBadge: React.FC<{ value: number; pct?: number }> = ({ value, pct }) => {
   const positive = value >= 0;
   return (
     <div className="flex flex-col items-end">
       <span className={`text-sm font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
         {formatCurrency(value)}
       </span>
-      <span className={`text-xs font-medium flex items-center gap-0.5 ${positive ? 'text-emerald-500' : 'text-red-500'}`}>
-        {positive
-          ? <TrendingUp className="w-3 h-3" />
-          : <TrendingDown className="w-3 h-3" />}
-        {formatPct(pct)}
-      </span>
+      {pct !== undefined && (
+        <span className={`text-xs font-medium flex items-center gap-0.5 ${positive ? 'text-emerald-500' : 'text-red-500'}`}>
+          {positive
+            ? <TrendingUp className="w-3 h-3" />
+            : <TrendingDown className="w-3 h-3" />}
+          {formatPct(pct)}
+        </span>
+      )}
     </div>
   );
 };
@@ -88,7 +90,6 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
   const totalReceita = meses.reduce((s, m) => s + m.receita_liquida, 0);
   const totalMargemOrcada = meses.reduce((s, m) => s + m.margem_orcada_total, 0);
   const totalOrcado = meses.reduce((s, m) => s + m.receita_orcada_total, 0);
-  const totalMargemOrcadaPct = totalOrcado > 0 ? totalMargemOrcada / totalOrcado * 100 : 0;
   const totalMargemRealizada = meses.reduce((s, m) => s + m.margem_realizada_total, 0);
   const totalMargemRealizadaPct = totalReceita > 0 ? totalMargemRealizada / totalReceita * 100 : 0;
 
@@ -126,7 +127,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
             </div>
             <div className="flex flex-col items-end">
               <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Orçada</span>
-              <MargemBadge value={totalMargemOrcada} pct={totalMargemOrcadaPct} />
+              <MargemBadge value={totalMargemOrcada} />
             </div>
             <div className="flex flex-col items-end">
               <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Realizada</span>
@@ -195,7 +196,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {mes.receita_orcada_total > 0
-                        ? <MargemBadge value={mes.margem_orcada_total} pct={mes.margem_orcada_pct} />
+                        ? <MargemBadge value={mes.margem_orcada_total} />
                         : <span className="text-xs text-gray-400">—</span>
                       }
                     </td>
@@ -236,7 +237,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {ev.margem_orcada !== 0 || ev.margem_orcada_pct !== 0
-                          ? <MargemBadge value={ev.margem_orcada} pct={ev.margem_orcada_pct} />
+                          ? <MargemBadge value={ev.margem_orcada} />
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
@@ -266,7 +267,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
               </td>
               <td className="px-4 py-3 text-right">
                 {totalOrcado > 0
-                  ? <MargemBadge value={totalMargemOrcada} pct={totalMargemOrcadaPct} />
+                  ? <MargemBadge value={totalMargemOrcada} />
                   : <span className="text-xs text-gray-400">—</span>}
               </td>
               <td className="px-4 py-3 text-right">
