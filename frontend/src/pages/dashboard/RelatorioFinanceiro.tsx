@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
   ChevronDown, ChevronRight, TrendingUp, TrendingDown,
-  BarChart2, Calendar, DollarSign
+  BarChart2, Calendar
 } from 'lucide-react';
 
 const formatCurrency = (value: number) =>
@@ -47,22 +47,24 @@ interface Props {
   loading?: boolean;
 }
 
-const DeltaBadge: React.FC<{ value: number }> = ({ value }) => {
+const DeltaBadge: React.FC<{ value: number; small?: boolean }> = ({ value, small }) => {
   const positive = value >= 0;
+  const size = small ? 'text-xs' : 'text-sm';
   return (
     <div className="flex flex-col items-end">
-      <span className={`text-sm font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+      <span className={`${size} font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
         {positive ? '+' : ''}{formatCurrency(value)}
       </span>
     </div>
   );
 };
 
-const MargemBadge: React.FC<{ value: number; pct?: number }> = ({ value, pct }) => {
+const MargemBadge: React.FC<{ value: number; pct?: number; small?: boolean }> = ({ value, pct, small }) => {
   const positive = value >= 0;
+  const size = small ? 'text-xs' : 'text-sm';
   return (
     <div className="flex flex-col items-end">
-      <span className={`text-sm font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+      <span className={`${size} font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
         {formatCurrency(value)}
       </span>
       {pct !== undefined && (
@@ -82,10 +84,6 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
   const cardClass = `rounded-2xl ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
-  const rowClass = (idx: number) =>
-    idx % 2 === 0
-      ? isDark ? 'bg-gray-700/20' : 'bg-gray-50/60'
-      : '';
 
   const toggleMonth = (key: string) => {
     setExpandedMonths(prev => {
@@ -173,7 +171,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/30' : 'divide-gray-100'}`}>
-            {meses.map((mes, mIdx) => {
+            {meses.map((mes) => {
               const isExpanded = expandedMonths.has(mes.mes_key);
 
               return (
@@ -228,48 +226,50 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                     </td>
                   </tr>
 
-                  {isExpanded && mes.eventos.map((ev, evIdx) => (
+                  {isExpanded && mes.eventos.map((ev) => (
                     <tr
                       key={ev.id_evento}
-                      className={`transition-colors ${rowClass(evIdx)} ${
-                        isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'
+                      className={`transition-colors ${
+                        isDark
+                          ? 'bg-gray-900/40 hover:bg-gray-900/60'
+                          : 'bg-gray-50/90 hover:bg-gray-100/80'
                       }`}
                     >
-                      <td className="px-4 py-2.5 pl-12">
+                      <td className={`py-2 pl-10 pr-4 border-l-2 ${isDark ? 'border-emerald-500/25' : 'border-emerald-400/40'}`}>
                         <div className="flex items-center gap-2">
-                          <DollarSign className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                          <span className={`text-[10px] leading-none font-bold select-none ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>▸</span>
                           <div>
-                            <p className={`text-xs font-medium ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                            <p className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                               {ev.nome_evento}
                             </p>
-                            <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                            <p className={`text-[11px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                               {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}
                               {ev.ticket_medio > 0 && ` · TKT ${formatCurrency(ev.ticket_medio)}`}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className={`px-4 py-2.5 text-right text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <td className={`px-4 py-2 text-right text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
                         {formatNumber(ev.atletas)}
                       </td>
-                      <td className={`px-4 py-2.5 text-right text-xs ${isDark ? 'text-blue-300/70' : 'text-blue-600/70'}`}>
+                      <td className={`px-4 py-2 text-right text-xs ${isDark ? 'text-blue-300/60' : 'text-blue-500/70'}`}>
                         {ev.receita_realizada > 0 ? formatCurrency(ev.receita_realizada) : <span className="text-gray-400">—</span>}
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-4 py-2 text-right">
                         {ev.margem_orcada !== 0 || ev.margem_orcada_pct !== 0
-                          ? <MargemBadge value={ev.margem_orcada} />
+                          ? <MargemBadge value={ev.margem_orcada} small />
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-4 py-2 text-right">
                         {ev.receita_realizada > 0
-                          ? <MargemBadge value={ev.margem_realizada} pct={ev.margem_realizada_pct} />
+                          ? <MargemBadge value={ev.margem_realizada} pct={ev.margem_realizada_pct} small />
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
-                      <td className="px-4 py-2.5 text-right">
+                      <td className="px-4 py-2 text-right">
                         {ev.receita_realizada > 0 || ev.margem_orcada !== 0
-                          ? <DeltaBadge value={ev.margem_realizada - ev.margem_orcada} />
+                          ? <DeltaBadge value={ev.margem_realizada - ev.margem_orcada} small />
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
