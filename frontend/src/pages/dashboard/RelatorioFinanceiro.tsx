@@ -12,7 +12,7 @@ const formatNumber = (value: number) =>
   new Intl.NumberFormat('pt-BR').format(value);
 
 const formatPct = (value: number) =>
-  `${value >= 0 ? '' : ''}${value.toFixed(1)}%`;
+  `${value.toFixed(1)}%`;
 
 interface EventoRow {
   id_evento: number;
@@ -23,7 +23,7 @@ interface EventoRow {
   ticket_medio: number;
   custo_kit_unit: number;
   custo_kit_total: number;
-  margem_liquida_total: number;
+  margem_liquida: number;
   margem_percentual: number;
   atletas: number;
 }
@@ -35,9 +35,9 @@ interface MesRow {
   mes_label: string;
   eventos: EventoRow[];
   receita_orcada_total: number;
-  receita_realizada_total: number;
-  custo_kit_total: number;
-  margem_liquida_total: number;
+  receita_liquida: number;
+  custo_total: number;
+  margem_bruta: number;
   margem_percentual: number;
   n_eventos: number;
 }
@@ -85,10 +85,10 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
 
   const meses = data?.meses || [];
 
-  const totalReceita = meses.reduce((s, m) => s + m.receita_realizada_total, 0);
+  const totalReceita = meses.reduce((s, m) => s + m.receita_liquida, 0);
   const totalOrcado = meses.reduce((s, m) => s + m.receita_orcada_total, 0);
-  const totalCusto = meses.reduce((s, m) => s + m.custo_kit_total, 0);
-  const totalMargem = meses.reduce((s, m) => s + m.margem_liquida_total, 0);
+  const totalCusto = meses.reduce((s, m) => s + m.custo_total, 0);
+  const totalMargem = meses.reduce((s, m) => s + m.margem_bruta, 0);
   const totalMargemPct = totalReceita > 0 ? totalMargem / totalReceita * 100 : 0;
 
   if (loading) {
@@ -197,14 +197,14 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                       {mes.receita_orcada_total > 0 ? formatCurrency(mes.receita_orcada_total) : <span className="text-gray-400">—</span>}
                     </td>
                     <td className={`px-4 py-3 text-right font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-                      {mes.receita_realizada_total > 0 ? formatCurrency(mes.receita_realizada_total) : <span className="text-gray-400">—</span>}
+                      {mes.receita_liquida > 0 ? formatCurrency(mes.receita_liquida) : <span className="text-gray-400">—</span>}
                     </td>
                     <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                      {allEventsHaveCusto ? formatCurrency(mes.custo_kit_total) : <span className="text-xs text-gray-400">sem custo</span>}
+                      {allEventsHaveCusto ? formatCurrency(mes.custo_total) : <span className="text-xs text-gray-400">sem custo</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {mes.receita_realizada_total > 0 && allEventsHaveCusto
-                        ? <MargemBadge value={mes.margem_liquida_total} pct={mes.margem_percentual} />
+                      {mes.receita_liquida > 0 && allEventsHaveCusto
+                        ? <MargemBadge value={mes.margem_bruta} pct={mes.margem_percentual} />
                         : <span className="text-xs text-gray-400">—</span>
                       }
                     </td>
@@ -247,7 +247,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {ev.receita_realizada > 0 && ev.custo_kit_total > 0
-                          ? <MargemBadge value={ev.margem_liquida_total} pct={ev.margem_percentual} />
+                          ? <MargemBadge value={ev.margem_liquida} pct={ev.margem_percentual} />
                           : ev.receita_realizada > 0
                             ? <span className="text-xs text-gray-400">sem custo kit</span>
                             : <span className="text-xs text-gray-400">—</span>

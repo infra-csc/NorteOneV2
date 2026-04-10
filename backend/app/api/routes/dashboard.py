@@ -683,7 +683,7 @@ def get_relatorio_financeiro(
             "ticket_medio": e["ticket_medio"],
             "custo_kit_unit": custo_kit_unit,
             "custo_kit_total": custo_kit_total,
-            "margem_liquida_total": margem_liquida_total,
+            "margem_liquida": margem_liquida_total,
             "margem_percentual": margem_percentual,
             "atletas": atletas_total,
         }
@@ -696,29 +696,29 @@ def get_relatorio_financeiro(
                 "mes_label": mes_label,
                 "eventos": [],
                 "receita_orcada_total": 0,
-                "receita_realizada_total": 0,
-                "custo_kit_total": 0,
-                "margem_liquida_total": 0,
+                "receita_liquida": 0,
+                "custo_total": 0,
+                "margem_bruta": 0,
                 "n_eventos": 0,
             }
 
         meses_dict[mes_key]["eventos"].append(evento_row)
         meses_dict[mes_key]["receita_orcada_total"] += receita_orcada
-        meses_dict[mes_key]["receita_realizada_total"] += receita_realizada
-        meses_dict[mes_key]["custo_kit_total"] += custo_kit_total
-        meses_dict[mes_key]["margem_liquida_total"] += margem_liquida_total
+        meses_dict[mes_key]["receita_liquida"] += receita_realizada
+        meses_dict[mes_key]["custo_total"] += custo_kit_total
+        meses_dict[mes_key]["margem_bruta"] += margem_liquida_total
         meses_dict[mes_key]["n_eventos"] += 1
 
     meses_list = sorted(meses_dict.values(), key=lambda x: (x["ano_num"], x["mes_num"]))
 
     for m in meses_list:
         m["receita_orcada_total"] = round(m["receita_orcada_total"], 2)
-        m["receita_realizada_total"] = round(m["receita_realizada_total"], 2)
-        m["custo_kit_total"] = round(m["custo_kit_total"], 2)
-        m["margem_liquida_total"] = round(m["margem_liquida_total"], 2)
+        m["receita_liquida"] = round(m["receita_liquida"], 2)
+        m["custo_total"] = round(m["custo_total"], 2)
+        m["margem_bruta"] = round(m["margem_bruta"], 2)
         m["margem_percentual"] = round(
-            (m["margem_liquida_total"] / m["receita_realizada_total"] * 100), 1
-        ) if m["receita_realizada_total"] > 0 else 0
+            (m["margem_bruta"] / m["receita_liquida"] * 100), 1
+        ) if m["receita_liquida"] > 0 else 0
         m["eventos"].sort(key=lambda x: x["data_evento"])
 
     return {"meses": meses_list}
