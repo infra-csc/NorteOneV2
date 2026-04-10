@@ -9,7 +9,7 @@ from app.core.security import get_current_user, require_permission
 from app.models.kit_config import KitConfig
 from app.models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from app.models.dimensoes import SkuMapping, DimProjeto
-from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse
+from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse, KitConfigBulkUpsert, KitConfigBulkResult
 import app.core.database as db_module
 import logging
 import time as _time
@@ -623,6 +623,123 @@ def _invalidate_event_detail_for_bundle(
         f"[KitConfig] Full event_detail invalidation for bundle {bundle_entity_id} (no SKU mapping found)"
     )
     return False
+
+
+@router.post("/bulk", response_model=KitConfigBulkResult)
+def upsert_kit_config_bulk(
+    body: KitConfigBulkUpsert,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
+):
+    from .marketing import clear_ticket_atual_cache
+    from ...core.cache import event_detail_cache
+
+    if not body.items:
+        return KitConfigBulkResult(saved=0, errors=0)
+
+    bundle_ids = [item.bundle_entity_id for item in body.items]
+
+    existing_map: dict[int, KitConfig] = {
+        row.bundle_entity_id: row
+        for row in db.query(KitConfig).filter(KitConfig.bundle_entity_id.in_(bundle_ids)).all()
+    }
+
+    sku_map: dict[int, list[SkuMapping]] = {}
+    for row in (
+        db.query(SkuMapping)
+        .filter(
+            SkuMapping.fonte == "magento",
+            SkuMapping.id_externo.in_(bundle_ids),
+            SkuMapping.ativo == True,
+        )
+        .all()
+    ):
+        sku_map.setdefault(row.id_externo, []).append(row)
+
+    basico_evento_ids = {item.id_evento for item in body.items if item.is_kit_basico and item.id_evento is not None}
+    promo_evento_ids = {item.id_evento for item in body.items if item.is_promo_principal and item.id_evento is not None}
+    basico_bundle_ids = {item.bundle_entity_id for item in body.items if item.is_kit_basico}
+    promo_bundle_ids = {item.bundle_entity_id for item in body.items if item.is_promo_principal}
+
+    if basico_evento_ids:
+        db.query(KitConfig).filter(
+            KitConfig.id_evento.in_(basico_evento_ids),
+            KitConfig.bundle_entity_id.notin_(basico_bundle_ids),
+            KitConfig.is_kit_basico == True,
+        ).update({"is_kit_basico": False}, synchronize_session=False)
+
+    if promo_evento_ids:
+        db.query(KitConfig).filter(
+            KitConfig.id_evento.in_(promo_evento_ids),
+            KitConfig.bundle_entity_id.notin_(promo_bundle_ids),
+            KitConfig.is_promo_principal == True,
+        ).update({"is_promo_principal": False}, synchronize_session=False)
+
+    saved = 0
+    errors = 0
+    invalidated_keys: set[str] = set()
+    full_invalidation_needed = False
+
+    for item in body.items:
+        try:
+            existing = existing_map.get(item.bundle_entity_id)
+            if existing:
+                existing.multiplicador = item.multiplicador
+                existing.is_kit_basico = item.is_kit_basico
+                existing.is_promo_principal = item.is_promo_principal
+                if item.id_evento is not None:
+                    existing.id_evento = item.id_evento
+                existing.tipo_kit = item.tipo_kit
+                if item.custo_kit is not None:
+                    existing.custo_kit = item.custo_kit
+                existing.ativo_categoria = item.ativo_categoria or None
+            else:
+                new_config = KitConfig(
+                    bundle_entity_id=item.bundle_entity_id,
+                    multiplicador=item.multiplicador,
+                    is_kit_basico=item.is_kit_basico,
+                    is_promo_principal=item.is_promo_principal,
+                    id_evento=item.id_evento,
+                    tipo_kit=item.tipo_kit,
+                    custo_kit=item.custo_kit,
+                    ativo_categoria=item.ativo_categoria or None,
+                )
+                db.add(new_config)
+
+            sku_rows = sku_map.get(item.bundle_entity_id, [])
+            if sku_rows:
+                for row in sku_rows:
+                    if row.evento_grupo and row.ano:
+                        invalidated_keys.add(f"{row.ano}_grp_{row.evento_grupo}_detail")
+            else:
+                full_invalidation_needed = True
+
+            saved += 1
+        except Exception:
+            errors += 1
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Erro ao salvar configurações em lote")
+
+    _kits_cache["data"] = None
+    _kits_cache["ts"] = 0.0
+    _unconfigured_cache["data"] = None
+    _unconfigured_cache["ts"] = 0.0
+    clear_ticket_atual_cache()
+
+    if full_invalidation_needed:
+        event_detail_cache.invalidate()
+        logger.info(f"[KitConfig] Bulk save: full event_detail invalidation ({len(bundle_ids)} bundles, some had no SKU mapping)")
+    else:
+        for key in invalidated_keys:
+            event_detail_cache.invalidate(key)
+        logger.info(f"[KitConfig] Bulk save: targeted invalidation of {len(invalidated_keys)} keys")
+
+    logger.info(f"[KitConfig] Bulk upsert complete: {saved} saved, {errors} errors out of {len(body.items)} items")
+    return KitConfigBulkResult(saved=saved, errors=errors)
 
 
 @router.post("/{bundle_entity_id}", response_model=KitConfigResponse)

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -11,6 +11,26 @@ class KitConfigUpsert(BaseModel):
     tipo_kit: Optional[str] = None
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
+
+
+class KitConfigBulkItem(BaseModel):
+    bundle_entity_id: int
+    multiplicador: int = Field(default=1, ge=1, le=100)
+    is_kit_basico: bool = False
+    is_promo_principal: bool = False
+    id_evento: Optional[int] = None
+    tipo_kit: Optional[str] = None
+    custo_kit: Optional[float] = None
+    ativo_categoria: Optional[str] = None
+
+
+class KitConfigBulkUpsert(BaseModel):
+    items: List[KitConfigBulkItem]
+
+
+class KitConfigBulkResult(BaseModel):
+    saved: int
+    errors: int
 
 
 class KitConfigResponse(BaseModel):

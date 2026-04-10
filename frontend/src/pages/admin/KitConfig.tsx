@@ -225,7 +225,32 @@ const KitConfig: React.FC = () => {
   const handleSaveMany = async () => {
     setSavingMany(true);
     const ids = Array.from(selectedIds);
-    await Promise.all(ids.map((id) => handleSave(id)));
+    const items = ids.map((id) => {
+      const mult = editValues[id] ?? 1;
+      const isBasico = basicoValues[id] ?? false;
+      const isPromoPrincipal = promoValues[id] ?? false;
+      const tipoKit = (tipoKitValues[id] ?? '').trim() || null;
+      const kit = kits.find((k) => k.bundle_entity_id === id);
+      const idEvento = kit?.id_evento ? parseInt(kit.id_evento, 10) : null;
+      const custoKitStr = (custoKitValues[id] ?? '').trim();
+      const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
+      const ativoCateg = (ativoCategValues[id] ?? '').trim() || null;
+      return {
+        bundle_entity_id: id,
+        multiplicador: mult,
+        is_kit_basico: isBasico,
+        is_promo_principal: isPromoPrincipal,
+        id_evento: idEvento,
+        tipo_kit: tipoKit,
+        custo_kit: custoKit,
+        ativo_categoria: ativoCateg,
+      };
+    });
+    try {
+      await api.post('/kit-config/bulk', { items });
+    } catch {
+      alert('Erro ao salvar configurações em lote');
+    }
     setSelectedIds(new Set());
     setSavingMany(false);
     await fetchKits();
