@@ -695,7 +695,8 @@ def upsert_kit_config_bulk(
                 if item.custo_kit is not None:
                     existing.custo_kit = item.custo_kit
                 existing.ativo_categoria = item.ativo_categoria or None
-                existing.cenario_ciclismo = item.cenario_ciclismo or None
+                valid_cenarios = {'participacao', 'sem_bike', 'com_bike', None, ''}
+                existing.cenario_ciclismo = item.cenario_ciclismo if item.cenario_ciclismo in valid_cenarios else None
             else:
                 new_config = KitConfig(
                     bundle_entity_id=item.bundle_entity_id,
@@ -706,7 +707,7 @@ def upsert_kit_config_bulk(
                     tipo_kit=item.tipo_kit,
                     custo_kit=item.custo_kit,
                     ativo_categoria=item.ativo_categoria or None,
-                    cenario_ciclismo=item.cenario_ciclismo or None,
+                    cenario_ciclismo=item.cenario_ciclismo if item.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None,
                 )
                 db.add(new_config)
 
@@ -781,7 +782,7 @@ def upsert_kit_config(
             if body.custo_kit is not None:
                 existing.custo_kit = body.custo_kit
             existing.ativo_categoria = body.ativo_categoria or None
-            existing.cenario_ciclismo = body.cenario_ciclismo or None
+            existing.cenario_ciclismo = body.cenario_ciclismo if body.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None
             db.commit()
             db.refresh(existing)
             _kits_cache["data"] = None
@@ -801,7 +802,7 @@ def upsert_kit_config(
             tipo_kit=body.tipo_kit,
             custo_kit=body.custo_kit,
             ativo_categoria=body.ativo_categoria or None,
-            cenario_ciclismo=body.cenario_ciclismo or None,
+            cenario_ciclismo=body.cenario_ciclismo if body.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None,
         )
         db.add(new_config)
         db.commit()
