@@ -754,6 +754,7 @@ export interface CutoffAlert {
   isc: number | null;
   iscStatus: string | null;
   acao_definida?: boolean;
+  antecipado?: boolean;
 }
 
 export interface PricingMetrics {

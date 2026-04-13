@@ -102,10 +102,23 @@ const PLAYBOOK_CUTOFFS = [
   { value: 30, label: 'D-30', stage: 'Operacional' },
   { value: 15, label: 'D-15', stage: 'Operacional' },
 ];
-function getCutoffAlert(dMinus: number): { value: number; label: string; stage: string } | null {
+function isFridayBrazil(): boolean {
+  const now = new Date();
+  const brazilStr = now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/Sao_Paulo' });
+  return brazilStr.startsWith('Friday');
+}
+
+function getCutoffAlert(dMinus: number): { value: number; label: string; stage: string; antecipado?: boolean } | null {
   for (const co of PLAYBOOK_CUTOFFS) {
     if (dMinus === co.value) {
       return co;
+    }
+  }
+  if (isFridayBrazil()) {
+    for (const co of PLAYBOOK_CUTOFFS) {
+      if (dMinus - 1 === co.value || dMinus - 2 === co.value) {
+        return { ...co, antecipado: true };
+      }
     }
   }
   return null;

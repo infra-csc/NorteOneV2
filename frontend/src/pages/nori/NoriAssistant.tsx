@@ -421,6 +421,7 @@ const NoriAssistant: React.FC = () => {
                   {cutoffAlerts.length === 1
                     ? '1 evento necessita de ação estratégica hoje'
                     : `${cutoffAlerts.length} eventos necessitam de ação estratégica hoje`}
+                  {cutoffAlerts.some(a => a.antecipado) && ' (inclui antecipações de fim de semana)'}
                 </p>
               </div>
             </div>
@@ -505,6 +506,11 @@ const NoriAssistant: React.FC = () => {
                       <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${cutoffBadge[alert.estagio] ?? 'bg-gray-500 text-white'}`}>
                         {alert.ponto_corte}
                       </span>
+                      {alert.antecipado && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                          antecipado
+                        </span>
+                      )}
                       <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${stageBadge[alert.estagio] ?? ''}`}>
                         {alert.estagio_label}
                       </span>

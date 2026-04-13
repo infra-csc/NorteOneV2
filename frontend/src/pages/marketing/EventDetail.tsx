@@ -1927,8 +1927,10 @@ const EventDetail: React.FC = () => {
                 {SLOTS.map(slot => {
                   const meta = STAGE_META[slot.estagio];
                   const slotAction = (event.commercialActions ?? []).find(a => a.ponto_corte === slot.ponto_corte);
-                  const isFuture = dInscricoes > slot.cutoffValue;
-                  const isActive = dInscricoes === slot.cutoffValue;
+                  const isFriday = (() => { const now = new Date(); return now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/Sao_Paulo' }).startsWith('Friday'); })();
+                  const isWeekendAnticipated = isFriday && (dInscricoes - 1 === slot.cutoffValue || dInscricoes - 2 === slot.cutoffValue);
+                  const isFuture = dInscricoes > slot.cutoffValue && !isWeekendAnticipated;
+                  const isActive = dInscricoes === slot.cutoffValue || isWeekendAnticipated;
                   const isMissed = dInscricoes < slot.cutoffValue && !slotAction;
                   if (isFuture) {
                     return (
@@ -2049,7 +2051,9 @@ const EventDetail: React.FC = () => {
               {/* AÇÃO FINAL — liberada a partir de D-7 */}
               {(() => {
                 const finalAction = (event.commercialActions ?? []).find(a => a.ponto_corte === 'D-7');
-                const isLocked = dInscricoes > 7;
+                const isFridayFinal = (() => { const now = new Date(); return now.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/Sao_Paulo' }).startsWith('Friday'); })();
+                const isWeekendAnticipatedFinal = isFridayFinal && (dInscricoes - 1 === 7 || dInscricoes - 2 === 7);
+                const isLocked = dInscricoes > 7 && !isWeekendAnticipatedFinal;
                 if (isLocked) {
                   return (
                     <div className="rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-100 dark:bg-gray-800/40 p-4 flex items-center justify-between gap-3">

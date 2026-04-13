@@ -3939,12 +3939,25 @@ _CUTOFF_VALUES = [70, 50, 45, 35, 30, 15, 7]
 _CUTOFF_ESTAGIO = {70: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional", 7: "final"}
 _CUTOFF_ESTAGIO_LABEL = {70: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional", 7: "Final"}
 
+def _match_cutoff_with_weekend(d_minus: int) -> int | None:
+    if d_minus in _CUTOFF_VALUES:
+        return d_minus
+    today = today_brazil()
+    weekday = today.weekday()
+    if weekday == 4:
+        if (d_minus - 1) in _CUTOFF_VALUES:
+            return d_minus - 1
+        if (d_minus - 2) in _CUTOFF_VALUES:
+            return d_minus - 2
+    return None
+
 @router.get("/cutoff-alerts")
 def get_cutoff_alerts(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    """Retorna eventos cujo D-Inscrição está exatamente em um ponto de corte estratégico."""
+    """Retorna eventos cujo D-Inscrição está exatamente em um ponto de corte estratégico.
+    Na sexta-feira, antecipa pontos de corte que cairiam no sábado ou domingo."""
     ano = datetime.now().year
     cache_key = f"{ano}_active_all_"
     cached, _ = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=None)
@@ -3955,22 +3968,25 @@ def get_cutoff_alerts(
     alerts = []
     for ev in eventos:
         d = ev.get("dMinusInscricoes") if isinstance(ev, dict) else getattr(ev, "dMinusInscricoes", None)
-        if d in _CUTOFF_VALUES:
+        matched_cutoff = _match_cutoff_with_weekend(d) if d is not None else None
+        if matched_cutoff is not None:
             ev_id = ev.get("id") if isinstance(ev, dict) else getattr(ev, "id", None)
             ev_name = ev.get("name") if isinstance(ev, dict) else getattr(ev, "name", None)
             ev_cat = ev.get("category") if isinstance(ev, dict) else getattr(ev, "category", None)
             ev_isc = ev.get("isc") if isinstance(ev, dict) else getattr(ev, "isc", None)
             ev_isc_status = ev.get("iscStatus") if isinstance(ev, dict) else getattr(ev, "iscStatus", None)
+            antecipado = matched_cutoff != d
             alerts.append({
                 "id": ev_id,
                 "name": ev_name,
                 "category": ev_cat,
                 "dMinusInscricoes": d,
-                "ponto_corte": f"D-{d}",
-                "estagio": _CUTOFF_ESTAGIO.get(d, ""),
-                "estagio_label": _CUTOFF_ESTAGIO_LABEL.get(d, ""),
+                "ponto_corte": f"D-{matched_cutoff}",
+                "estagio": _CUTOFF_ESTAGIO.get(matched_cutoff, ""),
+                "estagio_label": _CUTOFF_ESTAGIO_LABEL.get(matched_cutoff, ""),
                 "isc": round(ev_isc, 1) if ev_isc is not None else None,
                 "iscStatus": ev_isc_status,
+                "antecipado": antecipado,
             })
     alerts.sort(key=lambda x: x["dMinusInscricoes"])
 
