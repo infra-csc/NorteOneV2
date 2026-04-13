@@ -994,6 +994,12 @@ def _run_column_migrations():
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS cidade_normalizada VARCHAR(200)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS curva_override VARCHAR(200)",
             "ALTER TABLE curva_historica_snapshot ADD COLUMN IF NOT EXISTS origem VARCHAR(50)",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_participacao_pago INTEGER DEFAULT 0",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_sem_bike_pago INTEGER DEFAULT 0",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_sem_bike_tkt_medio NUMERIC(10,2) DEFAULT 0",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_com_bike_pago INTEGER DEFAULT 0",
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_com_bike_tkt_medio NUMERIC(10,2) DEFAULT 0",
+            "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS cenario_ciclismo VARCHAR(50)",
             # nori_insights table (idempotent — create_all handles new installs; this covers existing DBs)
             """
             CREATE TABLE IF NOT EXISTS nori_insights (

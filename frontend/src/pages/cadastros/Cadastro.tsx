@@ -833,7 +833,7 @@ const Cadastro: React.FC = () => {
     }));
   };
 
-  const addFaixaSiteByKit = (kitType: 'kit_basico' | 'kit_participacao') => {
+  const addFaixaSiteByKit = (kitType: keyof FaixasPrecoSiteByKit) => {
     setForm(prev => {
       const currentFaixas = prev.faixas_preco_site[kitType];
       const nextFaixaNum = currentFaixas.length + 1;
@@ -847,7 +847,7 @@ const Cadastro: React.FC = () => {
     });
   };
 
-  const removeFaixaSiteByKit = (kitType: 'kit_basico' | 'kit_participacao', index: number) => {
+  const removeFaixaSiteByKit = (kitType: keyof FaixasPrecoSiteByKit, index: number) => {
     setForm(prev => {
       const newFaixas = prev.faixas_preco_site[kitType].filter((_: any, i: number) => i !== index);
       const renumberedFaixas = newFaixas.map((f: FaixaPrecoItem, i: number) => ({ ...f, faixa: String(i + 1) }));
@@ -861,7 +861,7 @@ const Cadastro: React.FC = () => {
     });
   };
 
-  const updateFaixaSiteByKit = (kitType: 'kit_basico' | 'kit_participacao', index: number, key: string, value: any) => {
+  const updateFaixaSiteByKit = (kitType: keyof FaixasPrecoSiteByKit, index: number, key: string, value: any) => {
     setForm(prev => ({
       ...prev,
       faixas_preco_site: {
@@ -873,7 +873,7 @@ const Cadastro: React.FC = () => {
     }));
   };
 
-  const addFaixaGruposByKit = (kitType: 'kit_basico' | 'kit_participacao') => {
+  const addFaixaGruposByKit = (kitType: keyof FaixasPrecoSiteByKit) => {
     setForm(prev => {
       const currentFaixas = prev.faixas_preco_grupos[kitType];
       const nextFaixaNum = currentFaixas.length + 1;
@@ -887,7 +887,7 @@ const Cadastro: React.FC = () => {
     });
   };
 
-  const removeFaixaGruposByKit = (kitType: 'kit_basico' | 'kit_participacao', index: number) => {
+  const removeFaixaGruposByKit = (kitType: keyof FaixasPrecoSiteByKit, index: number) => {
     setForm(prev => {
       const newFaixas = prev.faixas_preco_grupos[kitType].filter((_: any, i: number) => i !== index);
       const renumberedFaixas = newFaixas.map((f: FaixaPrecoItem, i: number) => ({ ...f, faixa: String(i + 1) }));
@@ -901,7 +901,7 @@ const Cadastro: React.FC = () => {
     });
   };
 
-  const updateFaixaGruposByKit = (kitType: 'kit_basico' | 'kit_participacao', index: number, key: string, value: any) => {
+  const updateFaixaGruposByKit = (kitType: keyof FaixasPrecoSiteByKit, index: number, key: string, value: any) => {
     setForm(prev => ({
       ...prev,
       faixas_preco_grupos: {
