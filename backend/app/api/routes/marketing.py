@@ -7874,6 +7874,81 @@ def get_marketing_event_by_id(
             if _last_full_ts else None
         )
         _grupo_faixas_preco_site = _get_faixas_preco_site_for_projeto_ids(db, [p.id for p in projetos])
+
+        grp_cenarios_ciclismo = None
+        if projeto_modalidade and projeto_modalidade.lower() == 'ciclismo':
+            grp_cad = _wq_cadastro_by_projeto_id(db, rep_projeto.id) if rep_projeto else None
+            if grp_cad:
+                grp_cenarios_ciclismo = {
+                    "participacao": {
+                        "orcado_pago": int(grp_cad.ciclismo_participacao_pago or 0),
+                        "tkt_medio_orcado": 0,
+                    },
+                    "sem_bike": {
+                        "orcado_pago": int(grp_cad.ciclismo_sem_bike_pago or 0),
+                        "tkt_medio_orcado": float(grp_cad.ciclismo_sem_bike_tkt_medio or 0),
+                    },
+                    "com_bike": {
+                        "orcado_pago": int(grp_cad.ciclismo_com_bike_pago or 0),
+                        "tkt_medio_orcado": float(grp_cad.ciclismo_com_bike_tkt_medio or 0),
+                    },
+                }
+                from app.models.kit_config import KitConfig as _KC
+                from app.models.dimensoes import SkuMapping as _SM
+                _grp_ext_ids = []
+                for _gp in projetos:
+                    _gp_sku = normalize_sku(str(_gp.codigo)) if _gp.codigo else None
+                    if _gp_sku:
+                        _gp_sm = db.query(_SM).filter(
+                            func.upper(_SM.sku) == _gp_sku,
+                            _SM.ativo == True,
+                        ).all()
+                        _grp_ext_ids.extend([str(sm_r.id_externo) for sm_r in _gp_sm if sm_r.id_externo])
+                if _grp_ext_ids:
+                    _grp_kits = db.query(_KC).filter(
+                        _KC.id_evento.in_(_grp_ext_ids),
+                        _KC.cenario_ciclismo.isnot(None),
+                    ).all()
+                else:
+                    _grp_kits = []
+                _grp_bundle_ids = {k.bundle_entity_id: k.cenario_ciclismo for k in _grp_kits}
+                _grp_cenario_costs: dict = {}
+                for _gk in _grp_kits:
+                    _gcn = _gk.cenario_ciclismo
+                    if _gcn and _gk.custo_kit is not None:
+                        _grp_cenario_costs.setdefault(_gcn, []).append(float(_gk.custo_kit))
+                for _gcn_key in grp_cenarios_ciclismo:
+                    cost_vals = _grp_cenario_costs.get(_gcn_key, [])
+                    grp_cenarios_ciclismo[_gcn_key]["custo_kit"] = round(sum(cost_vals) / len(cost_vals), 2) if cost_vals else 0
+                if _grp_bundle_ids:
+                    _grp_sku_maps = db.query(_SM).filter(
+                        func.upper(_SM.fonte) == 'MAGENTO',
+                        _SM.id_externo.in_(list(_grp_bundle_ids.keys())),
+                        _SM.ativo == True,
+                    ).all()
+                    _grp_sku_to_cenario = {}
+                    for sm_row in _grp_sku_maps:
+                        cenario_val = _grp_bundle_ids.get(sm_row.id_externo)
+                        if cenario_val and sm_row.sku:
+                            _grp_sku_to_cenario[normalize_sku(sm_row.sku)] = cenario_val
+                    if _grp_sku_to_cenario:
+                        isc_data_cic = fetch_isc_pricing_data(db=db)
+                        for _sku_cic, _cenario_cic in _grp_sku_to_cenario.items():
+                            _cic_info = isc_data_cic.get(_sku_cic, {})
+                            if _cic_info and _cenario_cic in grp_cenarios_ciclismo:
+                                grp_cenarios_ciclismo[_cenario_cic]["real_vendas"] = grp_cenarios_ciclismo[_cenario_cic].get("real_vendas", 0) + _cic_info.get("qtd_site", 0)
+                                grp_cenarios_ciclismo[_cenario_cic]["real_receita"] = round(grp_cenarios_ciclismo[_cenario_cic].get("real_receita", 0) + _cic_info.get("receita_liquida_site", 0), 2)
+                for _gcn in grp_cenarios_ciclismo:
+                    _gcd = grp_cenarios_ciclismo[_gcn]
+                    rv = _gcd.get("real_vendas", 0)
+                    rr = _gcd.get("real_receita", 0)
+                    _gcd.setdefault("real_vendas", 0)
+                    _gcd.setdefault("real_receita", 0)
+                    _gcd["real_tkt_medio"] = round(rr / rv, 2) if rv > 0 else 0
+                    _gck_cost = _gcd.get("custo_kit", 0)
+                    _gcd["margem_orcada"] = round((_gcd["tkt_medio_orcado"] - _gck_cost) * _gcd["orcado_pago"], 2) if _gcd["orcado_pago"] > 0 else 0
+                    _gcd["margem_realizada"] = round(rr - (_gck_cost * rv), 2) if rv > 0 else 0
+
         grouped_result = {
             "status": "success",
             "evento": evento,
@@ -7883,6 +7958,7 @@ def get_marketing_event_by_id(
             "comparacao_anual": comparacao_anual,
             "anos_disponiveis": [a[0] for a in anos_disponiveis],
             "faixas_preco_site": _grupo_faixas_preco_site,
+            "cenarios_ciclismo": grp_cenarios_ciclismo,
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
             "ultima_atualizacao_completa": _last_full_str,
             "avisos": get_isc_warnings(),
