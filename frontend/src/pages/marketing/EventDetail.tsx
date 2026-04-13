@@ -117,6 +117,7 @@ const EventDetail: React.FC = () => {
   const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
+  const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [curvaData, setCurvaData] = useState<any[]>([]);
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
@@ -226,6 +227,9 @@ const EventDetail: React.FC = () => {
         }
         if ((response as any).anos_disponiveis) {
           setAnosDisponiveis((response as any).anos_disponiveis);
+        }
+        if ((response as any).faixas_preco_site) {
+          setFaixasPrecoSite((response as any).faixas_preco_site);
         }
         setAvisos((response as any).avisos || []);
         setError(null);
@@ -2956,6 +2960,61 @@ const EventDetail: React.FC = () => {
           );
         })()}
       </div>
+
+      {faixasPrecoSite && (faixasPrecoSite.kit_basico.length > 0 || faixasPrecoSite.kit_participacao.length > 0) && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-blue-500" />
+            Faixas de Preço Site (Orçado)
+          </h3>
+          <div className="space-y-4">
+            {(['kit_basico', 'kit_participacao'] as const).map((tipoKit) => {
+              const faixas = faixasPrecoSite[tipoKit];
+              if (faixas.length === 0) return null;
+              const totalQtd = faixas.reduce((s, f) => s + f.qtd, 0);
+              const totalReceita = faixas.reduce((s, f) => s + f.total, 0);
+              const tktMedioGlobal = totalQtd > 0 ? totalReceita / totalQtd : 0;
+              const label = tipoKit === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
+              return (
+                <div key={tipoKit}>
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{label}</p>
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className={`border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Faixa</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Tkt Médio</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Total</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {faixas.map((f, i) => (
+                          <tr key={i} className={`border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30`}>
+                            <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">Faixa {f.faixa}</td>
+                            <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(f.qtd)}</td>
+                            <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400 font-medium">{formatCurrency(f.tkt_medio)}</td>
+                            <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(f.total)}</td>
+                            <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">{totalQtd > 0 ? ((f.qtd / totalQtd) * 100).toFixed(1) : '0.0'}%</td>
+                          </tr>
+                        ))}
+                        <tr className={`font-semibold ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                          <td className="py-2 px-3 text-gray-900 dark:text-white">Total</td>
+                          <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatNumber(totalQtd)}</td>
+                          <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">{formatCurrency(tktMedioGlobal)}</td>
+                          <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatCurrency(totalReceita)}</td>
+                          <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">100%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {isConsolidated && projetosVinculados.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">

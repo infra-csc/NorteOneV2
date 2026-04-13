@@ -10,7 +10,7 @@ from ...core import database as db_module
 from ...core.security import get_current_user
 from ...models.dimensoes import DimProjeto, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
 from ...models.user import Usuario
-from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
+from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem, CadastroFaixaPrecoSite
 from .inscricoes_consolidado import normalize_sku
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -574,6 +574,28 @@ def _get_ticket_atual_kit_nome_for_event(ticket_map: dict, projeto_ids) -> Optio
             return None
 
     return None
+
+
+def _get_faixas_preco_site_for_projeto_ids(db: Session, projeto_ids: list) -> dict:
+    """Returns faixas_preco_site aggregated across all cadastros for the given project IDs."""
+    if not projeto_ids:
+        return {"kit_basico": [], "kit_participacao": []}
+    cadastros = db.query(CadastroEvento.id).filter(CadastroEvento.projeto_id.in_(projeto_ids)).all()
+    cadastro_ids = [c.id for c in cadastros]
+    if not cadastro_ids:
+        return {"kit_basico": [], "kit_participacao": []}
+    faixas = db.query(CadastroFaixaPrecoSite).filter(
+        CadastroFaixaPrecoSite.cadastro_id.in_(cadastro_ids)
+    ).order_by(CadastroFaixaPrecoSite.faixa).all()
+    kit_basico = [
+        {"faixa": f.faixa, "qtd": f.qtd or 0, "tkt_medio": float(f.tkt_medio or 0), "total": float(f.total or 0)}
+        for f in faixas if f.tipo_kit == "kit_basico" and (f.qtd or 0) > 0
+    ]
+    kit_participacao = [
+        {"faixa": f.faixa, "qtd": f.qtd or 0, "tkt_medio": float(f.tkt_medio or 0), "total": float(f.total or 0)}
+        for f in faixas if f.tipo_kit == "kit_participacao" and (f.qtd or 0) > 0
+    ]
+    return {"kit_basico": kit_basico, "kit_participacao": kit_participacao}
 
 
 router = APIRouter(prefix="/marketing", tags=["Marketing ISC"])
@@ -3056,7 +3078,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "10"  # v10: ISC reads from PostgreSQL snapshot (no MySQL in read path)
+_DETAIL_CACHE_VERSION = "11"  # v11: faixas_preco_site added to event detail response
 
 def build_query_isc_ativo(excluded_ids: list = None) -> str:
     excl_clause = ""
@@ -7130,14 +7152,15 @@ def get_marketing_event_by_id(
                     _cached_evt.get("date", "") if isinstance(_cached_evt, dict)
                     else getattr(_cached_evt, "date", "")
                 )
-                # SWR trigger: recompute only when _computed_at_date is missing.
-                # Version-based invalidation was removed; freshness is now owned by:
+                # SWR trigger: recompute when _computed_at_date is missing or cache version is outdated.
+                # Freshness is also owned by:
                 #   (a) event_detail_cache.invalidate() called by sincronizar_hoje_batch after sync
                 #   (b) SmartCache TTL-based SWR for natural expiry
-                _needs_recompute = not _cached_date
+                _cached_version = cached_detail.get("_cache_version")
+                _needs_recompute = not _cached_date or _cached_version != _DETAIL_CACHE_VERSION
                 if _needs_recompute:
                     if detail_cache_key not in _swr_recompute_in_progress:
-                        reason = "empty date"
+                        reason = "empty date" if not _cached_date else f"version mismatch ({_cached_version} != {_DETAIL_CACHE_VERSION})"
                         logger.info(f"[Cache] event_detail '{detail_cache_key}' {reason} — serving stale + triggering background recompute")
                         _swr_recompute_in_progress.add(detail_cache_key)
                         import threading as _threading
@@ -7583,6 +7606,7 @@ def get_marketing_event_by_id(
             datetime.fromtimestamp(_last_full_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
             if _last_full_ts else None
         )
+        _grupo_faixas_preco_site = _get_faixas_preco_site_for_projeto_ids(db, [p.id for p in projetos])
         grouped_result = {
             "status": "success",
             "evento": evento,
@@ -7591,6 +7615,7 @@ def get_marketing_event_by_id(
             "projetos_vinculados": [{"id": p.id, "nome": p.evento, "sku": p.codigo} for p in projetos],
             "comparacao_anual": comparacao_anual,
             "anos_disponiveis": [a[0] for a in anos_disponiveis],
+            "faixas_preco_site": _grupo_faixas_preco_site,
             "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
             "ultima_atualizacao_completa": _last_full_str,
             "avisos": get_isc_warnings(),
@@ -7640,12 +7665,13 @@ def get_marketing_event_by_id(
                 _cached_evt_sa.get("date", "") if isinstance(_cached_evt_sa, dict)
                 else getattr(_cached_evt_sa, "date", "")
             )
-            # SWR trigger: recompute only when _computed_at_date is missing.
-            # Freshness is owned by event_detail_cache.invalidate() (called after sync) + SmartCache TTL.
-            _sa_needs_recompute = not _cached_date_sa
+            # SWR trigger: recompute when _computed_at_date is missing or cache version is outdated.
+            # Freshness is also owned by event_detail_cache.invalidate() (called after sync) + SmartCache TTL.
+            _sa_cached_version = cached_standalone.get("_cache_version")
+            _sa_needs_recompute = not _cached_date_sa or _sa_cached_version != _DETAIL_CACHE_VERSION
             if _sa_needs_recompute:
                 if standalone_cache_key not in _swr_recompute_in_progress:
-                    sa_reason = "empty date"
+                    sa_reason = "empty date" if not _cached_date_sa else f"version mismatch ({_sa_cached_version} != {_DETAIL_CACHE_VERSION})"
                     logger.info(f"[Cache] standalone event_detail '{standalone_cache_key}' {sa_reason} — serving stale + triggering background recompute")
                     _swr_recompute_in_progress.add(standalone_cache_key)
                     import threading as _threading
@@ -7845,11 +7871,13 @@ def get_marketing_event_by_id(
             "snapshot_playbook_letter": a.snapshot_playbook_letter,
         })
     
+    _sa_faixas_preco_site = _get_faixas_preco_site_for_projeto_ids(db, [projeto.id])
     standalone_result = {
         "status": "success",
         "evento": evento,
         "dailySales": daily_sales,
         # commercialActions intentionally excluded from cache — always fetched fresh per request
+        "faixas_preco_site": _sa_faixas_preco_site,
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
         "avisos": get_isc_warnings(),
         "_cache_version": _DETAIL_CACHE_VERSION
