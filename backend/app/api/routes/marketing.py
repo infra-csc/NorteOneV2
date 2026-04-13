@@ -6076,9 +6076,20 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
         if not uncached:
             curva_info_map = {gn: cached_ci.get(gn, {"tipo_curva": "historico", "fonte_curva": gn, "ano_referencia": prev_ano}) for gn in filtered}
             missing_from_cache = [g for g in all_requested_names if g not in filtered]
+            mc_estado_map = {}
+            for gn in missing_from_cache:
+                estado_row = db.query(DimProjeto.estado).join(
+                    SkuMapping, SkuMapping.sku == DimProjeto.codigo
+                ).filter(
+                    SkuMapping.evento_grupo == gn,
+                    DimProjeto.estado.isnot(None)
+                ).first()
+                if estado_row:
+                    mc_estado_map[gn] = estado_row[0]
             for gn in missing_from_cache:
                 try:
-                    fb_pattern, fb_info = _resolve_hist_pattern(db, gn, ano)
+                    estado = mc_estado_map.get(gn)
+                    fb_pattern, fb_info = _resolve_hist_pattern(db, gn, ano, estado=estado)
                     if fb_pattern:
                         filtered[gn] = fb_pattern
                     curva_info_map[gn] = fb_info
@@ -6228,9 +6239,21 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
         }
 
     missing = [g for g in all_requested_names if g not in result]
+    missing_estado_map = {}
+    if missing:
+        for gn in missing:
+            estado_row = db.query(DimProjeto.estado).join(
+                SkuMapping, SkuMapping.sku == DimProjeto.codigo
+            ).filter(
+                SkuMapping.evento_grupo == gn,
+                DimProjeto.estado.isnot(None)
+            ).first()
+            if estado_row:
+                missing_estado_map[gn] = estado_row[0]
     for gn in missing:
         try:
-            fb_pattern, fb_info = _resolve_hist_pattern(db, gn, ano)
+            estado = missing_estado_map.get(gn)
+            fb_pattern, fb_info = _resolve_hist_pattern(db, gn, ano, estado=estado)
             if fb_pattern:
                 result[gn] = fb_pattern
                 curva_info_map[gn] = fb_info

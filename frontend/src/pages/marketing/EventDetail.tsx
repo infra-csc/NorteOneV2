@@ -400,12 +400,13 @@ const EventDetail: React.FC = () => {
 
   const handleSetOverride = async (curvaGrupo: string | null) => {
     if (!id) return;
+    const grupoNome = isConsolidated ? id.replace(/^grp_/, '') : id;
     setSavingOverride(true);
     try {
-      const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: id } });
-      const matchedGrupo = gruposRes.data.find((g: any) => g.nome === id);
+      const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: grupoNome } });
+      const matchedGrupo = gruposRes.data.find((g: any) => g.nome === grupoNome);
       if (!matchedGrupo) {
-        console.error('Grupo não encontrado:', id);
+        console.error('Grupo não encontrado:', grupoNome);
         setSavingOverride(false);
         return;
       }

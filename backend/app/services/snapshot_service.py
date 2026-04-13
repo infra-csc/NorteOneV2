@@ -272,13 +272,26 @@ def consolidar_curvas_historicas_batch(db: Session):
         except Exception as e:
             logger.error(f"Erro ao consolidar curva histórica para grupo='{grupo}': {e}")
 
+    from ..models.dimensoes import SkuMapping as SkuMappingModel, DimProjeto
+    grupo_estado_map = {}
+    for grupo in grupos_unicos:
+        estado_row = db.query(DimProjeto.estado).join(
+            SkuMappingModel, SkuMappingModel.sku == DimProjeto.codigo
+        ).filter(
+            SkuMappingModel.evento_grupo == grupo,
+            DimProjeto.estado.isnot(None)
+        ).first()
+        if estado_row:
+            grupo_estado_map[grupo] = estado_row[0]
+
     for grupo in grupos_unicos:
         existing = get_curva_historica_snapshot(db, grupo, prev_ano)
         if existing:
             continue
 
         try:
-            fb_pattern, fb_info = _resolve_hist_pattern(db, grupo, ano)
+            estado = grupo_estado_map.get(grupo)
+            fb_pattern, fb_info = _resolve_hist_pattern(db, grupo, ano, estado=estado)
             if fb_pattern and fb_info.get("tipo_curva") != "linear":
                 save_curva_historica_snapshot(
                     db, grupo, prev_ano, fb_pattern,
