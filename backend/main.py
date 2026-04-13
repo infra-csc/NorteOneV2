@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import os
 import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, stop_ssh_watchdog, engine_ssh
-from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
@@ -987,6 +987,7 @@ def _run_column_migrations():
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_vendas_acumuladas INTEGER",
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_playbook_letter VARCHAR(5)",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS recebe_alertas_corte BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil VARCHAR(500)",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS circuito VARCHAR(200)",
@@ -1418,6 +1419,7 @@ app.include_router(distancias.router, prefix="/api", tags=["Distâncias"])
 app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importação"])
 app.include_router(admin.router, tags=["Admin"])
 app.include_router(kit_config.router, tags=["Kit Config"])
+app.include_router(profile.router, prefix="/api", tags=["Perfil"])
 
 @app.get("/api/health")
 async def health_check():

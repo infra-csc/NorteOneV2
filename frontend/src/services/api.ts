@@ -1188,4 +1188,26 @@ export const marketingService = {
   },
 };
 
+export const profileService = {
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    const response = await api.put('/profile/password', {
+      current_password: currentPassword,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
+  uploadPhoto: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/profile/photo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+  deletePhoto: async () => {
+    const response = await api.delete('/profile/photo');
+    return response.data;
+  },
+};
+
 export default api;

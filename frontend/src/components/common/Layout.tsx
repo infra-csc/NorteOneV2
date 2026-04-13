@@ -376,9 +376,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               {isDark ? <Sun className="text-yellow-400" /> : <Moon className="text-gray-600" />}
             </button>
             
-            <div className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-              {user?.nome} <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 ml-2">{user?.perfil_acesso_nome || 'Sem perfil'}</span>
-            </div>
+            <Link to="/perfil" className={`flex items-center gap-2 text-sm hover:opacity-80 transition-opacity ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+              {user?.foto_perfil ? (
+                <img src={user.foto_perfil} alt="" className="w-8 h-8 rounded-full object-cover border-2 border-indigo-300 dark:border-indigo-600" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold border-2 border-indigo-300 dark:border-indigo-600">
+                  {user?.nome ? user.nome.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() : '?'}
+                </div>
+              )}
+              {user?.nome} <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 ml-1">{user?.perfil_acesso_nome || 'Sem perfil'}</span>
+            </Link>
             
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
               <LogOut className="w-5 h-5" />

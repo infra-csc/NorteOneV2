@@ -26,6 +26,7 @@ const KitConfig = lazy(() => import('./pages/admin/KitConfig'));
 const SaudeSistema = lazy(() => import('./pages/admin/SaudeSistema'));
 const CotacoesImportacao = lazy(() => import('./pages/cotacoes/CotacoesImportacao'));
 const ManualSistema = lazy(() => import('./pages/manual/ManualSistema'));
+const Profile = lazy(() => import('./pages/profile/Profile'));
 
 
 const PageLoader = () => (
@@ -77,6 +78,7 @@ function App() {
               <Route path="/admin/saude-sistema" element={<PrivateRoute><Layout><SaudeSistema /></Layout></PrivateRoute>} />
               <Route path="/cotacoes" element={<PrivateRoute><Layout><CotacoesImportacao /></Layout></PrivateRoute>} />
               <Route path="/manual" element={<PrivateRoute><Layout><ManualSistema /></Layout></PrivateRoute>} />
+              <Route path="/perfil" element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>
         </Router>

@@ -37,6 +37,7 @@ class UserResponse(BaseModel):
     centro_custo_id: Optional[int] = None
     ativo: bool
     recebe_alertas_corte: bool = False
+    foto_perfil: Optional[str] = None
 
     class Config:
         from_attributes = True

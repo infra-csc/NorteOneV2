@@ -14,6 +14,7 @@ class Usuario(Base):
     centro_custo_id = Column(Integer, ForeignKey("dim_centro_custo.id"))
     ativo = Column(Boolean, default=True)
     recebe_alertas_corte = Column(Boolean, default=False)
+    foto_perfil = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=func.now())
     last_activity = Column(DateTime, nullable=True)
     

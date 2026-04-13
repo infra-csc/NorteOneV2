@@ -8,6 +8,7 @@ export interface User {
   centro_custo_id?: number;
   ativo: boolean;
   recebe_alertas_corte?: boolean;
+  foto_perfil?: string | null;
 }
 
 export interface CentroCusto {
