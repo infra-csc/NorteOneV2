@@ -122,6 +122,7 @@ const EventDetail: React.FC = () => {
   const [curvaData, setCurvaData] = useState<any[]>([]);
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [showCurveInfoModal, setShowCurveInfoModal] = useState(false);
   const [availableCurves, setAvailableCurves] = useState<{grupo: string; anoReferencia: number; pontos: number; origem: string}[]>([]);
   const [overrideSearch, setOverrideSearch] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
@@ -1826,9 +1827,10 @@ const EventDetail: React.FC = () => {
                   const style = styles[tipo || 'linear'] || styles.linear;
                   const label = labels[tipo || 'linear'] || labels.linear;
                   return (
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${style}`}>
+                    <button onClick={() => setShowCurveInfoModal(true)} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border cursor-pointer hover:opacity-80 transition-opacity ${style}`} title="Ver detalhes da curva de referência">
                       {label}
-                    </span>
+                      <Info className="w-2.5 h-2.5" />
+                    </button>
                   );
                 })()}
                 <button onClick={openOverrideModal} className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Alterar curva de referência">
@@ -2286,9 +2288,10 @@ const EventDetail: React.FC = () => {
               const label = labels[tipo || 'linear'] || labels.linear;
               return (
                 <>
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${style}`}>
+                  <button onClick={() => setShowCurveInfoModal(true)} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border cursor-pointer hover:opacity-80 transition-opacity ${style}`} title="Ver detalhes da curva de referência">
                     {label}
-                  </span>
+                    <Info className="w-2.5 h-2.5" />
+                  </button>
                   <button onClick={openOverrideModal} className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Alterar curva de referência">
                     <Pencil className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
                   </button>
@@ -3312,6 +3315,166 @@ const EventDetail: React.FC = () => {
       })()}
       </>
       )}
+
+      {showCurveInfoModal && (() => {
+        const tipo = event?.iscComponents?.tipoCurva || 'linear';
+        const fonte = event?.iscComponents?.fonteCurva || '';
+        const anoRef = event?.iscComponents?.anoReferencia;
+
+        const CURVE_CHAIN = [
+          {
+            key: 'manual',
+            priority: 1,
+            label: 'Manual',
+            description: 'Curva de outro evento, escolhida manualmente pela equipe.',
+            detail: 'Quando definida, tem prioridade absoluta sobre todas as outras opções.',
+            colors: { bg: 'bg-green-50 dark:bg-green-950/30', border: 'border-green-200 dark:border-green-800', text: 'text-green-700 dark:text-green-300', badge: 'bg-green-100 dark:bg-green-900/60 text-green-800 dark:text-green-200', dot: 'bg-green-500', ring: 'ring-green-500' },
+          },
+          {
+            key: 'historico',
+            priority: 2,
+            label: 'Histórico',
+            description: 'Curva de vendas do próprio evento no ano anterior.',
+            detail: 'Fonte mais confiável — usa o padrão real de vendas do mesmo evento.',
+            colors: { bg: 'bg-blue-50 dark:bg-blue-950/30', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-700 dark:text-blue-300', badge: 'bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-200', dot: 'bg-blue-500', ring: 'ring-blue-500' },
+          },
+          {
+            key: 'circuito',
+            priority: 3,
+            label: 'Circuito',
+            description: 'Evento do mesmo circuito e mesma cidade.',
+            detail: 'Quando o evento não tem histórico próprio, busca um evento similar do mesmo circuito na mesma localidade.',
+            colors: { bg: 'bg-purple-50 dark:bg-purple-950/30', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-700 dark:text-purple-300', badge: 'bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-200', dot: 'bg-purple-500', ring: 'ring-purple-500' },
+          },
+          {
+            key: 'circuito_similar',
+            priority: 4,
+            label: 'Circuito (Média)',
+            description: 'Média ponderada de todos os eventos do mesmo circuito.',
+            detail: 'Quando não há evento exato na mesma cidade, faz uma média de todos os eventos do circuito.',
+            colors: { bg: 'bg-violet-50 dark:bg-violet-950/30', border: 'border-violet-200 dark:border-violet-800', text: 'text-violet-700 dark:text-violet-300', badge: 'bg-violet-100 dark:bg-violet-900/60 text-violet-800 dark:text-violet-200', dot: 'bg-violet-500', ring: 'ring-violet-500' },
+          },
+          {
+            key: 'regional',
+            priority: 5,
+            label: 'Regional',
+            description: 'Média de eventos no mesmo estado (mínimo 2 curvas).',
+            detail: 'Último recurso baseado em dados reais — agrupa eventos da mesma região geográfica.',
+            colors: { bg: 'bg-gray-50 dark:bg-gray-800/50', border: 'border-gray-300 dark:border-gray-600', text: 'text-gray-700 dark:text-gray-300', badge: 'bg-gray-100 dark:bg-gray-700/60 text-gray-800 dark:text-gray-200', dot: 'bg-gray-500', ring: 'ring-gray-500' },
+          },
+          {
+            key: 'linear',
+            priority: 6,
+            label: 'Linear',
+            description: 'Modelo linear de crescimento em 90 dias.',
+            detail: 'Fallback final quando nenhuma curva histórica está disponível. Assume crescimento constante.',
+            colors: { bg: 'bg-amber-50 dark:bg-amber-950/30', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-700 dark:text-amber-300', badge: 'bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200', dot: 'bg-amber-500', ring: 'ring-amber-500' },
+          },
+        ];
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setShowCurveInfoModal(false)}>
+            <div className={`w-full max-w-2xl rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} max-h-[85vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
+              <div className={`flex items-center justify-between p-5 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-xl ${isDark ? 'bg-indigo-600/20' : 'bg-indigo-100'}`}>
+                    <Activity className={`w-5 h-5 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                  </div>
+                  <div>
+                    <h3 className={`font-bold text-base ${isDark ? 'text-white' : 'text-gray-900'}`}>Curva de Referência</h3>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Como o sistema escolhe a curva de benchmark para este evento</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowCurveInfoModal(false)} className="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+
+              <div className="overflow-y-auto flex-1 p-5 space-y-3">
+                <div className={`p-4 rounded-xl border-2 border-dashed ${isDark ? 'border-indigo-500/40 bg-indigo-950/20' : 'border-indigo-300 bg-indigo-50/50'}`}>
+                  <p className={`text-sm leading-relaxed ${isDark ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                    O sistema percorre a cadeia abaixo em ordem de prioridade. A <strong>primeira opção com dados disponíveis</strong> é selecionada automaticamente. Você pode alterar manualmente clicando no botão de edição ao lado do badge.
+                  </p>
+                </div>
+
+                <div className="relative">
+                  <div className={`absolute left-6 top-8 bottom-4 w-0.5 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
+
+                  <div className="space-y-2">
+                    {CURVE_CHAIN.map((curve, idx) => {
+                      const isActive = tipo === curve.key;
+                      return (
+                        <div
+                          key={curve.key}
+                          className={`relative rounded-2xl border-2 transition-all duration-200 ${
+                            isActive
+                              ? `${curve.colors.border} ${curve.colors.bg} ${curve.colors.ring} ring-2`
+                              : isDark
+                                ? 'border-gray-700 bg-gray-800/50 opacity-60'
+                                : 'border-gray-200 bg-white opacity-60'
+                          }`}
+                        >
+                          <div className="p-4 flex items-start gap-4">
+                            <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black ${
+                              isActive ? curve.colors.badge : isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-400'
+                            }`}>
+                              {curve.priority}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <span className={`text-sm font-bold ${isActive ? curve.colors.text : isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {curve.label}
+                                </span>
+                                {isActive && (
+                                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${curve.colors.badge} flex items-center gap-1.5`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full inline-block ${curve.colors.dot} animate-pulse`} />
+                                    Ativa {fonte ? `· ${fonte}` : ''} {anoRef ? `· ${anoRef}` : ''}
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-sm ${isActive ? (isDark ? 'text-gray-300' : 'text-gray-700') : isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {curve.description}
+                              </p>
+                              {isActive && (
+                                <p className={`text-xs mt-1.5 italic ${isDark ? 'text-gray-400' : 'text-gray-500'} bg-white/40 dark:bg-black/20 rounded-lg px-3 py-1.5 border-l-4 ${curve.colors.border}`}>
+                                  {curve.detail}
+                                </p>
+                              )}
+                            </div>
+                            {!isActive && idx < CURVE_CHAIN.findIndex(c => c.key === tipo) && (
+                              <span className={`shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-full ${isDark ? 'bg-gray-700 text-gray-500' : 'bg-gray-100 text-gray-400'}`}>
+                                Sem dados
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className={`p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'} flex items-center justify-between`}>
+                <button
+                  onClick={() => { setShowCurveInfoModal(false); openOverrideModal(); }}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${isDark ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Pencil className="w-3.5 h-3.5" />
+                    Alterar Curva
+                  </div>
+                </button>
+                <button
+                  onClick={() => setShowCurveInfoModal(false)}
+                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${isDark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showOverrideModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">

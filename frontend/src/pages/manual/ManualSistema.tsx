@@ -22,6 +22,7 @@ import {
   CheckCircle2,
   ArrowRight,
   Globe,
+  GitBranch,
   type LucideIcon
 } from 'lucide-react';
 
@@ -37,6 +38,7 @@ const sections: Section[] = [
   { id: 'dashboard', title: 'Dashboard Principal', icon: LayoutDashboard, keywords: ['dashboard', 'kpi', 'filtros', 'indicadores', 'principal'] },
   { id: 'sku-mapping', title: 'Mapeamento de SKU', icon: Package, keywords: ['sku', 'mapeamento', 'mapear', 'evento externo', 'ativo', 'magento', 'grupo'] },
   { id: 'dash-isc', title: 'Dashboard ISC', icon: Activity, keywords: ['isc', 'saúde comercial', 'curva', 'rolling', 'ia 7/30', 'aceleração', 'marketing'] },
+  { id: 'curvas-referencia', title: 'Curvas de Referência', icon: GitBranch, keywords: ['curva', 'benchmark', 'histórico', 'fallback', 'circuito', 'regional', 'linear', 'manual', 'referência'] },
   { id: 'config-marketing', title: 'Configurações de Marketing', icon: Settings, keywords: ['configuração', 'pesos', 'benchmark', 'meta', 'parâmetros'] },
   { id: 'comparativo', title: 'Comparativo de Eventos', icon: BarChart3, keywords: ['comparativo', 'comparação', 'eventos', 'análise'] },
   { id: 'usuarios', title: 'Gestão de Usuários', icon: UserCog, keywords: ['usuário', 'permissão', 'perfil', 'acesso', 'módulo'] },
@@ -360,6 +362,144 @@ const DashISCContent: React.FC = () => (
   </div>
 );
 
+const CurvasReferenciaContent: React.FC = () => {
+  const { isDark } = useTheme();
+
+  const curves = [
+    {
+      priority: 1,
+      label: 'Manual',
+      badge: isDark ? 'bg-green-900/60 text-green-200 border-green-700' : 'bg-green-100 text-green-800 border-green-200',
+      bg: isDark ? 'bg-green-950/30 border-green-800' : 'bg-green-50 border-green-200',
+      dot: 'bg-green-500',
+      description: 'Curva de outro evento, escolhida manualmente pela equipe.',
+      detail: 'Quando definida, tem prioridade absoluta sobre todas as outras opções. Útil quando se sabe que o padrão de vendas de outro evento é mais representativo.',
+    },
+    {
+      priority: 2,
+      label: 'Histórico',
+      badge: isDark ? 'bg-blue-900/60 text-blue-200 border-blue-700' : 'bg-blue-100 text-blue-800 border-blue-200',
+      bg: isDark ? 'bg-blue-950/30 border-blue-800' : 'bg-blue-50 border-blue-200',
+      dot: 'bg-blue-500',
+      description: 'Curva de vendas do próprio evento no ano anterior.',
+      detail: 'Fonte mais confiável. Usa a distribuição real de vendas (% acumulado por D-) do mesmo evento em sua edição anterior.',
+    },
+    {
+      priority: 3,
+      label: 'Circuito',
+      badge: isDark ? 'bg-purple-900/60 text-purple-200 border-purple-700' : 'bg-purple-100 text-purple-800 border-purple-200',
+      bg: isDark ? 'bg-purple-950/30 border-purple-800' : 'bg-purple-50 border-purple-200',
+      dot: 'bg-purple-500',
+      description: 'Evento do mesmo circuito e mesma cidade.',
+      detail: 'Quando o evento não tem histórico próprio, busca um evento do mesmo circuito na mesma localidade. Eventos no mesmo circuito e cidade tendem a ter padrões de venda similares.',
+    },
+    {
+      priority: 4,
+      label: 'Circuito (Média)',
+      badge: isDark ? 'bg-violet-900/60 text-violet-200 border-violet-700' : 'bg-violet-100 text-violet-800 border-violet-200',
+      bg: isDark ? 'bg-violet-950/30 border-violet-800' : 'bg-violet-50 border-violet-200',
+      dot: 'bg-violet-500',
+      description: 'Média ponderada de todos os eventos do mesmo circuito.',
+      detail: 'Quando não há evento exato na mesma cidade, calcula uma média ponderada de todos os eventos do circuito, independente da localidade.',
+    },
+    {
+      priority: 5,
+      label: 'Regional',
+      badge: isDark ? 'bg-gray-700/60 text-gray-200 border-gray-600' : 'bg-gray-100 text-gray-800 border-gray-300',
+      bg: isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-300',
+      dot: 'bg-gray-500',
+      description: 'Média de eventos no mesmo estado (mínimo 2 curvas).',
+      detail: 'Último recurso baseado em dados reais. Agrupa eventos da mesma região geográfica para criar uma curva média regional.',
+    },
+    {
+      priority: 6,
+      label: 'Linear',
+      badge: isDark ? 'bg-amber-900/60 text-amber-200 border-amber-700' : 'bg-amber-100 text-amber-800 border-amber-200',
+      bg: isDark ? 'bg-amber-950/30 border-amber-800' : 'bg-amber-50 border-amber-200',
+      dot: 'bg-amber-500',
+      description: 'Modelo linear de crescimento em 90 dias.',
+      detail: 'Fallback final quando nenhuma curva histórica está disponível. Assume um crescimento constante e uniforme ao longo de 90 dias.',
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <SectionTitle>Curvas de Referência (Benchmark)</SectionTitle>
+      <Paragraph>
+        A curva de referência é o coração do cálculo de Curva D-% no ISC. Ela define <strong>qual deveria ser o ritmo de vendas esperado</strong> para
+        cada evento, permitindo comparar o desempenho real contra uma expectativa baseada em dados.
+      </Paragraph>
+
+      <SubTitle>O que é a curva de referência?</SubTitle>
+      <Paragraph>
+        Para cada evento, o sistema precisa de uma curva que mostre como as vendas deveriam se distribuir ao longo do tempo
+        (do início das vendas até o fechamento das inscrições). Essa curva vem de dados históricos — idealmente do mesmo evento
+        no ano anterior. Quando não há histórico, o sistema busca alternativas similares automaticamente.
+      </Paragraph>
+
+      <SubTitle>Cadeia de Fallback</SubTitle>
+      <Paragraph>
+        O sistema percorre automaticamente a cadeia abaixo, em ordem de prioridade.
+        A <strong>primeira opção com dados disponíveis</strong> é selecionada. Se nenhuma das anteriores tem dados, o sistema avança para a próxima.
+      </Paragraph>
+
+      <div className="space-y-2 my-4">
+        {curves.map((curve) => (
+          <div key={curve.priority} className={`rounded-xl border-2 ${curve.bg} overflow-hidden`}>
+            <div className="p-4 flex items-start gap-4">
+              <div className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-sm font-black border ${curve.badge}`}>
+                {curve.priority}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`w-2 h-2 rounded-full ${curve.dot}`} />
+                  <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{curve.label}</span>
+                </div>
+                <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  {curve.description}
+                </p>
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'} italic`}>
+                  {curve.detail}
+                </p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <SubTitle>Onde ver a curva ativa</SubTitle>
+      <Paragraph>
+        Na página de detalhe de cada evento, um <strong>badge colorido</strong> indica qual tipo de curva está sendo utilizado.
+        O badge aparece em dois locais: no card de Curva D-% (seção de ISC) e no título do gráfico de Atingimento da Meta.
+      </Paragraph>
+      <Paragraph>
+        Clicando no badge você pode ver a explicação visual completa da cadeia de fallback, com destaque para a curva ativa do evento.
+      </Paragraph>
+
+      <SubTitle>Como alterar manualmente</SubTitle>
+      <Step number={1} title="Abrir o seletor">
+        No detalhe do evento, clique no ícone de lápis ao lado do badge da curva. Isso abre o modal de seleção.
+      </Step>
+      <Step number={2} title="Escolher a curva">
+        Selecione um evento disponível na lista para usar como referência, ou escolha "Automático" para voltar à cadeia de fallback padrão.
+      </Step>
+      <Step number={3} title="Efeito imediato">
+        A alteração recalcula imediatamente o ISC e todos os indicadores que dependem da curva. O badge muda para verde com a fonte "Manual".
+      </Step>
+
+      <TipBox>
+        Use o override manual quando souber que o padrão de vendas de outro evento é mais representativo — por exemplo,
+        quando um evento mudou de cidade mas mantém o mesmo público-alvo.
+      </TipBox>
+
+      <AlertBox>
+        Ao definir uma curva manual, o sistema ignora completamente a cadeia de fallback. Se a curva manual
+        for removida, o sistema volta automaticamente para a melhor opção disponível.
+      </AlertBox>
+    </div>
+  );
+};
+
 const ConfigMarketingContent: React.FC = () => (
   <div className="space-y-4">
     <SectionTitle>Configurações de Marketing</SectionTitle>
@@ -665,6 +805,7 @@ const sectionContentMap: Record<string, React.FC> = {
   'dashboard': DashboardContent,
   'sku-mapping': SkuMappingContent,
   'dash-isc': DashISCContent,
+  'curvas-referencia': CurvasReferenciaContent,
   'config-marketing': ConfigMarketingContent,
   'comparativo': ComparativoContent,
   'usuarios': UsuariosContent,
