@@ -36,6 +36,7 @@ export interface ISCComponents {
   ia730: number;
   curvaDPercent: number;
   rolling14d: number;
+  tipoCurva?: string;
 }
 
 export type ISCStatus = 'accelerating' | 'stable' | 'decelerating';

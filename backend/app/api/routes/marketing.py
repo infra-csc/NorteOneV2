@@ -604,6 +604,7 @@ class ISCComponents(BaseModel):
     ia730: float
     curvaDPercent: float
     rolling14d: float
+    tipoCurva: str = "linear"
 
 class CommercialAction(BaseModel):
     id: str
@@ -1040,6 +1041,7 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     
     progress_percent = current_sales / sales_goal
 
+    tipo_curva = "linear"
     if hist_pattern and len(hist_pattern) > 0:
         hist_max_dm = max(hist_pattern.keys())
         if d_minus_effective > hist_max_dm:
@@ -1051,6 +1053,7 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
             expected_progress = max(elapsed_days / total_days, 0.01)
             curva_d_percent = progress_percent / expected_progress
         else:
+            tipo_curva = "historico"
             expected_progress = _interpolate_hist_pattern(hist_pattern, d_minus_effective)
             if expected_progress <= 0:
                 expected_progress = 0.01
@@ -1121,7 +1124,8 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     return ISCComponents(
         ia730=round(ia730, 4),
         curvaDPercent=round(curva_d_percent, 4),
-        rolling14d=round(rolling14d, 4)
+        rolling14d=round(rolling14d, 4),
+        tipoCurva=tipo_curva
     )
 
 _ISC_DESVIO_CAP = 0.30

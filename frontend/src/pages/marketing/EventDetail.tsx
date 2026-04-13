@@ -1761,6 +1761,17 @@ const EventDetail: React.FC = () => {
                   </>
                 )}
               </div>
+              <div className="mt-1.5">
+                {event.iscComponents?.tipoCurva === 'historico' ? (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700">
+                    Histórico {curvaAnoAnterior}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
+                    Curva Linear
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
@@ -2184,9 +2195,20 @@ const EventDetail: React.FC = () => {
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-white">
-            Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
-          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-semibold text-gray-900 dark:text-white">
+              Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
+            </h3>
+            {event.iscComponents?.tipoCurva === 'historico' ? (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700">
+                Histórico {curvaAnoAnterior}
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
+                Curva Linear
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
               <button
