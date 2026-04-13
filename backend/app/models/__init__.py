@@ -9,7 +9,7 @@ from app.models.cadastro_evento import (
     CircuitoProduto, Localizacao, DistanciaOpcao
 )
 from app.models.cotacao import (
-    ViagemCotacao, Fornecedor, Cotacao, CustoImportacao, CotacaoEvento
+    ViagemCotacao, Fornecedor, Cotacao, CustoImportacao, CotacaoEvento, CotacaoFob
 )
 from app.models.cache_entry import CacheEntry
 from app.models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot

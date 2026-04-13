@@ -169,3 +169,27 @@ class DashboardCotacaoResponse(BaseModel):
     por_evento: List[dict] = []
     por_fornecedor: List[dict] = []
     por_status: List[dict] = []
+
+
+class CotacaoFobCreate(BaseModel):
+    circuito: str
+    produto: str
+    valor_fob: float = 0
+
+
+class CotacaoFobUpdate(BaseModel):
+    circuito: Optional[str] = None
+    produto: Optional[str] = None
+    valor_fob: Optional[float] = None
+
+
+class CotacaoFobResponse(BaseModel):
+    id: int
+    circuito: str
+    produto: str
+    valor_fob: float
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

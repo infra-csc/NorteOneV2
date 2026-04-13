@@ -61,7 +61,7 @@ The frontend uses React, TypeScript, and Tailwind CSS for a modern, consistent u
 - **Strategic Insights Dashboard:** Calculates insights including Acceleration Index, Daily Pace, Closing Projection, and Category Mix.
 - **Marketing Settings Persistence:** API for persisting marketing settings (key-value JSON), actively used in ISC calculations.
 - **Event Detail Layout:** Redesigned layout for improved readability, including D- bar, ISC gauge, sales indicators, and a "Controle Diário" tab with a spreadsheet-style table.
-- **Cotação & Importação (Quote & Import):** System for managing product quotes and import costs, including suppliers, exchange rates, and event linking, with a dashboard and access control.
+- **Cotação & Importação (Quote & Import):** Simplified FOB quote registration page. Three fields: Circuito (searchable dropdown with add-new), Produto (same), and Valor FOB (USD). Data stored in `cotacao_fob` table. Backend: `/cotacoes/fob` CRUD + `/fob/circuitos` and `/fob/produtos` for distinct dropdown options. Old viagens/fornecedores/dashboard models preserved in DB but no longer used by the UI.
 - **Manual do Sistema:** Built-in documentation/knowledge base page at `/manual`, accessible to all authenticated users via the sidebar, covering all system features with search, navigation, and theme support.
 
 ## External Dependencies

@@ -98,3 +98,14 @@ class CotacaoEvento(Base):
 
     cotacao = relationship("Cotacao", back_populates="eventos")
     evento = relationship("CadastroEvento")
+
+
+class CotacaoFob(Base):
+    __tablename__ = "cotacao_fob"
+
+    id = Column(Integer, primary_key=True, index=True)
+    circuito = Column(String(200), nullable=False)
+    produto = Column(String(200), nullable=False)
+    valor_fob = Column(Numeric(12, 4), nullable=False, default=0)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

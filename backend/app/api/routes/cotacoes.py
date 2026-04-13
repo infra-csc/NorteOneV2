@@ -4,7 +4,7 @@ from typing import List, Optional
 from ...core.database import get_db
 from ...core.security import get_current_user, require_permission
 from ...models.user import Usuario
-from ...models.cotacao import ViagemCotacao, Cotacao, Fornecedor, CustoImportacao, CotacaoEvento
+from ...models.cotacao import ViagemCotacao, Cotacao, Fornecedor, CustoImportacao, CotacaoEvento, CotacaoFob
 from ...models.cadastro_evento import CadastroEvento
 from ...schemas.cotacao import (
     ViagemCotacaoCreate, ViagemCotacaoUpdate, ViagemCotacaoListResponse, ViagemCotacaoDetailResponse,
@@ -13,6 +13,7 @@ from ...schemas.cotacao import (
     CustoImportacaoCreate, CustoImportacaoResponse,
     CotacaoEventoCreate,
     DashboardCotacaoResponse,
+    CotacaoFobCreate, CotacaoFobUpdate, CotacaoFobResponse,
 )
 import httpx
 import logging
@@ -636,3 +637,79 @@ def get_dashboard(
         por_fornecedor=list(fornecedor_custos.values()),
         por_status=[{"status": k, "quantidade": v} for k, v in status_count.items()],
     )
+
+
+@router.get("/fob", response_model=List[CotacaoFobResponse])
+def list_cotacoes_fob(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_view_cotacao)
+):
+    return db.query(CotacaoFob).order_by(CotacaoFob.circuito, CotacaoFob.produto).all()
+
+
+@router.get("/fob/circuitos")
+def list_circuitos_fob(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_view_cotacao)
+):
+    rows = db.query(CotacaoFob.circuito).distinct().order_by(CotacaoFob.circuito).all()
+    return [r[0] for r in rows]
+
+
+@router.get("/fob/produtos")
+def list_produtos_fob(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_view_cotacao)
+):
+    rows = db.query(CotacaoFob.produto).distinct().order_by(CotacaoFob.produto).all()
+    return [r[0] for r in rows]
+
+
+@router.post("/fob", response_model=CotacaoFobResponse, status_code=201)
+def create_cotacao_fob(
+    data: CotacaoFobCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_edit_cotacao)
+):
+    item = CotacaoFob(
+        circuito=data.circuito.strip(),
+        produto=data.produto.strip(),
+        valor_fob=data.valor_fob,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/fob/{item_id}", response_model=CotacaoFobResponse)
+def update_cotacao_fob(
+    item_id: int,
+    data: CotacaoFobUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_edit_cotacao)
+):
+    item = db.query(CotacaoFob).filter(CotacaoFob.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Cotacao FOB nao encontrada")
+    for k, v in data.dict(exclude_unset=True).items():
+        if k in ("circuito", "produto") and isinstance(v, str):
+            v = v.strip()
+        setattr(item, k, v)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/fob/{item_id}")
+def delete_cotacao_fob(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(_edit_cotacao)
+):
+    item = db.query(CotacaoFob).filter(CotacaoFob.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Cotacao FOB nao encontrada")
+    db.delete(item)
+    db.commit()
+    return {"message": "Cotacao FOB excluida"}
