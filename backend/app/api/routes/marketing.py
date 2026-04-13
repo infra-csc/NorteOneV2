@@ -1265,6 +1265,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str 
       - ano_referencia: year the pattern data is from
     """
     from ...services.snapshot_service import get_curva_historica_snapshot
+    from ...models.vendas_snapshot import CurvaHistoricaSnapshot
     prev_ano = ano - 1
 
     grupo_obj = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == evento_grupo).first()
@@ -1319,18 +1320,27 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str 
         ).all()
         patterns_found = []
         source_names = []
+        pattern_weights = []
         for sibling in same_circuit:
             sib_pattern = get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            sib_weight = 0
+            if sib_pattern:
+                weight_row = db.query(CurvaHistoricaSnapshot.total_vendas_referencia).filter(
+                    CurvaHistoricaSnapshot.evento_grupo == sibling.nome,
+                    CurvaHistoricaSnapshot.ano_referencia == prev_ano
+                ).first()
+                sib_weight = weight_row[0] if weight_row and weight_row[0] else 0
             if not sib_pattern:
                 sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano)
             if sib_pattern:
                 patterns_found.append(sib_pattern)
                 source_names.append(sibling.nome)
+                pattern_weights.append(sib_weight if sib_weight > 0 else 1)
 
         if patterns_found:
-            avg_pattern = _average_patterns(patterns_found)
+            avg_pattern = _average_patterns(patterns_found, weights=pattern_weights)
             fonte_label = f"Média {circuito}" if len(patterns_found) > 1 else source_names[0]
-            logger.info(f"[CurvaResolve] '{evento_grupo}' using circuit average from {len(patterns_found)} sibling(s): {source_names}")
+            logger.info(f"[CurvaResolve] '{evento_grupo}' using circuit average from {len(patterns_found)} sibling(s): {source_names} (weights={pattern_weights})")
             return avg_pattern, {
                 "tipo_curva": "circuito_similar",
                 "fonte_curva": fonte_label,
@@ -1349,13 +1359,19 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str 
         ).distinct().all()
 
         patterns_found = []
+        pattern_weights = []
         for rg in regional_grupos:
             rg_pattern = get_curva_historica_snapshot(db, rg.nome, prev_ano)
             if rg_pattern:
                 patterns_found.append(rg_pattern)
+                weight_row = db.query(CurvaHistoricaSnapshot.total_vendas_referencia).filter(
+                    CurvaHistoricaSnapshot.evento_grupo == rg.nome,
+                    CurvaHistoricaSnapshot.ano_referencia == prev_ano
+                ).first()
+                pattern_weights.append(weight_row[0] if weight_row and weight_row[0] else 1)
 
         if len(patterns_found) >= 2:
-            avg_pattern = _average_patterns(patterns_found)
+            avg_pattern = _average_patterns(patterns_found, weights=pattern_weights)
             logger.info(f"[CurvaResolve] '{evento_grupo}' using regional average ({estado}): {len(patterns_found)} patterns")
             return avg_pattern, {
                 "tipo_curva": "regional",
@@ -1371,22 +1387,35 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str 
     }
 
 
-def _average_patterns(patterns: list) -> dict:
-    """Average multiple hist_pattern dicts into one."""
+def _average_patterns(patterns: list, weights: list = None) -> dict:
+    """Average multiple hist_pattern dicts into one, optionally weighted."""
     all_dms = set()
     for p in patterns:
         all_dms.update(p.keys())
 
-    avg = {}
-    for dm in all_dms:
-        values = []
-        for p in patterns:
-            if dm in p:
-                values.append(p[dm])
-            else:
-                val = _interpolate_hist_pattern(p, dm)
-                values.append(val)
-        avg[dm] = sum(values) / len(values)
+    if weights and len(weights) == len(patterns) and sum(weights) > 0:
+        total_weight = sum(weights)
+        avg = {}
+        for dm in all_dms:
+            weighted_sum = 0.0
+            for i, p in enumerate(patterns):
+                if dm in p:
+                    weighted_sum += p[dm] * weights[i]
+                else:
+                    val = _interpolate_hist_pattern(p, dm)
+                    weighted_sum += val * weights[i]
+            avg[dm] = weighted_sum / total_weight
+    else:
+        avg = {}
+        for dm in all_dms:
+            values = []
+            for p in patterns:
+                if dm in p:
+                    values.append(p[dm])
+                else:
+                    val = _interpolate_hist_pattern(p, dm)
+                    values.append(val)
+            avg[dm] = sum(values) / len(values)
 
     if 0 not in avg:
         avg[0] = 1.0

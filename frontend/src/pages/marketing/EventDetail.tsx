@@ -400,7 +400,7 @@ const EventDetail: React.FC = () => {
 
   const handleSetOverride = async (curvaGrupo: string | null) => {
     if (!id) return;
-    const grupoNome = isConsolidated ? id.replace(/^grp_/, '') : id;
+    const grupoNome = curvaSnapshot?.evento_grupo || (isConsolidated ? id.replace(/^grp_/, '') : id);
     setSavingOverride(true);
     try {
       const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: grupoNome } });
