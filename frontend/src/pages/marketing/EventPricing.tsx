@@ -358,11 +358,11 @@ const EventPricing: React.FC<EventPricingProps> = ({ eventoId, ano }) => {
                 icon={<TrendingUp className="w-3.5 h-3.5" />}
                 isDark={isDark}
               />
-              <p className={`text-xl font-bold mt-2 ${m.projection >= evento.salesGoal ? 'text-green-500' : 'text-red-500'}`}>
+              <p className={`text-xl font-bold mt-2 ${evento.salesGoal > 0 && m.projection >= evento.salesGoal ? 'text-green-500' : evento.salesGoal > 0 ? 'text-red-500' : textColor}`}>
                 {formatNumber(m.projection)}
               </p>
-              <p className={`text-xs ${textMuted}`}>
-                Meta: {formatNumber(evento.salesGoal)}
+              <p className={`text-xs ${evento.salesGoal > 0 ? textMuted : 'text-amber-500 dark:text-amber-400'}`}>
+                {evento.salesGoal > 0 ? `Meta: ${formatNumber(evento.salesGoal)}` : 'Meta não configurada'}
               </p>
             </div>
           </div>
@@ -458,7 +458,9 @@ const EventPricing: React.FC<EventPricingProps> = ({ eventoId, ano }) => {
           </div>
           <div className={`${metricBg} rounded-xl p-4 text-center`}>
             <p className={`text-xs ${textMuted} mb-1`}>Meta</p>
-            <p className={`text-2xl font-bold ${textColor}`}>{formatNumber(evento.salesGoal)}</p>
+            <p className={`text-2xl font-bold ${evento.salesGoal > 0 ? textColor : 'text-amber-500 dark:text-amber-400 text-sm'}`}>
+              {evento.salesGoal > 0 ? formatNumber(evento.salesGoal) : 'N/C'}
+            </p>
           </div>
           <div className={`${metricBg} rounded-xl p-4 text-center`}>
             <p className={`text-xs ${textMuted} mb-1`}>% Atingido</p>

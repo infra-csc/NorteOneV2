@@ -1090,18 +1090,31 @@ const MarketingDashboard: React.FC = () => {
                   </td>
                   <td className="px-4 py-4">
                     <div className="text-center">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
-                      </p>
-                      <div className="mt-1 w-24 mx-auto bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-                        <div 
-                          className="bg-blue-600 h-2 rounded-full"
-                          style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {Math.round((event.currentSales / event.salesGoal) * 100)}%
-                      </p>
+                      {event.salesGoal > 0 ? (
+                        <>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
+                          </p>
+                          <div className="mt-1 w-24 mx-auto bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                            <div 
+                              className="bg-blue-600 h-2 rounded-full"
+                              style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
+                            />
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {Math.round((event.currentSales / event.salesGoal) * 100)}%
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {formatNumber(event.currentSales)}
+                          </p>
+                          <p className="text-xs text-amber-500 dark:text-amber-400 mt-1">
+                            Meta não configurada
+                          </p>
+                        </>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-4 text-center text-sm font-medium text-gray-900 dark:text-white">

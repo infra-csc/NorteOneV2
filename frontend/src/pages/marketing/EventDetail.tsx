@@ -2246,18 +2246,31 @@ const EventDetail: React.FC = () => {
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
-            <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
-              {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
-            </p>
-            <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
-              <div 
-                className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${event.salesGoal > 0 ? Math.min((event.currentSales / event.salesGoal) * 100, 100) : 0}%` }}
-              />
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-              {event.salesGoal > 0 ? Math.round((event.currentSales / event.salesGoal) * 100) : 0}% da meta
-            </p>
+            {event.salesGoal > 0 ? (
+              <>
+                <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
+                  {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
+                </p>
+                <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all"
+                    style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  {Math.round((event.currentSales / event.salesGoal) * 100)}% da meta
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
+                  {formatNumber(event.currentSales)}
+                </p>
+                <p className="text-xs text-amber-500 dark:text-amber-400 mt-2">
+                  Meta não configurada
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -2394,10 +2407,13 @@ const EventDetail: React.FC = () => {
           Curva no Tempo
         </h3>
         <div className="mb-4">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Totais / Meta Global</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Totais{event.salesGoal > 0 ? ' / Meta Global' : ''}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(event.currentSales ?? inscritosTotal)} / {formatNumber(event.salesGoal)}
+            {formatNumber(event.currentSales ?? inscritosTotal)}{event.salesGoal > 0 ? ` / ${formatNumber(event.salesGoal)}` : ''}
           </p>
+          {event.salesGoal <= 0 && (
+            <p className="text-xs text-amber-500 dark:text-amber-400">Meta não configurada</p>
+          )}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -2722,7 +2738,9 @@ const EventDetail: React.FC = () => {
                         </div>
                         <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                           <span className="text-gray-500 dark:text-gray-400">(×) Meta de Inscrições</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{formatNumber(event.salesGoal)}</span>
+                          <span className={`font-medium ${event.salesGoal > 0 ? 'text-gray-900 dark:text-white' : 'text-amber-500 dark:text-amber-400 text-xs'}`}>
+                            {event.salesGoal > 0 ? formatNumber(event.salesGoal) : 'Não configurada'}
+                          </span>
                         </div>
                         <button
                           onClick={() => setShowReceitaOrcada(!showReceitaOrcada)}
@@ -2743,7 +2761,7 @@ const EventDetail: React.FC = () => {
                           </div>
                           <div className="flex justify-between p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                             <span className="text-gray-500 dark:text-gray-400">(-) Custo Total Kits</span>
-                            <span className="font-medium text-red-600 dark:text-red-400">- {formatCurrency((event.kitCostPerUnit || 0) * event.salesGoal)}</span>
+                            <span className="font-medium text-red-600 dark:text-red-400">- {event.salesGoal > 0 ? formatCurrency((event.kitCostPerUnit || 0) * event.salesGoal) : '—'}</span>
                           </div>
                         </div>
                         <div className="flex justify-between p-2.5 bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">

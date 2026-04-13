@@ -186,20 +186,20 @@ def get_meta_orcada(db: Session, projeto_id: int) -> int:
         _cadastro_cache[projeto_id] = int(cadastro.atletas_site_pago)
         return int(cadastro.atletas_site_pago)
     projeto = _wq_dim_projeto_by_id(db, projeto_id)
-    fallback = int(projeto.capacidade_maxima) if projeto and projeto.capacidade_maxima else 1000
+    fallback = int(projeto.capacidade_maxima) if projeto and projeto.capacidade_maxima else 0
     _cadastro_cache[projeto_id] = fallback
     return fallback
 
 def get_meta_from_cadastro(cadastro: CadastroEvento) -> int:
     if cadastro.atletas_site_pago and cadastro.atletas_site_pago > 0:
         return int(cadastro.atletas_site_pago)
-    return int(cadastro.capacidade_maxima) if cadastro.capacidade_maxima else 1000
+    return int(cadastro.capacidade_maxima) if cadastro.capacidade_maxima else 0
 
 def get_meta_orcada_projetos(db: Session, projetos: list) -> int:
     total = 0
     for p in projetos:
         total += get_meta_orcada(db, p.id)
-    return total if total > 0 else 1000
+    return total
 
 
 def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) -> dict:
@@ -4164,8 +4164,6 @@ def get_marketing_events(
                 total_capacity += get_meta_from_cadastro(cad)
             else:
                 total_capacity += get_meta_orcada(db, p.id)
-        if total_capacity <= 0:
-            total_capacity = 1000
         
         latest_date = None
         rep_projeto = proj_list[0]
@@ -4207,7 +4205,6 @@ def get_marketing_events(
                     current_sales = snap['qtd_site']
                     current_receita = snap['receita_liquida_site']
                 else:
-                    # Fallback: snapshot not yet built — use ISC cache data if available
                     seen_grupo_norms_c = set()
                     for p in proj_list:
                         p_sku = normalize_sku(str(p.codigo)) if p.codigo else None
@@ -4227,7 +4224,7 @@ def get_marketing_events(
                     grupo_m14d += isc_data[p_sku].get('media_14d', 0.0)
                     grupo_m30d += isc_data[p_sku].get('media_30d', 0.0)
 
-        sales_goal = total_capacity if total_capacity > 0 else 1000
+        sales_goal = total_capacity
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
 
         budget_ticket_total_receita = 0.0
@@ -9159,8 +9156,6 @@ def get_pricing_analysis(
                 total_capacity += get_meta_from_cadastro(cad)
             else:
                 total_capacity += get_meta_orcada(db, p.id)
-        if total_capacity <= 0:
-            total_capacity = 1000
         
         projeto_data_evento = latest_date or rep_projeto.data_evento
         dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
@@ -9195,7 +9190,7 @@ def get_pricing_analysis(
                 combined_m30d += isc_data[p_sku].get('media_30d', 0.0)
         
         average_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-        sales_goal = total_capacity if total_capacity > 0 else 1000
+        sales_goal = total_capacity
         kit_cost = total_kit_cost / kit_count if kit_count > 0 else 50.0
         
         all_skus = [str(p.codigo) for p in proj_list if p.codigo]
@@ -9208,7 +9203,7 @@ def get_pricing_analysis(
             d_minus=d_minus,
             average_ticket=average_ticket,
             kit_cost=kit_cost,
-            total_capacity=total_capacity if total_capacity > 0 else 10000,
+            total_capacity=total_capacity if total_capacity > 0 else sales_goal if sales_goal > 0 else 10000,
             rolling_avg_14d_real=combined_rolling_14d,
             rolling_avg_14d_last_year=combined_rolling_14d_ly
         )
@@ -9265,7 +9260,7 @@ def get_pricing_analysis(
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
             location=grupo_location,
             category=grupo_modalidade,
-            totalCapacity=total_capacity if total_capacity > 0 else 10000,
+            totalCapacity=total_capacity,
             currentSales=current_sales,
             salesGoal=sales_goal,
             averageTicket=round(average_ticket, 2),
