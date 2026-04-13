@@ -490,7 +490,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         retirada_kit_data_horario=retirada_dt
     )
     
-    if data.atletas.ciclismo:
+    if data.modalidade and data.modalidade.lower() == 'ciclismo' and data.atletas.ciclismo:
         cic = data.atletas.ciclismo
         agg_pago = cic.participacao_pago + cic.sem_bike_pago + cic.com_bike_pago
         agg_tkt = (Decimal(str(cic.sem_bike_pago * cic.sem_bike_tkt_medio + cic.com_bike_pago * cic.com_bike_tkt_medio)) / Decimal(str(agg_pago))) if agg_pago > 0 else Decimal("0")
@@ -655,7 +655,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         if data.atletas.appai:
             cadastro.atletas_appai_pago = data.atletas.appai.pago
             cadastro.atletas_appai_tkt_medio = Decimal(str(data.atletas.appai.tkt_medio))
-        if data.atletas.ciclismo:
+        effective_modalidade = (data.modalidade or cadastro.modalidade or '').lower()
+        if effective_modalidade == 'ciclismo' and data.atletas.ciclismo:
             cadastro.ciclismo_participacao_pago = data.atletas.ciclismo.participacao_pago
             cadastro.ciclismo_sem_bike_pago = data.atletas.ciclismo.sem_bike_pago
             cadastro.ciclismo_sem_bike_tkt_medio = Decimal(str(data.atletas.ciclismo.sem_bike_tkt_medio))
