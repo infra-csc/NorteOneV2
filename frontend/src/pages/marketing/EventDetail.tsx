@@ -1762,15 +1762,34 @@ const EventDetail: React.FC = () => {
                 )}
               </div>
               <div className="mt-1.5">
-                {event.iscComponents?.tipoCurva === 'historico' ? (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700">
-                    Histórico {curvaAnoAnterior}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
-                    Curva Linear
-                  </span>
-                )}
+                {(() => {
+                  const tipo = event.iscComponents?.tipoCurva;
+                  const fonte = event.iscComponents?.fonteCurva;
+                  const anoRef = event.iscComponents?.anoReferencia;
+                  const styles: Record<string, string> = {
+                    historico: 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-700',
+                    circuito: 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-700',
+                    circuito_similar: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400 border-violet-200 dark:border-violet-700',
+                    regional: 'bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 border-gray-300 dark:border-gray-600',
+                    manual: 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-700',
+                    linear: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-700',
+                  };
+                  const labels: Record<string, string> = {
+                    historico: `Histórico ${anoRef || curvaAnoAnterior}`,
+                    circuito: `Circuito: ${fonte || ''}`,
+                    circuito_similar: `Circuito (média): ${fonte || ''}`,
+                    regional: `Regional: ${fonte || ''}`,
+                    manual: `Manual: ${fonte || ''}`,
+                    linear: 'Curva Linear',
+                  };
+                  const style = styles[tipo || 'linear'] || styles.linear;
+                  const label = labels[tipo || 'linear'] || labels.linear;
+                  return (
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${style}`}>
+                      {label}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2199,15 +2218,34 @@ const EventDetail: React.FC = () => {
             <h3 className="font-semibold text-gray-900 dark:text-white">
               Atingimento da Meta por D- ({attainmentMode === 'acumulado' ? 'Acumulado' : 'Diário'})
             </h3>
-            {event.iscComponents?.tipoCurva === 'historico' ? (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700">
-                Histórico {curvaAnoAnterior}
-              </span>
-            ) : (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700">
-                Curva Linear
-              </span>
-            )}
+            {(() => {
+              const tipo = event.iscComponents?.tipoCurva;
+              const fonte = event.iscComponents?.fonteCurva;
+              const anoRef = event.iscComponents?.anoReferencia;
+              const styles: Record<string, string> = {
+                historico: 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-700',
+                circuito: 'bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200 dark:border-purple-700',
+                circuito_similar: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400 border-violet-200 dark:border-violet-700',
+                regional: 'bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 border-gray-300 dark:border-gray-600',
+                manual: 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-700',
+                linear: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-700',
+              };
+              const labels: Record<string, string> = {
+                historico: `Histórico ${anoRef || curvaAnoAnterior}`,
+                circuito: `Circuito: ${fonte || ''}`,
+                circuito_similar: `Circuito (média): ${fonte || ''}`,
+                regional: `Regional: ${fonte || ''}`,
+                manual: `Manual: ${fonte || ''}`,
+                linear: 'Curva Linear',
+              };
+              const style = styles[tipo || 'linear'] || styles.linear;
+              const label = labels[tipo || 'linear'] || labels.linear;
+              return (
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${style}`}>
+                  {label}
+                </span>
+              );
+            })()}
           </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">

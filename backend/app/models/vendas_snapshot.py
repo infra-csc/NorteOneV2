@@ -32,6 +32,7 @@ class CurvaHistoricaSnapshot(Base):
     d_minus = Column(Integer, nullable=False)
     percentual_acumulado = Column(Float, nullable=False)
     total_vendas_referencia = Column(Integer, nullable=True)
+    origem = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

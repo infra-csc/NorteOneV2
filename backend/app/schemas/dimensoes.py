@@ -154,6 +154,9 @@ class EventoGrupoBase(BaseModel):
     nome: str
     descricao: Optional[str] = None
     ativo: bool = True
+    circuito: Optional[str] = None
+    cidade_normalizada: Optional[str] = None
+    curva_override: Optional[str] = None
 
 class EventoGrupoCreate(EventoGrupoBase):
     pass
@@ -162,6 +165,9 @@ class EventoGrupoUpdate(BaseModel):
     nome: Optional[str] = None
     descricao: Optional[str] = None
     ativo: Optional[bool] = None
+    circuito: Optional[str] = None
+    cidade_normalizada: Optional[str] = None
+    curva_override: Optional[str] = None
 
 class EventoGrupoResponse(EventoGrupoBase):
     id: int

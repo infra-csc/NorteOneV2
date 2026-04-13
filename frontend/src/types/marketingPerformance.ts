@@ -37,6 +37,8 @@ export interface ISCComponents {
   curvaDPercent: number;
   rolling14d: number;
   tipoCurva?: string;
+  fonteCurva?: string | null;
+  anoReferencia?: number | null;
 }
 
 export type ISCStatus = 'accelerating' | 'stable' | 'decelerating';

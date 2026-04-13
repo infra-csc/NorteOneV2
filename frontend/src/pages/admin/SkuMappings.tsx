@@ -63,6 +63,9 @@ interface EventoGrupo {
   nome: string;
   descricao: string | null;
   ativo: boolean;
+  circuito: string | null;
+  cidade_normalizada: string | null;
+  curva_override: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -118,7 +121,7 @@ const SkuMappings: React.FC = () => {
   const [gruposError, setGruposError] = useState<string | null>(null);
   const [showGrupoModal, setShowGrupoModal] = useState(false);
   const [editingGrupo, setEditingGrupo] = useState<EventoGrupo | null>(null);
-  const [grupoFormData, setGrupoFormData] = useState({ nome: '', descricao: '', ativo: true });
+  const [grupoFormData, setGrupoFormData] = useState({ nome: '', descricao: '', ativo: true, circuito: '', cidade_normalizada: '', curva_override: '' });
   const [grupoFormError, setGrupoFormError] = useState<string | null>(null);
   const [savingGrupo, setSavingGrupo] = useState(false);
   const [showDeleteGrupoConfirm, setShowDeleteGrupoConfirm] = useState<number | null>(null);
@@ -346,14 +349,14 @@ const SkuMappings: React.FC = () => {
 
   const openCreateGrupoModal = () => {
     setEditingGrupo(null);
-    setGrupoFormData({ nome: '', descricao: '', ativo: true });
+    setGrupoFormData({ nome: '', descricao: '', ativo: true, circuito: '', cidade_normalizada: '', curva_override: '' });
     setGrupoFormError(null);
     setShowGrupoModal(true);
   };
 
   const openEditGrupoModal = (grupo: EventoGrupo) => {
     setEditingGrupo(grupo);
-    setGrupoFormData({ nome: grupo.nome, descricao: grupo.descricao || '', ativo: grupo.ativo });
+    setGrupoFormData({ nome: grupo.nome, descricao: grupo.descricao || '', ativo: grupo.ativo, circuito: grupo.circuito || '', cidade_normalizada: grupo.cidade_normalizada || '', curva_override: grupo.curva_override || '' });
     setGrupoFormError(null);
     setShowGrupoModal(true);
   };
@@ -853,7 +856,8 @@ const SkuMappings: React.FC = () => {
                     <thead className={isDark ? 'bg-gray-700/50' : 'bg-gray-50'}>
                       <tr>
                         <th className={`p-4 text-left text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Nome</th>
-                        <th className={`p-4 text-left text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Descri&ccedil;&atilde;o</th>
+                        <th className={`p-4 text-left text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Circuito</th>
+                        <th className={`p-4 text-left text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Cidade</th>
                         <th className={`p-4 text-left text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Status</th>
                         <th className={`p-4 text-right text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>A&ccedil;&otilde;es</th>
                       </tr>
@@ -861,8 +865,13 @@ const SkuMappings: React.FC = () => {
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                       {eventoGrupos.map(grupo => (
                         <tr key={grupo.id} className={!grupo.ativo ? 'opacity-50' : ''}>
-                          <td className={`p-4 font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{grupo.nome}</td>
-                          <td className={`p-4 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{grupo.descricao || '-'}</td>
+                          <td className={`p-4 font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            <div>{grupo.nome}</div>
+                            {grupo.descricao && <div className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{grupo.descricao}</div>}
+                            {grupo.curva_override && <div className="text-xs mt-0.5 text-green-500">Override: {grupo.curva_override}</div>}
+                          </td>
+                          <td className={`p-4 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{grupo.circuito || '-'}</td>
+                          <td className={`p-4 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{grupo.cidade_normalizada || '-'}</td>
                           <td className="p-4">
                             <span className={`px-2 py-1 text-xs rounded-full ${
                               grupo.ativo 
@@ -1035,6 +1044,27 @@ const SkuMappings: React.FC = () => {
                   placeholder="Descri&ccedil;&atilde;o opcional do grupo"
                   rows={3}
                   className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-emerald-500`} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Circuito</label>
+                  <input type="text" maxLength={200} value={grupoFormData.circuito} onChange={(e) => setGrupoFormData({ ...grupoFormData, circuito: e.target.value })}
+                    placeholder="Ex: Circuito das Estações"
+                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-emerald-500`} />
+                </div>
+                <div>
+                  <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Cidade</label>
+                  <input type="text" maxLength={200} value={grupoFormData.cidade_normalizada} onChange={(e) => setGrupoFormData({ ...grupoFormData, cidade_normalizada: e.target.value })}
+                    placeholder="Ex: São Paulo"
+                    className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-emerald-500`} />
+                </div>
+              </div>
+              <div>
+                <label className={`block text-sm font-medium mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Override de Curva</label>
+                <input type="text" maxLength={200} value={grupoFormData.curva_override} onChange={(e) => setGrupoFormData({ ...grupoFormData, curva_override: e.target.value })}
+                  placeholder="Nome do grupo de referência (opcional)"
+                  className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-emerald-500`} />
+                <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Forçar uso da curva histórica de outro grupo</p>
               </div>
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="grupo-ativo" checked={grupoFormData.ativo} onChange={(e) => setGrupoFormData({ ...grupoFormData, ativo: e.target.checked })}

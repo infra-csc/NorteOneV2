@@ -989,6 +989,10 @@ def _run_column_migrations():
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS recebe_alertas_corte BOOLEAN DEFAULT FALSE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)",
+            "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS circuito VARCHAR(200)",
+            "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS cidade_normalizada VARCHAR(200)",
+            "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS curva_override VARCHAR(200)",
+            "ALTER TABLE curva_historica_snapshot ADD COLUMN IF NOT EXISTS origem VARCHAR(50)",
             # nori_insights table (idempotent — create_all handles new installs; this covers existing DBs)
             """
             CREATE TABLE IF NOT EXISTS nori_insights (

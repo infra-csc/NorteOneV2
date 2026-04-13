@@ -605,6 +605,8 @@ class ISCComponents(BaseModel):
     curvaDPercent: float
     rolling14d: float
     tipoCurva: str = "linear"
+    fonteCurva: Optional[str] = None
+    anoReferencia: Optional[int] = None
 
 class CommercialAction(BaseModel):
     id: str
@@ -1006,14 +1008,19 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
                               media_14d: float = None, daily_sales_dict: dict = None,
                               media_7d: float = None, media_30d: float = None,
                               hist_pattern: dict = None,
-                              registration_close_date=None) -> ISCComponents:
+                              registration_close_date=None,
+                              curva_info: dict = None) -> ISCComponents:
     """
     registration_close_date: date of last day registrations were open (event_date - dias_enc).
     When provided and d_minus < 0 (past event), all rolling windows are anchored to this date
     so components are frozen at their final state rather than collapsing to zero.
     """
+    _ci = curva_info or {}
     if sales_goal == 0:
-        return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0)
+        return ISCComponents(ia730=1.0, curvaDPercent=1.0, rolling14d=1.0,
+                             tipoCurva=_ci.get("tipo_curva", "linear"),
+                             fonteCurva=_ci.get("fonte_curva"),
+                             anoReferencia=_ci.get("ano_referencia"))
     
     if daily_sales_dict:
         daily_sales_dict = {(date.fromisoformat(k) if isinstance(k, str) else k): v for k, v in daily_sales_dict.items()}
@@ -1121,11 +1128,16 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
     else:
         rolling14d = (curva_d_percent + ia730) / 2
     
+    if _ci.get("tipo_curva"):
+        tipo_curva = _ci["tipo_curva"]
+
     return ISCComponents(
         ia730=round(ia730, 4),
         curvaDPercent=round(curva_d_percent, 4),
         rolling14d=round(rolling14d, 4),
-        tipoCurva=tipo_curva
+        tipoCurva=tipo_curva,
+        fonteCurva=_ci.get("fonte_curva"),
+        anoReferencia=_ci.get("ano_referencia")
     )
 
 _ISC_DESVIO_CAP = 0.30
@@ -1242,6 +1254,144 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
         logger.warning(f"Failed to save curva histórica snapshot for '{evento_grupo}': {e}")
 
     return pattern
+
+
+def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str = None) -> tuple:
+    """Resolve the best available historical curve for an event group using a fallback chain.
+    
+    Returns (pattern, curva_info) where curva_info is a dict with:
+      - tipo_curva: 'historico' | 'circuito' | 'circuito_similar' | 'regional' | 'manual' | 'linear'
+      - fonte_curva: name of the source grupo or region
+      - ano_referencia: year the pattern data is from
+    """
+    from ...services.snapshot_service import get_curva_historica_snapshot
+    prev_ano = ano - 1
+
+    grupo_obj = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == evento_grupo).first()
+
+    if grupo_obj and grupo_obj.curva_override:
+        override_pattern = get_curva_historica_snapshot(db, grupo_obj.curva_override, prev_ano)
+        if not override_pattern:
+            override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano)
+        if override_pattern:
+            logger.info(f"[CurvaResolve] '{evento_grupo}' using manual override: '{grupo_obj.curva_override}'")
+            return override_pattern, {
+                "tipo_curva": "manual",
+                "fonte_curva": grupo_obj.curva_override,
+                "ano_referencia": prev_ano
+            }
+
+    own_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano)
+    if own_pattern:
+        return own_pattern, {
+            "tipo_curva": "historico",
+            "fonte_curva": evento_grupo,
+            "ano_referencia": prev_ano
+        }
+
+    circuito = grupo_obj.circuito if grupo_obj else None
+    cidade = grupo_obj.cidade_normalizada if grupo_obj else None
+
+    if circuito and cidade:
+        same_circuit_city = db.query(EventoGrupoModel).filter(
+            EventoGrupoModel.circuito == circuito,
+            EventoGrupoModel.cidade_normalizada == cidade,
+            EventoGrupoModel.nome != evento_grupo,
+            EventoGrupoModel.ativo == True
+        ).all()
+        for sibling in same_circuit_city:
+            sib_pattern = get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            if not sib_pattern:
+                sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano)
+            if sib_pattern:
+                logger.info(f"[CurvaResolve] '{evento_grupo}' using circuit+city sibling: '{sibling.nome}'")
+                return sib_pattern, {
+                    "tipo_curva": "circuito",
+                    "fonte_curva": sibling.nome,
+                    "ano_referencia": prev_ano
+                }
+
+    if circuito:
+        same_circuit = db.query(EventoGrupoModel).filter(
+            EventoGrupoModel.circuito == circuito,
+            EventoGrupoModel.nome != evento_grupo,
+            EventoGrupoModel.ativo == True
+        ).all()
+        patterns_found = []
+        source_names = []
+        for sibling in same_circuit:
+            sib_pattern = get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            if not sib_pattern:
+                sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano)
+            if sib_pattern:
+                patterns_found.append(sib_pattern)
+                source_names.append(sibling.nome)
+
+        if patterns_found:
+            avg_pattern = _average_patterns(patterns_found)
+            fonte_label = f"Média {circuito}" if len(patterns_found) > 1 else source_names[0]
+            logger.info(f"[CurvaResolve] '{evento_grupo}' using circuit average from {len(patterns_found)} sibling(s): {source_names}")
+            return avg_pattern, {
+                "tipo_curva": "circuito_similar",
+                "fonte_curva": fonte_label,
+                "ano_referencia": prev_ano
+            }
+
+    if estado:
+        regional_grupos = db.query(EventoGrupoModel).join(
+            SkuMapping, SkuMapping.evento_grupo == EventoGrupoModel.nome
+        ).join(
+            DimProjeto, DimProjeto.codigo == SkuMapping.sku
+        ).filter(
+            DimProjeto.estado == estado,
+            EventoGrupoModel.nome != evento_grupo,
+            EventoGrupoModel.ativo == True
+        ).distinct().all()
+
+        patterns_found = []
+        for rg in regional_grupos:
+            rg_pattern = get_curva_historica_snapshot(db, rg.nome, prev_ano)
+            if rg_pattern:
+                patterns_found.append(rg_pattern)
+
+        if len(patterns_found) >= 2:
+            avg_pattern = _average_patterns(patterns_found)
+            logger.info(f"[CurvaResolve] '{evento_grupo}' using regional average ({estado}): {len(patterns_found)} patterns")
+            return avg_pattern, {
+                "tipo_curva": "regional",
+                "fonte_curva": estado,
+                "ano_referencia": prev_ano
+            }
+
+    logger.info(f"[CurvaResolve] '{evento_grupo}' no fallback found, using linear")
+    return None, {
+        "tipo_curva": "linear",
+        "fonte_curva": None,
+        "ano_referencia": None
+    }
+
+
+def _average_patterns(patterns: list) -> dict:
+    """Average multiple hist_pattern dicts into one."""
+    all_dms = set()
+    for p in patterns:
+        all_dms.update(p.keys())
+
+    avg = {}
+    for dm in all_dms:
+        values = []
+        for p in patterns:
+            if dm in p:
+                values.append(p[dm])
+            else:
+                val = _interpolate_hist_pattern(p, dm)
+                values.append(val)
+        avg[dm] = sum(values) / len(values)
+
+    if 0 not in avg:
+        avg[0] = 1.0
+
+    return avg
 
 
 def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: date = None) -> list:
@@ -1364,7 +1514,7 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
         hist_pattern = preloaded_hist_pattern
     elif evento_grupo and data_evento:
         try:
-            hist_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano)
+            hist_pattern, _ = _resolve_hist_pattern(db, evento_grupo, ano)
         except Exception as e:
             logger.warning(f"Error fetching historical pattern for '{evento_grupo}': {e}")
     
@@ -3957,7 +4107,7 @@ def get_marketing_events(
             eg = sku_to_grupo.get(sku_n)
             if eg:
                 all_grupo_names_for_hist.add(eg)
-    hist_patterns_prefetch = _prefetch_all_historical_patterns(db, list(all_grupo_names_for_hist), ano)
+    hist_patterns_prefetch, curva_info_prefetch = _prefetch_all_historical_patterns(db, list(all_grupo_names_for_hist), ano)
 
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
@@ -4045,6 +4195,7 @@ def get_marketing_events(
         budget_ticket = round(budget_ticket_total_receita / budget_ticket_total_qtd, 2) if budget_ticket_total_qtd > 0 else 0.0
 
         grupo_hist_pattern = hist_patterns_prefetch.get(grupo_nome)
+        grupo_curva_info = curva_info_prefetch.get(grupo_nome, {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None})
         grupo_reg_close = (projeto_data_evento - timedelta(days=dias_enc)) if projeto_data_evento else None
 
         isc_components = calculate_isc_components(
@@ -4053,7 +4204,8 @@ def get_marketing_events(
             media_14d=grupo_m14d,
             media_30d=grupo_m30d,
             hist_pattern=grupo_hist_pattern,
-            registration_close_date=grupo_reg_close
+            registration_close_date=grupo_reg_close,
+            curva_info=grupo_curva_info
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -4175,6 +4327,7 @@ def get_marketing_events(
         standalone_budget_ticket = round(float(cad.atletas_site_tkt_medio), 2) if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0 else 0.0
         
         standalone_hist = hist_patterns_prefetch.get(standalone_eg) if standalone_eg else None
+        standalone_curva_info = curva_info_prefetch.get(standalone_eg, {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}) if standalone_eg else {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
         standalone_reg_close = (projeto_data_evento - timedelta(days=dias_enc)) if projeto_data_evento else None
 
         isc_components = calculate_isc_components(
@@ -4183,7 +4336,8 @@ def get_marketing_events(
             media_14d=standalone_m14d,
             media_30d=standalone_m30d,
             hist_pattern=standalone_hist,
-            registration_close_date=standalone_reg_close
+            registration_close_date=standalone_reg_close,
+            curva_info=standalone_curva_info
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -5902,13 +6056,15 @@ def _normalize_name_for_match(name: str) -> str:
     return s
 
 _hist_pattern_cache: dict = {}
+_hist_curva_info_cache: dict = {}
 _hist_pattern_cache_lock = _threading.Lock()
 
-def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) -> dict:
+def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) -> tuple:
     from ...models.dimensoes import SkuMapping
     prev_ano = ano - 1
+    all_requested_names = list(grupo_names)
     if not grupo_names:
-        return {}
+        return {}, {}
 
     cache_key = f"{ano}_hist_patterns"
     with _hist_pattern_cache_lock:
@@ -5916,8 +6072,19 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
     if cached is not None:
         filtered = {g: cached[g] for g in grupo_names if g in cached}
         uncached = [g for g in grupo_names if g not in cached]
+        cached_ci = _hist_curva_info_cache.get(cache_key, {})
         if not uncached:
-            return filtered
+            curva_info_map = {gn: cached_ci.get(gn, {"tipo_curva": "historico", "fonte_curva": gn, "ano_referencia": prev_ano}) for gn in filtered}
+            missing_from_cache = [g for g in all_requested_names if g not in filtered]
+            for gn in missing_from_cache:
+                try:
+                    fb_pattern, fb_info = _resolve_hist_pattern(db, gn, ano)
+                    if fb_pattern:
+                        filtered[gn] = fb_pattern
+                    curva_info_map[gn] = fb_info
+                except Exception:
+                    curva_info_map[gn] = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
+            return filtered, curva_info_map
         grupo_names = uncached
 
     grupo_data_evento = {}
@@ -6052,14 +6219,43 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
         logger.info(f"Batch: Built historical pattern for '{grupo_nome}' from ano={prev_ano}: {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
         result[grupo_nome] = pattern
 
+    curva_info_map = {}
+    for gn in list(result.keys()):
+        curva_info_map[gn] = {
+            "tipo_curva": "historico",
+            "fonte_curva": gn,
+            "ano_referencia": prev_ano
+        }
+
+    missing = [g for g in all_requested_names if g not in result]
+    for gn in missing:
+        try:
+            fb_pattern, fb_info = _resolve_hist_pattern(db, gn, ano)
+            if fb_pattern:
+                result[gn] = fb_pattern
+                curva_info_map[gn] = fb_info
+            else:
+                curva_info_map[gn] = fb_info
+        except Exception as e:
+            logger.warning(f"Fallback resolution failed for '{gn}': {e}")
+            curva_info_map[gn] = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
+
     with _hist_pattern_cache_lock:
         if cache_key not in _hist_pattern_cache:
             _hist_pattern_cache[cache_key] = {}
         _hist_pattern_cache[cache_key].update(result)
+        if cache_key not in _hist_curva_info_cache:
+            _hist_curva_info_cache[cache_key] = {}
+        _hist_curva_info_cache[cache_key].update(curva_info_map)
 
     if cached is not None:
         result.update(filtered)
-    return result
+        cached_ci = _hist_curva_info_cache.get(cache_key, {})
+        for gn in filtered:
+            if gn not in curva_info_map:
+                curva_info_map[gn] = cached_ci.get(gn, {"tipo_curva": "historico", "fonte_curva": gn, "ano_referencia": prev_ano})
+
+    return result, curva_info_map
 
 
 def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
@@ -7268,8 +7464,10 @@ def get_marketing_event_by_id(
         detail_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
         
         detail_hist_pattern = None
+        detail_curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
+        _rep_estado = str(rep_projeto.estado) if rep_projeto and rep_projeto.estado else None
         try:
-            detail_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
+            detail_hist_pattern, detail_curva_info = _resolve_hist_pattern(db, grupo_nome, ano, estado=_rep_estado)
         except Exception:
             pass
         
@@ -7401,12 +7599,14 @@ def get_marketing_event_by_id(
                 media_14d=grupo_media_14d if grupo_media_14d > 0 else None,
                 media_30d=grupo_media_30d if grupo_media_30d > 0 else None,
                 hist_pattern=detail_hist_pattern,
-                registration_close_date=data_fim_inscricoes)
+                registration_close_date=data_fim_inscricoes,
+                curva_info=detail_curva_info)
         else:
             isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                        daily_sales_dict=daily_sales_dict,
                                                        hist_pattern=detail_hist_pattern,
-                                                       registration_close_date=data_fim_inscricoes)
+                                                       registration_close_date=data_fim_inscricoes,
+                                                       curva_info=detail_curva_info)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
@@ -7747,16 +7947,19 @@ def get_marketing_event_by_id(
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_detail_hist = None
+    standalone_detail_curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
     if standalone_evento_grupo:
         try:
-            standalone_detail_hist = _fetch_previous_year_cumulative_pattern(db, standalone_evento_grupo, ano)
+            _sa_estado = str(projeto.estado) if projeto and projeto.estado else None
+            standalone_detail_hist, standalone_detail_curva_info = _resolve_hist_pattern(db, standalone_evento_grupo, ano, estado=_sa_estado)
         except Exception:
             pass
     
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                daily_sales_dict=daily_sales_dict,
                                                hist_pattern=standalone_detail_hist,
-                                               registration_close_date=data_fim_inscricoes_standalone)
+                                               registration_close_date=data_fim_inscricoes_standalone,
+                                               curva_info=standalone_detail_curva_info)
     isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
     isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
     suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
@@ -8958,8 +9161,9 @@ def get_pricing_analysis(
             events_maintain += 1
         
         pricing_hist_pattern = None
+        pricing_curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
         try:
-            pricing_hist_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_nome, ano)
+            pricing_hist_pattern, pricing_curva_info = _resolve_hist_pattern(db, grupo_nome, ano)
         except Exception:
             pass
 
@@ -8970,7 +9174,8 @@ def get_pricing_analysis(
             media_14d=combined_rolling_14d,
             media_30d=combined_m30d,
             hist_pattern=pricing_hist_pattern,
-            registration_close_date=pricing_grupo_reg_close
+            registration_close_date=pricing_grupo_reg_close,
+            curva_info=pricing_curva_info
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -9080,9 +9285,10 @@ def get_pricing_analysis(
             standalone_pricing_eg = standalone_pricing_eg_mapping.evento_grupo
 
         standalone_pricing_hist = None
+        standalone_pricing_curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
         if standalone_pricing_eg:
             try:
-                standalone_pricing_hist = _fetch_previous_year_cumulative_pattern(db, standalone_pricing_eg, ano)
+                standalone_pricing_hist, standalone_pricing_curva_info = _resolve_hist_pattern(db, standalone_pricing_eg, ano)
             except Exception:
                 pass
 
@@ -9098,7 +9304,8 @@ def get_pricing_analysis(
             media_14d=standalone_rolling_14d,
             media_30d=standalone_m30d,
             hist_pattern=standalone_pricing_hist,
-            registration_close_date=pricing_standalone_reg_close
+            registration_close_date=pricing_standalone_reg_close,
+            curva_info=standalone_pricing_curva_info
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])

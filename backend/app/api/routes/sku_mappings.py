@@ -628,6 +628,44 @@ def update_evento_grupo(
     return db_grupo
 
 
+@grupo_router.get("/available-curves")
+def list_available_curves(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    grupos_with_curves = db.query(
+        CurvaHistoricaSnapshot.evento_grupo,
+        func.max(CurvaHistoricaSnapshot.ano_referencia).label("max_ano")
+    ).group_by(CurvaHistoricaSnapshot.evento_grupo).all()
+
+    result = []
+    for row in grupos_with_curves:
+        result.append({
+            "grupo": row.evento_grupo,
+            "anoReferencia": row.max_ano
+        })
+    return sorted(result, key=lambda x: x["grupo"])
+
+
+@grupo_router.put("/{grupo_id}/curva-override")
+def set_curva_override(
+    grupo_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user)
+):
+    db_grupo = db.query(EventoGrupo).filter(EventoGrupo.id == grupo_id).first()
+    if not db_grupo:
+        raise HTTPException(status_code=404, detail="Grupo não encontrado")
+
+    override_value = payload.get("curva_override")
+    db_grupo.curva_override = override_value if override_value else None
+    db.commit()
+    db.refresh(db_grupo)
+    _invalidate_all_marketing_caches()
+    return {"message": "Override atualizado", "curva_override": db_grupo.curva_override}
+
+
 @grupo_router.delete("/{grupo_id}")
 def delete_evento_grupo(
     grupo_id: int,
