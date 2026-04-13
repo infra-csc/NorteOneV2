@@ -185,15 +185,13 @@ def get_meta_orcada(db: Session, projeto_id: int) -> int:
     if cadastro and cadastro.atletas_site_pago and cadastro.atletas_site_pago > 0:
         _cadastro_cache[projeto_id] = int(cadastro.atletas_site_pago)
         return int(cadastro.atletas_site_pago)
-    projeto = _wq_dim_projeto_by_id(db, projeto_id)
-    fallback = int(projeto.capacidade_maxima) if projeto and projeto.capacidade_maxima else 0
-    _cadastro_cache[projeto_id] = fallback
-    return fallback
+    _cadastro_cache[projeto_id] = 0
+    return 0
 
 def get_meta_from_cadastro(cadastro: CadastroEvento) -> int:
     if cadastro.atletas_site_pago and cadastro.atletas_site_pago > 0:
         return int(cadastro.atletas_site_pago)
-    return int(cadastro.capacidade_maxima) if cadastro.capacidade_maxima else 0
+    return 0
 
 def get_meta_orcada_projetos(db: Session, projetos: list) -> int:
     total = 0
