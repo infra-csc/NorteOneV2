@@ -107,5 +107,7 @@ class CotacaoFob(Base):
     circuito = Column(String(200), nullable=False)
     produto = Column(String(200), nullable=False)
     valor_fob = Column(Numeric(12, 4), nullable=False, default=0)
+    taxa_cambio = Column(Numeric(10, 4), nullable=True)
+    valor_brl = Column(Numeric(12, 4), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

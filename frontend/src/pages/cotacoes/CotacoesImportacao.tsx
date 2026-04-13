@@ -3,7 +3,7 @@ import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import {
   Plus, Edit2, Trash2, X, Search, RefreshCw,
-  DollarSign, Package, AlertCircle, Save, ChevronDown
+  DollarSign, Package, AlertCircle, Save, ChevronDown, Globe, TrendingUp
 } from 'lucide-react';
 
 interface CotacaoFob {
@@ -11,6 +11,8 @@ interface CotacaoFob {
   circuito: string;
   produto: string;
   valor_fob: number;
+  taxa_cambio?: number | null;
+  valor_brl?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -103,12 +105,20 @@ const CotacoesImportacao: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [cambio, setCambio] = useState<{ taxa: number; variacao: number; data: string }>({ taxa: 0, variacao: 0, data: '' });
 
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<CotacaoFob | null>(null);
   const [formCircuito, setFormCircuito] = useState('');
   const [formProduto, setFormProduto] = useState('');
   const [formValorFob, setFormValorFob] = useState('');
+
+  const loadCambio = useCallback(async () => {
+    try {
+      const res = await api.get('/cotacoes/cambio');
+      setCambio(res.data);
+    } catch { }
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -128,7 +138,7 @@ const CotacoesImportacao: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); loadCambio(); }, [loadData, loadCambio]);
 
   const openNew = () => {
     setEditingItem(null);
@@ -153,10 +163,16 @@ const CotacoesImportacao: React.FC = () => {
 
     setSaving(true);
     try {
+      const valorFob = Number(formValorFob);
+      const taxa = cambio.taxa || null;
+      const valorBrl = taxa ? round(valorFob * taxa, 2) : null;
+
       const payload = {
         circuito: formCircuito.trim(),
         produto: formProduto.trim(),
-        valor_fob: Number(formValorFob),
+        valor_fob: valorFob,
+        taxa_cambio: taxa,
+        valor_brl: valorBrl,
       };
       if (editingItem) {
         await api.put(`/cotacoes/fob/${editingItem.id}`, payload);
@@ -182,7 +198,11 @@ const CotacoesImportacao: React.FC = () => {
     }
   };
 
-  const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const round = (v: number, d: number) => Math.round(v * Math.pow(10, d)) / Math.pow(10, d);
+  const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtRate = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+
+  const previewBrl = formValorFob && cambio.taxa ? round(Number(formValorFob) * cambio.taxa, 2) : null;
 
   const filtered = items.filter(item => {
     if (!searchText) return true;
@@ -208,7 +228,7 @@ const CotacoesImportacao: React.FC = () => {
           <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Registro de valores FOB por circuito e produto</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={loadData} className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
+          <button onClick={() => { loadData(); loadCambio(); }} className={`p-2 rounded-lg ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
           <button onClick={openNew} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-opacity">
@@ -216,6 +236,25 @@ const CotacoesImportacao: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {cambio.taxa > 0 && (
+        <div className={`${cardClass} flex items-center gap-3 !py-3`}>
+          <Globe className="w-5 h-5 text-blue-500" />
+          <div className="flex items-center gap-2">
+            <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              USD/BRL: R$ {fmtRate(cambio.taxa)}
+            </span>
+            <span className={`text-xs px-1.5 py-0.5 rounded ${cambio.variacao >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+              {cambio.variacao >= 0 ? '+' : ''}{fmtRate(cambio.variacao)}
+            </span>
+          </div>
+          {cambio.data && (
+            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} ml-auto`}>
+              {cambio.data}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="relative">
         <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
@@ -268,7 +307,9 @@ const CotacoesImportacao: React.FC = () => {
                   <thead>
                     <tr className={`border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
                       <th className={`text-left py-2 px-3 font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Produto</th>
-                      <th className={`text-right py-2 px-3 font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor FOB (USD)</th>
+                      <th className={`text-right py-2 px-3 font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>FOB (USD)</th>
+                      <th className={`text-right py-2 px-3 font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Câmbio</th>
+                      <th className={`text-right py-2 px-3 font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor (BRL)</th>
                       <th className="w-20"></th>
                     </tr>
                   </thead>
@@ -278,6 +319,16 @@ const CotacoesImportacao: React.FC = () => {
                         <td className={`py-2.5 px-3 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{item.produto}</td>
                         <td className="py-2.5 px-3 text-right">
                           <span className="font-semibold text-emerald-500">$ {fmt(item.valor_fob)}</span>
+                        </td>
+                        <td className={`py-2.5 px-3 text-right text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                          {item.taxa_cambio ? fmtRate(item.taxa_cambio) : '-'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {item.valor_brl ? (
+                            <span className="font-semibold text-blue-500">R$ {fmt(item.valor_brl)}</span>
+                          ) : (
+                            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>-</span>
+                          )}
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex items-center justify-end gap-1">
@@ -352,6 +403,23 @@ const CotacoesImportacao: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {cambio.taxa > 0 && (
+                <div className={`rounded-lg p-3 ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
+                    <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Câmbio atual: R$ {fmtRate(cambio.taxa)}
+                    </span>
+                  </div>
+                  {previewBrl !== null && (
+                    <div className="flex items-center justify-between mt-1">
+                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor convertido:</span>
+                      <span className="text-sm font-bold text-blue-500">R$ {fmt(previewBrl)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className={`flex justify-end gap-3 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               <button onClick={() => setShowModal(false)} className={`px-4 py-2 rounded-lg text-sm ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>

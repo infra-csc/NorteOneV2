@@ -671,10 +671,16 @@ def create_cotacao_fob(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(_edit_cotacao)
 ):
+    taxa = data.taxa_cambio
+    valor_brl = data.valor_brl
+    if taxa and data.valor_fob and not valor_brl:
+        valor_brl = round(data.valor_fob * taxa, 4)
     item = CotacaoFob(
         circuito=data.circuito.strip(),
         produto=data.produto.strip(),
         valor_fob=data.valor_fob,
+        taxa_cambio=taxa,
+        valor_brl=valor_brl,
     )
     db.add(item)
     db.commit()
@@ -696,6 +702,8 @@ def update_cotacao_fob(
         if k in ("circuito", "produto") and isinstance(v, str):
             v = v.strip()
         setattr(item, k, v)
+    if item.taxa_cambio and item.valor_fob:
+        item.valor_brl = round(float(item.valor_fob) * float(item.taxa_cambio), 4)
     db.commit()
     db.refresh(item)
     return item
