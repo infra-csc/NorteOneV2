@@ -17,6 +17,7 @@ from ...schemas.cotacao import (
 )
 import httpx
 import logging
+import time as _time
 
 logger = logging.getLogger(__name__)
 
@@ -26,23 +27,71 @@ router = APIRouter(prefix="/cotacoes", tags=["Cotações & Importação"])
 _view_cotacao = require_permission("cotacoes_importacao", "pode_visualizar")
 _edit_cotacao = require_permission("cotacoes_importacao", "pode_editar")
 
+_cambio_cache: dict = {"taxa": 0, "variacao": 0, "data": "", "ts": 0}
+_CAMBIO_TTL = 300
+
 
 @router.get("/cambio")
 def get_cambio(current_user: Usuario = Depends(_view_cotacao)):
+    now = _time.time()
+    if _cambio_cache["taxa"] > 0 and (now - _cambio_cache["ts"]) < _CAMBIO_TTL:
+        return {
+            "taxa": _cambio_cache["taxa"],
+            "variacao": _cambio_cache["variacao"],
+            "data": _cambio_cache["data"],
+        }
 
     try:
         with httpx.Client(timeout=10) as client:
             resp = client.get("https://economia.awesomeapi.com.br/json/last/USD-BRL")
-            data = resp.json()
-            usd_brl = data.get("USDBRL", {})
-            return {
-                "taxa": float(usd_brl.get("bid", 0)),
-                "variacao": float(usd_brl.get("varBid", 0)),
-                "data": usd_brl.get("create_date", ""),
-            }
+            if resp.status_code == 200:
+                data = resp.json()
+                usd_brl = data.get("USDBRL", {})
+                result = {
+                    "taxa": float(usd_brl.get("bid", 0)),
+                    "variacao": float(usd_brl.get("varBid", 0)),
+                    "data": usd_brl.get("create_date", ""),
+                }
+                if result["taxa"] > 0:
+                    _cambio_cache["taxa"] = result["taxa"]
+                    _cambio_cache["variacao"] = result["variacao"]
+                    _cambio_cache["data"] = result["data"]
+                    _cambio_cache["ts"] = now
+                    return result
+            else:
+                logger.warning(f"AwesomeAPI returned {resp.status_code}, trying fallback")
     except Exception as e:
-        logger.error(f"Erro ao buscar câmbio: {e}")
-        return {"taxa": 0, "variacao": 0, "data": "", "erro": str(e)}
+        logger.warning(f"AwesomeAPI failed: {e}, trying fallback")
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get("https://open.er-api.com/v6/latest/USD")
+            if resp.status_code == 200:
+                data = resp.json()
+                brl_rate = data.get("rates", {}).get("BRL", 0)
+                if brl_rate > 0:
+                    update_time = data.get("time_last_update_utc", "")
+                    result = {
+                        "taxa": round(float(brl_rate), 4),
+                        "variacao": 0,
+                        "data": update_time,
+                    }
+                    _cambio_cache["taxa"] = result["taxa"]
+                    _cambio_cache["variacao"] = result["variacao"]
+                    _cambio_cache["data"] = result["data"]
+                    _cambio_cache["ts"] = now
+                    logger.info(f"Câmbio from fallback API: {result['taxa']}")
+                    return result
+    except Exception as e2:
+        logger.warning(f"Fallback câmbio API also failed: {e2}")
+
+    if _cambio_cache["taxa"] > 0:
+        return {
+            "taxa": _cambio_cache["taxa"],
+            "variacao": _cambio_cache["variacao"],
+            "data": _cambio_cache["data"],
+        }
+    return {"taxa": 0, "variacao": 0, "data": ""}
 
 
 @router.get("/fornecedores", response_model=List[FornecedorResponse])

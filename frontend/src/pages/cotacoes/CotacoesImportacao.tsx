@@ -237,24 +237,35 @@ const CotacoesImportacao: React.FC = () => {
         </div>
       </div>
 
-      {cambio.taxa > 0 && (
-        <div className={`${cardClass} flex items-center gap-3 !py-3`}>
-          <Globe className="w-5 h-5 text-blue-500" />
+      <div className={`${cardClass} flex items-center gap-3 !py-3`}>
+        <Globe className="w-5 h-5 text-blue-500" />
+        {cambio.taxa > 0 ? (
+          <>
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                USD/BRL: R$ {fmtRate(cambio.taxa)}
+              </span>
+              <span className={`text-xs px-1.5 py-0.5 rounded ${cambio.variacao >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
+                {cambio.variacao >= 0 ? '+' : ''}{fmtRate(cambio.variacao)}
+              </span>
+            </div>
+            {cambio.data && (
+              <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} ml-auto`}>
+                {cambio.data}
+              </span>
+            )}
+          </>
+        ) : (
           <div className="flex items-center gap-2">
-            <span className={`text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              USD/BRL: R$ {fmtRate(cambio.taxa)}
+            <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              Câmbio USD/BRL indisponível
             </span>
-            <span className={`text-xs px-1.5 py-0.5 rounded ${cambio.variacao >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'}`}>
-              {cambio.variacao >= 0 ? '+' : ''}{fmtRate(cambio.variacao)}
-            </span>
+            <button onClick={loadCambio} className={`text-xs px-2 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}>
+              Tentar novamente
+            </button>
           </div>
-          {cambio.data && (
-            <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'} ml-auto`}>
-              {cambio.data}
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="relative">
         <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
@@ -404,22 +415,26 @@ const CotacoesImportacao: React.FC = () => {
                 </div>
               </div>
 
-              {cambio.taxa > 0 && (
-                <div className={`rounded-lg p-3 ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
+              <div className={`rounded-lg p-3 ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="w-3.5 h-3.5 text-blue-500" />
+                  {cambio.taxa > 0 ? (
                     <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                       Câmbio atual: R$ {fmtRate(cambio.taxa)}
                     </span>
-                  </div>
-                  {previewBrl !== null && (
-                    <div className="flex items-center justify-between mt-1">
-                      <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor convertido:</span>
-                      <span className="text-sm font-bold text-blue-500">R$ {fmt(previewBrl)}</span>
-                    </div>
+                  ) : (
+                    <span className={`text-xs font-medium ${isDark ? 'text-yellow-400/70' : 'text-yellow-600'}`}>
+                      Câmbio indisponível — será salvo sem conversão
+                    </span>
                   )}
                 </div>
-              )}
+                {previewBrl !== null && (
+                  <div className="flex items-center justify-between mt-1">
+                    <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor convertido:</span>
+                    <span className="text-sm font-bold text-blue-500">R$ {fmt(previewBrl)}</span>
+                  </div>
+                )}
+              </div>
             </div>
             <div className={`flex justify-end gap-3 p-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
               <button onClick={() => setShowModal(false)} className={`px-4 py-2 rounded-lg text-sm ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
