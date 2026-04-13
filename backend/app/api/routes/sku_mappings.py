@@ -635,14 +635,18 @@ def list_available_curves(
 ):
     grupos_with_curves = db.query(
         CurvaHistoricaSnapshot.evento_grupo,
-        func.max(CurvaHistoricaSnapshot.ano_referencia).label("max_ano")
+        func.max(CurvaHistoricaSnapshot.ano_referencia).label("max_ano"),
+        func.count(CurvaHistoricaSnapshot.id).label("pontos"),
+        func.min(CurvaHistoricaSnapshot.origem).label("origem")
     ).group_by(CurvaHistoricaSnapshot.evento_grupo).all()
 
     result = []
     for row in grupos_with_curves:
         result.append({
             "grupo": row.evento_grupo,
-            "anoReferencia": row.max_ano
+            "anoReferencia": row.max_ano,
+            "pontos": row.pontos,
+            "origem": row.origem or "historico"
         })
     return sorted(result, key=lambda x: x["grupo"])
 

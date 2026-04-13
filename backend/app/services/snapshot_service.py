@@ -76,7 +76,25 @@ def get_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia:
     return pattern
 
 
-def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: int = None):
+def get_curva_historica_snapshot_with_meta(db: Session, evento_grupo: str, ano_referencia: int) -> tuple:
+    rows = db.query(CurvaHistoricaSnapshot).filter(
+        CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
+        CurvaHistoricaSnapshot.ano_referencia == ano_referencia
+    ).all()
+
+    if not rows:
+        return None, None
+
+    pattern = {}
+    origem = None
+    for r in rows:
+        pattern[r.d_minus] = r.percentual_acumulado
+        if r.origem and not origem:
+            origem = r.origem
+    return pattern, origem
+
+
+def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: int = None, origem: str = None):
     db.query(CurvaHistoricaSnapshot).filter(
         CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
         CurvaHistoricaSnapshot.ano_referencia == ano_referencia
@@ -88,12 +106,13 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
             ano_referencia=ano_referencia,
             d_minus=d_minus,
             percentual_acumulado=pct,
-            total_vendas_referencia=total_vendas
+            total_vendas_referencia=total_vendas,
+            origem=origem or "historico"
         )
         db.add(entry)
 
     db.commit()
-    logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus")
+    logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
 
 
 def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: date = None, data_fim: date = None):
@@ -224,11 +243,13 @@ def snapshot_diario_batch(db: Session):
 
 def consolidar_curvas_historicas_batch(db: Session):
     from ..api.routes.marketing import (
-        _build_sku_to_grupo_map, _fetch_previous_year_cumulative_pattern
+        _build_sku_to_grupo_map, _fetch_previous_year_cumulative_pattern,
+        _resolve_hist_pattern
     )
 
     today = date.today()
     ano = today.year
+    prev_ano = ano - 1
 
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     if not sku_to_grupo:
@@ -236,22 +257,41 @@ def consolidar_curvas_historicas_batch(db: Session):
 
     grupos_unicos = set(sku_to_grupo.values())
     saved = 0
+    derived = 0
 
     for grupo in grupos_unicos:
-        existing = get_curva_historica_snapshot(db, grupo, ano - 1)
+        existing = get_curva_historica_snapshot(db, grupo, prev_ano)
         if existing:
             continue
 
         try:
             pattern = _fetch_previous_year_cumulative_pattern(db, grupo, ano)
             if pattern:
-                save_curva_historica_snapshot(db, grupo, ano - 1, pattern, len(pattern))
+                save_curva_historica_snapshot(db, grupo, prev_ano, pattern, len(pattern), origem="historico")
                 saved += 1
         except Exception as e:
             logger.error(f"Erro ao consolidar curva histórica para grupo='{grupo}': {e}")
 
-    logger.info(f"Curvas históricas consolidadas: {saved} novos grupos")
-    return saved
+    for grupo in grupos_unicos:
+        existing = get_curva_historica_snapshot(db, grupo, prev_ano)
+        if existing:
+            continue
+
+        try:
+            fb_pattern, fb_info = _resolve_hist_pattern(db, grupo, ano)
+            if fb_pattern and fb_info.get("tipo_curva") != "linear":
+                save_curva_historica_snapshot(
+                    db, grupo, prev_ano, fb_pattern,
+                    len(fb_pattern),
+                    origem=fb_info.get("tipo_curva", "derivado")
+                )
+                derived += 1
+                logger.info(f"Curva derivada salva para '{grupo}': tipo={fb_info.get('tipo_curva')}, fonte={fb_info.get('fonte_curva')}")
+        except Exception as e:
+            logger.error(f"Erro ao gerar curva derivada para grupo='{grupo}': {e}")
+
+    logger.info(f"Curvas históricas consolidadas: {saved} próprias, {derived} derivadas")
+    return saved + derived
 
 
 def sincronizar_hoje_batch(db: Session) -> int:

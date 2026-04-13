@@ -40,7 +40,7 @@ import {
   ReferenceLine,
   Cell
 } from 'recharts';
-import { marketingService, MarketingEvent, clearMarketingDashboardCache } from '../../services/api';
+import api, { marketingService, MarketingEvent, clearMarketingDashboardCache } from '../../services/api';
 import { 
   getISCColor, 
   getISCEmoji, 
@@ -121,6 +121,10 @@ const EventDetail: React.FC = () => {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [curvaData, setCurvaData] = useState<any[]>([]);
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
+  const [availableCurves, setAvailableCurves] = useState<{grupo: string; anoReferencia: number; pontos: number; origem: string}[]>([]);
+  const [overrideSearch, setOverrideSearch] = useState('');
+  const [savingOverride, setSavingOverride] = useState(false);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
   const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'complementares' | 'controle'>('dashboard');
@@ -380,6 +384,42 @@ const EventDetail: React.FC = () => {
       console.error('Erro ao atualizar vendas de hoje:', err);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const openOverrideModal = async () => {
+    try {
+      const res = await api.get('/admin/evento-grupos/available-curves');
+      setAvailableCurves(res.data);
+    } catch (err) {
+      console.error('Erro ao buscar curvas disponíveis:', err);
+    }
+    setOverrideSearch('');
+    setShowOverrideModal(true);
+  };
+
+  const handleSetOverride = async (curvaGrupo: string | null) => {
+    if (!id) return;
+    setSavingOverride(true);
+    try {
+      const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: id } });
+      const matchedGrupo = gruposRes.data.find((g: any) => g.nome === id);
+      if (!matchedGrupo) {
+        console.error('Grupo não encontrado:', id);
+        setSavingOverride(false);
+        return;
+      }
+      await api.put(`/admin/evento-grupos/${matchedGrupo.id}/curva-override`, {
+        curva_override: curvaGrupo
+      });
+      setShowOverrideModal(false);
+      if (fetchEventRef.current) {
+        fetchEventRef.current(true);
+      }
+    } catch (err) {
+      console.error('Erro ao salvar override:', err);
+    } finally {
+      setSavingOverride(false);
     }
   };
 
@@ -1761,7 +1801,7 @@ const EventDetail: React.FC = () => {
                   </>
                 )}
               </div>
-              <div className="mt-1.5">
+              <div className="mt-1.5 flex items-center gap-1">
                 {(() => {
                   const tipo = event.iscComponents?.tipoCurva;
                   const fonte = event.iscComponents?.fonteCurva;
@@ -1790,6 +1830,9 @@ const EventDetail: React.FC = () => {
                     </span>
                   );
                 })()}
+                <button onClick={openOverrideModal} className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Alterar curva de referência">
+                  <Pencil className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
+                </button>
               </div>
             </div>
 
@@ -3262,6 +3305,64 @@ const EventDetail: React.FC = () => {
         );
       })()}
       </>
+      )}
+
+      {showOverrideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} max-h-[80vh] flex flex-col`}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Alterar Curva de Referência</h3>
+              <button onClick={() => setShowOverrideModal(false)} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <input
+                type="text"
+                placeholder="Buscar grupo..."
+                value={overrideSearch}
+                onChange={(e) => setOverrideSearch(e.target.value)}
+                className={`w-full px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'} focus:ring-2 focus:ring-indigo-500`}
+              />
+            </div>
+            <div className="overflow-y-auto flex-1 px-4 pb-2">
+              <button
+                onClick={() => handleSetOverride(null)}
+                disabled={savingOverride}
+                className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${event?.iscComponents?.tipoCurva !== 'manual' ? 'font-medium' : ''}`}
+              >
+                <span className="text-amber-500">Automático</span>
+                <span className={`text-xs ml-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>— usar cadeia de fallback padrão</span>
+              </button>
+              {availableCurves
+                .filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase()))
+                .map(curve => (
+                  <button
+                    key={curve.grupo}
+                    onClick={() => handleSetOverride(curve.grupo)}
+                    disabled={savingOverride}
+                    className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${event?.iscComponents?.fonteCurva === curve.grupo && event?.iscComponents?.tipoCurva === 'manual' ? 'ring-2 ring-green-500' : ''}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium truncate">{curve.grupo}</span>
+                      <span className={`text-xs flex-shrink-0 ml-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {curve.pontos} pts | {curve.anoReferencia}
+                      </span>
+                    </div>
+                  </button>
+                ))
+              }
+              {availableCurves.filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase())).length === 0 && (
+                <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhuma curva encontrada</p>
+              )}
+            </div>
+            {savingOverride && (
+              <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-center gap-2 text-sm text-gray-500">
+                <RefreshCw className="w-4 h-4 animate-spin" /> Salvando...
+              </div>
+            )}
+          </div>
+        </div>
       )}
       </div>
     </div>
