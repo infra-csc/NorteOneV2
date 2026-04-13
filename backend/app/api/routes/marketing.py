@@ -8176,7 +8176,16 @@ def get_marketing_event_by_id(
             ).all()
         else:
             _cic_kits = []
+        _cic_bundle_to_kit = {k.bundle_entity_id: k for k in _cic_kits}
         _cic_bundle_ids = {k.bundle_entity_id: k.cenario_ciclismo for k in _cic_kits}
+        _cic_cenario_costs: dict = {}
+        for _ck in _cic_kits:
+            _cn_val = _ck.cenario_ciclismo
+            if _cn_val and _ck.custo_kit is not None:
+                _cic_cenario_costs.setdefault(_cn_val, []).append(float(_ck.custo_kit))
+        for _cn_key in cenarios_ciclismo:
+            cost_vals = _cic_cenario_costs.get(_cn_key, [])
+            cenarios_ciclismo[_cn_key]["custo_kit"] = round(sum(cost_vals) / len(cost_vals), 2) if cost_vals else 0
         if _cic_bundle_ids:
             _cic_sku_maps = db.query(_SM).filter(
                 func.upper(_SM.fonte) == 'MAGENTO',
@@ -8202,6 +8211,9 @@ def get_marketing_event_by_id(
             _cd.setdefault("real_vendas", 0)
             _cd.setdefault("real_receita", 0)
             _cd["real_tkt_medio"] = round(rr / rv, 2) if rv > 0 else 0
+            _ck_cost = _cd.get("custo_kit", 0)
+            _cd["margem_orcada"] = round((_cd["tkt_medio_orcado"] - _ck_cost) * _cd["orcado_pago"], 2) if _cd["tkt_medio_orcado"] > 0 and _ck_cost > 0 else 0
+            _cd["margem_realizada"] = round(rr - (_ck_cost * rv), 2) if rv > 0 and _ck_cost > 0 else 0
 
     standalone_result = {
         "status": "success",

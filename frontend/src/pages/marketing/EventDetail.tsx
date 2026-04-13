@@ -118,7 +118,7 @@ const EventDetail: React.FC = () => {
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
   const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(null);
-  const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number } } | null>(null);
+  const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number; custo_kit?: number; margem_orcada?: number; margem_realizada?: number } } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [curvaData, setCurvaData] = useState<any[]>([]);
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
@@ -2950,6 +2950,26 @@ const EventDetail: React.FC = () => {
                       <span className="text-xs text-gray-500 dark:text-gray-400">Receita</span>
                       <span className="text-sm font-semibold text-gray-900 dark:text-white">
                         {(c.real_receita || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                    </div>
+                    {(c.custo_kit || 0) > 0 && (
+                      <div className="flex justify-between items-center pt-1 border-t border-gray-200 dark:border-gray-600">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Custo Kit</span>
+                        <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                          {(c.custo_kit || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Margem Orçada</span>
+                      <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                        {(c.margem_orcada || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Margem Realizada</span>
+                      <span className={`text-sm font-bold ${(c.margem_realizada || 0) >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                        {(c.margem_realizada || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                     </div>
                   </div>
