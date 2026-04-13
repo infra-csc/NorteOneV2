@@ -130,17 +130,27 @@ class FaixaPrecoItemResponse(FaixaPrecoItemBase):
 class FaixasPrecoByKit(BaseModel):
     kit_basico: List[FaixaPrecoItemBase] = []
     kit_participacao: List[FaixaPrecoItemBase] = []
+    kit_sem_bike: List[FaixaPrecoItemBase] = []
+    kit_com_bike: List[FaixaPrecoItemBase] = []
 
 
 class AppaiData(BaseModel):
     pago: int = 0
     tkt_medio: float = 0
 
+class CiclismoCenariosData(BaseModel):
+    participacao_pago: int = 0
+    sem_bike_pago: int = 0
+    sem_bike_tkt_medio: float = 0
+    com_bike_pago: int = 0
+    com_bike_tkt_medio: float = 0
+
 class AtletasData(BaseModel):
     site: dict = {"pago": 0, "tkt_medio": 0}
     grupos: dict = {"pago": 0, "tkt_medio": 0}
     cortesia: int = 0
     appai: Optional[AppaiData] = AppaiData()
+    ciclismo: Optional[CiclismoCenariosData] = CiclismoCenariosData()
 
 
 class InfoGeral(BaseModel):

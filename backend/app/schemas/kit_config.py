@@ -11,6 +11,7 @@ class KitConfigUpsert(BaseModel):
     tipo_kit: Optional[str] = None
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
+    cenario_ciclismo: Optional[str] = None
 
 
 class KitConfigBulkItem(BaseModel):
@@ -22,6 +23,7 @@ class KitConfigBulkItem(BaseModel):
     tipo_kit: Optional[str] = None
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
+    cenario_ciclismo: Optional[str] = None
 
 
 class KitConfigBulkUpsert(BaseModel):
@@ -44,6 +46,7 @@ class KitConfigResponse(BaseModel):
     is_promo_principal: bool = False
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
+    cenario_ciclismo: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -71,5 +74,6 @@ class KitRow(BaseModel):
     custo_cadastro: Optional[float] = None
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
+    cenario_ciclismo: Optional[str] = None
     status_kit: Optional[str] = None
     fonte: Optional[str] = None

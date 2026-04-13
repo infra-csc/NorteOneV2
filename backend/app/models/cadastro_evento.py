@@ -64,6 +64,12 @@ class CadastroEvento(Base):
     atletas_cortesia = Column(Integer, default=0)
     atletas_appai_pago = Column(Integer, default=0)
     atletas_appai_tkt_medio = Column(Numeric(10, 2), default=0)
+
+    ciclismo_participacao_pago = Column(Integer, default=0)
+    ciclismo_sem_bike_pago = Column(Integer, default=0)
+    ciclismo_sem_bike_tkt_medio = Column(Numeric(10, 2), default=0)
+    ciclismo_com_bike_pago = Column(Integer, default=0)
+    ciclismo_com_bike_tkt_medio = Column(Numeric(10, 2), default=0)
     
     dias_encerramento_inscricao = Column(Integer, default=2)
     id_evento_magento = Column(Integer, nullable=True)

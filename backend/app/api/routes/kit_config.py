@@ -355,6 +355,7 @@ def get_kits_with_config(
             ativo_categoria=cfg.ativo_categoria if cfg else None,
             status_kit=row_dict.get("status_kit"),
             fonte="magento",
+            cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
         ))
 
     # --- Ativo-only events ---
@@ -449,6 +450,7 @@ def get_kits_with_config(
                 ativo_categoria=kp.ativo_categoria or (cfg.ativo_categoria if cfg else None),
                 status_kit=None,
                 fonte="ativo",
+                cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
             ))
 
     _kits_cache["data"] = kits
@@ -693,6 +695,7 @@ def upsert_kit_config_bulk(
                 if item.custo_kit is not None:
                     existing.custo_kit = item.custo_kit
                 existing.ativo_categoria = item.ativo_categoria or None
+                existing.cenario_ciclismo = item.cenario_ciclismo or None
             else:
                 new_config = KitConfig(
                     bundle_entity_id=item.bundle_entity_id,
@@ -703,6 +706,7 @@ def upsert_kit_config_bulk(
                     tipo_kit=item.tipo_kit,
                     custo_kit=item.custo_kit,
                     ativo_categoria=item.ativo_categoria or None,
+                    cenario_ciclismo=item.cenario_ciclismo or None,
                 )
                 db.add(new_config)
 
@@ -777,6 +781,7 @@ def upsert_kit_config(
             if body.custo_kit is not None:
                 existing.custo_kit = body.custo_kit
             existing.ativo_categoria = body.ativo_categoria or None
+            existing.cenario_ciclismo = body.cenario_ciclismo or None
             db.commit()
             db.refresh(existing)
             _kits_cache["data"] = None
@@ -796,6 +801,7 @@ def upsert_kit_config(
             tipo_kit=body.tipo_kit,
             custo_kit=body.custo_kit,
             ativo_categoria=body.ativo_categoria or None,
+            cenario_ciclismo=body.cenario_ciclismo or None,
         )
         db.add(new_config)
         db.commit()

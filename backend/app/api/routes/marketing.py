@@ -8142,12 +8142,73 @@ def get_marketing_event_by_id(
         })
     
     _sa_faixas_preco_site = _get_faixas_preco_site_for_projeto_ids(db, [projeto.id])
+
+    cenarios_ciclismo = None
+    if projeto_modalidade and projeto_modalidade.lower() == 'ciclismo' and detail_standalone_cad:
+        cenarios_ciclismo = {
+            "participacao": {
+                "orcado_pago": int(detail_standalone_cad.ciclismo_participacao_pago or 0),
+                "tkt_medio_orcado": 0,
+            },
+            "sem_bike": {
+                "orcado_pago": int(detail_standalone_cad.ciclismo_sem_bike_pago or 0),
+                "tkt_medio_orcado": float(detail_standalone_cad.ciclismo_sem_bike_tkt_medio or 0),
+            },
+            "com_bike": {
+                "orcado_pago": int(detail_standalone_cad.ciclismo_com_bike_pago or 0),
+                "tkt_medio_orcado": float(detail_standalone_cad.ciclismo_com_bike_tkt_medio or 0),
+            },
+        }
+        from app.models.kit_config import KitConfig as _KC
+        from app.models.dimensoes import SkuMapping as _SM
+        _proj_sku = normalize_sku(str(projeto.codigo)) if projeto.codigo else None
+        _cic_ext_ids = []
+        if _proj_sku:
+            _cic_sm = db.query(_SM).filter(
+                func.upper(_SM.sku) == _proj_sku,
+                _SM.ativo == True,
+            ).all()
+            _cic_ext_ids = [str(sm_r.id_externo) for sm_r in _cic_sm if sm_r.id_externo]
+        if _cic_ext_ids:
+            _cic_kits = db.query(_KC).filter(
+                _KC.id_evento.in_(_cic_ext_ids),
+                _KC.cenario_ciclismo.isnot(None),
+            ).all()
+        else:
+            _cic_kits = []
+        _cic_bundle_ids = {k.bundle_entity_id: k.cenario_ciclismo for k in _cic_kits}
+        if _cic_bundle_ids:
+            _cic_sku_maps = db.query(_SM).filter(
+                func.upper(_SM.fonte) == 'MAGENTO',
+                _SM.id_externo.in_(list(_cic_bundle_ids.keys())),
+                _SM.ativo == True,
+            ).all()
+            _cic_sku_to_cenario = {}
+            for sm_row in _cic_sku_maps:
+                cenario_val = _cic_bundle_ids.get(sm_row.id_externo)
+                if cenario_val and sm_row.sku:
+                    _cic_sku_to_cenario[normalize_sku(sm_row.sku)] = cenario_val
+            if _cic_sku_to_cenario:
+                isc_data_cic = fetch_isc_pricing_data(db=db)
+                for _sku_cic, _cenario_cic in _cic_sku_to_cenario.items():
+                    _cic_info = isc_data_cic.get(_sku_cic, {})
+                    if _cic_info and _cenario_cic in cenarios_ciclismo:
+                        cenarios_ciclismo[_cenario_cic]["real_vendas"] = cenarios_ciclismo[_cenario_cic].get("real_vendas", 0) + _cic_info.get("qtd_site", 0)
+                        cenarios_ciclismo[_cenario_cic]["real_receita"] = round(cenarios_ciclismo[_cenario_cic].get("real_receita", 0) + _cic_info.get("receita_liquida_site", 0), 2)
+        for _cn in cenarios_ciclismo:
+            _cd = cenarios_ciclismo[_cn]
+            rv = _cd.get("real_vendas", 0)
+            rr = _cd.get("real_receita", 0)
+            _cd.setdefault("real_vendas", 0)
+            _cd.setdefault("real_receita", 0)
+            _cd["real_tkt_medio"] = round(rr / rv, 2) if rv > 0 else 0
+
     standalone_result = {
         "status": "success",
         "evento": evento,
         "dailySales": daily_sales,
-        # commercialActions intentionally excluded from cache — always fetched fresh per request
         "faixas_preco_site": _sa_faixas_preco_site,
+        "cenarios_ciclismo": cenarios_ciclismo,
         "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
         "avisos": get_isc_warnings(),
         "_cache_version": _DETAIL_CACHE_VERSION

@@ -25,6 +25,7 @@ interface KitRow {
   ativo_categoria: string | null;
   status_kit: string | null;
   fonte?: string | null;
+  cenario_ciclismo: string | null;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -48,6 +49,7 @@ const KitConfig: React.FC = () => {
   const [tipoKitValues, setTipoKitValues] = useState<Record<number, string>>({});
   const [custoKitValues, setCustoKitValues] = useState<Record<number, string>>({});
   const [ativoCategValues, setAtivoCategValues] = useState<Record<number, string>>({});
+  const [cenarioCicValues, setCenarioCicValues] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
@@ -94,6 +96,7 @@ const KitConfig: React.FC = () => {
       const tipoKits: Record<number, string> = {};
       const custoKits: Record<number, string> = {};
       const ativoCats: Record<number, string> = {};
+      const cenarioCics: Record<number, string> = {};
 
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
@@ -102,6 +105,7 @@ const KitConfig: React.FC = () => {
         tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
         custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
         ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
+        cenarioCics[k.bundle_entity_id] = k.cenario_ciclismo || '';
       });
 
       // Custo do Kit Básico por evento (para auto-preenchimento)
@@ -129,6 +133,7 @@ const KitConfig: React.FC = () => {
       setTipoKitValues(tipoKits);
       setCustoKitValues(custoKits);
       setAtivoCategValues(ativoCats);
+      setCenarioCicValues(cenarioCics);
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
@@ -151,6 +156,7 @@ const KitConfig: React.FC = () => {
     const custoKitStr = (custoKitValues[bundleId] ?? '').trim();
     const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
     const ativoCateg = (ativoCategValues[bundleId] ?? '').trim() || null;
+    const cenarioCic = (cenarioCicValues[bundleId] ?? '').trim() || null;
 
     setSaving((s) => ({ ...s, [bundleId]: true }));
     try {
@@ -162,6 +168,7 @@ const KitConfig: React.FC = () => {
         tipo_kit: tipoKit,
         custo_kit: custoKit,
         ativo_categoria: ativoCateg,
+        cenario_ciclismo: cenarioCic,
       });
       setSavedFeedback((s) => ({ ...s, [bundleId]: true }));
       setTimeout(() => setSavedFeedback((s) => ({ ...s, [bundleId]: false })), 2000);
@@ -178,6 +185,7 @@ const KitConfig: React.FC = () => {
               custo_kit: custoKit,
               tipo_kit: tipoKit,
               ativo_categoria: ativoCateg,
+              cenario_ciclismo: cenarioCic,
             };
           }
           if (isBasico && k.id_evento === kit?.id_evento && k.is_kit_basico) {
@@ -235,6 +243,7 @@ const KitConfig: React.FC = () => {
       const custoKitStr = (custoKitValues[id] ?? '').trim();
       const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
       const ativoCateg = (ativoCategValues[id] ?? '').trim() || null;
+      const cenarioCic = (cenarioCicValues[id] ?? '').trim() || null;
       return {
         bundle_entity_id: id,
         multiplicador: mult,
@@ -244,6 +253,7 @@ const KitConfig: React.FC = () => {
         tipo_kit: tipoKit,
         custo_kit: custoKit,
         ativo_categoria: ativoCateg,
+        cenario_ciclismo: cenarioCic,
       };
     });
     try {
@@ -674,6 +684,7 @@ const KitConfig: React.FC = () => {
                     { label: 'Kit', align: 'text-left' },
                     { label: 'Tipo Kit (Cadastro)', align: 'text-left' },
                     { label: 'Cat. Ativo', align: 'text-left' },
+                    { label: 'Cenário Cicl.', align: 'text-left' },
                     { label: 'Tipo', align: 'text-left' },
                     { label: 'Lote Atual', align: 'text-left' },
                     { label: 'Status Site', align: 'text-left' },
@@ -718,11 +729,12 @@ const KitConfig: React.FC = () => {
                   const isPromoPrincipal = promoValues[kit.bundle_entity_id] ?? kit.is_promo_principal;
                   const editTipoKit = tipoKitValues[kit.bundle_entity_id] ?? (kit.tipo_kit || '');
                   const editAtivoCateg = ativoCategValues[kit.bundle_entity_id] ?? (kit.ativo_categoria || '');
+                  const editCenarioCic = cenarioCicValues[kit.bundle_entity_id] ?? (kit.cenario_ciclismo || '');
                   const custoKitStr = (custoKitValues[kit.bundle_entity_id] ?? '').trim();
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
                   const custoKitChanged = kit.custo_cadastro == null && custoKitStr !== '' && parseFloat(custoKitStr) !== (kit.custo_kit ?? 0);
-                  const hasChanged = isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '');
+                  const hasChanged = isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '') || editCenarioCic !== (kit.cenario_ciclismo || '');
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
@@ -815,6 +827,24 @@ const KitConfig: React.FC = () => {
                               : 'bg-white border-gray-300 text-gray-900 focus:border-teal-500 placeholder-gray-400'
                           } outline-none ${editAtivoCateg !== (kit.ativo_categoria || '') ? (isDark ? 'ring-1 ring-teal-400' : 'ring-1 ring-teal-500') : ''}`}
                         />
+                      </td>
+
+                      {/* Cenário Ciclismo */}
+                      <td className="px-3 py-2.5 text-left whitespace-nowrap">
+                        <select
+                          value={editCenarioCic}
+                          onChange={(e) => setCenarioCicValues((prev) => ({ ...prev, [kit.bundle_entity_id]: e.target.value }))}
+                          className={`w-28 text-left px-2 py-1 rounded border text-xs ${
+                            isDark
+                              ? 'bg-gray-700 border-gray-600 text-white focus:border-indigo-400'
+                              : 'bg-white border-gray-300 text-gray-900 focus:border-indigo-500'
+                          } outline-none ${editCenarioCic !== (kit.cenario_ciclismo || '') ? (isDark ? 'ring-1 ring-indigo-400' : 'ring-1 ring-indigo-500') : ''}`}
+                        >
+                          <option value="">—</option>
+                          <option value="participacao">Participação</option>
+                          <option value="sem_bike">Sem Bike</option>
+                          <option value="com_bike">Com Bike</option>
+                        </select>
                       </td>
 
                       {/* Tipo */}

@@ -38,6 +38,16 @@ interface FaixaPrecoItem {
 interface FaixasPrecoSiteByKit {
   kit_basico: FaixaPrecoItem[];
   kit_participacao: FaixaPrecoItem[];
+  kit_sem_bike: FaixaPrecoItem[];
+  kit_com_bike: FaixaPrecoItem[];
+}
+
+interface CiclismoCenariosData {
+  participacao_pago: number;
+  sem_bike_pago: number;
+  sem_bike_tkt_medio: number;
+  com_bike_pago: number;
+  com_bike_tkt_medio: number;
 }
 
 interface CadastroEvento {
@@ -69,6 +79,7 @@ interface CadastroEvento {
     grupos: { pago: number; tkt_medio: number };
     cortesia: number;
     appai: { pago: number; tkt_medio: number };
+    ciclismo?: CiclismoCenariosData;
   };
   cortesias: CortesiaItem[];
   taxas: TaxaItem[];
@@ -110,6 +121,7 @@ interface FormData {
     grupos: { pago: number; tkt_medio: number };
     cortesia: number;
     appai: { pago: number; tkt_medio: number };
+    ciclismo?: CiclismoCenariosData;
   };
   cortesias: CortesiaItem[];
   taxas: TaxaItem[];
@@ -161,6 +173,16 @@ const produtosExtrasPorKit: Record<string, string[]> = {
   'Kit Super': [],
 };
 
+const defaultCiclismoData: CiclismoCenariosData = {
+  participacao_pago: 0,
+  sem_bike_pago: 0,
+  sem_bike_tkt_medio: 0,
+  com_bike_pago: 0,
+  com_bike_tkt_medio: 0,
+};
+
+const defaultFaixaRow: FaixaPrecoItem = { faixa: '1', qtd: 0, tkt_medio: 0, total: 0 };
+
 const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   projeto_id: null,
   nome: '',
@@ -182,7 +204,8 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
     site: { pago: 0, tkt_medio: 0 },
     grupos: { pago: 0, tkt_medio: 0 },
     cortesia: 0,
-    appai: { pago: 0, tkt_medio: 0 }
+    appai: { pago: 0, tkt_medio: 0 },
+    ciclismo: { ...defaultCiclismoData }
   },
   cortesias: [],
   taxas: [],
@@ -190,12 +213,16 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   kit_produto: [{ kit: '', produtos: [] }],
   merchan: [],
   faixas_preco_site: {
-    kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
-    kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+    kit_basico: [{ ...defaultFaixaRow }],
+    kit_participacao: [{ ...defaultFaixaRow }],
+    kit_sem_bike: [{ ...defaultFaixaRow }],
+    kit_com_bike: [{ ...defaultFaixaRow }]
   },
   faixas_preco_grupos: {
-    kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
-    kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+    kit_basico: [{ ...defaultFaixaRow }],
+    kit_participacao: [{ ...defaultFaixaRow }],
+    kit_sem_bike: [{ ...defaultFaixaRow }],
+    kit_com_bike: [{ ...defaultFaixaRow }]
   }
 });
 
@@ -278,8 +305,8 @@ const Cadastro: React.FC = () => {
   const [showLixeira, setShowLixeira] = useState(false);
   const [loadingLixeira, setLoadingLixeira] = useState(false);
   const [merchanMode, setMerchanMode] = useState<'venda' | 'planejamento'>('venda');
-  const [collapsedSite, setCollapsedSite] = useState<{ kit_basico: boolean; kit_participacao: boolean }>({ kit_basico: false, kit_participacao: false });
-  const [collapsedGrupos, setCollapsedGrupos] = useState<{ kit_basico: boolean; kit_participacao: boolean }>({ kit_basico: false, kit_participacao: false });
+  const [collapsedSite, setCollapsedSite] = useState<Record<string, boolean>>({ kit_basico: false, kit_participacao: false, kit_sem_bike: false, kit_com_bike: false });
+  const [collapsedGrupos, setCollapsedGrupos] = useState<Record<string, boolean>>({ kit_basico: false, kit_participacao: false, kit_sem_bike: false, kit_com_bike: false });
 
   const visibleTabs = useMemo(() => {
     return tabs.filter(tab => canViewCampo('eventos', tab.id));
@@ -421,7 +448,8 @@ const Cadastro: React.FC = () => {
       site: { pago: 0, tkt_medio: 0 },
       grupos: { pago: 0, tkt_medio: 0 },
       cortesia: 0,
-      appai: { pago: 0, tkt_medio: 0 }
+      appai: { pago: 0, tkt_medio: 0 },
+      ciclismo: { ...defaultCiclismoData }
     },
     cortesias: [],
     taxas: [],
@@ -432,12 +460,16 @@ const Cadastro: React.FC = () => {
     kit_produto: [{ kit: '', produtos: [] }],
     merchan: [],
     faixas_preco_site: {
-      kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
-      kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+      kit_basico: [{ ...defaultFaixaRow }],
+      kit_participacao: [{ ...defaultFaixaRow }],
+      kit_sem_bike: [{ ...defaultFaixaRow }],
+      kit_com_bike: [{ ...defaultFaixaRow }]
     },
     faixas_preco_grupos: {
-      kit_basico: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
-      kit_participacao: [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
+      kit_basico: [{ ...defaultFaixaRow }],
+      kit_participacao: [{ ...defaultFaixaRow }],
+      kit_sem_bike: [{ ...defaultFaixaRow }],
+      kit_com_bike: [{ ...defaultFaixaRow }]
     }
   };
 
@@ -897,10 +929,11 @@ const Cadastro: React.FC = () => {
     return kit.produtos.reduce((sum, p) => sum + (Number(p.valor_unitario) || 0), 0);
   };
 
-  const renderFaixaKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
-    const faixas = form.faixas_preco_site[kitType];
+  const renderFaixaKitColumn = (kitType: keyof FaixasPrecoSiteByKit, title: string, colorClass: string) => {
+    const faixas = form.faixas_preco_site[kitType] || [];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const kitName = kitType === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
+    const kitNameMap: Record<string, string> = { kit_basico: 'Kit Básico', kit_participacao: 'Kit Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' };
+    const kitName = kitNameMap[kitType] || title;
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
     const margemKit = totalValor - custoTotalKit;
@@ -1028,8 +1061,21 @@ const Cadastro: React.FC = () => {
     );
   };
 
+  const isCiclismo = form.modalidade === 'Ciclismo';
+
   const renderFaixaPrecoSiteContent = () => {
-    const allFaixas = [...form.faixas_preco_site.kit_basico, ...form.faixas_preco_site.kit_participacao];
+    const siteKitTypes: { key: keyof FaixasPrecoSiteByKit; title: string; color: string; bg: string }[] = isCiclismo
+      ? [
+          { key: 'kit_participacao', title: 'Inscrição Participação', color: 'text-green-400', bg: isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200' },
+          { key: 'kit_sem_bike', title: 'Kit sem Bike', color: 'text-amber-400', bg: isDark ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200' },
+          { key: 'kit_com_bike', title: 'Kit com Bike', color: 'text-cyan-400', bg: isDark ? 'bg-cyan-900/20 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200' },
+        ]
+      : [
+          { key: 'kit_basico', title: 'Kit Básico', color: 'text-blue-400', bg: isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200' },
+          { key: 'kit_participacao', title: 'Kit Participação', color: 'text-green-400', bg: isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200' },
+        ];
+
+    const allFaixas = siteKitTypes.flatMap(kt => form.faixas_preco_site[kt.key] || []);
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(allFaixas);
     
     const atletasOrcado = form.atletas.site.pago || 0;
@@ -1062,14 +1108,12 @@ const Cadastro: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
-            {renderFaixaKitColumn('kit_basico', 'Kit Básico', 'text-blue-400')}
-          </div>
-          
-          <div className={`p-4 rounded-xl ${isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200'} border`}>
-            {renderFaixaKitColumn('kit_participacao', 'Kit Participação', 'text-green-400')}
-          </div>
+        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+          {siteKitTypes.map(kt => (
+            <div key={kt.key} className={`p-4 rounded-xl ${kt.bg} border`}>
+              {renderFaixaKitColumn(kt.key, kt.title, kt.color)}
+            </div>
+          ))}
         </div>
 
         {allFaixas.length > 0 && allFaixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
@@ -1275,10 +1319,11 @@ const Cadastro: React.FC = () => {
     );
   };
 
-  const renderFaixaGruposKitColumn = (kitType: 'kit_basico' | 'kit_participacao', title: string, colorClass: string) => {
-    const faixas = form.faixas_preco_grupos[kitType];
+  const renderFaixaGruposKitColumn = (kitType: keyof FaixasPrecoSiteByKit, title: string, colorClass: string) => {
+    const faixas = form.faixas_preco_grupos[kitType] || [];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const kitName = kitType === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
+    const kitNameMap: Record<string, string> = { kit_basico: 'Kit Básico', kit_participacao: 'Kit Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' };
+    const kitName = kitNameMap[kitType] || title;
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
     const margemKit = totalValor - custoTotalKit;
@@ -1405,7 +1450,18 @@ const Cadastro: React.FC = () => {
   };
 
   const renderFaixaPrecoGruposContent = () => {
-    const allFaixas = [...form.faixas_preco_grupos.kit_basico, ...form.faixas_preco_grupos.kit_participacao];
+    const gruposKitTypes: { key: keyof FaixasPrecoSiteByKit; title: string; color: string; bg: string }[] = isCiclismo
+      ? [
+          { key: 'kit_participacao', title: 'Inscrição Participação', color: 'text-green-400', bg: isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200' },
+          { key: 'kit_sem_bike', title: 'Kit sem Bike', color: 'text-amber-400', bg: isDark ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200' },
+          { key: 'kit_com_bike', title: 'Kit com Bike', color: 'text-cyan-400', bg: isDark ? 'bg-cyan-900/20 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200' },
+        ]
+      : [
+          { key: 'kit_basico', title: 'Kit Básico', color: 'text-blue-400', bg: isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200' },
+          { key: 'kit_participacao', title: 'Kit Participação', color: 'text-green-400', bg: isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200' },
+        ];
+
+    const allFaixas = gruposKitTypes.flatMap(kt => form.faixas_preco_grupos[kt.key] || []);
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(allFaixas);
     
     const atletasOrcado = form.atletas.grupos.pago || 0;
@@ -1438,14 +1494,12 @@ const Cadastro: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
-            {renderFaixaGruposKitColumn('kit_basico', 'Kit Básico', 'text-blue-400')}
-          </div>
-          
-          <div className={`p-4 rounded-xl ${isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200'} border`}>
-            {renderFaixaGruposKitColumn('kit_participacao', 'Kit Participação', 'text-green-400')}
-          </div>
+        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+          {gruposKitTypes.map(kt => (
+            <div key={kt.key} className={`p-4 rounded-xl ${kt.bg} border`}>
+              {renderFaixaGruposKitColumn(kt.key, kt.title, kt.color)}
+            </div>
+          ))}
         </div>
 
         {allFaixas.length > 0 && allFaixas.some(f => f.qtd > 0 || f.tkt_medio > 0) && (
@@ -2116,107 +2170,252 @@ const Cadastro: React.FC = () => {
         );
 
       case 'atletas': {
-        const totalPagos = (form.atletas.site.pago || 0) + (form.atletas.grupos.pago || 0) + (form.atletas.appai?.pago || 0);
+        const cic = form.atletas.ciclismo || defaultCiclismoData;
+        const ciclismoSitePago = isCiclismo
+          ? (cic.participacao_pago + cic.sem_bike_pago + cic.com_bike_pago)
+          : (form.atletas.site.pago || 0);
+        const ciclismoSiteTktMedio = isCiclismo
+          ? (() => {
+              const totalPagosCic = cic.sem_bike_pago + cic.com_bike_pago;
+              if (totalPagosCic === 0) return 0;
+              return (cic.sem_bike_pago * cic.sem_bike_tkt_medio + cic.com_bike_pago * cic.com_bike_tkt_medio) / totalPagosCic;
+            })()
+          : (form.atletas.site.tkt_medio || 0);
+        const totalPagos = ciclismoSitePago + (form.atletas.grupos.pago || 0) + (form.atletas.appai?.pago || 0);
         const totalCortesias = form.atletas.cortesia || 0;
         const totalGeral = totalPagos + totalCortesias;
         const isRJ = form.localizacao_evento === 'Rio de Janeiro';
 
+        const updateCiclismo = (field: keyof CiclismoCenariosData, val: number) => {
+          setForm(prev => {
+            const newCic = { ...(prev.atletas.ciclismo || defaultCiclismoData), [field]: val };
+            const totalP = newCic.sem_bike_pago + newCic.com_bike_pago;
+            const aggPago = newCic.participacao_pago + totalP;
+            const aggTkt = totalP > 0
+              ? (newCic.sem_bike_pago * newCic.sem_bike_tkt_medio + newCic.com_bike_pago * newCic.com_bike_tkt_medio) / totalP
+              : 0;
+            return {
+              ...prev,
+              atletas: {
+                ...prev.atletas,
+                ciclismo: newCic,
+                site: { pago: aggPago, tkt_medio: Math.round(aggTkt * 100) / 100 }
+              }
+            };
+          });
+        };
+
         return (
           <div className="space-y-6">
-            <div className={`grid ${isRJ ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
-              <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
-                <div className="flex items-center gap-2 mb-4">
-                  <Globe className="w-5 h-5 text-blue-400" />
-                  <h3 className={`font-bold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Site</h3>
+            {isCiclismo ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className={`p-4 rounded-xl ${isDark ? 'bg-green-900/20 border-green-500/30' : 'bg-green-50 border-green-200'} border`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Globe className="w-5 h-5 text-green-400" />
+                      <h3 className={`font-bold ${isDark ? 'text-green-300' : 'text-green-700'}`}>Inscrição Participação</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <FormattedInput
+                        value={cic.participacao_pago}
+                        onChange={(val) => updateCiclismo('participacao_pago', val)}
+                        label="Pago (ticket R$ 0)"
+                        placeholder="Qtd"
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-green-500`}
+                      />
+                      <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                        Inscrição gratuita / sem kit
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-xl ${isDark ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'} border`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Package className="w-5 h-5 text-amber-400" />
+                      <h3 className={`font-bold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>Kit sem Bike</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <FormattedInput
+                        value={cic.sem_bike_pago}
+                        onChange={(val) => updateCiclismo('sem_bike_pago', val)}
+                        label="Pago"
+                        placeholder="Qtd"
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-amber-500`}
+                      />
+                      <FormattedInput
+                        value={cic.sem_bike_tkt_medio}
+                        onChange={(val) => updateCiclismo('sem_bike_tkt_medio', val)}
+                        label="Ticket Médio"
+                        placeholder="R$ Ticket Médio"
+                        allowDecimal={true}
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-amber-500`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-xl ${isDark ? 'bg-cyan-900/20 border-cyan-500/30' : 'bg-cyan-50 border-cyan-200'} border`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Activity className="w-5 h-5 text-cyan-400" />
+                      <h3 className={`font-bold ${isDark ? 'text-cyan-300' : 'text-cyan-700'}`}>Kit com Bike</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <FormattedInput
+                        value={cic.com_bike_pago}
+                        onChange={(val) => updateCiclismo('com_bike_pago', val)}
+                        label="Pago"
+                        placeholder="Qtd"
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-cyan-500`}
+                      />
+                      <FormattedInput
+                        value={cic.com_bike_tkt_medio}
+                        onChange={(val) => updateCiclismo('com_bike_tkt_medio', val)}
+                        label="Ticket Médio"
+                        placeholder="R$ Ticket Médio"
+                        allowDecimal={true}
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-cyan-500`}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-3">
-                  <FormattedInput
-                    value={form.atletas.site.pago || 0}
-                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, pago: val } } }))}
-                    label="Pago"
-                    placeholder="Qtd Pagos"
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                  />
-                  <FormattedInput
-                    value={form.atletas.site.tkt_medio || 0}
-                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, tkt_medio: val } } }))}
-                    label="Ticket Médio"
-                    placeholder="R$ Ticket Médio"
-                    allowDecimal={true}
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
-                  />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className={`p-4 rounded-xl ${isDark ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50 border-orange-200'} border`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <UsersRound className="w-5 h-5 text-orange-400" />
+                      <h3 className={`font-bold ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Grupos</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <FormattedInput
+                        value={form.atletas.grupos.pago || 0}
+                        onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, pago: val } } }))}
+                        label="Pago"
+                        placeholder="Qtd Pagos"
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                      />
+                      <FormattedInput
+                        value={form.atletas.grupos.tkt_medio || 0}
+                        onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: val } } }))}
+                        label="Ticket Médio"
+                        placeholder="R$ Ticket Médio"
+                        allowDecimal={true}
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className={`p-4 rounded-xl ${isDark ? 'bg-pink-900/20 border-pink-500/30' : 'bg-pink-50 border-pink-200'} border`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Gift className="w-5 h-5 text-pink-400" />
+                      <h3 className={`font-bold ${isDark ? 'text-pink-300' : 'text-pink-700'}`}>Cortesia</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <FormattedInput
+                        value={form.atletas.cortesia || 0}
+                        onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, cortesia: val } }))}
+                        label="Total Cortesias"
+                        placeholder="Qtd Total Cortesias"
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-pink-500`}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <div className={`p-4 rounded-xl ${isDark ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50 border-orange-200'} border`}>
-                <div className="flex items-center gap-2 mb-4">
-                  <UsersRound className="w-5 h-5 text-orange-400" />
-                  <h3 className={`font-bold ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Grupos</h3>
-                </div>
-                <div className="space-y-3">
-                  <FormattedInput
-                    value={form.atletas.grupos.pago || 0}
-                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, pago: val } } }))}
-                    label="Pago"
-                    placeholder="Qtd Pagos"
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                  />
-                  <FormattedInput
-                    value={form.atletas.grupos.tkt_medio || 0}
-                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: val } } }))}
-                    label="Ticket Médio"
-                    placeholder="R$ Ticket Médio"
-                    allowDecimal={true}
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
-                  />
-                </div>
-              </div>
-
-              <div className={`p-4 rounded-xl ${isDark ? 'bg-pink-900/20 border-pink-500/30' : 'bg-pink-50 border-pink-200'} border`}>
-                <div className="flex items-center gap-2 mb-4">
-                  <Gift className="w-5 h-5 text-pink-400" />
-                  <h3 className={`font-bold ${isDark ? 'text-pink-300' : 'text-pink-700'}`}>Cortesia</h3>
-                </div>
-                <div className="space-y-3">
-                  <FormattedInput
-                    value={form.atletas.cortesia || 0}
-                    onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, cortesia: val } }))}
-                    label="Total Cortesias"
-                    placeholder="Qtd Total Cortesias"
-                    className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-pink-500`}
-                  />
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                    Total de cortesias do evento (Site + Grupos)
-                  </p>
-                </div>
-              </div>
-
-              {isRJ && (
-                <div className={`p-4 rounded-xl ${isDark ? 'bg-teal-900/20 border-teal-500/30' : 'bg-teal-50 border-teal-200'} border`}>
+            ) : (
+              <div className={`grid ${isRJ ? 'grid-cols-4' : 'grid-cols-3'} gap-4`}>
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-blue-900/20 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border`}>
                   <div className="flex items-center gap-2 mb-4">
-                    <Building2 className="w-5 h-5 text-teal-400" />
-                    <h3 className={`font-bold ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>Appai / Assist.</h3>
+                    <Globe className="w-5 h-5 text-blue-400" />
+                    <h3 className={`font-bold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>Site</h3>
                   </div>
                   <div className="space-y-3">
                     <FormattedInput
-                      value={form.atletas.appai?.pago || 0}
-                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, appai: { ...prev.atletas.appai, pago: val } } }))}
-                      label="Quantidade"
-                      placeholder="Qtd Appai"
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-teal-500`}
+                      value={form.atletas.site.pago || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, pago: val } } }))}
+                      label="Pago"
+                      placeholder="Qtd Pagos"
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
                     />
                     <FormattedInput
-                      value={form.atletas.appai?.tkt_medio || 0}
-                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, appai: { ...prev.atletas.appai, tkt_medio: val } } }))}
+                      value={form.atletas.site.tkt_medio || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, site: { ...prev.atletas.site, tkt_medio: val } } }))}
                       label="Ticket Médio"
                       placeholder="R$ Ticket Médio"
                       allowDecimal={true}
-                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-teal-500`}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-blue-500`}
                     />
                   </div>
                 </div>
-              )}
-            </div>
+
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-orange-900/20 border-orange-500/30' : 'bg-orange-50 border-orange-200'} border`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <UsersRound className="w-5 h-5 text-orange-400" />
+                    <h3 className={`font-bold ${isDark ? 'text-orange-300' : 'text-orange-700'}`}>Grupos</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <FormattedInput
+                      value={form.atletas.grupos.pago || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, pago: val } } }))}
+                      label="Pago"
+                      placeholder="Qtd Pagos"
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                    />
+                    <FormattedInput
+                      value={form.atletas.grupos.tkt_medio || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, grupos: { ...prev.atletas.grupos, tkt_medio: val } } }))}
+                      label="Ticket Médio"
+                      placeholder="R$ Ticket Médio"
+                      allowDecimal={true}
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-orange-500`}
+                    />
+                  </div>
+                </div>
+
+                <div className={`p-4 rounded-xl ${isDark ? 'bg-pink-900/20 border-pink-500/30' : 'bg-pink-50 border-pink-200'} border`}>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Gift className="w-5 h-5 text-pink-400" />
+                    <h3 className={`font-bold ${isDark ? 'text-pink-300' : 'text-pink-700'}`}>Cortesia</h3>
+                  </div>
+                  <div className="space-y-3">
+                    <FormattedInput
+                      value={form.atletas.cortesia || 0}
+                      onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, cortesia: val } }))}
+                      label="Total Cortesias"
+                      placeholder="Qtd Total Cortesias"
+                      className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-pink-500`}
+                    />
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Total de cortesias do evento (Site + Grupos)
+                    </p>
+                  </div>
+                </div>
+
+                {isRJ && (
+                  <div className={`p-4 rounded-xl ${isDark ? 'bg-teal-900/20 border-teal-500/30' : 'bg-teal-50 border-teal-200'} border`}>
+                    <div className="flex items-center gap-2 mb-4">
+                      <Building2 className="w-5 h-5 text-teal-400" />
+                      <h3 className={`font-bold ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>Appai / Assist.</h3>
+                    </div>
+                    <div className="space-y-3">
+                      <FormattedInput
+                        value={form.atletas.appai?.pago || 0}
+                        onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, appai: { ...prev.atletas.appai, pago: val } } }))}
+                        label="Quantidade"
+                        placeholder="Qtd Appai"
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-teal-500`}
+                      />
+                      <FormattedInput
+                        value={form.atletas.appai?.tkt_medio || 0}
+                        onChange={(val) => setForm(prev => ({ ...prev, atletas: { ...prev.atletas, appai: { ...prev.atletas.appai, tkt_medio: val } } }))}
+                        label="Ticket Médio"
+                        placeholder="R$ Ticket Médio"
+                        allowDecimal={true}
+                        className={`w-full px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-teal-500`}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className={`p-5 rounded-xl ${isDark ? 'bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-purple-500/30' : 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200'} border`}>
               <div className="flex items-center justify-between">

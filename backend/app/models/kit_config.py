@@ -16,5 +16,6 @@ class KitConfig(Base):
     is_promo_principal = Column(Boolean, default=False, nullable=False)
     custo_kit = Column(Numeric(10, 2), nullable=True)
     ativo_categoria = Column(String(500), nullable=True)
+    cenario_ciclismo = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

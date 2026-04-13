@@ -118,6 +118,7 @@ const EventDetail: React.FC = () => {
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
   const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(null);
+  const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number } } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [curvaData, setCurvaData] = useState<any[]>([]);
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
@@ -235,6 +236,11 @@ const EventDetail: React.FC = () => {
         }
         if ((response as any).faixas_preco_site) {
           setFaixasPrecoSite((response as any).faixas_preco_site);
+        }
+        if ((response as any).cenarios_ciclismo) {
+          setCenariosCiclismo((response as any).cenarios_ciclismo);
+        } else {
+          setCenariosCiclismo(null);
         }
         setAvisos((response as any).avisos || []);
         setError(null);
@@ -2882,6 +2888,77 @@ const EventDetail: React.FC = () => {
           </div>
         )}
       </div>
+
+      {cenariosCiclismo && event.category?.toLowerCase() === 'ciclismo' && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-purple-500" />
+            Cenários de Ciclismo
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              { key: 'participacao', label: 'Inscrição Participação', cardClass: 'bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800', desc: 'Ticket zero' },
+              { key: 'sem_bike', label: 'Kit sem Bike', cardClass: 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800', desc: 'Ticket menor' },
+              { key: 'com_bike', label: 'Kit com Bike', cardClass: 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800', desc: 'Ticket maior' },
+            ].map(({ key, label, cardClass, desc }) => {
+              const c = cenariosCiclismo[key];
+              if (!c) return null;
+              const atingimento = c.orcado_pago > 0 && (c.real_vendas || 0) > 0
+                ? Math.round(((c.real_vendas || 0) / c.orcado_pago) * 100)
+                : 0;
+              return (
+                <div key={key} className={`rounded-xl border p-4 ${cardClass}`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">{label}</p>
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500">{desc}</p>
+                    </div>
+                    {c.orcado_pago > 0 && (
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${atingimento >= 100 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : atingimento >= 50 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                        {atingimento}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Vendas</span>
+                      <span className="text-sm font-bold text-gray-900 dark:text-white">
+                        {(c.real_vendas || 0).toLocaleString('pt-BR')} / {c.orcado_pago.toLocaleString('pt-BR')}
+                      </span>
+                    </div>
+                    {c.orcado_pago > 0 && (
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                        <div
+                          className={`h-1.5 rounded-full ${atingimento >= 100 ? 'bg-green-500' : atingimento >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                          style={{ width: `${Math.min(atingimento, 100)}%` }}
+                        />
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Tkt Orçado</span>
+                      <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                        {c.tkt_medio_orcado > 0 ? c.tkt_medio_orcado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Tkt Realizado</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-white">
+                        {(c.real_tkt_medio || 0) > 0 ? (c.real_tkt_medio || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">Receita</span>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                        {(c.real_receita || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-6 flex items-center gap-2">

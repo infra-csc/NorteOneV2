@@ -62,7 +62,8 @@ from app.schemas.cadastro_evento import (
     InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
     CortesiaItemResponse, TaxaItemResponse, KitProdutoResponse, ProdutoItemResponse,
     MerchanKitResponse, MerchanProdutoItemResponse,
-    FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema, AppaiData
+    FaixaPrecoItemBase, CircuitoProdutoSchema, LocalizacaoSchema, AppaiData,
+    CiclismoCenariosData
 )
 
 router = APIRouter(prefix="/cadastros", tags=["Cadastros"], dependencies=[Depends(get_current_user)])
@@ -154,7 +155,14 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
         grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
         cortesia=cadastro.atletas_cortesia or 0,
-        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0))
+        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0)),
+        ciclismo=CiclismoCenariosData(
+            participacao_pago=cadastro.ciclismo_participacao_pago or 0,
+            sem_bike_pago=cadastro.ciclismo_sem_bike_pago or 0,
+            sem_bike_tkt_medio=float(cadastro.ciclismo_sem_bike_tkt_medio or 0),
+            com_bike_pago=cadastro.ciclismo_com_bike_pago or 0,
+            com_bike_tkt_medio=float(cadastro.ciclismo_com_bike_tkt_medio or 0),
+        )
     )
     
     retirada_kit = RetiradaKit(
@@ -211,6 +219,14 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
         for f in cadastro.faixas_preco_site if f.tipo_kit == "kit_participacao"
     ]
+    faixas_site_sem_bike = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_site if f.tipo_kit == "kit_sem_bike"
+    ]
+    faixas_site_com_bike = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_site if f.tipo_kit == "kit_com_bike"
+    ]
     
     faixas_grupos_basico = [
         FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
@@ -219,6 +235,14 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
     faixas_grupos_participacao = [
         FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
         for f in cadastro.faixas_preco_grupos if f.tipo_kit == "kit_participacao"
+    ]
+    faixas_grupos_sem_bike = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_grupos if f.tipo_kit == "kit_sem_bike"
+    ]
+    faixas_grupos_com_bike = [
+        FaixaPrecoItemBase(faixa=f.faixa, qtd=f.qtd, tkt_medio=f.tkt_medio or Decimal("0"), total=f.total or Decimal("0"))
+        for f in cadastro.faixas_preco_grupos if f.tipo_kit == "kit_com_bike"
     ]
     
     return {
@@ -245,8 +269,8 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "retirada_kit": retirada_kit,
         "kit_produto": kit_produto,
         "merchan": merchan,
-        "faixas_preco_site": FaixasPrecoByKit(kit_basico=faixas_site_basico, kit_participacao=faixas_site_participacao),
-        "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=faixas_grupos_basico, kit_participacao=faixas_grupos_participacao),
+        "faixas_preco_site": FaixasPrecoByKit(kit_basico=faixas_site_basico, kit_participacao=faixas_site_participacao, kit_sem_bike=faixas_site_sem_bike, kit_com_bike=faixas_site_com_bike),
+        "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=faixas_grupos_basico, kit_participacao=faixas_grupos_participacao, kit_sem_bike=faixas_grupos_sem_bike, kit_com_bike=faixas_grupos_com_bike),
         "created_at": cadastro.created_at,
         "updated_at": cadastro.updated_at
     }
@@ -265,7 +289,14 @@ def db_to_list_response(cadastro: CadastroEvento) -> dict:
         site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
         grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
         cortesia=cadastro.atletas_cortesia or 0,
-        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0))
+        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0)),
+        ciclismo=CiclismoCenariosData(
+            participacao_pago=cadastro.ciclismo_participacao_pago or 0,
+            sem_bike_pago=cadastro.ciclismo_sem_bike_pago or 0,
+            sem_bike_tkt_medio=float(cadastro.ciclismo_sem_bike_tkt_medio or 0),
+            com_bike_pago=cadastro.ciclismo_com_bike_pago or 0,
+            com_bike_tkt_medio=float(cadastro.ciclismo_com_bike_tkt_medio or 0),
+        )
     )
     retirada_kit = RetiradaKit(
         local=cadastro.retirada_kit_local or "",
@@ -450,6 +481,11 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         atletas_cortesia=data.atletas.cortesia,
         atletas_appai_pago=data.atletas.appai.pago if data.atletas.appai else 0,
         atletas_appai_tkt_medio=Decimal(str(data.atletas.appai.tkt_medio)) if data.atletas.appai else Decimal("0"),
+        ciclismo_participacao_pago=data.atletas.ciclismo.participacao_pago if data.atletas.ciclismo else 0,
+        ciclismo_sem_bike_pago=data.atletas.ciclismo.sem_bike_pago if data.atletas.ciclismo else 0,
+        ciclismo_sem_bike_tkt_medio=Decimal(str(data.atletas.ciclismo.sem_bike_tkt_medio)) if data.atletas.ciclismo else Decimal("0"),
+        ciclismo_com_bike_pago=data.atletas.ciclismo.com_bike_pago if data.atletas.ciclismo else 0,
+        ciclismo_com_bike_tkt_medio=Decimal(str(data.atletas.ciclismo.com_bike_tkt_medio)) if data.atletas.ciclismo else Decimal("0"),
         retirada_kit_local=data.retirada_kit.local,
         retirada_kit_data_horario=retirada_dt
     )
@@ -512,45 +548,27 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
                 valor_venda=item.valor_venda
             ))
 
-    for faixa in data.faixas_preco_site.kit_basico:
-        db.add(CadastroFaixaPrecoSite(
-            cadastro_id=cadastro.id,
-            tipo_kit="kit_basico",
-            faixa=faixa.faixa,
-            qtd=faixa.qtd,
-            tkt_medio=faixa.tkt_medio,
-            total=faixa.total
-        ))
-    
-    for faixa in data.faixas_preco_site.kit_participacao:
-        db.add(CadastroFaixaPrecoSite(
-            cadastro_id=cadastro.id,
-            tipo_kit="kit_participacao",
-            faixa=faixa.faixa,
-            qtd=faixa.qtd,
-            tkt_medio=faixa.tkt_medio,
-            total=faixa.total
-        ))
-    
-    for faixa in data.faixas_preco_grupos.kit_basico:
-        db.add(CadastroFaixaPrecoGrupos(
-            cadastro_id=cadastro.id,
-            tipo_kit="kit_basico",
-            faixa=faixa.faixa,
-            qtd=faixa.qtd,
-            tkt_medio=faixa.tkt_medio,
-            total=faixa.total
-        ))
-    
-    for faixa in data.faixas_preco_grupos.kit_participacao:
-        db.add(CadastroFaixaPrecoGrupos(
-            cadastro_id=cadastro.id,
-            tipo_kit="kit_participacao",
-            faixa=faixa.faixa,
-            qtd=faixa.qtd,
-            tkt_medio=faixa.tkt_medio,
-            total=faixa.total
-        ))
+    for tipo_kit_key in ["kit_basico", "kit_participacao", "kit_sem_bike", "kit_com_bike"]:
+        for faixa in getattr(data.faixas_preco_site, tipo_kit_key, []):
+            db.add(CadastroFaixaPrecoSite(
+                cadastro_id=cadastro.id,
+                tipo_kit=tipo_kit_key,
+                faixa=faixa.faixa,
+                qtd=faixa.qtd,
+                tkt_medio=faixa.tkt_medio,
+                total=faixa.total
+            ))
+
+    for tipo_kit_key in ["kit_basico", "kit_participacao", "kit_sem_bike", "kit_com_bike"]:
+        for faixa in getattr(data.faixas_preco_grupos, tipo_kit_key, []):
+            db.add(CadastroFaixaPrecoGrupos(
+                cadastro_id=cadastro.id,
+                tipo_kit=tipo_kit_key,
+                faixa=faixa.faixa,
+                qtd=faixa.qtd,
+                tkt_medio=faixa.tkt_medio,
+                total=faixa.total
+            ))
     
     db.commit()
     db.refresh(cadastro)
@@ -630,6 +648,12 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         if data.atletas.appai:
             cadastro.atletas_appai_pago = data.atletas.appai.pago
             cadastro.atletas_appai_tkt_medio = Decimal(str(data.atletas.appai.tkt_medio))
+        if data.atletas.ciclismo:
+            cadastro.ciclismo_participacao_pago = data.atletas.ciclismo.participacao_pago
+            cadastro.ciclismo_sem_bike_pago = data.atletas.ciclismo.sem_bike_pago
+            cadastro.ciclismo_sem_bike_tkt_medio = Decimal(str(data.atletas.ciclismo.sem_bike_tkt_medio))
+            cadastro.ciclismo_com_bike_pago = data.atletas.ciclismo.com_bike_pago
+            cadastro.ciclismo_com_bike_tkt_medio = Decimal(str(data.atletas.ciclismo.com_bike_tkt_medio))
     
     if data.retirada_kit is not None:
         cadastro.retirada_kit_local = data.retirada_kit.local
@@ -704,55 +728,40 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
                     valor_venda=item.valor_venda
                 ))
 
-    _faixas_site_tem_dados = data.faixas_preco_site is not None and (
-        len(data.faixas_preco_site.kit_basico) > 0 or len(data.faixas_preco_site.kit_participacao) > 0
+    _all_kit_types = ["kit_basico", "kit_participacao", "kit_sem_bike", "kit_com_bike"]
+    _faixas_site_tem_dados = data.faixas_preco_site is not None and any(
+        len(getattr(data.faixas_preco_site, k, [])) > 0 for k in _all_kit_types
     )
     if _faixas_site_tem_dados:
         for f in cadastro.faixas_preco_site:
             db.delete(f)
-        for faixa in data.faixas_preco_site.kit_basico:
-            db.add(CadastroFaixaPrecoSite(
-                cadastro_id=cadastro.id,
-                tipo_kit="kit_basico",
-                faixa=faixa.faixa,
-                qtd=faixa.qtd,
-                tkt_medio=faixa.tkt_medio,
-                total=faixa.total
-            ))
-        for faixa in data.faixas_preco_site.kit_participacao:
-            db.add(CadastroFaixaPrecoSite(
-                cadastro_id=cadastro.id,
-                tipo_kit="kit_participacao",
-                faixa=faixa.faixa,
-                qtd=faixa.qtd,
-                tkt_medio=faixa.tkt_medio,
-                total=faixa.total
-            ))
+        for tipo_kit_key in _all_kit_types:
+            for faixa in getattr(data.faixas_preco_site, tipo_kit_key, []):
+                db.add(CadastroFaixaPrecoSite(
+                    cadastro_id=cadastro.id,
+                    tipo_kit=tipo_kit_key,
+                    faixa=faixa.faixa,
+                    qtd=faixa.qtd,
+                    tkt_medio=faixa.tkt_medio,
+                    total=faixa.total
+                ))
 
-    _faixas_grupos_tem_dados = data.faixas_preco_grupos is not None and (
-        len(data.faixas_preco_grupos.kit_basico) > 0 or len(data.faixas_preco_grupos.kit_participacao) > 0
+    _faixas_grupos_tem_dados = data.faixas_preco_grupos is not None and any(
+        len(getattr(data.faixas_preco_grupos, k, [])) > 0 for k in _all_kit_types
     )
     if _faixas_grupos_tem_dados:
         for f in cadastro.faixas_preco_grupos:
             db.delete(f)
-        for faixa in data.faixas_preco_grupos.kit_basico:
-            db.add(CadastroFaixaPrecoGrupos(
-                cadastro_id=cadastro.id,
-                tipo_kit="kit_basico",
-                faixa=faixa.faixa,
-                qtd=faixa.qtd,
-                tkt_medio=faixa.tkt_medio,
-                total=faixa.total
-            ))
-        for faixa in data.faixas_preco_grupos.kit_participacao:
-            db.add(CadastroFaixaPrecoGrupos(
-                cadastro_id=cadastro.id,
-                tipo_kit="kit_participacao",
-                faixa=faixa.faixa,
-                qtd=faixa.qtd,
-                tkt_medio=faixa.tkt_medio,
-                total=faixa.total
-            ))
+        for tipo_kit_key in _all_kit_types:
+            for faixa in getattr(data.faixas_preco_grupos, tipo_kit_key, []):
+                db.add(CadastroFaixaPrecoGrupos(
+                    cadastro_id=cadastro.id,
+                    tipo_kit=tipo_kit_key,
+                    faixa=faixa.faixa,
+                    qtd=faixa.qtd,
+                    tkt_medio=faixa.tkt_medio,
+                    total=faixa.total
+                ))
     
     _sync_dim_projeto(db, cadastro)
     
