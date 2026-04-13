@@ -2285,9 +2285,14 @@ const EventDetail: React.FC = () => {
               const style = styles[tipo || 'linear'] || styles.linear;
               const label = labels[tipo || 'linear'] || labels.linear;
               return (
-                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${style}`}>
-                  {label}
-                </span>
+                <>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${style}`}>
+                    {label}
+                  </span>
+                  <button onClick={openOverrideModal} className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="Alterar curva de referência">
+                    <Pencil className="w-3 h-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
+                  </button>
+                </>
               );
             })()}
           </div>

@@ -633,12 +633,24 @@ def list_available_curves(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
+    from sqlalchemy import and_
+    max_ano_sub = db.query(
+        CurvaHistoricaSnapshot.evento_grupo,
+        func.max(CurvaHistoricaSnapshot.ano_referencia).label("max_ano")
+    ).group_by(CurvaHistoricaSnapshot.evento_grupo).subquery()
+
     grupos_with_curves = db.query(
         CurvaHistoricaSnapshot.evento_grupo,
-        func.max(CurvaHistoricaSnapshot.ano_referencia).label("max_ano"),
+        max_ano_sub.c.max_ano,
         func.count(CurvaHistoricaSnapshot.id).label("pontos"),
         func.min(CurvaHistoricaSnapshot.origem).label("origem")
-    ).group_by(CurvaHistoricaSnapshot.evento_grupo).all()
+    ).join(
+        max_ano_sub,
+        and_(
+            CurvaHistoricaSnapshot.evento_grupo == max_ano_sub.c.evento_grupo,
+            CurvaHistoricaSnapshot.ano_referencia == max_ano_sub.c.max_ano
+        )
+    ).group_by(CurvaHistoricaSnapshot.evento_grupo, max_ano_sub.c.max_ano).all()
 
     result = []
     for row in grupos_with_curves:
