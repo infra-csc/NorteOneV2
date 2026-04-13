@@ -8212,8 +8212,8 @@ def get_marketing_event_by_id(
             _cd.setdefault("real_receita", 0)
             _cd["real_tkt_medio"] = round(rr / rv, 2) if rv > 0 else 0
             _ck_cost = _cd.get("custo_kit", 0)
-            _cd["margem_orcada"] = round((_cd["tkt_medio_orcado"] - _ck_cost) * _cd["orcado_pago"], 2) if _cd["tkt_medio_orcado"] > 0 and _ck_cost > 0 else 0
-            _cd["margem_realizada"] = round(rr - (_ck_cost * rv), 2) if rv > 0 and _ck_cost > 0 else 0
+            _cd["margem_orcada"] = round((_cd["tkt_medio_orcado"] - _ck_cost) * _cd["orcado_pago"], 2) if _cd["orcado_pago"] > 0 else 0
+            _cd["margem_realizada"] = round(rr - (_ck_cost * rv), 2) if rv > 0 else 0
 
     standalone_result = {
         "status": "success",

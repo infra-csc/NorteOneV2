@@ -690,7 +690,8 @@ const Cadastro: React.FC = () => {
         site: { ...item.atletas.site },
         grupos: { ...item.atletas.grupos },
         cortesia: item.atletas.cortesia || 0,
-        appai: item.atletas.appai ? { ...item.atletas.appai } : { pago: 0, tkt_medio: 0 }
+        appai: item.atletas.appai ? { ...item.atletas.appai } : { pago: 0, tkt_medio: 0 },
+        ciclismo: item.atletas.ciclismo ? { ...item.atletas.ciclismo } : { ...defaultCiclismoData }
       },
       cortesias: item.cortesias?.length > 0 ? item.cortesias.map(c => ({ ...c })) : [],
       taxas: item.taxas?.length > 0 ? item.taxas.map(t => ({
@@ -706,6 +707,12 @@ const Cadastro: React.FC = () => {
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_participacao: item.faixas_preco_site?.kit_participacao?.length > 0 
           ? item.faixas_preco_site.kit_participacao.map(f => ({ ...f })) 
+          : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+        kit_sem_bike: item.faixas_preco_site?.kit_sem_bike?.length > 0 
+          ? item.faixas_preco_site.kit_sem_bike.map(f => ({ ...f })) 
+          : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+        kit_com_bike: item.faixas_preco_site?.kit_com_bike?.length > 0 
+          ? item.faixas_preco_site.kit_com_bike.map(f => ({ ...f })) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
       },
       faixas_preco_grupos: {
@@ -714,6 +721,12 @@ const Cadastro: React.FC = () => {
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_participacao: item.faixas_preco_grupos?.kit_participacao?.length > 0 
           ? item.faixas_preco_grupos.kit_participacao.map(f => ({ ...f })) 
+          : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+        kit_sem_bike: item.faixas_preco_grupos?.kit_sem_bike?.length > 0 
+          ? item.faixas_preco_grupos.kit_sem_bike.map(f => ({ ...f })) 
+          : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
+        kit_com_bike: item.faixas_preco_grupos?.kit_com_bike?.length > 0 
+          ? item.faixas_preco_grupos.kit_com_bike.map(f => ({ ...f })) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
       }
     });
@@ -1087,23 +1100,22 @@ const Cadastro: React.FC = () => {
     const diferencaValor = totalValor - valorTotalOrcado;
     const percentualPreenchido = atletasOrcado > 0 ? (totalQtd / atletasOrcado) * 100 : 0;
     
-    const faixasKitBasico = form.faixas_preco_site.kit_basico;
-    const faixasKitParticipacao = form.faixas_preco_site.kit_participacao;
-    const { totalQtd: qtdKitBasico, totalValor: faturamentoKitBasico } = calcularTotalizadorFaixa(faixasKitBasico);
-    const { totalQtd: qtdKitParticipacao, totalValor: faturamentoKitParticipacao } = calcularTotalizadorFaixa(faixasKitParticipacao);
-    
-    const custoUnitarioKitBasico = getKitCost('Kit Básico');
-    const custoUnitarioKitParticipacao = getKitCost('Kit Participação');
-    const custoTotalKitBasico = custoUnitarioKitBasico * qtdKitBasico;
-    const custoTotalKitParticipacao = custoUnitarioKitParticipacao * qtdKitParticipacao;
-    const custoTotalGeral = custoTotalKitBasico + custoTotalKitParticipacao;
-    
-    const margemKitBasico = faturamentoKitBasico - custoTotalKitBasico;
-    const margemKitParticipacao = faturamentoKitParticipacao - custoTotalKitParticipacao;
-    const margemTotal = margemKitBasico + margemKitParticipacao;
+    let custoTotalGeral = 0;
+    let margemTotal = 0;
+    const kitCostEntries = siteKitTypes.map(kt => {
+      const faixas = form.faixas_preco_site[kt.key] || [];
+      const { totalQtd: kitQtd, totalValor: kitFaturamento } = calcularTotalizadorFaixa(faixas);
+      const custoUnitario = getKitCost(kt.title);
+      const custoTotal = custoUnitario * kitQtd;
+      const margem = kitFaturamento - custoTotal;
+      custoTotalGeral += custoTotal;
+      margemTotal += margem;
+      return { key: kt.key, title: kt.title, kitQtd, kitFaturamento, custoUnitario, custoTotal, margem };
+    });
     
     const faturamentoOrcado = atletasOrcado * tktMedioOrcado;
-    const custoOrcado = atletasOrcado * custoUnitarioKitBasico;
+    const custoUnitarioRef = kitCostEntries.length > 0 ? kitCostEntries[0].custoUnitario : 0;
+    const custoOrcado = atletasOrcado * custoUnitarioRef;
     const margemOrcada = faturamentoOrcado - custoOrcado;
 
     return (
@@ -1258,31 +1270,21 @@ const Cadastro: React.FC = () => {
                   <p className={`text-xl font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900/30' : 'bg-blue-50'} border ${isDark ? 'border-blue-500/30' : 'border-blue-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>Margem Kit Básico</p>
-                      <p className={`text-sm font-bold ${margemKitBasico >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKitBasico)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(custoTotalKitBasico)}</p>
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(faturamentoKitBasico)}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900/30' : 'bg-green-50'} border ${isDark ? 'border-green-500/30' : 'border-green-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-xs ${isDark ? 'text-green-300' : 'text-green-600'}`}>Margem Kit Participação</p>
-                      <p className={`text-sm font-bold ${margemKitParticipacao >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKitParticipacao)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(custoTotalKitParticipacao)}</p>
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(faturamentoKitParticipacao)}</p>
+              <div className={`grid ${kitCostEntries.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+                {kitCostEntries.map(entry => (
+                  <div key={entry.key} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Margem {entry.title}</p>
+                        <p className={`text-sm font-bold ${entry.margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(entry.margem)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(entry.custoTotal)}</p>
+                        <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(entry.kitFaturamento)}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
               <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -1309,7 +1311,7 @@ const Cadastro: React.FC = () => {
                 </div>
                 <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                   <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
-                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Básico: {formatCurrency(custoUnitarioKitBasico)}</div>
+                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Ref: {formatCurrency(custoUnitarioRef)}</div>
                 </div>
               </div>
             </div>
@@ -1473,23 +1475,22 @@ const Cadastro: React.FC = () => {
     const diferencaValor = totalValor - valorTotalOrcado;
     const percentualPreenchido = atletasOrcado > 0 ? (totalQtd / atletasOrcado) * 100 : 0;
     
-    const faixasKitBasico = form.faixas_preco_grupos.kit_basico;
-    const faixasKitParticipacao = form.faixas_preco_grupos.kit_participacao;
-    const { totalQtd: qtdKitBasico, totalValor: faturamentoKitBasico } = calcularTotalizadorFaixa(faixasKitBasico);
-    const { totalQtd: qtdKitParticipacao, totalValor: faturamentoKitParticipacao } = calcularTotalizadorFaixa(faixasKitParticipacao);
-    
-    const custoUnitarioKitBasico = getKitCost('Kit Básico');
-    const custoUnitarioKitParticipacao = getKitCost('Kit Participação');
-    const custoTotalKitBasico = custoUnitarioKitBasico * qtdKitBasico;
-    const custoTotalKitParticipacao = custoUnitarioKitParticipacao * qtdKitParticipacao;
-    const custoTotalGeral = custoTotalKitBasico + custoTotalKitParticipacao;
-    
-    const margemKitBasico = faturamentoKitBasico - custoTotalKitBasico;
-    const margemKitParticipacao = faturamentoKitParticipacao - custoTotalKitParticipacao;
-    const margemTotal = margemKitBasico + margemKitParticipacao;
+    let custoTotalGeral = 0;
+    let margemTotal = 0;
+    const kitCostEntries = gruposKitTypes.map(kt => {
+      const faixas = form.faixas_preco_grupos[kt.key] || [];
+      const { totalQtd: kitQtd, totalValor: kitFaturamento } = calcularTotalizadorFaixa(faixas);
+      const custoUnitario = getKitCost(kt.title);
+      const custoTotal = custoUnitario * kitQtd;
+      const margem = kitFaturamento - custoTotal;
+      custoTotalGeral += custoTotal;
+      margemTotal += margem;
+      return { key: kt.key, title: kt.title, kitQtd, kitFaturamento, custoUnitario, custoTotal, margem };
+    });
     
     const faturamentoOrcado = atletasOrcado * tktMedioOrcado;
-    const custoOrcado = atletasOrcado * custoUnitarioKitBasico;
+    const custoUnitarioRef = kitCostEntries.length > 0 ? kitCostEntries[0].custoUnitario : 0;
+    const custoOrcado = atletasOrcado * custoUnitarioRef;
     const margemOrcada = faturamentoOrcado - custoOrcado;
 
     return (
@@ -1644,31 +1645,21 @@ const Cadastro: React.FC = () => {
                   <p className={`text-xl font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-blue-900/30' : 'bg-blue-50'} border ${isDark ? 'border-blue-500/30' : 'border-blue-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-xs ${isDark ? 'text-blue-300' : 'text-blue-600'}`}>Margem Kit Básico</p>
-                      <p className={`text-sm font-bold ${margemKitBasico >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKitBasico)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(custoTotalKitBasico)}</p>
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(faturamentoKitBasico)}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-green-900/30' : 'bg-green-50'} border ${isDark ? 'border-green-500/30' : 'border-green-200'}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-xs ${isDark ? 'text-green-300' : 'text-green-600'}`}>Margem Kit Participação</p>
-                      <p className={`text-sm font-bold ${margemKitParticipacao >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemKitParticipacao)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(custoTotalKitParticipacao)}</p>
-                      <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(faturamentoKitParticipacao)}</p>
+              <div className={`grid ${kitCostEntries.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+                {kitCostEntries.map(entry => (
+                  <div key={entry.key} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Margem {entry.title}</p>
+                        <p className={`text-sm font-bold ${entry.margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(entry.margem)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(entry.custoTotal)}</p>
+                        <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(entry.kitFaturamento)}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
               <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -1695,7 +1686,7 @@ const Cadastro: React.FC = () => {
                 </div>
                 <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                   <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
-                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Básico: {formatCurrency(custoUnitarioKitBasico)}</div>
+                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Ref: {formatCurrency(custoUnitarioRef)}</div>
                 </div>
               </div>
             </div>
