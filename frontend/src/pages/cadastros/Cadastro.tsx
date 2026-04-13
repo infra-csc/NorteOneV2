@@ -2167,9 +2167,9 @@ const Cadastro: React.FC = () => {
           : (form.atletas.site.pago || 0);
         const ciclismoSiteTktMedio = isCiclismo
           ? (() => {
-              const totalPagosCic = cic.sem_bike_pago + cic.com_bike_pago;
-              if (totalPagosCic === 0) return 0;
-              return (cic.sem_bike_pago * cic.sem_bike_tkt_medio + cic.com_bike_pago * cic.com_bike_tkt_medio) / totalPagosCic;
+              const allPagosCic = cic.participacao_pago + cic.sem_bike_pago + cic.com_bike_pago;
+              if (allPagosCic === 0) return 0;
+              return (cic.sem_bike_pago * cic.sem_bike_tkt_medio + cic.com_bike_pago * cic.com_bike_tkt_medio) / allPagosCic;
             })()
           : (form.atletas.site.tkt_medio || 0);
         const totalPagos = ciclismoSitePago + (form.atletas.grupos.pago || 0) + (form.atletas.appai?.pago || 0);
@@ -2180,10 +2180,9 @@ const Cadastro: React.FC = () => {
         const updateCiclismo = (field: keyof CiclismoCenariosData, val: number) => {
           setForm(prev => {
             const newCic = { ...(prev.atletas.ciclismo || defaultCiclismoData), [field]: val };
-            const totalP = newCic.sem_bike_pago + newCic.com_bike_pago;
-            const aggPago = newCic.participacao_pago + totalP;
-            const aggTkt = totalP > 0
-              ? (newCic.sem_bike_pago * newCic.sem_bike_tkt_medio + newCic.com_bike_pago * newCic.com_bike_tkt_medio) / totalP
+            const aggPago = newCic.participacao_pago + newCic.sem_bike_pago + newCic.com_bike_pago;
+            const aggTkt = aggPago > 0
+              ? (newCic.sem_bike_pago * newCic.sem_bike_tkt_medio + newCic.com_bike_pago * newCic.com_bike_tkt_medio) / aggPago
               : 0;
             return {
               ...prev,
