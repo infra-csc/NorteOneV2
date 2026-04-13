@@ -361,6 +361,7 @@ export const cadastrosService = {
   },
   update: async (id: number, data: any) => {
     const response = await api.put(`/cadastros/${id}`, data);
+    clearMarketingDashboardCache();
     return response.data;
   },
   delete: async (id: number) => {
