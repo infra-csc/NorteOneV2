@@ -1038,6 +1038,8 @@ def _run_column_migrations():
                 valor_venda NUMERIC(10,2) DEFAULT 0
             )
             """,
+            "ALTER TABLE acoes_comerciais DROP CONSTRAINT IF EXISTS check_tipo_acao",
+            "ALTER TABLE acoes_comerciais ADD CONSTRAINT check_tipo_acao CHECK (tipo IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO', 'NENHUMA_ACAO', 'OUTROS'))",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
