@@ -138,6 +138,7 @@ interface FormData {
 const distanciasOptionsFallback = ['3k', '5k', '10k', '13k', '15k', '21k', '42k'];
 const pelotoesOptions = ['Quênia', 'Azul', 'Verde', 'Branco'];
 const kitOptions = ['Kit Básico', 'Kit Participação', 'Kit Vip', 'Kit Plus', 'Kit Super'];
+const kitOptionsCiclismo = ['Inscrição Participação', 'Kit sem Bike', 'Kit com Bike'];
 const faixaOptions = ['1', '2', '3', '4', '5'];
 const coresPeitoOptions = ['Branco', 'Amarelo', 'Laranja', 'Verde', 'Azul', 'Vermelho', 'Rosa', 'Roxo', 'Preto'];
 const modalidadesOptions = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E-Sports', 'Família', 'Natação', 'Obstáculo', 'Saúde', 'Triathlon'];
@@ -164,7 +165,10 @@ const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario:
   'Kit Básico': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }],
   'Kit Vip': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }, { nome: 'Moletom', valor_unitario: 0 }, { nome: 'Jaqueta', valor_unitario: 0 }],
   'Kit Plus': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }, { nome: 'Boné', valor_unitario: 0 }, { nome: 'Viseira', valor_unitario: 0 }],
-  'Kit Super': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }]
+  'Kit Super': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }],
+  'Inscrição Participação': [{ nome: 'Medalha', valor_unitario: 0 }],
+  'Kit sem Bike': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }],
+  'Kit com Bike': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }]
 };
 
 const produtosExtrasPorKit: Record<string, string[]> = {
@@ -937,7 +941,10 @@ const Cadastro: React.FC = () => {
   };
 
   const getKitCost = (kitName: string): number => {
-    const kit = form.kit_produto.find(k => k.kit === kitName);
+    let kit = form.kit_produto.find(k => k.kit === kitName);
+    if (!kit && kitName === 'Inscrição Participação') {
+      kit = form.kit_produto.find(k => k.kit === 'Kit Participação');
+    }
     if (!kit) return 0;
     return kit.produtos.reduce((sum, p) => sum + (Number(p.valor_unitario) || 0), 0);
   };
@@ -945,7 +952,9 @@ const Cadastro: React.FC = () => {
   const renderFaixaKitColumn = (kitType: keyof FaixasPrecoSiteByKit, title: string, colorClass: string) => {
     const faixas = form.faixas_preco_site[kitType] || [];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const kitNameMap: Record<string, string> = { kit_basico: 'Kit Básico', kit_participacao: 'Kit Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' };
+    const kitNameMap: Record<string, string> = isCiclismo
+      ? { kit_participacao: 'Inscrição Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' }
+      : { kit_basico: 'Kit Básico', kit_participacao: 'Kit Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' };
     const kitName = kitNameMap[kitType] || title;
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
@@ -1120,9 +1129,9 @@ const Cadastro: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-2 sm:gap-4`}>
           {siteKitTypes.map(kt => (
-            <div key={kt.key} className={`p-4 rounded-xl ${kt.bg} border`}>
+            <div key={kt.key} className={`${isCiclismo ? 'p-2 sm:p-4' : 'p-4'} rounded-xl ${kt.bg} border min-w-0 overflow-hidden`}>
               {renderFaixaKitColumn(kt.key, kt.title, kt.color)}
             </div>
           ))}
@@ -1133,36 +1142,36 @@ const Cadastro: React.FC = () => {
             <h4 className={`text-sm font-bold mb-3 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>
               Totalizador Geral - Site
             </h4>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4">
+              <div className="text-center min-w-0">
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
-                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+                <p className={`text-sm sm:text-lg font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
               </div>
-              <div className="text-center">
-                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Real</p>
-                <p className={`text-lg font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+              <div className="text-center min-w-0">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio Real</p>
+                <p className={`text-sm sm:text-lg font-bold text-purple-400 truncate`}>{formatCurrency(ticketMedioReal)}</p>
               </div>
-              <div className="text-center">
+              <div className="text-center min-w-0">
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Valor</p>
-                <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                <p className={`text-sm sm:text-lg font-bold text-green-400 truncate`}>{formatCurrency(totalValor)}</p>
               </div>
             </div>
             
-            <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-4`}>
+            <div className={`p-3 sm:p-4 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-3 sm:space-y-4`}>
               <h5 className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
                 Comparativo com Orçado (Site)
               </h5>
               
-              <div className="grid grid-cols-1 gap-4">
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+              <div className="grid grid-cols-1 gap-3 sm:gap-4">
+                <div className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="min-w-0 flex-1 mr-2">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd Atletas</p>
-                      <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+                      <p className={`text-lg sm:text-xl font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatNumber(atletasOrcado) || '0'}</p>
-                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatNumber(atletasOrcado) || '0'}</p>
+                      <span className={`text-sm sm:text-lg font-bold flex items-center justify-end gap-1 ${
                         diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
                       }`}>
                         {diferencaQtd === 0 ? (
@@ -1186,15 +1195,15 @@ const Cadastro: React.FC = () => {
                   <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{percentualPreenchido.toFixed(1)}%</p>
                 </div>
                 
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                <div className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="min-w-0 flex-1 mr-2">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio</p>
-                      <p className={`text-xl font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+                      <p className={`text-lg sm:text-xl font-bold text-purple-400 truncate`}>{formatCurrency(ticketMedioReal)}</p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(tktMedioOrcado)}</p>
-                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(tktMedioOrcado)}</p>
+                      <span className={`text-sm sm:text-lg font-bold flex items-center justify-end gap-1 ${
                         Math.abs(diferencaTktMedio) < 0.01 ? 'text-green-400' : diferencaTktMedio > 0 ? 'text-blue-400' : 'text-orange-400'
                       }`}>
                         {Math.abs(diferencaTktMedio) < 0.01 ? (
@@ -1218,15 +1227,15 @@ const Cadastro: React.FC = () => {
                   <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{tktMedioOrcado > 0 ? ((ticketMedioReal / tktMedioOrcado) * 100).toFixed(1) : 0}%</p>
                 </div>
                 
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                <div className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="min-w-0 flex-1 mr-2">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Total</p>
-                      <p className={`text-xl font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                      <p className={`text-lg sm:text-xl font-bold text-green-400 truncate`}>{formatCurrency(totalValor)}</p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(valorTotalOrcado)}</p>
-                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(valorTotalOrcado)}</p>
+                      <span className={`text-sm sm:text-lg font-bold flex items-center justify-end gap-1 ${
                         Math.abs(diferencaValor) < 0.01 ? 'text-green-400' : diferencaValor > 0 ? 'text-blue-400' : 'text-orange-400'
                       }`}>
                         {Math.abs(diferencaValor) < 0.01 ? (
@@ -1252,33 +1261,33 @@ const Cadastro: React.FC = () => {
               </div>
             </div>
             
-            <div className={`mt-4 p-4 rounded-lg ${isDark ? 'bg-gradient-to-r from-emerald-900/50 to-teal-900/50' : 'bg-gradient-to-r from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-500/30' : 'border-emerald-200'}`}>
+            <div className={`mt-4 p-3 sm:p-4 rounded-lg ${isDark ? 'bg-gradient-to-r from-emerald-900/50 to-teal-900/50' : 'bg-gradient-to-r from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-500/30' : 'border-emerald-200'}`}>
               <h5 className={`text-sm font-bold mb-3 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
                 Análise de Margem
               </h5>
-              <div className="grid grid-cols-3 gap-4 mb-3">
-                <div className="text-center">
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento Total</p>
-                  <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-3">
+                <div className="text-center min-w-0">
+                  <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento Total</p>
+                  <p className={`text-sm sm:text-lg font-bold text-green-400 truncate`}>{formatCurrency(totalValor)}</p>
                 </div>
-                <div className="text-center">
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
-                  <p className={`text-lg font-bold text-orange-400`}>{formatCurrency(custoTotalGeral)}</p>
+                <div className="text-center min-w-0">
+                  <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
+                  <p className={`text-sm sm:text-lg font-bold text-orange-400 truncate`}>{formatCurrency(custoTotalGeral)}</p>
                 </div>
-                <div className="text-center">
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Total</p>
-                  <p className={`text-xl font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
+                <div className="text-center min-w-0">
+                  <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Total</p>
+                  <p className={`text-sm sm:text-xl font-bold truncate ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
                 </div>
               </div>
               <div className={`grid ${kitCostEntries.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
                 {kitCostEntries.map(entry => (
-                  <div key={entry.key} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Margem {entry.title}</p>
-                        <p className={`text-sm font-bold ${entry.margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(entry.margem)}</p>
+                  <div key={entry.key} className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'} min-w-0`}>
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-[10px] sm:text-xs truncate ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Margem {entry.title}</p>
+                        <p className={`text-xs sm:text-sm font-bold truncate ${entry.margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(entry.margem)}</p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex-shrink-0">
                         <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(entry.custoTotal)}</p>
                         <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(entry.kitFaturamento)}</p>
                       </div>
@@ -1286,14 +1295,14 @@ const Cadastro: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
+              <div className={`mt-3 p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <div>
+                  <div className="min-w-0 flex-1 mr-2">
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Real vs Orçada</p>
-                    <p className={`text-lg font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
+                    <p className={`text-sm sm:text-lg font-bold truncate ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
                   </div>
-                  <div className="text-right">
-                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(margemOrcada)}</p>
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(margemOrcada)}</p>
                     <span className={`text-sm font-bold flex items-center justify-end gap-1 ${
                       margemOrcada > 0 && margemTotal >= margemOrcada ? 'text-green-400' : margemTotal >= margemOrcada * 0.8 ? 'text-blue-400' : 'text-orange-400'
                     }`}>
@@ -1309,9 +1318,9 @@ const Cadastro: React.FC = () => {
                     style={{ width: `${margemOrcada > 0 ? Math.min((margemTotal / margemOrcada) * 100, 100) : 0}%` }}
                   />
                 </div>
-                <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                  <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
-                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Ref: {formatCurrency(custoUnitarioRef)}</div>
+                <div className={`mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <div className="truncate">Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
+                  <div className="sm:text-right truncate">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Ref: {formatCurrency(custoUnitarioRef)}</div>
                 </div>
               </div>
             </div>
@@ -1324,7 +1333,9 @@ const Cadastro: React.FC = () => {
   const renderFaixaGruposKitColumn = (kitType: keyof FaixasPrecoSiteByKit, title: string, colorClass: string) => {
     const faixas = form.faixas_preco_grupos[kitType] || [];
     const { totalQtd, totalValor, ticketMedioReal } = calcularTotalizadorFaixa(faixas);
-    const kitNameMap: Record<string, string> = { kit_basico: 'Kit Básico', kit_participacao: 'Kit Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' };
+    const kitNameMap: Record<string, string> = isCiclismo
+      ? { kit_participacao: 'Inscrição Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' }
+      : { kit_basico: 'Kit Básico', kit_participacao: 'Kit Participação', kit_sem_bike: 'Kit sem Bike', kit_com_bike: 'Kit com Bike' };
     const kitName = kitNameMap[kitType] || title;
     const custoUnitarioKit = getKitCost(kitName);
     const custoTotalKit = custoUnitarioKit * totalQtd;
@@ -1495,9 +1506,9 @@ const Cadastro: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-2 sm:gap-4`}>
           {gruposKitTypes.map(kt => (
-            <div key={kt.key} className={`p-4 rounded-xl ${kt.bg} border`}>
+            <div key={kt.key} className={`${isCiclismo ? 'p-2 sm:p-4' : 'p-4'} rounded-xl ${kt.bg} border min-w-0 overflow-hidden`}>
               {renderFaixaGruposKitColumn(kt.key, kt.title, kt.color)}
             </div>
           ))}
@@ -1508,36 +1519,36 @@ const Cadastro: React.FC = () => {
             <h4 className={`text-sm font-bold mb-3 ${isDark ? 'text-purple-300' : 'text-purple-700'}`}>
               Totalizador Geral
             </h4>
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4">
+              <div className="text-center min-w-0">
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Qtd</p>
-                <p className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+                <p className={`text-sm sm:text-lg font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
               </div>
-              <div className="text-center">
-                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Real</p>
-                <p className={`text-lg font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+              <div className="text-center min-w-0">
+                <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Tkt Médio Real</p>
+                <p className={`text-sm sm:text-lg font-bold text-purple-400 truncate`}>{formatCurrency(ticketMedioReal)}</p>
               </div>
-              <div className="text-center">
+              <div className="text-center min-w-0">
                 <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Valor</p>
-                <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                <p className={`text-sm sm:text-lg font-bold text-green-400 truncate`}>{formatCurrency(totalValor)}</p>
               </div>
             </div>
             
-            <div className={`p-4 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-4`}>
+            <div className={`p-3 sm:p-4 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'} space-y-3 sm:space-y-4`}>
               <h5 className={`text-sm font-bold ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
                 Comparativo com Orçado (Grupos)
               </h5>
               
-              <div className="grid grid-cols-1 gap-4">
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+              <div className="grid grid-cols-1 gap-3 sm:gap-4">
+                <div className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="min-w-0 flex-1 mr-2">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Qtd Atletas</p>
-                      <p className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
+                      <p className={`text-lg sm:text-xl font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(totalQtd) || '0'}</p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatNumber(atletasOrcado) || '0'}</p>
-                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatNumber(atletasOrcado) || '0'}</p>
+                      <span className={`text-sm sm:text-lg font-bold flex items-center justify-end gap-1 ${
                         diferencaQtd === 0 ? 'text-green-400' : diferencaQtd > 0 ? 'text-blue-400' : 'text-orange-400'
                       }`}>
                         {diferencaQtd === 0 ? (
@@ -1561,15 +1572,15 @@ const Cadastro: React.FC = () => {
                   <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{percentualPreenchido.toFixed(1)}%</p>
                 </div>
                 
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                <div className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="min-w-0 flex-1 mr-2">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio</p>
-                      <p className={`text-xl font-bold text-purple-400`}>{formatCurrency(ticketMedioReal)}</p>
+                      <p className={`text-lg sm:text-xl font-bold text-purple-400 truncate`}>{formatCurrency(ticketMedioReal)}</p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(tktMedioOrcado)}</p>
-                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(tktMedioOrcado)}</p>
+                      <span className={`text-sm sm:text-lg font-bold flex items-center justify-end gap-1 ${
                         Math.abs(diferencaTktMedio) < 0.01 ? 'text-green-400' : diferencaTktMedio > 0 ? 'text-blue-400' : 'text-orange-400'
                       }`}>
                         {Math.abs(diferencaTktMedio) < 0.01 ? (
@@ -1593,15 +1604,15 @@ const Cadastro: React.FC = () => {
                   <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{tktMedioOrcado > 0 ? ((ticketMedioReal / tktMedioOrcado) * 100).toFixed(1) : 0}%</p>
                 </div>
                 
-                <div className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
+                <div className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="min-w-0 flex-1 mr-2">
                       <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Valor Total</p>
-                      <p className={`text-xl font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+                      <p className={`text-lg sm:text-xl font-bold text-green-400 truncate`}>{formatCurrency(totalValor)}</p>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(valorTotalOrcado)}</p>
-                      <span className={`text-lg font-bold flex items-center justify-end gap-1 ${
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(valorTotalOrcado)}</p>
+                      <span className={`text-sm sm:text-lg font-bold flex items-center justify-end gap-1 ${
                         Math.abs(diferencaValor) < 0.01 ? 'text-green-400' : diferencaValor > 0 ? 'text-blue-400' : 'text-orange-400'
                       }`}>
                         {Math.abs(diferencaValor) < 0.01 ? (
@@ -1627,33 +1638,33 @@ const Cadastro: React.FC = () => {
               </div>
             </div>
             
-            <div className={`mt-4 p-4 rounded-lg ${isDark ? 'bg-gradient-to-r from-emerald-900/50 to-teal-900/50' : 'bg-gradient-to-r from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-500/30' : 'border-emerald-200'}`}>
+            <div className={`mt-4 p-3 sm:p-4 rounded-lg ${isDark ? 'bg-gradient-to-r from-emerald-900/50 to-teal-900/50' : 'bg-gradient-to-r from-emerald-50 to-teal-50'} border ${isDark ? 'border-emerald-500/30' : 'border-emerald-200'}`}>
               <h5 className={`text-sm font-bold mb-3 ${isDark ? 'text-emerald-300' : 'text-emerald-700'}`}>
                 Análise de Margem
               </h5>
-              <div className="grid grid-cols-3 gap-4 mb-3">
-                <div className="text-center">
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento Total</p>
-                  <p className={`text-lg font-bold text-green-400`}>{formatCurrency(totalValor)}</p>
+              <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-3">
+                <div className="text-center min-w-0">
+                  <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Faturamento Total</p>
+                  <p className={`text-sm sm:text-lg font-bold text-green-400 truncate`}>{formatCurrency(totalValor)}</p>
                 </div>
-                <div className="text-center">
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
-                  <p className={`text-lg font-bold text-orange-400`}>{formatCurrency(custoTotalGeral)}</p>
+                <div className="text-center min-w-0">
+                  <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Custo Total</p>
+                  <p className={`text-sm sm:text-lg font-bold text-orange-400 truncate`}>{formatCurrency(custoTotalGeral)}</p>
                 </div>
-                <div className="text-center">
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Total</p>
-                  <p className={`text-xl font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
+                <div className="text-center min-w-0">
+                  <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Total</p>
+                  <p className={`text-sm sm:text-xl font-bold truncate ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
                 </div>
               </div>
-              <div className={`grid ${kitCostEntries.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+              <div className={`grid ${kitCostEntries.length === 3 ? 'grid-cols-3' : 'grid-cols-2'} gap-2 sm:gap-3`}>
                 {kitCostEntries.map(entry => (
-                  <div key={entry.key} className={`p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className={`text-xs ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Margem {entry.title}</p>
-                        <p className={`text-sm font-bold ${entry.margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(entry.margem)}</p>
+                  <div key={entry.key} className={`p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'} border ${isDark ? 'border-gray-600' : 'border-gray-200'} min-w-0`}>
+                    <div className="flex items-center justify-between gap-1">
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-[10px] sm:text-xs truncate ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Margem {entry.title}</p>
+                        <p className={`text-xs sm:text-sm font-bold truncate ${entry.margem >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(entry.margem)}</p>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex-shrink-0">
                         <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Custo: {formatCurrency(entry.custoTotal)}</p>
                         <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Fat: {formatCurrency(entry.kitFaturamento)}</p>
                       </div>
@@ -1661,14 +1672,14 @@ const Cadastro: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className={`mt-3 p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
+              <div className={`mt-3 p-2 sm:p-3 rounded-lg ${isDark ? 'bg-gray-800/50' : 'bg-white/50'}`}>
                 <div className="flex items-center justify-between mb-2">
-                  <div>
+                  <div className="min-w-0 flex-1 mr-2">
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Margem Real vs Orçada</p>
-                    <p className={`text-lg font-bold ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
+                    <p className={`text-sm sm:text-lg font-bold truncate ${margemTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{formatCurrency(margemTotal)}</p>
                   </div>
-                  <div className="text-right">
-                    <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(margemOrcada)}</p>
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-[10px] sm:text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(margemOrcada)}</p>
                     <span className={`text-sm font-bold flex items-center justify-end gap-1 ${
                       margemOrcada > 0 && margemTotal >= margemOrcada ? 'text-green-400' : margemTotal >= margemOrcada * 0.8 ? 'text-blue-400' : 'text-orange-400'
                     }`}>
@@ -1684,9 +1695,9 @@ const Cadastro: React.FC = () => {
                     style={{ width: `${margemOrcada > 0 ? Math.min((margemTotal / margemOrcada) * 100, 100) : 0}%` }}
                   />
                 </div>
-                <div className={`mt-2 grid grid-cols-2 gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                  <div>Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
-                  <div className="text-right">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Ref: {formatCurrency(custoUnitarioRef)}</div>
+                <div className={`mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 sm:gap-2 text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  <div className="truncate">Fat. Orçado: {formatCurrency(faturamentoOrcado)} | Custo Orçado: {formatCurrency(custoOrcado)}</div>
+                  <div className="sm:text-right truncate">Atletas: {formatNumber(atletasOrcado)} × Custo Kit Ref: {formatCurrency(custoUnitarioRef)}</div>
                 </div>
               </div>
             </div>
@@ -2751,7 +2762,7 @@ const Cadastro: React.FC = () => {
                       className={`w-full px-4 py-2 rounded-lg border ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                     >
                       <option value="">Selecione o Kit</option>
-                      {kitOptions.filter(k => !form.kit_produto.some((fk, i) => i !== index && fk.kit === k)).map(k => (
+                      {(isCiclismo ? kitOptionsCiclismo : kitOptions).filter(k => !form.kit_produto.some((fk, i) => i !== index && fk.kit === k)).map(k => (
                         <option key={k} value={k}>{k}</option>
                       ))}
                     </select>
