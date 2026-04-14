@@ -20,6 +20,7 @@ import {
   X,
   Trash2,
   Pencil,
+  Eye,
   RefreshCw,
   TableProperties,
   ChevronDown,
@@ -93,6 +94,7 @@ const EventDetail: React.FC = () => {
   const [detailsLoading, setDetailsLoading] = useState(!!previewEvent);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
+  const [viewOnlyAction, setViewOnlyAction] = useState(false);
   const [acoesColapsadas, setAcoesColapsadas] = useState(false);
   const [showMargemInfo, setShowMargemInfo] = useState(false);
   const [showReceitaOrcada, setShowReceitaOrcada] = useState(false);
@@ -529,6 +531,7 @@ const EventDetail: React.FC = () => {
     }));
 
   const handleSaveAction = async () => {
+    if (viewOnlyAction) return;
     if (!id || !actionForm.descricao.trim()) return;
     
     let projetoIdParaAcao: number | null;
@@ -1974,10 +1977,11 @@ const EventDetail: React.FC = () => {
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                            {canEdit && (
+                            {canEdit ? (
                               <button
                                 onClick={() => {
                                   setEditingActionId(slotAction.id);
+                                  setViewOnlyAction(false);
                                   setActionForm(f => ({
                                     ...f,
                                     tipo: slotAction.tipo ?? '',
@@ -1994,10 +1998,33 @@ const EventDetail: React.FC = () => {
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setEditingActionId(slotAction.id);
+                                  setViewOnlyAction(true);
+                                  setActionForm(f => ({
+                                    ...f,
+                                    tipo: slotAction.tipo ?? '',
+                                    descricao: slotAction.description,
+                                    data_acao: slotAction.date,
+                                    forced_ponto_corte: slotAction.ponto_corte ?? '',
+                                    forced_estagio: slotAction.estagio ?? '',
+                                  }));
+                                  setShowActionModal(true);
+                                  setActionError(null);
+                                }}
+                                className="p-0.5 text-gray-300 hover:text-blue-400 transition-colors"
+                                title="Visualizar"
+                              >
+                                <Eye className="w-3 h-3" />
+                              </button>
                             )}
-                            <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                            {canEdit && (
+                              <button onClick={() => handleDeleteAction(slotAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -2090,10 +2117,11 @@ const EventDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-black font-mono text-emerald-700 dark:text-emerald-300">D-7</span>
-                          {canEditFinal && (
+                          {canEditFinal ? (
                             <button
                               onClick={() => {
                                 setEditingActionId(finalAction.id);
+                                setViewOnlyAction(false);
                                 setActionForm(f => ({
                                   ...f,
                                   tipo: finalAction.tipo ?? '',
@@ -2110,10 +2138,33 @@ const EventDetail: React.FC = () => {
                             >
                               <Pencil className="w-3 h-3" />
                             </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingActionId(finalAction.id);
+                                setViewOnlyAction(true);
+                                setActionForm(f => ({
+                                  ...f,
+                                  tipo: finalAction.tipo ?? '',
+                                  descricao: finalAction.description,
+                                  data_acao: finalAction.date,
+                                  forced_ponto_corte: finalAction.ponto_corte ?? 'D-7',
+                                  forced_estagio: finalAction.estagio ?? 'operacional',
+                                }));
+                                setShowActionModal(true);
+                                setActionError(null);
+                              }}
+                              className="p-0.5 text-gray-300 hover:text-blue-400 transition-colors"
+                              title="Visualizar"
+                            >
+                              <Eye className="w-3 h-3" />
+                            </button>
                           )}
-                          <button onClick={() => handleDeleteAction(finalAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          {canEditFinal && (
+                            <button onClick={() => handleDeleteAction(finalAction.id)} className="p-0.5 text-gray-300 hover:text-red-400 transition-colors" title="Excluir">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
                       <p className="text-[11px] text-gray-700 dark:text-gray-300 leading-snug">{finalAction.description}</p>
@@ -3304,8 +3355,8 @@ const EventDetail: React.FC = () => {
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-gray-800 rounded-xl w-full max-w-lg shadow-xl flex flex-col max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between p-5 pb-0">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{editingActionId ? 'Editar Ação Comercial' : 'Registrar Ação Comercial'}</h3>
-                <button onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{viewOnlyAction ? 'Visualizar Ação Comercial' : editingActionId ? 'Editar Ação Comercial' : 'Registrar Ação Comercial'}</h3>
+                <button onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setViewOnlyAction(false); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }} className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -3329,7 +3380,7 @@ const EventDetail: React.FC = () => {
                       <p className="text-sm font-semibold mt-0.5">{stageLabel[cutoffInfo.estagio] || cutoffInfo.estagio}</p>
                     </div>
                   </div>
-                  <p className="text-xs opacity-60 mt-1">Snapshot dos dados ISC será congelado ao salvar</p>
+                  {!viewOnlyAction && <p className="text-xs opacity-60 mt-1">Snapshot dos dados ISC será congelado ao salvar</p>}
                 </div>
 
                 {event && (
@@ -3381,7 +3432,8 @@ const EventDetail: React.FC = () => {
                   <select
                     value={actionForm.tipo}
                     onChange={(e) => { setActionForm({ ...actionForm, tipo: e.target.value }); setActionError(null); }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
+                    disabled={viewOnlyAction}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAction ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
                     {tipoOptions.map(opt => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -3395,7 +3447,8 @@ const EventDetail: React.FC = () => {
                     type="date"
                     value={actionForm.data_acao}
                     onChange={(e) => setActionForm({ ...actionForm, data_acao: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm"
+                    disabled={viewOnlyAction}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 text-sm ${viewOnlyAction ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
 
@@ -3406,27 +3459,39 @@ const EventDetail: React.FC = () => {
                     onChange={(e) => setActionForm({ ...actionForm, descricao: e.target.value })}
                     placeholder="Descreva a ação realizada..."
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm"
+                    readOnly={viewOnlyAction}
+                    className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 resize-none text-sm ${viewOnlyAction ? 'opacity-70 cursor-not-allowed' : ''}`}
                   />
                 </div>
               </div>
 
               <div className="flex gap-3 p-5 pt-0">
-                <button
-                  onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleSaveAction}
-                  disabled={savingAction || !actionForm.descricao.trim()}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
-                >
-                  {savingAction ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
-                  ) : editingActionId ? 'Salvar Edição' : 'Salvar Ação'}
-                </button>
+                {viewOnlyAction ? (
+                  <button
+                    onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setViewOnlyAction(false); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+                  >
+                    Fechar
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { setShowActionModal(false); setActionError(null); setEditingActionId(null); setActionForm(f => ({ ...f, forced_ponto_corte: '', forced_estagio: '' })); }}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleSaveAction}
+                      disabled={savingAction || !actionForm.descricao.trim()}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+                    >
+                      {savingAction ? (
+                        <><Loader2 className="w-4 h-4 animate-spin" />Salvando...</>
+                      ) : editingActionId ? 'Salvar Edição' : 'Salvar Ação'}
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
