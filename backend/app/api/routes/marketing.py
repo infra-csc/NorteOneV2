@@ -2087,17 +2087,15 @@ def get_margem_por_kit(
             except Exception as _e_sp:
                 logger.warning(f"Erro ao buscar special_price por tipo de kit: {_e_sp}")
 
-        _cort_child = "" if incluir_cortesias else "AND soi_child.price          > 0\n      AND soi_child.price - soi_child.discount_amount > 0"
-        _cort_gt = "" if incluir_cortesias else "AND so.base_grand_total > 0"
-        _cort_desc = "" if incluir_cortesias else "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
+        _skip_cortesia_filter = bool(incluir_cortesias)
 
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            # _cort_gt, _cort_desc, _cort_child are derived solely from the boolean
-            # `incluir_cortesias` — they are hardcoded SQL clauses, never user input.
-            # The SQL strings are built as plain variables before being passed to text()
-            # so that no f-string is used directly inside text(), following SQLAlchemy
-            # best practices and avoiding false-positive injection warnings.
+            # Cortesia filters are expressed as SQL-level boolean parameters so the
+            # query strings remain static — no string concatenation or f-strings are
+            # used inside text(), following SQLAlchemy best practices.
+            # :skip_cortesia_filter = True  → OR short-circuits, clause is skipped
+            # :skip_cortesia_filter = False → the filter condition is enforced
             _sql_count = (
                 "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
                 "    soi_parent.product_id                  AS bundle_entity_id,\n"
@@ -2111,15 +2109,18 @@ def get_margem_por_kit(
                 "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state != 'canceled'\n"
-                + (_cort_gt + "\n" if _cort_gt else "")
-                + (_cort_desc + "\n" if _cort_desc else "")
-                + "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
                 "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
                 "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
                 "AND so.increment_id NOT REGEXP '-[0-9]'\n"
                 "GROUP BY soi_parent.product_id"
             )
-            magento_count_query = text(_sql_count).bindparams(bindparam("bundle_ids", expanding=True))
+            magento_count_query = text(_sql_count).bindparams(
+                bindparam("bundle_ids", expanding=True),
+                skip_cortesia_filter=_skip_cortesia_filter,
+            )
 
             # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
             # + join filho para valor da distância/modalidade.
@@ -2138,8 +2139,8 @@ def get_margem_por_kit(
                 "INNER JOIN sales_order_item soi_child\n"
                 "       ON soi_child.parent_item_id = soi_parent.item_id\n"
                 "      AND soi_child.product_type   = 'simple'\n"
-                + ("      " + _cort_child + "\n" if _cort_child else "")
-                + "      AND (\n"
+                "      AND (:skip_cortesia_filter OR (soi_child.price > 0 AND soi_child.price - soi_child.discount_amount > 0))\n"
+                "      AND (\n"
                 "            soi_child.name LIKE '%%Distância%%'\n"
                 "         OR soi_child.name LIKE '%%Distancia%%'\n"
                 "         OR soi_child.name LIKE '%%Distâncias%%'\n"
@@ -2149,15 +2150,18 @@ def get_margem_por_kit(
                 "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state != 'canceled'\n"
-                + (_cort_gt + "\n" if _cort_gt else "")
-                + (_cort_desc + "\n" if _cort_desc else "")
-                + "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
                 "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
                 "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
                 "AND so.increment_id NOT REGEXP '-[0-9]'\n"
                 "GROUP BY soi_parent.product_id"
             )
-            magento_bundle_query = text(_sql_bundle).bindparams(bindparam("bundle_ids", expanding=True))
+            magento_bundle_query = text(_sql_bundle).bindparams(
+                bindparam("bundle_ids", expanding=True),
+                skip_cortesia_filter=_skip_cortesia_filter,
+            )
 
             import time as _time
 
@@ -2352,59 +2356,65 @@ AND    value        IN :ev_ids_fb
 
             if fb_bundle_ids:
                 # Reutiliza o mesmo padrão das queries primárias, agrupando por nome do bundle
-                fb_count_q = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(55000) */
-    soi_parent.name                        AS bundle_name,
-    COUNT(DISTINCT soi_parent.item_id)     AS qtd
-FROM sales_order so
-INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
-      AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN :fb_bundle_ids
-WHERE
-    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-AND so.state != 'canceled'
-{_cort_gt}
-{_cort_desc}
-AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-AND so.increment_id NOT REGEXP '-[0-9]'
-GROUP BY soi_parent.name
-""").bindparams(bindparam("fb_bundle_ids", expanding=True))
+                fb_count_q = text(
+                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                    "    soi_parent.name                        AS bundle_name,\n"
+                    "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                    "FROM sales_order so\n"
+                    "INNER JOIN sales_order_item soi_parent\n"
+                    "       ON soi_parent.order_id     = so.entity_id\n"
+                    "      AND soi_parent.product_type = 'bundle'\n"
+                    "      AND soi_parent.product_id   IN :fb_bundle_ids\n"
+                    "WHERE\n"
+                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                    "AND so.state != 'canceled'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "GROUP BY soi_parent.name"
+                ).bindparams(
+                    bindparam("fb_bundle_ids", expanding=True),
+                    skip_cortesia_filter=_skip_cortesia_filter,
+                )
 
-                fb_rev_q = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(55000) */
-    soi_parent.name                                                                    AS bundle_name,
-    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
-FROM sales_order so
-INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
-      AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN :fb_bundle_ids
-INNER JOIN sales_order_item soi_child
-       ON soi_child.parent_item_id = soi_parent.item_id
-      AND soi_child.product_type   = 'simple'
-      {_cort_child}
-      AND (
-            soi_child.name LIKE '%%Distância%%'
-         OR soi_child.name LIKE '%%Distancia%%'
-         OR soi_child.name LIKE '%%Distâncias%%'
-         OR soi_child.name LIKE '%%Modalidade%%'
-      )
-WHERE
-    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-AND so.state != 'canceled'
-{_cort_gt}
-{_cort_desc}
-AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-AND so.increment_id NOT REGEXP '-[0-9]'
-GROUP BY soi_parent.name
-""").bindparams(bindparam("fb_bundle_ids", expanding=True))
+                fb_rev_q = text(
+                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                    "    soi_parent.name                                                                    AS bundle_name,\n"
+                    "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
+                    "FROM sales_order so\n"
+                    "INNER JOIN sales_order_item soi_parent\n"
+                    "       ON soi_parent.order_id     = so.entity_id\n"
+                    "      AND soi_parent.product_type = 'bundle'\n"
+                    "      AND soi_parent.product_id   IN :fb_bundle_ids\n"
+                    "INNER JOIN sales_order_item soi_child\n"
+                    "       ON soi_child.parent_item_id = soi_parent.item_id\n"
+                    "      AND soi_child.product_type   = 'simple'\n"
+                    "      AND (:skip_cortesia_filter OR (soi_child.price > 0 AND soi_child.price - soi_child.discount_amount > 0))\n"
+                    "      AND (\n"
+                    "            soi_child.name LIKE '%%Distância%%'\n"
+                    "         OR soi_child.name LIKE '%%Distancia%%'\n"
+                    "         OR soi_child.name LIKE '%%Distâncias%%'\n"
+                    "         OR soi_child.name LIKE '%%Modalidade%%'\n"
+                    "      )\n"
+                    "WHERE\n"
+                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                    "AND so.state != 'canceled'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "GROUP BY soi_parent.name"
+                ).bindparams(
+                    bindparam("fb_bundle_ids", expanding=True),
+                    skip_cortesia_filter=_skip_cortesia_filter,
+                )
 
                 fb_qtd_by_name: dict = {}
                 fb_rev_by_name: dict = {}
@@ -2489,59 +2499,65 @@ AND    value        IN :ev_ids
 
             if _supp_extra_bids:
                 import time as _time_supp
-                _supp_cnt_q = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(30000) */
-    soi_parent.name                        AS bundle_name,
-    COUNT(DISTINCT soi_parent.item_id)     AS qtd
-FROM sales_order so
-INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
-      AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN :supp_bids
-WHERE
-    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-AND so.state != 'canceled'
-{_cort_gt}
-{_cort_desc}
-AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-AND so.increment_id NOT REGEXP '-[0-9]'
-GROUP BY soi_parent.name
-""").bindparams(bindparam("supp_bids", expanding=True))
+                _supp_cnt_q = text(
+                    "SELECT /*+ MAX_EXECUTION_TIME(30000) */\n"
+                    "    soi_parent.name                        AS bundle_name,\n"
+                    "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                    "FROM sales_order so\n"
+                    "INNER JOIN sales_order_item soi_parent\n"
+                    "       ON soi_parent.order_id     = so.entity_id\n"
+                    "      AND soi_parent.product_type = 'bundle'\n"
+                    "      AND soi_parent.product_id   IN :supp_bids\n"
+                    "WHERE\n"
+                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                    "AND so.state != 'canceled'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "GROUP BY soi_parent.name"
+                ).bindparams(
+                    bindparam("supp_bids", expanding=True),
+                    skip_cortesia_filter=_skip_cortesia_filter,
+                )
 
-                _supp_rev_q = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(55000) */
-    soi_parent.name                                                                    AS bundle_name,
-    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
-FROM sales_order so
-INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
-      AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN :supp_bids
-INNER JOIN sales_order_item soi_child
-       ON soi_child.parent_item_id = soi_parent.item_id
-      AND soi_child.product_type   = 'simple'
-      {_cort_child}
-      AND (
-            soi_child.name LIKE '%%Distância%%'
-         OR soi_child.name LIKE '%%Distancia%%'
-         OR soi_child.name LIKE '%%Distâncias%%'
-         OR soi_child.name LIKE '%%Modalidade%%'
-      )
-WHERE
-    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-AND so.state != 'canceled'
-{_cort_gt}
-{_cort_desc}
-AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-AND so.increment_id NOT REGEXP '-[0-9]'
-GROUP BY soi_parent.name
-""").bindparams(bindparam("supp_bids", expanding=True))
+                _supp_rev_q = text(
+                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                    "    soi_parent.name                                                                    AS bundle_name,\n"
+                    "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
+                    "FROM sales_order so\n"
+                    "INNER JOIN sales_order_item soi_parent\n"
+                    "       ON soi_parent.order_id     = so.entity_id\n"
+                    "      AND soi_parent.product_type = 'bundle'\n"
+                    "      AND soi_parent.product_id   IN :supp_bids\n"
+                    "INNER JOIN sales_order_item soi_child\n"
+                    "       ON soi_child.parent_item_id = soi_parent.item_id\n"
+                    "      AND soi_child.product_type   = 'simple'\n"
+                    "      AND (:skip_cortesia_filter OR (soi_child.price > 0 AND soi_child.price - soi_child.discount_amount > 0))\n"
+                    "      AND (\n"
+                    "            soi_child.name LIKE '%%Distância%%'\n"
+                    "         OR soi_child.name LIKE '%%Distancia%%'\n"
+                    "         OR soi_child.name LIKE '%%Distâncias%%'\n"
+                    "         OR soi_child.name LIKE '%%Modalidade%%'\n"
+                    "      )\n"
+                    "WHERE\n"
+                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                    "AND so.state != 'canceled'\n"
+                    "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+                    "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+                    "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                    "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                    "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                    "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                    "GROUP BY soi_parent.name"
+                ).bindparams(
+                    bindparam("supp_bids", expanding=True),
+                    skip_cortesia_filter=_skip_cortesia_filter,
+                )
 
                 _supp_qtd_by_name: dict = {}
                 _supp_rev_by_name: dict = {}
@@ -7601,49 +7617,63 @@ def _populate_cenarios_from_bundles(
 
     bundle_ids_int = [int(b) for b in bundle_to_cenario.keys()]
 
-    _cort_gt = "" if incluir_cortesias else "AND so.base_grand_total > 0"
-    _cort_desc = "" if incluir_cortesias else "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
+    # Cortesia filters use a SQL-level boolean parameter so query strings are static.
+    # :skip_cortesia_filter = True  → OR short-circuits, filter is skipped
+    # :skip_cortesia_filter = False → the filter condition is enforced
+    _skip_cortesia_filter = bool(incluir_cortesias)
 
-    _cic_filters = f"""
-        so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-        AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-        AND so.state != 'canceled'
-        {_cort_gt}
-        {_cort_desc}
-        AND so.created_at < CURDATE() + INTERVAL 1 DAY
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND so.increment_id NOT REGEXP '-[0-9]'
-    """
+    _cic_count_q = text(
+        "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
+        "    soi_parent.product_id AS bundle_id,\n"
+        "    COUNT(DISTINCT soi_parent.item_id) AS qtd\n"
+        "FROM sales_order so\n"
+        "INNER JOIN sales_order_item soi_parent\n"
+        "       ON soi_parent.order_id     = so.entity_id\n"
+        "      AND soi_parent.product_type = 'bundle'\n"
+        "      AND soi_parent.product_id   IN :bundle_ids\n"
+        "WHERE\n"
+        "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+        "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+        "AND so.state != 'canceled'\n"
+        "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+        "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+        "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+        "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+        "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+        "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+        "GROUP BY soi_parent.product_id"
+    ).bindparams(
+        bindparam("bundle_ids", expanding=True),
+        skip_cortesia_filter=_skip_cortesia_filter,
+    )
 
-    _cic_count_q = text(f"""
-        SELECT /*+ MAX_EXECUTION_TIME(20000) */
-            soi_parent.product_id AS bundle_id,
-            COUNT(DISTINCT soi_parent.item_id) AS qtd
-        FROM sales_order so
-        INNER JOIN sales_order_item soi_parent
-               ON soi_parent.order_id     = so.entity_id
-              AND soi_parent.product_type = 'bundle'
-              AND soi_parent.product_id   IN :bundle_ids
-        WHERE {_cic_filters}
-        GROUP BY soi_parent.product_id
-    """).bindparams(bindparam("bundle_ids", expanding=True))
-
-    _cic_rev_q = text(f"""
-        SELECT /*+ MAX_EXECUTION_TIME(55000) */
-            soi_parent.product_id AS bundle_id,
-            ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita
-        FROM sales_order so
-        INNER JOIN sales_order_item soi_parent
-               ON soi_parent.order_id     = so.entity_id
-              AND soi_parent.product_type = 'bundle'
-              AND soi_parent.product_id   IN :bundle_ids
-        INNER JOIN sales_order_item soi_child
-               ON soi_child.parent_item_id = soi_parent.item_id
-              AND soi_child.product_type   = 'simple'
-        WHERE {_cic_filters}
-        GROUP BY soi_parent.product_id
-    """).bindparams(bindparam("bundle_ids", expanding=True))
+    _cic_rev_q = text(
+        "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+        "    soi_parent.product_id AS bundle_id,\n"
+        "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita\n"
+        "FROM sales_order so\n"
+        "INNER JOIN sales_order_item soi_parent\n"
+        "       ON soi_parent.order_id     = so.entity_id\n"
+        "      AND soi_parent.product_type = 'bundle'\n"
+        "      AND soi_parent.product_id   IN :bundle_ids\n"
+        "INNER JOIN sales_order_item soi_child\n"
+        "       ON soi_child.parent_item_id = soi_parent.item_id\n"
+        "      AND soi_child.product_type   = 'simple'\n"
+        "WHERE\n"
+        "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+        "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+        "AND so.state != 'canceled'\n"
+        "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+        "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+        "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+        "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+        "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+        "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+        "GROUP BY soi_parent.product_id"
+    ).bindparams(
+        bindparam("bundle_ids", expanding=True),
+        skip_cortesia_filter=_skip_cortesia_filter,
+    )
 
     try:
         with db_module.engine_magento.connect() as conn:
