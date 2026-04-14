@@ -4326,6 +4326,7 @@ def get_marketing_events(
             ticketAtual=grupo_ticket_atual,
             ticketKitNome=grupo_ticket_kit_nome,
             dataRegime=grupo_regime,
+            incluirCortesias=bool(getattr(grupo, 'incluir_cortesias', False)),
             **grupo_margin
         )
         eventos.append(evento)
@@ -4445,6 +4446,7 @@ def get_marketing_events(
             ticketAtual=standalone_ticket_atual,
             ticketKitNome=standalone_ticket_kit_nome,
             dataRegime=standalone_regime,
+            incluirCortesias=bool(getattr(projeto, 'incluir_cortesias', False)),
             **standalone_margin
         )
         eventos.append(evento)
@@ -7462,6 +7464,7 @@ def toggle_cortesias(
         db.commit()
         db.refresh(grupo)
         event_detail_cache.invalidate()
+        eventos_list_cache.invalidate()
         return {"incluirCortesias": grupo.incluir_cortesias}
     else:
         projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
@@ -7471,6 +7474,7 @@ def toggle_cortesias(
         db.commit()
         db.refresh(projeto)
         event_detail_cache.invalidate()
+        eventos_list_cache.invalidate()
         return {"incluirCortesias": projeto.incluir_cortesias}
 
 
