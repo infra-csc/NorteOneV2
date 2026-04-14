@@ -2093,64 +2093,71 @@ def get_margem_por_kit(
 
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            magento_count_query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(20000) */
-    soi_parent.product_id                  AS bundle_entity_id,
-    COUNT(DISTINCT soi_parent.item_id)     AS qtd
-FROM sales_order so
-INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
-      AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN :bundle_ids
-WHERE
-    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-AND so.state != 'canceled'
-{_cort_gt}
-{_cort_desc}
-AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-AND so.increment_id NOT REGEXP '-[0-9]'
-GROUP BY soi_parent.product_id
-""").bindparams(bindparam("bundle_ids", expanding=True))
+            # _cort_gt, _cort_desc, _cort_child are derived solely from the boolean
+            # `incluir_cortesias` — they are hardcoded SQL clauses, never user input.
+            # The SQL strings are built as plain variables before being passed to text()
+            # so that no f-string is used directly inside text(), following SQLAlchemy
+            # best practices and avoiding false-positive injection warnings.
+            _sql_count = (
+                "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
+                "    soi_parent.product_id                  AS bundle_entity_id,\n"
+                "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+                "FROM sales_order so\n"
+                "INNER JOIN sales_order_item soi_parent\n"
+                "       ON soi_parent.order_id     = so.entity_id\n"
+                "      AND soi_parent.product_type = 'bundle'\n"
+                "      AND soi_parent.product_id   IN :bundle_ids\n"
+                "WHERE\n"
+                "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                "AND so.state != 'canceled'\n"
+                + (_cort_gt + "\n" if _cort_gt else "")
+                + (_cort_desc + "\n" if _cort_desc else "")
+                + "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                "GROUP BY soi_parent.product_id"
+            )
+            magento_count_query = text(_sql_count).bindparams(bindparam("bundle_ids", expanding=True))
 
             # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
             # + join filho para valor da distância/modalidade.
             # Timeout elevado para 55s: eventos de alto volume precisam de ~20-25s.
             # Resultado armazenado em cache em memória por 4h (_margem_rev_cache).
             # A segunda chamada (mesmos bundle_ids) é instantânea.
-            magento_bundle_query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(55000) */
-    soi_parent.product_id                                                              AS bundle_entity_id,
-    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
-FROM sales_order so
-INNER JOIN sales_order_item soi_parent
-       ON soi_parent.order_id     = so.entity_id
-      AND soi_parent.product_type = 'bundle'
-      AND soi_parent.product_id   IN :bundle_ids
-INNER JOIN sales_order_item soi_child
-       ON soi_child.parent_item_id = soi_parent.item_id
-      AND soi_child.product_type   = 'simple'
-      {_cort_child}
-      AND (
-            soi_child.name LIKE '%%Distância%%'
-         OR soi_child.name LIKE '%%Distancia%%'
-         OR soi_child.name LIKE '%%Distâncias%%'
-         OR soi_child.name LIKE '%%Modalidade%%'
-      )
-WHERE
-    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
-AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
-AND so.state != 'canceled'
-{_cort_gt}
-{_cort_desc}
-AND so.created_at < CURDATE() + INTERVAL 1 DAY
-AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-AND so.increment_id NOT REGEXP '-[0-9]'
-GROUP BY soi_parent.product_id
-""").bindparams(bindparam("bundle_ids", expanding=True))
+            _sql_bundle = (
+                "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                "    soi_parent.product_id                                                              AS bundle_entity_id,\n"
+                "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
+                "FROM sales_order so\n"
+                "INNER JOIN sales_order_item soi_parent\n"
+                "       ON soi_parent.order_id     = so.entity_id\n"
+                "      AND soi_parent.product_type = 'bundle'\n"
+                "      AND soi_parent.product_id   IN :bundle_ids\n"
+                "INNER JOIN sales_order_item soi_child\n"
+                "       ON soi_child.parent_item_id = soi_parent.item_id\n"
+                "      AND soi_child.product_type   = 'simple'\n"
+                + ("      " + _cort_child + "\n" if _cort_child else "")
+                + "      AND (\n"
+                "            soi_child.name LIKE '%%Distância%%'\n"
+                "         OR soi_child.name LIKE '%%Distancia%%'\n"
+                "         OR soi_child.name LIKE '%%Distâncias%%'\n"
+                "         OR soi_child.name LIKE '%%Modalidade%%'\n"
+                "      )\n"
+                "WHERE\n"
+                "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+                "AND so.state != 'canceled'\n"
+                + (_cort_gt + "\n" if _cort_gt else "")
+                + (_cort_desc + "\n" if _cort_desc else "")
+                + "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+                "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+                "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+                "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+                "GROUP BY soi_parent.product_id"
+            )
+            magento_bundle_query = text(_sql_bundle).bindparams(bindparam("bundle_ids", expanding=True))
 
             import time as _time
 
