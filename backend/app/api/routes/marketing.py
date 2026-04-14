@@ -5958,8 +5958,7 @@ def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_
             return []
         if cort_ids:
             safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
-            cort_str = ", ".join(safe_cort_ids)
-            _cort_qtd_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+            _cort_qtd_cond = """CASE WHEN (cpev1.value IN :cort_ids
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
         OR (so.base_grand_total > 0
@@ -5967,7 +5966,7 @@ def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0) THEN 1 END"""
-            _cort_rev_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+            _cort_rev_cond = """CASE WHEN (cpev1.value IN :cort_ids
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
         OR (so.base_grand_total > 0
@@ -6023,9 +6022,15 @@ WHERE
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(so.created_at)
 ORDER BY dia
-""").bindparams(bindparam("magento_event_ids", expanding=True))
+""")
+        bp = [bindparam("magento_event_ids", expanding=True)]
+        params = {"magento_event_ids": safe_ids}
+        if cort_ids:
+            bp.append(bindparam("cort_ids", expanding=True))
+            params["cort_ids"] = safe_cort_ids
+        query = query.bindparams(*bp)
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
+            result = conn.execute(query, params)
             return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro daily sales Magento by IDs: {e}")
