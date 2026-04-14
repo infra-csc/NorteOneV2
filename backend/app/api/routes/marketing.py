@@ -5502,9 +5502,8 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_
         if not safe_ids:
             return {}
         if cort_ids:
-            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
-            cort_str = ", ".join(safe_cort_ids)
-            _cort_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+            safe_cort_ids = [int(i) for i in cort_ids if str(i).isdigit()]
+            _cort_cond = """CASE WHEN (cpev1.value IN :cort_ids
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
         OR (so.base_grand_total > 0
@@ -5513,6 +5512,7 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
         THEN 1 END"""
         else:
+            safe_cort_ids = None
             _cort_cond = """CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
@@ -5539,9 +5539,18 @@ WHERE
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
-""").bindparams(bindparam("magento_event_ids", expanding=True))
+""")
+        if safe_cort_ids is not None:
+            query = query.bindparams(
+                bindparam("magento_event_ids", expanding=True),
+                bindparam("cort_ids", expanding=True),
+            )
+            exec_params = {"magento_event_ids": safe_ids, "cort_ids": safe_cort_ids}
+        else:
+            query = query.bindparams(bindparam("magento_event_ids", expanding=True))
+            exec_params = {"magento_event_ids": safe_ids}
         with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
+            result = conn.execute(query, exec_params)
             grouped = {}
             for r in result.fetchall():
                 lid = str(r[0])
