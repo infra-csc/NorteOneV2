@@ -3401,7 +3401,8 @@ def build_query_isc_magento(excluded_ids: list = None, cortesia_magento_ids: set
         excl_clause = f"AND cpev1.value NOT IN ({ids_str})\n"
     cort_ids = cortesia_magento_ids or set()
     if cort_ids:
-        cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+        safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
+        cort_str = ", ".join(safe_cort_ids)
         cort_child_price = f"AND (cpev1.value IN ({cort_str}) OR soi_child.price > 0)"
         cort_grand_total = f"AND (cpev1.value IN ({cort_str}) OR so.base_grand_total > 0)"
         cort_cortesia_desc = f"AND (cpev1.value IN ({cort_str}) OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))"
@@ -5501,7 +5502,8 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_
         if not safe_ids:
             return {}
         if cort_ids:
-            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
+            cort_str = ", ".join(safe_cort_ids)
             _cort_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
@@ -5707,7 +5709,8 @@ def _fetch_today_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_
             return {}
         cort_ids = cortesia_magento_ids or set()
         if cort_ids:
-            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
+            cort_str = ", ".join(safe_cort_ids)
             _cort_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
@@ -5845,7 +5848,8 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento
             return {}
         cort_ids = cortesia_magento_ids or set()
         if cort_ids:
-            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
+            cort_str = ", ".join(safe_cort_ids)
             cort_qtd_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
@@ -5944,7 +5948,8 @@ def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_
         if not safe_ids:
             return []
         if cort_ids:
-            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            safe_cort_ids = [str(int(i)) for i in cort_ids if str(i).isdigit()]
+            cort_str = ", ".join(safe_cort_ids)
             _cort_qtd_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
