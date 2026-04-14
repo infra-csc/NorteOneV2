@@ -7554,6 +7554,117 @@ def _invalidate_cortesia_cache():
     _cortesia_cache_ts = 0.0
 
 
+def _populate_cenarios_from_bundles(
+    db: Session,
+    bundle_to_cenario: dict,
+    cenarios: dict,
+    incluir_cortesias: bool = False,
+) -> bool:
+    """Populate cenarios dict with real sales data from Magento per-bundle breakdown.
+    
+    First tries SkuMapping-based lookup (legacy path). If no SkuMappings exist for
+    bundles, falls back to a direct Magento query for per-bundle counts/revenue.
+    Returns True if data was populated.
+    """
+    from app.models.dimensoes import SkuMapping as _SM
+
+    _sku_maps = db.query(_SM).filter(
+        func.upper(_SM.fonte) == 'MAGENTO',
+        _SM.id_externo.in_(list(bundle_to_cenario.keys())),
+        _SM.ativo == True,
+    ).all()
+    _sku_to_cenario = {}
+    for sm_row in _sku_maps:
+        cenario_val = bundle_to_cenario.get(sm_row.id_externo)
+        if cenario_val and sm_row.sku:
+            _sku_to_cenario[normalize_sku(sm_row.sku)] = cenario_val
+
+    if _sku_to_cenario:
+        isc_data_cic = fetch_isc_pricing_data(db=db)
+        for _sku_cic, _cenario_cic in _sku_to_cenario.items():
+            _cic_info = isc_data_cic.get(_sku_cic, {})
+            if _cic_info and _cenario_cic in cenarios:
+                cenarios[_cenario_cic]["real_vendas"] = cenarios[_cenario_cic].get("real_vendas", 0) + _cic_info.get("qtd_site", 0)
+                cenarios[_cenario_cic]["real_receita"] = round(cenarios[_cenario_cic].get("real_receita", 0) + _cic_info.get("receita_liquida_site", 0), 2)
+        return True
+
+    if not bundle_to_cenario or db_module.engine_magento is None:
+        return False
+
+    bundle_ids_int = [int(b) for b in bundle_to_cenario.keys()]
+
+    _cort_gt = "" if incluir_cortesias else "AND so.base_grand_total > 0"
+    _cort_desc = "" if incluir_cortesias else "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
+
+    _cic_filters = f"""
+        so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
+        AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+        AND so.state != 'canceled'
+        {_cort_gt}
+        {_cort_desc}
+        AND so.created_at < CURDATE() + INTERVAL 1 DAY
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND so.increment_id NOT REGEXP '-[0-9]'
+    """
+
+    _cic_count_q = text(f"""
+        SELECT /*+ MAX_EXECUTION_TIME(20000) */
+            soi_parent.product_id AS bundle_id,
+            COUNT(DISTINCT soi_parent.item_id) AS qtd
+        FROM sales_order so
+        INNER JOIN sales_order_item soi_parent
+               ON soi_parent.order_id     = so.entity_id
+              AND soi_parent.product_type = 'bundle'
+              AND soi_parent.product_id   IN :bundle_ids
+        WHERE {_cic_filters}
+        GROUP BY soi_parent.product_id
+    """).bindparams(bindparam("bundle_ids", expanding=True))
+
+    _cic_rev_q = text(f"""
+        SELECT /*+ MAX_EXECUTION_TIME(55000) */
+            soi_parent.product_id AS bundle_id,
+            ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita
+        FROM sales_order so
+        INNER JOIN sales_order_item soi_parent
+               ON soi_parent.order_id     = so.entity_id
+              AND soi_parent.product_type = 'bundle'
+              AND soi_parent.product_id   IN :bundle_ids
+        INNER JOIN sales_order_item soi_child
+               ON soi_child.parent_item_id = soi_parent.item_id
+              AND soi_child.product_type   = 'simple'
+        WHERE {_cic_filters}
+        GROUP BY soi_parent.product_id
+    """).bindparams(bindparam("bundle_ids", expanding=True))
+
+    try:
+        with db_module.engine_magento.connect() as conn:
+            count_rows = conn.execute(_cic_count_q, {"bundle_ids": bundle_ids_int}).mappings().all()
+        for row in count_rows:
+            bid = row['bundle_id']
+            cen = bundle_to_cenario.get(bid) or bundle_to_cenario.get(str(bid))
+            if cen and cen in cenarios:
+                cenarios[cen]["real_vendas"] = cenarios[cen].get("real_vendas", 0) + int(row['qtd'] or 0)
+        logger.info(f"[CenariosCiclismo] Magento count fallback: {len(count_rows)} bundles")
+    except Exception as e:
+        logger.warning(f"[CenariosCiclismo] Magento count fallback failed: {e}")
+        return False
+
+    try:
+        with db_module.engine_magento.connect() as conn:
+            rev_rows = conn.execute(_cic_rev_q, {"bundle_ids": bundle_ids_int}).mappings().all()
+        for row in rev_rows:
+            bid = row['bundle_id']
+            cen = bundle_to_cenario.get(bid) or bundle_to_cenario.get(str(bid))
+            if cen and cen in cenarios:
+                cenarios[cen]["real_receita"] = round(cenarios[cen].get("real_receita", 0) + float(row['receita'] or 0), 2)
+        logger.info(f"[CenariosCiclismo] Magento revenue fallback: {len(rev_rows)} bundles")
+        return len(count_rows) > 0
+    except Exception as e:
+        logger.warning(f"[CenariosCiclismo] Magento revenue fallback failed: {e}")
+        return len(count_rows) > 0
+
+
 @router.patch("/eventos/{evento_id}/cortesias")
 def toggle_cortesias(
     evento_id: str,
@@ -8176,23 +8287,10 @@ def get_marketing_event_by_id(
                     cost_vals = _grp_cenario_costs.get(_gcn_key, [])
                     grp_cenarios_ciclismo[_gcn_key]["custo_kit"] = round(sum(cost_vals) / len(cost_vals), 2) if cost_vals else 0
                 if _grp_bundle_ids:
-                    _grp_sku_maps = db.query(_SM).filter(
-                        func.upper(_SM.fonte) == 'MAGENTO',
-                        _SM.id_externo.in_(list(_grp_bundle_ids.keys())),
-                        _SM.ativo == True,
-                    ).all()
-                    _grp_sku_to_cenario = {}
-                    for sm_row in _grp_sku_maps:
-                        cenario_val = _grp_bundle_ids.get(sm_row.id_externo)
-                        if cenario_val and sm_row.sku:
-                            _grp_sku_to_cenario[normalize_sku(sm_row.sku)] = cenario_val
-                    if _grp_sku_to_cenario:
-                        isc_data_cic = fetch_isc_pricing_data(db=db)
-                        for _sku_cic, _cenario_cic in _grp_sku_to_cenario.items():
-                            _cic_info = isc_data_cic.get(_sku_cic, {})
-                            if _cic_info and _cenario_cic in grp_cenarios_ciclismo:
-                                grp_cenarios_ciclismo[_cenario_cic]["real_vendas"] = grp_cenarios_ciclismo[_cenario_cic].get("real_vendas", 0) + _cic_info.get("qtd_site", 0)
-                                grp_cenarios_ciclismo[_cenario_cic]["real_receita"] = round(grp_cenarios_ciclismo[_cenario_cic].get("real_receita", 0) + _cic_info.get("receita_liquida_site", 0), 2)
+                    _grp_cic_populated = _populate_cenarios_from_bundles(
+                        db, _grp_bundle_ids, grp_cenarios_ciclismo,
+                        _grupo_incluir_cortesias,
+                    )
                 for _gcn in grp_cenarios_ciclismo:
                     _gcd = grp_cenarios_ciclismo[_gcn]
                     rv = _gcd.get("real_vendas", 0)
@@ -8521,23 +8619,10 @@ def get_marketing_event_by_id(
             cost_vals = _cic_cenario_costs.get(_cn_key, [])
             cenarios_ciclismo[_cn_key]["custo_kit"] = round(sum(cost_vals) / len(cost_vals), 2) if cost_vals else 0
         if _cic_bundle_ids:
-            _cic_sku_maps = db.query(_SM).filter(
-                func.upper(_SM.fonte) == 'MAGENTO',
-                _SM.id_externo.in_(list(_cic_bundle_ids.keys())),
-                _SM.ativo == True,
-            ).all()
-            _cic_sku_to_cenario = {}
-            for sm_row in _cic_sku_maps:
-                cenario_val = _cic_bundle_ids.get(sm_row.id_externo)
-                if cenario_val and sm_row.sku:
-                    _cic_sku_to_cenario[normalize_sku(sm_row.sku)] = cenario_val
-            if _cic_sku_to_cenario:
-                isc_data_cic = fetch_isc_pricing_data(db=db)
-                for _sku_cic, _cenario_cic in _cic_sku_to_cenario.items():
-                    _cic_info = isc_data_cic.get(_sku_cic, {})
-                    if _cic_info and _cenario_cic in cenarios_ciclismo:
-                        cenarios_ciclismo[_cenario_cic]["real_vendas"] = cenarios_ciclismo[_cenario_cic].get("real_vendas", 0) + _cic_info.get("qtd_site", 0)
-                        cenarios_ciclismo[_cenario_cic]["real_receita"] = round(cenarios_ciclismo[_cenario_cic].get("real_receita", 0) + _cic_info.get("receita_liquida_site", 0), 2)
+            _sa_cic_populated = _populate_cenarios_from_bundles(
+                db, _cic_bundle_ids, cenarios_ciclismo,
+                _sa_incluir_cortesias,
+            )
         for _cn in cenarios_ciclismo:
             _cd = cenarios_ciclismo[_cn]
             rv = _cd.get("real_vendas", 0)
