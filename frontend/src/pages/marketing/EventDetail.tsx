@@ -49,6 +49,7 @@ import {
   getISCStatus
 } from '../../types/marketingPerformance';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
 import EventInsights from './EventInsights';
 import EventSimulator from './EventSimulator';
 import DailySalesTable from './DailySalesTable';
@@ -87,6 +88,8 @@ const EventDetail: React.FC = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { isDark } = useTheme();
+  const { permissions } = usePermissions();
+  const isAdmin = permissions?.is_admin ?? false;
   const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
   const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
@@ -905,29 +908,31 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <label
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer select-none transition-colors ${
-              event.incluirCortesias
-                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                : isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
-            } ${togglingCortesias ? 'opacity-50 pointer-events-none' : ''}`}
-            title="Incluir inscrições de cortesia em todas as métricas deste evento"
-          >
-            <span className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
-              style={{ backgroundColor: event.incluirCortesias ? '#10b981' : (isDark ? '#4b5563' : '#d1d5db') }}>
-              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${event.incluirCortesias ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </span>
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={!!event.incluirCortesias}
-              onChange={handleToggleCortesias}
-              disabled={togglingCortesias}
-            />
-            <span className="text-sm font-medium whitespace-nowrap">
-              {togglingCortesias ? 'Salvando...' : 'Incluir Cortesias'}
-            </span>
-          </label>
+          {isAdmin && (
+            <label
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer select-none transition-colors ${
+                event.incluirCortesias
+                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                  : isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+              } ${togglingCortesias ? 'opacity-50 pointer-events-none' : ''}`}
+              title="Incluir inscrições de cortesia em todas as métricas deste evento"
+            >
+              <span className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+                style={{ backgroundColor: event.incluirCortesias ? '#10b981' : (isDark ? '#4b5563' : '#d1d5db') }}>
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${event.incluirCortesias ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </span>
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={!!event.incluirCortesias}
+                onChange={handleToggleCortesias}
+                disabled={togglingCortesias}
+              />
+              <span className="text-sm font-medium whitespace-nowrap">
+                {togglingCortesias ? 'Salvando...' : 'Incluir Cortesias'}
+              </span>
+            </label>
+          )}
           <button
             onClick={handleForceRefresh}
             disabled={refreshing}

@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from ...core.database import get_db
 from ...core import database as db_module
-from ...core.security import get_current_user
+from ...core.security import get_current_user, require_admin
 from ...models.dimensoes import DimProjeto, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
 from ...models.user import Usuario
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem, CadastroFaixaPrecoSite
@@ -7559,7 +7559,7 @@ def toggle_cortesias(
     evento_id: str,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_admin()),
 ):
     from ...services.snapshot_service import consolidar_vendas_grupo as _consolidar
     from datetime import date as _date_cls
