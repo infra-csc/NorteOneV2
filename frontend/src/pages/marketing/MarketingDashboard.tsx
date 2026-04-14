@@ -20,7 +20,10 @@ import {
   AlertCircle,
   Archive,
   BookOpen,
-  Zap
+  Zap,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { 
   getISCColor, 
@@ -161,6 +164,30 @@ const MarketingDashboard: React.FC = () => {
   const [zoneFilter, setZoneFilter] = useState(initialFilters.zone);
   const [dMinusFilter, setDMinusFilter] = useState(initialFilters.dMinus);
   const [onlyCutoff, setOnlyCutoff] = useState(initialFilters.onlyCutoff);
+
+  type SortField = 'name' | 'date' | 'dMinus' | 'vendas' | 'ticket' | 'isc' | 'ia730' | 'r14' | 'curva' | null;
+  type SortDirection = 'asc' | 'desc';
+  const [sortField, setSortField] = useState<SortField>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDirection === 'asc') {
+        setSortDirection('desc');
+      } else {
+        setSortField(null);
+        setSortDirection('asc');
+      }
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const SortIcon: React.FC<{ field: SortField }> = ({ field }) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3 h-3 opacity-40" />;
+    return sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />;
+  };
   
   const [eventos, setEventos] = useState<MarketingEvent[]>([]);
   const [summary, setSummary] = useState<MarketingDashboardSummary>({
@@ -525,6 +552,29 @@ const MarketingDashboard: React.FC = () => {
 
     return filtered;
   }, [eventos, debouncedSearch, categoryFilter, statusFilter, zoneFilter, dMinusFilter, onlyCutoff]);
+
+  const sortedEventos = useMemo(() => {
+    if (!sortField) return filteredEventos;
+    const sorted = [...filteredEventos].sort((a, b) => {
+      let valA: number | string = 0;
+      let valB: number | string = 0;
+      switch (sortField) {
+        case 'name': valA = (a.name ?? '').toLowerCase(); valB = (b.name ?? '').toLowerCase(); break;
+        case 'date': valA = a.date ? new Date(a.date + 'T00:00:00').getTime() : 0; valB = b.date ? new Date(b.date + 'T00:00:00').getTime() : 0; break;
+        case 'dMinus': valA = a.dMinusInscricoes; valB = b.dMinusInscricoes; break;
+        case 'vendas': valA = a.currentSales; valB = b.currentSales; break;
+        case 'ticket': valA = a.ticketAtual ?? 0; valB = b.ticketAtual ?? 0; break;
+        case 'isc': valA = a.isc; valB = b.isc; break;
+        case 'ia730': valA = a.iscComponents.ia730; valB = b.iscComponents.ia730; break;
+        case 'r14': valA = a.iscComponents.rolling14d; valB = b.iscComponents.rolling14d; break;
+        case 'curva': valA = a.iscComponents.curvaDPercent; valB = b.iscComponents.curvaDPercent; break;
+      }
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [filteredEventos, sortField, sortDirection]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -940,15 +990,22 @@ const MarketingDashboard: React.FC = () => {
           <table className="w-full">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-700/50">
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Evento
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('name')}>
+                  <div className="flex items-center gap-1">
+                    Evento
+                    <SortIcon field="name" />
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Data
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('date')}>
+                  <div className="flex items-center gap-1">
+                    Data
+                    <SortIcon field="date" />
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('dMinus')}>
                   <div className="flex items-center justify-center gap-1">
                     D-
+                    <SortIcon field="dMinus" />
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-52 p-2 bg-gray-900 text-white text-xs rounded-lg -left-22 top-5">
@@ -957,15 +1014,22 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Vendas / Meta
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('vendas')}>
+                  <div className="flex items-center justify-center gap-1">
+                    Vendas / Meta
+                    <SortIcon field="vendas" />
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Ticket Atual
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('ticket')}>
+                  <div className="flex items-center justify-center gap-1">
+                    Ticket Atual
+                    <SortIcon field="ticket" />
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('isc')}>
                   <div className="flex items-center justify-center gap-1">
                     ISC
+                    <SortIcon field="isc" />
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg -left-28 top-5">
@@ -974,9 +1038,10 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('ia730')}>
                   <div className="flex items-center justify-center gap-1">
                     IA 7/30
+                    <SortIcon field="ia730" />
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg -left-24 top-5">
@@ -985,9 +1050,10 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('r14')}>
                   <div className="flex items-center justify-center gap-1">
                     R14
+                    <SortIcon field="r14" />
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg -left-24 top-5">
@@ -996,9 +1062,10 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('curva')}>
                   <div className="flex items-center justify-center gap-1">
                     Curva D-%
+                    <SortIcon field="curva" />
                     <div className="group relative">
                       <Info className="w-3 h-3 cursor-help" />
                       <div className="hidden group-hover:block absolute z-10 w-56 p-2 bg-gray-900 text-white text-xs rounded-lg -left-24 top-5">
@@ -1031,13 +1098,13 @@ const MarketingDashboard: React.FC = () => {
                   <SkeletonTableRow />
                   <SkeletonTableRow />
                 </>
-              ) : filteredEventos.length === 0 ? (
+              ) : sortedEventos.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                     {eventos.length > 0 ? 'Nenhum evento encontrado com os filtros selecionados.' : 'Nenhum evento encontrado.'}
                   </td>
                 </tr>
-              ) : filteredEventos.map((event) => (
+              ) : sortedEventos.map((event) => (
                 <tr 
                   key={event.id}
                   onClick={() => navigate(
