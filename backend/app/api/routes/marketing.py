@@ -672,6 +672,7 @@ class MarketingEvent(BaseModel):
     detalheVendasAtivoKit: Optional[List[dict]] = None
     kitQueryFailed: bool = False
     dataRegime: Optional[str] = None
+    incluirCortesias: bool = False
 
 class DashboardSummary(BaseModel):
     totalActiveEvents: int
@@ -1944,6 +1945,7 @@ def get_margem_por_kit(
     card_kit_cost_avg: float = None,
     avisos_out: list = None,
     force_refresh: bool = False,
+    incluir_cortesias: bool = False,
 ) -> list:
     """Quebra de margem por tipo de kit via vendas Magento bundle."""
     from ...models.kit_config import KitConfig
@@ -2077,19 +2079,13 @@ def get_margem_por_kit(
             except Exception as _e_sp:
                 logger.warning(f"Erro ao buscar special_price por tipo de kit: {_e_sp}")
 
+        _cort_child = "" if incluir_cortesias else "AND soi_child.price          > 0\n      AND soi_child.price - soi_child.discount_amount > 0"
+        _cort_gt = "" if incluir_cortesias else "AND so.base_grand_total > 0"
+        _cort_desc = "" if incluir_cortesias else "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
+
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             bundle_ids = list(global_bundle_tipo_map.keys())
-            # Note: bundle_ids is already scoped to this event's SKU mapping (ano=_ano),
-            # so no year filter is needed — removing the cped/cpev1 INNER JOINs that
-            # previously excluded bundles whose event entity lacked attribute 195.
-            # Estratégia: sales_order_item NÃO tem índice em product_id no Magento 2 padrão.
-            # Partir de sales_order_item com WHERE product_id IN (...) faz full scan.
-            # A solução: partir de sales_order com filtro de data (indexed created_at)
-            # → poda o universo para ~2 anos de pedidos → join com soi_item via order_id
-            # (indexed) com product_id no ON → MySQL avalia product_id AFTER index join.
-            #
-            # Query 1: contagem — filtro de data em sales_order + product_id no JOIN
-            magento_count_query = text("""
+            magento_count_query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(20000) */
     soi_parent.product_id                  AS bundle_entity_id,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
@@ -2102,8 +2098,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -2116,7 +2112,7 @@ GROUP BY soi_parent.product_id
             # Timeout elevado para 55s: eventos de alto volume precisam de ~20-25s.
             # Resultado armazenado em cache em memória por 4h (_margem_rev_cache).
             # A segunda chamada (mesmos bundle_ids) é instantânea.
-            magento_bundle_query = text("""
+            magento_bundle_query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.product_id                                                              AS bundle_entity_id,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -2128,8 +2124,7 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
-      AND soi_child.price - soi_child.discount_amount > 0
+      {_cort_child}
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -2140,8 +2135,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -2197,7 +2192,7 @@ GROUP BY soi_parent.product_id
             # A join com soi_child por nome (LIKE) é lenta para eventos de alto volume
             # porque parent_item_id pode não ter índice no Magento 2.
             # Usamos cache em memória com TTL de 4h para evitar re-executar a cada request.
-            _rev_cache_key = frozenset(bundle_ids)
+            _rev_cache_key = (frozenset(bundle_ids), incluir_cortesias)
             _now_mono = _time.monotonic()
             if force_refresh:
                 _margem_rev_cache.pop(_rev_cache_key, None)
@@ -2342,7 +2337,7 @@ AND    value        IN :ev_ids_fb
 
             if fb_bundle_ids:
                 # Reutiliza o mesmo padrão das queries primárias, agrupando por nome do bundle
-                fb_count_q = text("""
+                fb_count_q = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.name                        AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
@@ -2355,8 +2350,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -2364,7 +2359,7 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
 """).bindparams(bindparam("fb_bundle_ids", expanding=True))
 
-                fb_rev_q = text("""
+                fb_rev_q = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.name                                                                    AS bundle_name,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -2376,8 +2371,7 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
-      AND soi_child.price - soi_child.discount_amount > 0
+      {_cort_child}
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -2388,8 +2382,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -2412,7 +2406,7 @@ GROUP BY soi_parent.name
                     _log_margem_magento_failed(e, "fallback-count")
 
                 # Fallback receita — bloco independente (com cache em memória)
-                _fb_rev_cache_key = frozenset(fb_bundle_ids)
+                _fb_rev_cache_key = (frozenset(fb_bundle_ids), incluir_cortesias)
                 _now_mono_fb = _time.monotonic()
                 _cached_fb = _margem_rev_cache.get(_fb_rev_cache_key)
                 if _cached_fb and (_now_mono_fb - _cached_fb[1]) < _MARGEM_REV_TTL_SECONDS:
@@ -2480,7 +2474,7 @@ AND    value        IN :ev_ids
 
             if _supp_extra_bids:
                 import time as _time_supp
-                _supp_cnt_q = text("""
+                _supp_cnt_q = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     soi_parent.name                        AS bundle_name,
     COUNT(DISTINCT soi_parent.item_id)     AS qtd
@@ -2493,8 +2487,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -2502,7 +2496,7 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.name
 """).bindparams(bindparam("supp_bids", expanding=True))
 
-                _supp_rev_q = text("""
+                _supp_rev_q = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(55000) */
     soi_parent.name                                                                    AS bundle_name,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -2514,8 +2508,7 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
-      AND soi_child.price - soi_child.discount_amount > 0
+      {_cort_child}
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -2526,8 +2519,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -2547,7 +2540,7 @@ GROUP BY soi_parent.name
                 except Exception as _e_supp1:
                     logger.warning(f"[Margem] supplementary count query falhou: {_e_supp1}")
 
-                _supp_rev_cache_key = frozenset(_supp_extra_bids)
+                _supp_rev_cache_key = (frozenset(_supp_extra_bids), incluir_cortesias)
                 _cached_supp = _margem_rev_cache.get(_supp_rev_cache_key)
                 if _cached_supp and (_time_supp.monotonic() - _cached_supp[1]) < _MARGEM_REV_TTL_SECONDS:
                     _supp_rev_by_name = dict(_cached_supp[0])
@@ -2784,6 +2777,7 @@ def get_detalhe_vendas_por_kit(
     db: Session,
     projeto_ids: list,
     ano: int = None,
+    incluir_cortesias: bool = False,
 ) -> Optional[list]:
     """Breakdown detalhado de vendas Magento por kit/canal/modalidade/distância.
     Returns [] when query succeeds but no data; returns None when query fails (timeout/error).
@@ -2827,7 +2821,8 @@ def get_detalhe_vendas_por_kit(
     if not magento_event_ids:
         return []
 
-    detalhe_query = text(build_query_isc_magento_detalhe(magento_event_ids, _ano))
+    _cort_ids = _get_cortesia_magento_ids(db) if incluir_cortesias else None
+    detalhe_query = text(build_query_isc_magento_detalhe(magento_event_ids, _ano, cortesia_magento_ids=_cort_ids))
 
     try:
         with db_module.engine_magento.connect() as conn:
@@ -2853,7 +2848,7 @@ def get_detalhe_vendas_por_kit(
         return None
 
 
-def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int) -> str:
+def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int, cortesia_magento_ids: set = None) -> str:
     """Returns SQL for detailed Magento sales by kit/canal/modalidade (V6).
 
     Returns rows grouped by: id_evento, evento, kit, tipo_categoria, distancia, canal, lote_atual, price, special_price.
@@ -2862,6 +2857,12 @@ def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int) -> str:
                         10=receitaBruta, 11=receitaLiquida, 12=ticketMedio.
     """
     ids_str = ", ".join(str(int(i)) for i in magento_event_ids)
+    cort_ids = cortesia_magento_ids or set()
+    has_cortesia = bool(cort_ids & set(str(i) for i in magento_event_ids))
+    if has_cortesia:
+        cort_child_price = ""
+    else:
+        cort_child_price = "AND soi_child.price          > 0"
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(300000) */
     cpev1.value                                                                         AS id_evento,
@@ -2905,7 +2906,7 @@ JOIN sales_order_item soi_parent
 LEFT JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
+      {cort_child_price}
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -3362,11 +3363,21 @@ ORDER BY base.id_evento;
 """
 
 
-def build_query_isc_magento(excluded_ids: list = None) -> str:
+def build_query_isc_magento(excluded_ids: list = None, cortesia_magento_ids: set = None) -> str:
     excl_clause = ""
     if excluded_ids:
         ids_str = ", ".join(str(i) for i in excluded_ids)
         excl_clause = f"AND cpev1.value NOT IN ({ids_str})\n"
+    cort_ids = cortesia_magento_ids or set()
+    if cort_ids:
+        cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+        cort_child_price = f"AND (cpev1.value IN ({cort_str}) OR soi_child.price > 0)"
+        cort_grand_total = f"AND (cpev1.value IN ({cort_str}) OR so.base_grand_total > 0)"
+        cort_cortesia_desc = f"AND (cpev1.value IN ({cort_str}) OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))"
+    else:
+        cort_child_price = "AND soi_child.price > 0"
+        cort_grand_total = "AND so.base_grand_total > 0"
+        cort_cortesia_desc = "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
     return f"""
 SELECT /*+ MAX_EXECUTION_TIME(300000) */
     cpev1.value                                                              AS "ID Evento",
@@ -3398,7 +3409,6 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -3424,8 +3434,9 @@ LEFT JOIN (
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{cort_child_price}
+{cort_grand_total}
+{cort_cortesia_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -3488,8 +3499,8 @@ def fetch_isc_data_ativo():
     return _fetch_with_retry(db_module.engine_ssh, build_query_isc_ativo, "Ativo")
 
 
-def fetch_isc_data_magento():
-    return _fetch_with_retry(db_module.engine_magento, build_query_isc_magento, "Magento")
+def fetch_isc_data_magento(cortesia_magento_ids: set = None):
+    return _fetch_with_retry(db_module.engine_magento, lambda: build_query_isc_magento(cortesia_magento_ids=cortesia_magento_ids), "Magento")
 
 
 _isc_warnings = []
@@ -5754,7 +5765,7 @@ GROUP BY sub.id_evento
         return {}
 
 
-def _fetch_today_sales_magento_grouped(magento_event_ids: list) -> dict:
+def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: set = None) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
@@ -5767,19 +5778,41 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list) -> dict:
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        query = text("""
+        cort_ids = cortesia_magento_ids or set()
+        if cort_ids:
+            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            cort_qtd_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        OR (so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0) THEN 1 END"""
+            cort_rev_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        OR (so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0) THEN"""
+        else:
+            cort_qtd_cond = """CASE WHEN so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0 THEN 1 END"""
+            cort_rev_cond = """CASE WHEN so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0 THEN"""
+        query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(30000) */
     cpev1.value AS id_evento,
-    COUNT(CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN
+    COUNT({cort_qtd_cond}) AS qtd,
+    SUM({cort_rev_cond}
         soi.price
         - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
@@ -7369,6 +7402,78 @@ def _fetch_commercial_actions_from_db(db: Session, projeto_ids: list) -> list:
     return result
 
 
+def _get_cortesia_magento_ids(db: Session) -> set:
+    """Return set of Magento event IDs (as strings) whose projeto/grupo has incluir_cortesias=True."""
+    cortesia_ids: set = set()
+    proj_cortesia = db.query(DimProjeto).filter(DimProjeto.incluir_cortesias == True).all()
+    for proj in proj_cortesia:
+        if not proj.codigo:
+            continue
+        sku = proj.codigo.upper().strip()
+        for sm in db.query(SkuMapping).filter(
+            SkuMapping.sku == sku,
+            SkuMapping.fonte == 'MAGENTO',
+            SkuMapping.ativo == True,
+        ).all():
+            if sm.id_externo:
+                cortesia_ids.add(str(sm.id_externo))
+    grupos_cortesia = db.query(EventoGrupoModel).filter(EventoGrupoModel.incluir_cortesias == True).all()
+    for grupo in grupos_cortesia:
+        projs = db.query(DimProjeto).filter(
+            DimProjeto.evento == grupo.nome
+        ).all()
+        if not projs:
+            mappings = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo == grupo.nome,
+                SkuMapping.fonte == 'MAGENTO',
+                SkuMapping.ativo == True,
+            ).all()
+            for sm in mappings:
+                if sm.id_externo:
+                    cortesia_ids.add(str(sm.id_externo))
+        else:
+            for proj in projs:
+                if not proj.codigo:
+                    continue
+                sku = proj.codigo.upper().strip()
+                for sm in db.query(SkuMapping).filter(
+                    SkuMapping.sku == sku,
+                    SkuMapping.fonte == 'MAGENTO',
+                    SkuMapping.ativo == True,
+                ).all():
+                    if sm.id_externo:
+                        cortesia_ids.add(str(sm.id_externo))
+    return cortesia_ids
+
+
+@router.patch("/eventos/{evento_id}/cortesias")
+def toggle_cortesias(
+    evento_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    is_grouped = evento_id.startswith("grp_")
+    if is_grouped:
+        grupo_nome = evento_id.replace("grp_", "")
+        grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
+        if not grupo:
+            raise HTTPException(status_code=404, detail="Grupo de evento não encontrado")
+        grupo.incluir_cortesias = not grupo.incluir_cortesias
+        db.commit()
+        db.refresh(grupo)
+        event_detail_cache.invalidate()
+        return {"incluirCortesias": grupo.incluir_cortesias}
+    else:
+        projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
+        if not projeto:
+            raise HTTPException(status_code=404, detail="Projeto não encontrado")
+        projeto.incluir_cortesias = not projeto.incluir_cortesias
+        db.commit()
+        db.refresh(projeto)
+        event_detail_cache.invalidate()
+        return {"incluirCortesias": projeto.incluir_cortesias}
+
+
 @router.get("/eventos/{evento_id}")
 def get_marketing_event_by_id(
     evento_id: str,
@@ -7700,6 +7805,7 @@ def get_marketing_event_by_id(
         detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         grupo_projeto_ids = [p.id for p in projetos]
+        _grupo_incluir_cortesias = bool(getattr(grupo, 'incluir_cortesias', False))
         _detail_margem_avisos: list = []
         detail_margem_por_kit = get_margem_por_kit(
             db,
@@ -7710,6 +7816,7 @@ def get_marketing_event_by_id(
             card_kit_cost_avg=detail_kit_cost_avg,
             avisos_out=_detail_margem_avisos,
             force_refresh=force_refresh,
+            incluir_cortesias=_grupo_incluir_cortesias,
         )
         detail_detalhe_vendas = []
         detail_kit_query_failed = False
@@ -7745,6 +7852,7 @@ def get_marketing_event_by_id(
             detalheVendasPorKit=detail_detalhe_vendas if detail_detalhe_vendas else None,
             detalheVendasAtivoKit=detail_detalhe_ativo if detail_detalhe_ativo else None,
             dataRegime=detail_regime,
+            incluirCortesias=_grupo_incluir_cortesias,
             **detail_margin
         )
         
@@ -8120,6 +8228,7 @@ def get_marketing_event_by_id(
     sa_detail_ticket_atual = _get_ticket_atual_for_event(sa_ticket_atual_map, projeto.id)
     sa_detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(sa_ticket_atual_map, projeto.id)
     
+    _sa_incluir_cortesias = bool(getattr(projeto, 'incluir_cortesias', False))
     _sa_margem_avisos: list = []
     sa_margem_por_kit = get_margem_por_kit(
         db,
@@ -8130,6 +8239,7 @@ def get_marketing_event_by_id(
         card_kit_cost_avg=detail_sa_kit_cost,
         avisos_out=_sa_margem_avisos,
         force_refresh=force_refresh,
+        incluir_cortesias=_sa_incluir_cortesias,
     )
     sa_detalhe_vendas = []
     sa_kit_query_failed = False
@@ -8165,6 +8275,7 @@ def get_marketing_event_by_id(
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,
         detalheVendasAtivoKit=sa_detalhe_ativo if sa_detalhe_ativo else None,
         dataRegime=standalone_detail_regime,
+        incluirCortesias=_sa_incluir_cortesias,
         **detail_sa_margin
     )
     

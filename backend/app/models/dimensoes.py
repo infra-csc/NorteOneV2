@@ -49,7 +49,8 @@ class DimProjeto(Base):
     etapa = Column(Integer)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
-    imagem_kv = Column(String(500)) 
+    imagem_kv = Column(String(500))
+    incluir_cortesias = Column(Boolean, default=False, server_default="0")
 
 class DimCategoriaAtleta(Base):
     __tablename__ = "dim_categoria_atleta"
@@ -123,6 +124,7 @@ class EventoGrupo(Base):
     circuito = Column(String(200), nullable=True)
     cidade_normalizada = Column(String(200), nullable=True)
     curva_override = Column(String(200), nullable=True)
+    incluir_cortesias = Column(Boolean, default=False, server_default="0")
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 

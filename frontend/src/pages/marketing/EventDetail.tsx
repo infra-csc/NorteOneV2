@@ -396,6 +396,24 @@ const EventDetail: React.FC = () => {
     }
   };
 
+  const [togglingCortesias, setTogglingCortesias] = useState(false);
+  const handleToggleCortesias = async () => {
+    if (!id || togglingCortesias) return;
+    setTogglingCortesias(true);
+    try {
+      const result = await marketingService.toggleCortesias(id);
+      setEvent(prev => prev ? { ...prev, incluirCortesias: result.incluirCortesias } : prev);
+      clearMarketingDashboardCache();
+      if (fetchEventRef.current) {
+        fetchEventRef.current(true, true);
+      }
+    } catch (err) {
+      console.error('Erro ao alternar cortesias:', err);
+    } finally {
+      setTogglingCortesias(false);
+    }
+  };
+
   const openOverrideModal = async () => {
     try {
       const res = await api.get('/admin/evento-grupos/available-curves');
@@ -886,15 +904,40 @@ const EventDetail: React.FC = () => {
             )}
           </div>
         </div>
-        <button
-          onClick={handleForceRefresh}
-          disabled={refreshing}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
-          title="Buscar vendas de hoje do Ativo e Magento (consulta rápida)"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          <span className="text-sm font-medium">{refreshing ? 'Buscando hoje...' : 'Atualizar Hoje'}</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <label
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer select-none transition-colors ${
+              event.incluirCortesias
+                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                : isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500'
+            } ${togglingCortesias ? 'opacity-50 pointer-events-none' : ''}`}
+            title="Incluir inscrições de cortesia em todas as métricas deste evento"
+          >
+            <span className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors"
+              style={{ backgroundColor: event.incluirCortesias ? '#10b981' : (isDark ? '#4b5563' : '#d1d5db') }}>
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${event.incluirCortesias ? 'translate-x-4' : 'translate-x-0.5'}`} />
+            </span>
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={!!event.incluirCortesias}
+              onChange={handleToggleCortesias}
+              disabled={togglingCortesias}
+            />
+            <span className="text-sm font-medium whitespace-nowrap">
+              {togglingCortesias ? 'Salvando...' : 'Incluir Cortesias'}
+            </span>
+          </label>
+          <button
+            onClick={handleForceRefresh}
+            disabled={refreshing}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
+            title="Buscar vendas de hoje do Ativo e Magento (consulta rápida)"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">{refreshing ? 'Buscando hoje...' : 'Atualizar Hoje'}</span>
+          </button>
+        </div>
       </div>
 
       {refreshSuccess && (

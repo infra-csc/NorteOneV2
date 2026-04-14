@@ -730,6 +730,7 @@ export interface MarketingEvent {
     ticketMedio: number | null;
   }> | null;
   kitQueryFailed?: boolean;
+  incluirCortesias?: boolean;
 }
 
 export interface MarketingDashboardSummary {
@@ -993,6 +994,10 @@ export const marketingService = {
     if (ano) queryParams.append('ano', ano.toString());
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const response = await api.post(`/marketing/eventos/${encodeURIComponent(id)}/atualizar-hoje${queryString}`);
+    return response.data;
+  },
+  toggleCortesias: async (eventoId: string): Promise<{ incluirCortesias: boolean }> => {
+    const response = await api.patch(`/marketing/eventos/${encodeURIComponent(eventoId)}/cortesias`);
     return response.data;
   },
   getAcoesComerciais: async (projetoId: string): Promise<{ status: string; acoes: any[] }> => {

@@ -324,6 +324,7 @@ def sincronizar_hoje_batch(db: Session) -> int:
         _fetch_today_sales_magento_grouped,
         _build_sku_to_grupo_map,
         normalize_sku,
+        _get_cortesia_magento_ids,
     )
 
     today = date.today()
@@ -420,7 +421,8 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     if all_magento_ids:
         try:
-            magento_today = _fetch_today_sales_magento_grouped(list(set(all_magento_ids)))
+            _cort_ids = _get_cortesia_magento_ids(db)
+            magento_today = _fetch_today_sales_magento_grouped(list(set(all_magento_ids)), cortesia_magento_ids=_cort_ids if _cort_ids else None)
             logger.info(f"sincronizar_hoje_batch: Magento retornou {len(magento_today)} IDs com vendas hoje")
         except Exception as e:
             logger.error(f"sincronizar_hoje_batch: erro Magento grouped: {e}")
@@ -576,6 +578,7 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     """
     from ..core.database import engine_magento
     from ..models.kit_config import KitConfig
+    from ..models.dimensoes import DimProjeto, SkuMapping, EventoGrupo
     from sqlalchemy import text, bindparam
     from datetime import timezone
 
@@ -595,10 +598,45 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         logger.info("[MargemRevSync] Nenhum bundle_entity_id encontrado em kit_config")
         return {"status": "ok", "bundles_processados": 0}
 
-    logger.info(f"[MargemRevSync] Iniciando sync de receita para {len(bundle_ids_all)} bundles")
+    cortesia_bundle_set: set = set()
+    try:
+        cortesia_skus: set = set()
+        for proj in db.query(DimProjeto).filter(DimProjeto.incluir_cortesias == True).all():
+            if proj.codigo:
+                cortesia_skus.add(proj.codigo.upper().strip())
+        for grupo in db.query(EventoGrupo).filter(EventoGrupo.incluir_cortesias == True).all():
+            grp_mappings = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo == grupo.nome,
+                SkuMapping.ativo == True,
+            ).all()
+            for sm in grp_mappings:
+                if sm.sku:
+                    cortesia_skus.add(sm.sku.upper().strip())
+        if cortesia_skus:
+            from ..models.cadastro_evento import CadastroEvento, CadastroKitProduto
+            for cs in cortesia_skus:
+                proj = db.query(DimProjeto).filter(DimProjeto.codigo == cs).first()
+                if not proj:
+                    continue
+                cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == proj.id).first()
+                if not cadastro:
+                    continue
+                kit_prods = db.query(CadastroKitProduto).filter(
+                    CadastroKitProduto.cadastro_id == cadastro.id,
+                    CadastroKitProduto.bundle_entity_id.isnot(None),
+                ).all()
+                for kp in kit_prods:
+                    cortesia_bundle_set.add(kp.bundle_entity_id)
+    except Exception as _e_cort:
+        logger.warning(f"[MargemRevSync] Erro ao buscar cortesia bundles: {_e_cort}")
 
-    # Mesma lógica de receita do get_margem_por_kit, timeout elevado para background (5 min)
-    rev_query = text("""
+    logger.info(f"[MargemRevSync] Iniciando sync de receita para {len(bundle_ids_all)} bundles ({len(cortesia_bundle_set)} com cortesias)")
+
+    def _build_rev_query(include_cortesias: bool):
+        _cort_child = "" if include_cortesias else "AND soi_child.price          > 0\n      AND soi_child.price - soi_child.discount_amount > 0"
+        _cort_gt = "" if include_cortesias else "AND so.base_grand_total > 0"
+        _cort_desc = "" if include_cortesias else "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)"
+        return text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(300000) */
     soi_parent.product_id                                                              AS bundle_entity_id,
     ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida
@@ -610,8 +648,7 @@ INNER JOIN sales_order_item soi_parent
 INNER JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND soi_child.price          > 0
-      AND soi_child.price - soi_child.discount_amount > 0
+      {_cort_child}
       AND (
             soi_child.name LIKE '%%Distância%%'
          OR soi_child.name LIKE '%%Distancia%%'
@@ -622,8 +659,8 @@ WHERE
     so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)
 AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
 AND so.state != 'canceled'
-AND so.base_grand_total > 0
-AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+{_cort_gt}
+{_cort_desc}
 AND so.created_at < CURDATE() + INTERVAL 1 DAY
 AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
 AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
@@ -631,16 +668,26 @@ AND so.increment_id NOT REGEXP '-[0-9]'
 GROUP BY soi_parent.product_id
 """).bindparams(bindparam("bundle_ids", expanding=True))
 
+    rev_query_normal = _build_rev_query(False)
+    rev_query_cortesia = _build_rev_query(True) if cortesia_bundle_set else None
+
     rev_by_bid: dict = {}
     BATCH_SIZE = 80
 
     for i in range(0, len(bundle_ids_all), BATCH_SIZE):
         batch = bundle_ids_all[i:i + BATCH_SIZE]
+        normal_batch = [b for b in batch if b not in cortesia_bundle_set]
+        cortesia_batch = [b for b in batch if b in cortesia_bundle_set]
         try:
             with engine_magento.connect() as conn:
-                rows = conn.execute(rev_query, {"bundle_ids": batch}).fetchall()
-                for row in rows:
-                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+                if normal_batch:
+                    rows = conn.execute(rev_query_normal, {"bundle_ids": normal_batch}).fetchall()
+                    for row in rows:
+                        rev_by_bid[int(row[0])] = float(row[1] or 0)
+                if cortesia_batch and rev_query_cortesia:
+                    rows = conn.execute(rev_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
+                    for row in rows:
+                        rev_by_bid[int(row[0])] = float(row[1] or 0)
             logger.info(f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → {len(rows)} com receita")
         except Exception as e:
             logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
