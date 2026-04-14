@@ -2240,6 +2240,9 @@ GROUP BY soi_parent.product_id
                     if _last_failure and (_now_mono - _last_failure) < _MARGEM_REV_FAILURE_COOLDOWN_SECONDS:
                         _cooldown_restante = int(_MARGEM_REV_FAILURE_COOLDOWN_SECONDS - (_now_mono - _last_failure))
                         logger.info(f"[Margem] revenue_query SKIPPED (cooldown pós-falha ativo, {_cooldown_restante}s restantes): {len(bundle_ids)} bundles")
+                        _aviso_cooldown = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                        if avisos_out is not None and _aviso_cooldown not in avisos_out:
+                            avisos_out.append(_aviso_cooldown)
                     else:
                         try:
                             with db_module.engine_magento.connect() as conn:
