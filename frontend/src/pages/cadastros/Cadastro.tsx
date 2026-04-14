@@ -157,7 +157,7 @@ const statusOptions = ['Em andamento', 'Concluído', 'Cancelado'];
 
 const produtosDisponiveis = [
   'Camiseta', 'Medalha', 'Garrafa', 'Sacochila', 'Mochila', 'Sacola',
-  'Moletom', 'Jaqueta', 'Boné', 'Viseira', 'Toalha', 'Touca', 'Squeeze', 'Munhequeira'
+  'Moletom', 'Jaqueta', 'Boné', 'Viseira', 'Toalha', 'Touca', 'Squeeze', 'Munhequeira', 'Bike'
 ];
 
 const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario: number }>> = {
@@ -168,7 +168,7 @@ const produtosPadraoPorKit: Record<string, Array<{ nome: string; valor_unitario:
   'Kit Super': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }],
   'Inscrição Participação': [{ nome: 'Medalha', valor_unitario: 0 }],
   'Kit sem Bike': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }],
-  'Kit com Bike': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }]
+  'Kit com Bike': [{ nome: 'Camiseta', valor_unitario: 0 }, { nome: 'Medalha', valor_unitario: 0 }, { nome: 'Garrafa', valor_unitario: 0 }, { nome: 'Sacochila', valor_unitario: 0 }, { nome: 'Mochila', valor_unitario: 0 }, { nome: 'Sacola', valor_unitario: 0 }, { nome: 'Bike', valor_unitario: 0 }]
 };
 
 const produtosExtrasPorKit: Record<string, string[]> = {
@@ -1129,9 +1129,9 @@ const Cadastro: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-2 sm:gap-4`}>
+        <div className={`grid ${isCiclismo ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'} gap-2 sm:gap-4`}>
           {siteKitTypes.map(kt => (
-            <div key={kt.key} className={`${isCiclismo ? 'p-2 sm:p-4' : 'p-4'} rounded-xl ${kt.bg} border min-w-0 overflow-hidden`}>
+            <div key={kt.key} className={`p-3 sm:p-4 rounded-xl ${kt.bg} border min-w-0 overflow-hidden`}>
               {renderFaixaKitColumn(kt.key, kt.title, kt.color)}
             </div>
           ))}
@@ -1506,9 +1506,9 @@ const Cadastro: React.FC = () => {
 
     return (
       <div className="space-y-4">
-        <div className={`grid ${isCiclismo ? 'grid-cols-3' : 'grid-cols-2'} gap-2 sm:gap-4`}>
+        <div className={`grid ${isCiclismo ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'} gap-2 sm:gap-4`}>
           {gruposKitTypes.map(kt => (
-            <div key={kt.key} className={`${isCiclismo ? 'p-2 sm:p-4' : 'p-4'} rounded-xl ${kt.bg} border min-w-0 overflow-hidden`}>
+            <div key={kt.key} className={`p-3 sm:p-4 rounded-xl ${kt.bg} border min-w-0 overflow-hidden`}>
               {renderFaixaGruposKitColumn(kt.key, kt.title, kt.color)}
             </div>
           ))}
