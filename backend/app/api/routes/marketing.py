@@ -7476,48 +7476,82 @@ def _fetch_commercial_actions_from_db(db: Session, projeto_ids: list) -> list:
     return result
 
 
+_cortesia_cache_result: set = set()
+_cortesia_cache_ts: float = 0.0
+_CORTESIA_CACHE_TTL: float = 60.0
+
 def _get_cortesia_magento_ids(db: Session) -> set:
-    """Return set of Magento event IDs (as strings) whose projeto/grupo has incluir_cortesias=True."""
+    """Return set of Magento event IDs (as strings) whose projeto/grupo has incluir_cortesias=True.
+    
+    Results are memoized for 60s to avoid repeated DB round-trips in hot paths.
+    """
+    global _cortesia_cache_result, _cortesia_cache_ts
+    import time as _time
+    now = _time.monotonic()
+    if _cortesia_cache_result and (now - _cortesia_cache_ts) < _CORTESIA_CACHE_TTL:
+        return _cortesia_cache_result
+
     cortesia_ids: set = set()
     proj_cortesia = db.query(DimProjeto).filter(DimProjeto.incluir_cortesias == True).all()
+    proj_skus = set()
     for proj in proj_cortesia:
-        if not proj.codigo:
-            continue
-        sku = proj.codigo.upper().strip()
-        for sm in db.query(SkuMapping).filter(
-            SkuMapping.sku == sku,
+        if proj.codigo:
+            proj_skus.add(proj.codigo.upper().strip())
+    if proj_skus:
+        mappings = db.query(SkuMapping).filter(
+            SkuMapping.sku.in_(proj_skus),
             SkuMapping.fonte == 'MAGENTO',
             SkuMapping.ativo == True,
-        ).all():
+        ).all()
+        for sm in mappings:
             if sm.id_externo:
                 cortesia_ids.add(str(sm.id_externo))
+
     grupos_cortesia = db.query(EventoGrupoModel).filter(EventoGrupoModel.incluir_cortesias == True).all()
-    for grupo in grupos_cortesia:
-        projs = db.query(DimProjeto).filter(
-            DimProjeto.evento == grupo.nome
-        ).all()
-        if not projs:
+    if grupos_cortesia:
+        grupo_nomes = [g.nome for g in grupos_cortesia]
+        grupo_projs = db.query(DimProjeto).filter(DimProjeto.evento.in_(grupo_nomes)).all()
+        grupo_proj_map: dict = {}
+        for proj in grupo_projs:
+            grupo_proj_map.setdefault(proj.evento, []).append(proj)
+
+        grupo_skus = set()
+        direct_grupo_nomes = []
+        for grupo in grupos_cortesia:
+            projs = grupo_proj_map.get(grupo.nome, [])
+            if projs:
+                for proj in projs:
+                    if proj.codigo:
+                        grupo_skus.add(proj.codigo.upper().strip())
+            else:
+                direct_grupo_nomes.append(grupo.nome)
+        if grupo_skus:
             mappings = db.query(SkuMapping).filter(
-                SkuMapping.evento_grupo == grupo.nome,
+                SkuMapping.sku.in_(grupo_skus),
                 SkuMapping.fonte == 'MAGENTO',
                 SkuMapping.ativo == True,
             ).all()
             for sm in mappings:
                 if sm.id_externo:
                     cortesia_ids.add(str(sm.id_externo))
-        else:
-            for proj in projs:
-                if not proj.codigo:
-                    continue
-                sku = proj.codigo.upper().strip()
-                for sm in db.query(SkuMapping).filter(
-                    SkuMapping.sku == sku,
-                    SkuMapping.fonte == 'MAGENTO',
-                    SkuMapping.ativo == True,
-                ).all():
-                    if sm.id_externo:
-                        cortesia_ids.add(str(sm.id_externo))
+        if direct_grupo_nomes:
+            mappings = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo.in_(direct_grupo_nomes),
+                SkuMapping.fonte == 'MAGENTO',
+                SkuMapping.ativo == True,
+            ).all()
+            for sm in mappings:
+                if sm.id_externo:
+                    cortesia_ids.add(str(sm.id_externo))
+
+    _cortesia_cache_result = cortesia_ids
+    _cortesia_cache_ts = now
     return cortesia_ids
+
+def _invalidate_cortesia_cache():
+    global _cortesia_cache_result, _cortesia_cache_ts
+    _cortesia_cache_result = set()
+    _cortesia_cache_ts = 0.0
 
 
 @router.patch("/eventos/{evento_id}/cortesias")
@@ -7559,6 +7593,8 @@ def toggle_cortesias(
         eventos_list_cache.invalidate()
         result_flag = projeto.incluir_cortesias
 
+    _invalidate_cortesia_cache()
+
     def _reconsolidate_snapshot(grupos: list, year: int):
         try:
             from ...core.database import SessionLocal
@@ -7566,6 +7602,9 @@ def toggle_cortesias(
                 for g in grupos:
                     _consolidar(snap_db, g, year)
                     logger.info(f"[Cortesia Toggle] Reconsolidated snapshot for grupo='{g}', ano={year}")
+            event_detail_cache.invalidate()
+            eventos_list_cache.invalidate()
+            logger.info("[Cortesia Toggle] Caches re-invalidated after snapshot reconsolidation")
         except Exception as e:
             logger.error(f"[Cortesia Toggle] Snapshot reconsolidation failed: {e}")
 
