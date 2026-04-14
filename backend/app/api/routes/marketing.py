@@ -371,7 +371,9 @@ def calculate_action_impact(db: Session, acao) -> dict:
     if ativo_ids:
         all_daily.extend(_fetch_daily_sales_ativo_by_ids(ativo_ids))
     if magento_ids:
-        all_daily.extend(_fetch_daily_sales_magento_by_ids(magento_ids))
+        _cort = _get_cortesia_magento_ids(db)
+        _mag_cort = set(magento_ids) & _cort if _cort else None
+        all_daily.extend(_fetch_daily_sales_magento_by_ids(magento_ids, cortesia_magento_ids=_mag_cort if _mag_cort else None))
 
     vendas_antes = 0
     vendas_depois = 0
@@ -1207,7 +1209,9 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
             prev_daily[d] = prev_daily.get(d, 0) + row['qtd']
     if prev_magento_ids:
-        rows = _fetch_daily_sales_magento_by_ids(list(set(prev_magento_ids)))
+        _cort = _get_cortesia_magento_ids(db)
+        _mag_cort = set(prev_magento_ids) & _cort if _cort else None
+        rows = _fetch_daily_sales_magento_by_ids(list(set(prev_magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
         for row in rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
             prev_daily[d] = prev_daily.get(d, 0) + row['qtd']
@@ -4600,7 +4604,9 @@ def get_sales_averages(
             all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
     
     if magento_ids:
-        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+        _cort_avg = _get_cortesia_magento_ids(db)
+        _mag_cort_avg = set(magento_ids) & _cort_avg if _cort_avg else None
+        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_avg if _mag_cort_avg else None)
         for row in magento_rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
             all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
@@ -5450,10 +5456,11 @@ ORDER BY sub.id_evento, sub.dia
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list) -> dict:
+def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_magento_ids: set = None) -> dict:
     if not magento_event_ids:
         return {}
-    if _is_warmup_thread():
+    cort_ids = cortesia_magento_ids or set()
+    if not cort_ids and _is_warmup_thread():
         with _warmup_daily_cache_lock:
             magento_cache = _warmup_daily_cache.get("magento")
         if magento_cache is not None:
@@ -5470,15 +5477,27 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list) -> dict:
         safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    cpev1.value AS id_evento,
-    DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN so.base_grand_total > 0
+        if cort_ids:
+            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            _cort_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        OR (so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        THEN 1 END"""
+        else:
+            _cort_cond = """CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        THEN 1 END) AS qtd
+        THEN 1 END"""
+        query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
+    cpev1.value AS id_evento,
+    DATE(so.created_at) AS dia,
+    COUNT({_cort_cond}) AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi_parent
        ON soi_parent.order_id     = so.entity_id
@@ -6284,7 +6303,9 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
     magento_grouped = {}
     if all_prev_magento_ids:
         try:
-            magento_grouped = _fetch_daily_sales_magento_by_ids_grouped(list(set(all_prev_magento_ids)))
+            _cort_batch = _get_cortesia_magento_ids(db)
+            _mag_cort_batch = set(all_prev_magento_ids) & _cort_batch if _cort_batch else None
+            magento_grouped = _fetch_daily_sales_magento_by_ids_grouped(list(set(all_prev_magento_ids)), cortesia_magento_ids=_mag_cort_batch if _mag_cort_batch else None)
         except Exception as e:
             logger.error(f"Batch historical Magento fetch error: {e}")
 
@@ -6601,6 +6622,10 @@ def get_curva_comparativa_evento(
         data_evento_atual = date(ano, ref_day_month[0], min(ref_day_month[1], 28))
         logger.info(f"No data_evento for {ano}, estimated from {ano_anterior}: {data_evento_atual}")
 
+    _cort_curva = _get_cortesia_magento_ids(db)
+    _mag_cort_atual = (set(ids_magento_atual) & _cort_curva) if _cort_curva and ids_magento_atual else None
+    _mag_cort_anterior = (set(ids_magento_anterior) & _cort_curva) if _cort_curva and ids_magento_anterior else None
+
     is_warmup = _is_warmup_thread()
     if is_warmup:
         try:
@@ -6609,7 +6634,7 @@ def get_curva_comparativa_evento(
             logger.error(f"Curva comparativa daily Ativo atual error: {e}")
             dados_ativo_atual = []
         try:
-            dados_magento_atual = _fetch_daily_sales_magento_by_ids(ids_magento_atual)
+            dados_magento_atual = _fetch_daily_sales_magento_by_ids(ids_magento_atual, cortesia_magento_ids=_mag_cort_atual if _mag_cort_atual else None)
         except Exception as e:
             logger.error(f"Curva comparativa daily Magento atual error: {e}")
             dados_magento_atual = []
@@ -6619,15 +6644,15 @@ def get_curva_comparativa_evento(
             logger.error(f"Curva comparativa daily Ativo anterior error: {e}")
             dados_ativo_anterior = []
         try:
-            dados_magento_anterior = _fetch_daily_sales_magento_by_ids(ids_magento_anterior)
+            dados_magento_anterior = _fetch_daily_sales_magento_by_ids(ids_magento_anterior, cortesia_magento_ids=_mag_cort_anterior if _mag_cort_anterior else None)
         except Exception as e:
             logger.error(f"Curva comparativa daily Magento anterior error: {e}")
             dados_magento_anterior = []
     else:
         future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
-        future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
+        future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual, cortesia_magento_ids=_mag_cort_atual if _mag_cort_atual else None)
         future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
-        future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
+        future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior, cortesia_magento_ids=_mag_cort_anterior if _mag_cort_anterior else None)
 
         try:
             dados_ativo_atual = future_ativo_atual.result(timeout=60)
@@ -7001,6 +7026,10 @@ def get_evento_insights(
         ref_day_month = (data_evento_anterior.month, data_evento_anterior.day)
         data_evento_atual = date(ano, ref_day_month[0], min(ref_day_month[1], 28))
 
+    _cort_insights = _get_cortesia_magento_ids(db)
+    _mag_cort_atual_ins = (set(ids_magento_atual) & _cort_insights) if _cort_insights and ids_magento_atual else None
+    _mag_cort_anterior_ins = (set(ids_magento_anterior) & _cort_insights) if _cort_insights and ids_magento_anterior else None
+
     is_warmup = _is_warmup_thread()
     if is_warmup:
         try:
@@ -7009,7 +7038,7 @@ def get_evento_insights(
             logger.error(f"Insights daily Ativo atual error: {e}")
             dados_ativo_atual = []
         try:
-            dados_magento_atual = _fetch_daily_sales_magento_by_ids(ids_magento_atual)
+            dados_magento_atual = _fetch_daily_sales_magento_by_ids(ids_magento_atual, cortesia_magento_ids=_mag_cort_atual_ins if _mag_cort_atual_ins else None)
         except Exception as e:
             logger.error(f"Insights daily Magento atual error: {e}")
             dados_magento_atual = []
@@ -7019,7 +7048,7 @@ def get_evento_insights(
             logger.error(f"Insights daily Ativo anterior error: {e}")
             dados_ativo_anterior = []
         try:
-            dados_magento_anterior = _fetch_daily_sales_magento_by_ids(ids_magento_anterior)
+            dados_magento_anterior = _fetch_daily_sales_magento_by_ids(ids_magento_anterior, cortesia_magento_ids=_mag_cort_anterior_ins if _mag_cort_anterior_ins else None)
         except Exception as e:
             logger.error(f"Insights daily Magento anterior error: {e}")
             dados_magento_anterior = []
@@ -7041,9 +7070,9 @@ def get_evento_insights(
             cat_magento_anterior = []
     else:
         future_ativo_atual = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_atual)
-        future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual)
+        future_magento_atual = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_atual, cortesia_magento_ids=_mag_cort_atual_ins if _mag_cort_atual_ins else None)
         future_ativo_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_ativo_by_ids, ids_ativo_anterior)
-        future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior)
+        future_magento_anterior = _rolling_avg_executor.submit(_fetch_daily_sales_magento_by_ids, ids_magento_anterior, cortesia_magento_ids=_mag_cort_anterior_ins if _mag_cort_anterior_ins else None)
         future_cat_ativo_atual = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_atual)
         future_cat_magento_atual = _rolling_avg_executor.submit(_fetch_category_sales_magento_by_ids, ids_magento_atual)
         future_cat_ativo_anterior = _rolling_avg_executor.submit(_fetch_category_sales_ativo_by_ids, ids_ativo_anterior)
@@ -7812,7 +7841,9 @@ def get_marketing_event_by_id(
                     current_receita += row.get('receita', 0.0)
             
             if magento_ids:
-                magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+                _cort_det = _get_cortesia_magento_ids(db)
+                _mag_cort_det = set(magento_ids) & _cort_det if _cort_det else None
+                magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_det if _mag_cort_det else None)
                 for row in magento_rows:
                     current_receita += row.get('receita', 0.0)
             
@@ -8002,7 +8033,9 @@ def get_marketing_event_by_id(
                         vendas_anterior += row.get('qtd', 0)
                         receita_anterior += row.get('receita', 0.0)
                 if ant_magento_ids:
-                    for row in _fetch_daily_sales_magento_by_ids(list(set(ant_magento_ids))):
+                    _cort_ant = _get_cortesia_magento_ids(db)
+                    _mag_cort_ant = set(ant_magento_ids) & _cort_ant if _cort_ant else None
+                    for row in _fetch_daily_sales_magento_by_ids(list(set(ant_magento_ids)), cortesia_magento_ids=_mag_cort_ant if _mag_cort_ant else None):
                         vendas_anterior += row.get('qtd', 0)
                         receita_anterior += row.get('receita', 0.0)
             
@@ -10251,8 +10284,8 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
                 }
 
                 # M14 - lógica EXATA do controle externo do usuário:
-                # - JOIN soi (bundle) - sem filtro de price para capturar cortesias
-                # - JOIN soi_child com product_type='simple', nome Distância/Modalidade
+                # - JOIN soi com price > 0 (bundle)
+                # - JOIN soi_child com product_type='simple', price > 0, nome Distância/Modalidade
                 # - CASE: cortesia = grand_total=0 AND child net=0; Grupos = desc/coupon; Else Site
                 q_m14 = text("""
 SELECT
@@ -10273,6 +10306,7 @@ FROM sales_order so
 JOIN sales_order_item soi
     ON soi.order_id = so.entity_id
     AND soi.product_type = 'bundle'
+    AND soi.price > 0
 JOIN catalog_product_entity_varchar cpev1
     ON cpev1.entity_id = soi.product_id
     AND cpev1.attribute_id = 321
@@ -10281,6 +10315,7 @@ JOIN catalog_product_entity_varchar cpev1
 JOIN sales_order_item soi_child
     ON soi_child.parent_item_id = soi.item_id
     AND soi_child.product_type = 'simple'
+    AND soi_child.price > 0
     AND (
         soi_child.name LIKE '%%Distância%%'
      OR soi_child.name LIKE '%%Distancia%%'
