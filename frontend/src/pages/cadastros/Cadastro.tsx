@@ -562,7 +562,7 @@ const Cadastro: React.FC = () => {
     const displayValue = isFocused ? inputValue : formatForDisplay(value);
     
     return (
-      <div className="relative">
+      <div className="relative min-w-0">
         {hasValue && !isFocused && label && (
           <label className={`absolute -top-2 left-2 px-1 text-[10px] font-medium z-10 ${isDark ? 'text-gray-400 bg-gray-800' : 'text-gray-500 bg-white'}`}>
             {icon}{label}
@@ -576,7 +576,7 @@ const Cadastro: React.FC = () => {
           onFocus={handleFocus}
           onBlur={handleBlur}
           placeholder={placeholder || label}
-          className={className}
+          className={`w-full min-w-0 ${className}`}
           readOnly={readOnly}
         />
       </div>
