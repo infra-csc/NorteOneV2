@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text, bindparam, func
 from typing import Optional, List
@@ -1486,7 +1486,9 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
                 all_daily[d] = all_daily.get(d, 0) + row['qtd']
         
         if magento_ids:
-            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+            _cort = _get_cortesia_magento_ids(db)
+            _mag_cort = set(magento_ids) & _cort if _cort else None
+            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
             for row in magento_rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 all_daily[d] = all_daily.get(d, 0) + row['qtd']
@@ -1506,7 +1508,9 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
                     logger.warning(f"Failed to fetch today's Ativo sales: {e}")
             if magento_ids:
                 try:
-                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
+                    _cort = _get_cortesia_magento_ids(db)
+                    _mag_cort = set(magento_ids) & _cort if _cort else None
+                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
                     for d, qty in today_sales.items():
                         all_daily[d] = all_daily.get(d, 0) + qty
                 except Exception as e:
@@ -4889,7 +4893,9 @@ def get_event_simulation(
                     logger.warning(f"[Simulacao] Failed to fetch today's Ativo sales: {e}")
             if magento_ids:
                 try:
-                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)))
+                    _cort = _get_cortesia_magento_ids(db)
+                    _mag_cort = set(magento_ids) & _cort if _cort else None
+                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
                     for d, qty in today_sales.items():
                         all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
                         today_live_qty += qty
@@ -4911,7 +4917,9 @@ def get_event_simulation(
                 all_raw_receita[d] = all_raw_receita.get(d, 0) + row.get('receita', 0)
 
     if not snapshot_used_sim and magento_ids:
-        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+        _cort = _get_cortesia_magento_ids(db)
+        _mag_cort = set(magento_ids) & _cort if _cort else None
+        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
         for row in magento_rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
             all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
@@ -5648,21 +5656,34 @@ GROUP BY sub.dia
         return {}
 
 
-def _fetch_today_sales_magento_by_ids(magento_event_ids: list) -> dict:
+def _fetch_today_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: set = None) -> dict:
     if not magento_event_ids or db_module.engine_magento is None:
         return {}
     try:
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return {}
-        query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(30000) */
-    DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN so.base_grand_total > 0
+        cort_ids = cortesia_magento_ids or set()
+        if cort_ids:
+            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            _cort_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        OR (so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN 1 END) AS qtd
+        AND soi.price > 0) THEN 1 END"""
+        else:
+            _cort_cond = """CASE WHEN so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0 THEN 1 END"""
+        query = text(f"""
+SELECT /*+ MAX_EXECUTION_TIME(30000) */
+    DATE(so.created_at) AS dia,
+    COUNT({_cort_cond}) AS qtd
 FROM sales_order so
 INNER JOIN sales_order_item soi
        ON soi.order_id = so.entity_id
@@ -5858,10 +5879,11 @@ GROUP BY cpev1.value
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids(magento_event_ids: list) -> list:
+def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: set = None) -> list:
     if not magento_event_ids:
         return []
-    if _is_warmup_thread():
+    cort_ids = cortesia_magento_ids or set()
+    if not cort_ids and _is_warmup_thread():
         with _warmup_daily_cache_lock:
             magento_cache = _warmup_daily_cache.get("magento")
         if magento_cache is not None:
@@ -5879,19 +5901,40 @@ def _fetch_daily_sales_magento_by_ids(magento_event_ids: list) -> list:
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return []
-        query = text("""
+        if cort_ids:
+            cort_str = ", ".join(f"'{i}'" for i in cort_ids)
+            _cort_qtd_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        OR (so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0) THEN 1 END"""
+            _cort_rev_cond = f"""CASE WHEN (cpev1.value IN ({cort_str})
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%'))
+        OR (so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0) THEN"""
+        else:
+            _cort_qtd_cond = """CASE WHEN so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0 THEN 1 END"""
+            _cort_rev_cond = """CASE WHEN so.base_grand_total > 0
+        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
+        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
+        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
+        AND soi.price > 0 THEN"""
+        query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     DATE(so.created_at) AS dia,
-    COUNT(CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN 1 END) AS qtd,
-    SUM(CASE WHEN so.base_grand_total > 0
-        AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
-        AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
-        AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
-        AND soi.price > 0 THEN
+    COUNT({_cort_qtd_cond}) AS qtd,
+    SUM({_cort_rev_cond}
         soi.price
         - CASE WHEN soi.price = 0 THEN 0
             WHEN soi.name LIKE '%%plus%%' THEN 69.00
@@ -7451,10 +7494,17 @@ def _get_cortesia_magento_ids(db: Session) -> set:
 @router.patch("/eventos/{evento_id}/cortesias")
 def toggle_cortesias(
     evento_id: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
+    from ...services.snapshot_service import consolidar_vendas_grupo as _consolidar
+    from datetime import date as _date_cls
+
     is_grouped = evento_id.startswith("grp_")
+    reconsolidate_grupos: list = []
+    ano = _date_cls.today().year
+
     if is_grouped:
         grupo_nome = evento_id.replace("grp_", "")
         grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
@@ -7463,9 +7513,10 @@ def toggle_cortesias(
         grupo.incluir_cortesias = not grupo.incluir_cortesias
         db.commit()
         db.refresh(grupo)
+        reconsolidate_grupos.append(grupo_nome)
         event_detail_cache.invalidate()
         eventos_list_cache.invalidate()
-        return {"incluirCortesias": grupo.incluir_cortesias}
+        result_flag = grupo.incluir_cortesias
     else:
         projeto = db.query(DimProjeto).filter(DimProjeto.id == int(evento_id)).first()
         if not projeto:
@@ -7473,9 +7524,26 @@ def toggle_cortesias(
         projeto.incluir_cortesias = not projeto.incluir_cortesias
         db.commit()
         db.refresh(projeto)
+        if projeto.evento:
+            reconsolidate_grupos.append(projeto.evento)
         event_detail_cache.invalidate()
         eventos_list_cache.invalidate()
-        return {"incluirCortesias": projeto.incluir_cortesias}
+        result_flag = projeto.incluir_cortesias
+
+    def _reconsolidate_snapshot(grupos: list, year: int):
+        try:
+            from ...core.database import SessionLocal
+            with SessionLocal() as snap_db:
+                for g in grupos:
+                    _consolidar(snap_db, g, year)
+                    logger.info(f"[Cortesia Toggle] Reconsolidated snapshot for grupo='{g}', ano={year}")
+        except Exception as e:
+            logger.error(f"[Cortesia Toggle] Snapshot reconsolidation failed: {e}")
+
+    if reconsolidate_grupos:
+        background_tasks.add_task(_reconsolidate_snapshot, reconsolidate_grupos, ano)
+
+    return {"incluirCortesias": result_flag}
 
 
 @router.get("/eventos/{evento_id}")
@@ -10183,8 +10251,8 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
                 }
 
                 # M14 - lógica EXATA do controle externo do usuário:
-                # - JOIN soi com price > 0 (bundle)
-                # - JOIN soi_child com product_type='simple', price > 0, nome Distância/Modalidade
+                # - JOIN soi (bundle) - sem filtro de price para capturar cortesias
+                # - JOIN soi_child com product_type='simple', nome Distância/Modalidade
                 # - CASE: cortesia = grand_total=0 AND child net=0; Grupos = desc/coupon; Else Site
                 q_m14 = text("""
 SELECT
@@ -10205,7 +10273,6 @@ FROM sales_order so
 JOIN sales_order_item soi
     ON soi.order_id = so.entity_id
     AND soi.product_type = 'bundle'
-    AND soi.price > 0
 JOIN catalog_product_entity_varchar cpev1
     ON cpev1.entity_id = soi.product_id
     AND cpev1.attribute_id = 321
@@ -10214,7 +10281,6 @@ JOIN catalog_product_entity_varchar cpev1
 JOIN sales_order_item soi_child
     ON soi_child.parent_item_id = soi.item_id
     AND soi_child.product_type = 'simple'
-    AND soi_child.price > 0
     AND (
         soi_child.name LIKE '%%Distância%%'
      OR soi_child.name LIKE '%%Distancia%%'

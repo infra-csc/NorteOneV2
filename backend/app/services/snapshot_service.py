@@ -117,7 +117,8 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
 
 def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: date = None, data_fim: date = None):
     from ..api.routes.marketing import (
-        _fetch_daily_sales_ativo_by_ids, _fetch_daily_sales_magento_by_ids
+        _fetch_daily_sales_ativo_by_ids, _fetch_daily_sales_magento_by_ids,
+        _get_cortesia_magento_ids
     )
 
     mappings = db.query(SkuMapping).filter(
@@ -133,6 +134,8 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
     ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
     magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
 
+    cortesia_ids = _get_cortesia_magento_ids(db)
+
     all_daily = {}
 
     if ativo_ids:
@@ -145,7 +148,8 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             all_daily[d]["receita"] += row.get('receita', 0.0)
 
     if magento_ids:
-        rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)))
+        mag_cortesia = set(magento_ids) & cortesia_ids if cortesia_ids else None
+        rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=mag_cortesia if mag_cortesia else None)
         for row in rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
             if d not in all_daily:
