@@ -642,6 +642,9 @@ export interface MarketingISCComponents {
   ia730: number;
   curvaDPercent: number;
   rolling14d: number;
+  tipoCurva?: string;
+  fonteCurva?: string;
+  anoReferencia?: number;
 }
 
 export interface PlaybookEntry {
