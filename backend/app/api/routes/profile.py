@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import Response as RawResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from ...core.database import get_db
@@ -9,10 +10,8 @@ import uuid
 
 router = APIRouter(prefix="/profile", tags=["Perfil"])
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "uploads", "profile_photos")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MIME_MAP = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
 
@@ -61,17 +60,12 @@ async def upload_photo(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="Arquivo muito grande. Máximo 5MB.")
 
-    if current_user.foto_perfil:
-        old_path = os.path.join(UPLOAD_DIR, os.path.basename(current_user.foto_perfil))
-        if os.path.exists(old_path):
-            os.remove(old_path)
-
+    mime_type = MIME_MAP.get(ext, "image/jpeg")
     filename = f"{current_user.id}_{uuid.uuid4().hex[:8]}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(contents)
 
     current_user.foto_perfil = f"/api/profile/photo/{filename}"
+    current_user.foto_perfil_data = contents
+    current_user.foto_perfil_mime = mime_type
     db.commit()
     return {"foto_perfil": current_user.foto_perfil}
 
@@ -81,20 +75,25 @@ def delete_photo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
-    if current_user.foto_perfil:
-        old_path = os.path.join(UPLOAD_DIR, os.path.basename(current_user.foto_perfil))
-        if os.path.exists(old_path):
-            os.remove(old_path)
     current_user.foto_perfil = None
+    current_user.foto_perfil_data = None
+    current_user.foto_perfil_mime = None
     db.commit()
     return {"message": "Foto removida"}
 
 
 @router.get("/photo/{filename}")
-def get_photo(filename: str):
+def get_photo(filename: str, db: Session = Depends(get_db)):
     safe_name = os.path.basename(filename)
-    filepath = os.path.join(UPLOAD_DIR, safe_name)
-    if not os.path.exists(filepath):
+    user = db.query(Usuario).filter(
+        Usuario.foto_perfil.like(f"%{safe_name}")
+    ).first()
+
+    if not user or not user.foto_perfil_data:
         raise HTTPException(status_code=404, detail="Foto não encontrada")
-    from fastapi.responses import FileResponse
-    return FileResponse(filepath)
+
+    return RawResponse(
+        content=user.foto_perfil_data,
+        media_type=user.foto_perfil_mime or "image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )

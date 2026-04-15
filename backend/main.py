@@ -988,6 +988,8 @@ def _run_column_migrations():
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS snapshot_playbook_letter VARCHAR(5)",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS recebe_alertas_corte BOOLEAN DEFAULT FALSE",
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil VARCHAR(500)",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil_data BYTEA",
+            "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil_mime VARCHAR(50)",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS circuito VARCHAR(200)",

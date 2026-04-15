@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..core.database import Base
@@ -15,6 +15,8 @@ class Usuario(Base):
     ativo = Column(Boolean, default=True)
     recebe_alertas_corte = Column(Boolean, default=False)
     foto_perfil = Column(String(500), nullable=True)
+    foto_perfil_data = Column(LargeBinary, nullable=True)
+    foto_perfil_mime = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=func.now())
     last_activity = Column(DateTime, nullable=True)
     
