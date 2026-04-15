@@ -1,0 +1,204 @@
+SELECT 
+    cpev1.value                             AS id_evento,
+    cpev_kit.value                          AS nome_evento,
+    cpev_kit_name.value                     AS nome_kit,
+    eaov_tipo.value                         AS tipo_categoria,
+    lote.lot_name                           AS lote_atual,
+
+    (
+        MAX(CASE 
+            WHEN (
+                cpev_simple.value LIKE '%Distancia%'
+             OR cpev_simple.value LIKE '%Distância%'
+             OR cpev_simple.value LIKE '%Modalidade%'
+            )
+             AND cpep.value > 0
+            THEN cpep.value ELSE NULL 
+        END)
+        +
+        COALESCE(MAX(CASE 
+            WHEN cpep.value > 0
+             AND cpev_simple.value NOT LIKE '%Distancia%'
+             AND cpev_simple.value NOT LIKE '%Distância%'
+             AND cpev_simple.value NOT LIKE '%Modalidade%'
+             AND cpev_simple.value NOT LIKE '%Personaliz%'
+             AND cpev_simple.value NOT LIKE '%Aceite%'
+             AND cpev_simple.value NOT LIKE '%aceito%'
+             AND cpev_simple.value NOT LIKE '%Treinão%'
+             AND cpev_simple.value NOT LIKE '%Horário%'
+             AND cpev_simple.value NOT LIKE '%Bateria%'
+             AND cpev_simple.value NOT LIKE '%Doar%'
+             AND cpev_simple.value NOT LIKE '%Tênis%'
+             AND cpev_simple.value NOT LIKE '%Tenis%'
+             AND cpev_simple.value NOT LIKE '%Bike%'
+             AND cpev_simple.value NOT LIKE '%Biciclet%'
+             AND cpev_simple.value NOT LIKE '%Festival%'
+             AND cpev_simple.value NOT LIKE '%Bag%'
+             AND cpev_simple.value NOT LIKE '%Inscrição%'
+             AND cpev_simple.value NOT LIKE '%Declaro%'
+             AND cpev_simple.value NOT LIKE '%Pochete%'
+             AND cpev_simple.value NOT LIKE '%Tarifa%'
+             AND cpev_simple.value NOT LIKE '%Skate%'
+             AND cpev_simple.value NOT LIKE '%Obstáculo%'
+             AND cpev_simple.value NOT LIKE '%Bravinhos%'
+             AND cpev_simple.value NOT LIKE '%teste%'
+             AND cpev_simple.value NOT LIKE '%Porta%'
+             AND cpev_simple.value NOT LIKE '%Luva%'
+             AND cpev_simple.value NOT LIKE '%Toalha%'
+             AND cpev_simple.value NOT LIKE '%Corrida +%'
+            THEN cpep.value ELSE NULL 
+        END), 0)
+    )                                       AS price,
+
+    -- special_price: usa min_price do bundle pai (já reflete catalog price rules ativas)
+    -- Fallback para pi_filho quando kit inativo (não indexado pelo Magento)
+    COALESCE(pi_pai.min_price, (
+        MAX(CASE 
+            WHEN (
+                cpev_simple.value LIKE '%Distancia%'
+             OR cpev_simple.value LIKE '%Distância%'
+             OR cpev_simple.value LIKE '%Modalidade%'
+            )
+             AND pi_filho.final_price > 0
+            THEN pi_filho.final_price ELSE NULL 
+        END)
+        +
+        COALESCE(MAX(CASE 
+            WHEN pi_filho.final_price > 0
+             AND cpev_simple.value NOT LIKE '%Distancia%'
+             AND cpev_simple.value NOT LIKE '%Distância%'
+             AND cpev_simple.value NOT LIKE '%Modalidade%'
+             AND cpev_simple.value NOT LIKE '%Personaliz%'
+             AND cpev_simple.value NOT LIKE '%Aceite%'
+             AND cpev_simple.value NOT LIKE '%aceito%'
+             AND cpev_simple.value NOT LIKE '%Treinão%'
+             AND cpev_simple.value NOT LIKE '%Horário%'
+             AND cpev_simple.value NOT LIKE '%Bateria%'
+             AND cpev_simple.value NOT LIKE '%Doar%'
+             AND cpev_simple.value NOT LIKE '%Tênis%'
+             AND cpev_simple.value NOT LIKE '%Tenis%'
+             AND cpev_simple.value NOT LIKE '%Bike%'
+             AND cpev_simple.value NOT LIKE '%Biciclet%'
+             AND cpev_simple.value NOT LIKE '%Festival%'
+             AND cpev_simple.value NOT LIKE '%Bag%'
+             AND cpev_simple.value NOT LIKE '%Inscrição%'
+             AND cpev_simple.value NOT LIKE '%Declaro%'
+             AND cpev_simple.value NOT LIKE '%Pochete%'
+             AND cpev_simple.value NOT LIKE '%Tarifa%'
+             AND cpev_simple.value NOT LIKE '%Skate%'
+             AND cpev_simple.value NOT LIKE '%Obstáculo%'
+             AND cpev_simple.value NOT LIKE '%Bravinhos%'
+             AND cpev_simple.value NOT LIKE '%teste%'
+             AND cpev_simple.value NOT LIKE '%Porta%'
+             AND cpev_simple.value NOT LIKE '%Luva%'
+             AND cpev_simple.value NOT LIKE '%Toalha%'
+             AND cpev_simple.value NOT LIKE '%Corrida +%'
+            THEN pi_filho.final_price ELSE NULL 
+        END), 0)
+    ))                                      AS special_price,
+
+    CASE cpei_status.value
+        WHEN 1 THEN 'ativo'
+        WHEN 2 THEN 'inativo'
+    END                                     AS status_kit
+
+FROM catalog_product_entity cpe_parent
+
+JOIN catalog_product_entity_varchar cpev1
+       ON cpev1.entity_id = cpe_parent.entity_id
+      AND cpev1.attribute_id = 321
+
+JOIN catalog_product_entity_varchar cpev_kit_name
+       ON cpev_kit_name.entity_id = cpe_parent.entity_id
+      AND cpev_kit_name.attribute_id = 73
+
+JOIN catalog_product_entity_varchar cpev_kit
+       ON cpev_kit.entity_id = cpev1.value
+      AND cpev_kit.attribute_id = 73
+
+JOIN catalog_product_entity_datetime cped_date
+       ON cped_date.entity_id = cpev1.value
+      AND cped_date.attribute_id = 195
+
+LEFT JOIN catalog_product_entity_int cpei_tipo
+       ON cpei_tipo.entity_id = cpe_parent.entity_id
+      AND cpei_tipo.attribute_id = (
+            SELECT attribute_id FROM eav_attribute 
+            WHERE attribute_code = 'tipo_categoria'
+            AND entity_type_id = (
+                SELECT entity_type_id FROM eav_entity_type 
+                WHERE entity_type_code = 'catalog_product'
+            )
+      )
+
+LEFT JOIN eav_attribute_option_value eaov_tipo
+       ON eaov_tipo.option_id = cpei_tipo.value
+
+JOIN catalog_product_bundle_option cpeo
+       ON cpeo.parent_id = cpe_parent.entity_id
+
+JOIN catalog_product_bundle_selection cpeos
+       ON cpeos.option_id = cpeo.option_id
+
+LEFT JOIN catalog_product_entity_varchar cpev_simple
+       ON cpev_simple.entity_id = cpeos.product_id
+      AND cpev_simple.attribute_id = 73
+
+LEFT JOIN catalog_product_entity_decimal cpep
+       ON cpep.entity_id = cpeos.product_id
+      AND cpep.attribute_id = 77
+
+-- Preço dos filhos simples: fallback para kits inativos
+LEFT JOIN catalog_product_index_price pi_filho
+       ON pi_filho.entity_id = cpeos.product_id
+      AND pi_filho.website_id = 1
+      AND pi_filho.customer_group_id = 0
+
+-- Preço do bundle pai: min_price já reflete catalog price rules ativas
+LEFT JOIN catalog_product_index_price pi_pai
+       ON pi_pai.entity_id = cpe_parent.entity_id
+      AND pi_pai.website_id = 1
+      AND pi_pai.customer_group_id = 0
+
+LEFT JOIN catalog_product_entity_event_lot_price lote
+       ON lote.entity_id = cpev1.value
+      AND lote.lot_id = (
+            SELECT lot_id
+            FROM catalog_product_entity_event_lot_price
+            WHERE entity_id = cpev1.value
+            ORDER BY record_id DESC
+            LIMIT 1
+      )
+
+LEFT JOIN catalog_product_entity_int cpei_status
+       ON cpei_status.entity_id = cpe_parent.entity_id
+      AND cpei_status.attribute_id = (
+            SELECT attribute_id 
+            FROM eav_attribute 
+            WHERE attribute_code = 'status'
+              AND entity_type_id = (
+                    SELECT entity_type_id 
+                    FROM eav_entity_type 
+                    WHERE entity_type_code = 'catalog_product'
+              )
+      )
+
+WHERE cpe_parent.type_id = 'bundle'
+  AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+  AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
+  AND cpev1.value = 54458
+
+GROUP BY
+    cpev1.value,
+    cpev_kit.value,
+    cpe_parent.entity_id,
+    cpev_kit_name.value,
+    eaov_tipo.value,
+    lote.lot_name,
+    lote.lot_value,
+    lote.lot_sell_ends,
+    pi_pai.min_price        -- necessário pois é coluna não agregada no COALESCE
+
+ORDER BY
+    cpev1.value,
+    special_price;
