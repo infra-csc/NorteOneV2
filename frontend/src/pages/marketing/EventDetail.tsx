@@ -2638,12 +2638,12 @@ const EventDetail: React.FC = () => {
             Análise de Ticket Médio
           </h3>
           {(() => {
-            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : event.averageTicket;
+            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : 0;
             return (
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
-              <span className="text-lg font-bold text-gray-900 dark:text-white">{ticketRef > 0 ? formatCurrency(ticketRef) : '—'}</span>
+              <span className={`text-lg font-bold ${ticketRef > 0 ? 'text-gray-900 dark:text-white' : 'text-amber-500 dark:text-amber-400'}`}>{ticketRef > 0 ? formatCurrency(ticketRef) : 'Não encontrado'}</span>
             </div>
             {ticketMedioRealizado > 0 && (
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
@@ -2728,7 +2728,7 @@ const EventDetail: React.FC = () => {
           )}
           {(() => {
             const kitCost = event.kitCostPerUnit || 0;
-            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : (event.averageTicket || 0);
+            const ticketRef = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : 0;
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
             const margemRealizadaTotal = margemRealizadaKits != null
               ? margemRealizadaKits
@@ -3209,7 +3209,7 @@ const EventDetail: React.FC = () => {
         </h3>
         {(() => {
           const kitCost = event.kitCostPerUnit || 0;
-          const ticketKitConfig = event.ticketAtual || event.averageTicket || 0;
+          const ticketKitConfig = event.ticketAtual || 0;
           const volBase = Math.max(volumeParaMeta, 0);
           const margemReal = margemRealizadaKits != null ? margemRealizadaKits : (event.margemRealizadaTotal || 0);
           const metaMargemGlobal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
