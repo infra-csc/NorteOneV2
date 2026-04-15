@@ -78,9 +78,10 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: usa min_price do bundle pai (já reflete catalog price rules ativas)
-    -- Fallback para pi_filho quando kit inativo (não indexado pelo Magento)
-    COALESCE(pi_pai.min_price, (
+    -- special_price: soma dos final_price dos filhos (reflete catalog price rules
+    -- ativas aplicadas a cada produto filho, sem usar min_price do bundle que
+    -- pode representar a configuração mais barata do bundle ao invés do preço real)
+    (
         MAX(CASE 
             WHEN (
                 cpev_simple.value LIKE '%Distancia%'
@@ -123,7 +124,7 @@ SELECT
              AND cpev_simple.value NOT LIKE '%Corrida +%'
             THEN pi_filho.final_price ELSE NULL 
         END), 0)
-    ))                                      AS special_price,
+    )                                       AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
@@ -223,8 +224,7 @@ GROUP BY
     eaov_tipo.value,
     lote.lot_name,
     lote.lot_value,
-    lote.lot_sell_ends,
-    pi_pai.min_price
+    lote.lot_sell_ends
 
 ORDER BY
     cpev1.value,
