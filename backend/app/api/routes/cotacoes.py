@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from ...core.database import get_db
-from ...core.security import get_current_user, require_permission
+from ...core.security import require_permission
 from ...models.user import Usuario
 from ...models.cotacao import ViagemCotacao, Cotacao, Fornecedor, CustoImportacao, CotacaoEvento, CotacaoFob
 from ...models.cadastro_evento import CadastroEvento

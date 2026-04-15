@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, selectinload
-from typing import List
+from typing import List, Optional
 from datetime import datetime, date
 from decimal import Decimal
 import threading
@@ -337,7 +337,7 @@ def db_to_list_response(cadastro: CadastroEvento) -> dict:
 def listar_cadastros(
     skip: int = 0,
     limit: int = 1000,
-    status: str = None,
+    status: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
@@ -443,14 +443,14 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
     if data.info_geral.data:
         try:
             data_evento = date.fromisoformat(data.info_geral.data)
-        except:
+        except (ValueError, TypeError):
             pass
     
     retirada_dt = None
     if data.retirada_kit.data_horario:
         try:
             retirada_dt = datetime.fromisoformat(data.retirada_kit.data_horario)
-        except:
+        except (ValueError, TypeError):
             pass
     
     cadastro = CadastroEvento(
@@ -516,7 +516,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
         if taxa.data_validacao:
             try:
                 data_validacao = date.fromisoformat(taxa.data_validacao)
-            except:
+            except (ValueError, TypeError):
                 pass
         
         db.add(CadastroTaxa(
@@ -640,7 +640,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         if data.info_geral.data:
             try:
                 cadastro.data_evento = date.fromisoformat(data.info_geral.data)
-            except:
+            except (ValueError, TypeError):
                 pass
         cadastro.horario_largada = data.info_geral.horario_largada
         cadastro.local = data.info_geral.local
@@ -677,7 +677,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         if data.retirada_kit.data_horario:
             try:
                 cadastro.retirada_kit_data_horario = datetime.fromisoformat(data.retirada_kit.data_horario)
-            except:
+            except (ValueError, TypeError):
                 pass
     
     if data.cortesias is not None and len(data.cortesias) > 0:
@@ -698,7 +698,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
             if taxa.data_validacao:
                 try:
                     data_validacao = date.fromisoformat(taxa.data_validacao)
-                except:
+                except (ValueError, TypeError):
                     pass
             db.add(CadastroTaxa(
                 cadastro_id=cadastro.id,

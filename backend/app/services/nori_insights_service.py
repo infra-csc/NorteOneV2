@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Optional
 from openai import AsyncOpenAI, RateLimitError, APIError

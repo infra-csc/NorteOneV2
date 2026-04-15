@@ -6,7 +6,7 @@ from datetime import date, timedelta, datetime as _datetime
 _CURRENT_YEAR = _datetime.now().year
 from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin
-from ...models.dimensoes import DimTempo, DimProjeto
+from ...models.dimensoes import DimProjeto
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from ...models.user import Usuario
 from ...models.perfil_acesso import PerfilPermissaoCampo

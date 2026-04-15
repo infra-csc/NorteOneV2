@@ -63,7 +63,7 @@ def _is_warmup_thread() -> bool:
         return _threading.current_thread().ident in _warmup_thread_ids
 
 def set_warmup_daily_cache(ativo_grouped: dict, magento_grouped: dict,
-                           cat_ativo_grouped: dict = None, cat_magento_grouped: dict = None):
+                           cat_ativo_grouped: Optional[dict] = None, cat_magento_grouped: Optional[dict] = None):
     with _warmup_daily_cache_lock:
         _warmup_daily_cache.clear()
         if ativo_grouped:
@@ -108,7 +108,7 @@ def _wq_sku_mappings_by_grupo_single_year(db: Session, grupo_nome: str, ano: int
     ).all()
 
 
-def _wq_sku_mappings_by_sku(db: Session, sku: str, anos: list = None):
+def _wq_sku_mappings_by_sku(db: Session, sku: str, anos: Optional[list] = None):
     if _is_warmup_thread():
         from app.core.cache import get_warmup_sku_mappings_by_sku
         cached = get_warmup_sku_mappings_by_sku(sku, anos)
@@ -123,7 +123,7 @@ def _wq_sku_mappings_by_sku(db: Session, sku: str, anos: list = None):
     return q.all()
 
 
-def _wq_sku_mappings_by_skus(db: Session, skus: list, anos: list = None):
+def _wq_sku_mappings_by_skus(db: Session, skus: list, anos: Optional[list] = None):
     if _is_warmup_thread():
         from app.core.cache import get_warmup_sku_mappings_by_sku
         result = []
@@ -908,7 +908,7 @@ def check_duplicate_action(db: Session, projeto_id: int, tipo: str) -> dict:
     return None
 
 
-def get_dias_encerramento(db: Session, projeto_id: int = None, cadastro: object = None) -> int:
+def get_dias_encerramento(db: Session, projeto_id: Optional[int] = None, cadastro: Optional[object] = None) -> int:
     if cadastro is not None:
         val = getattr(cadastro, 'dias_encerramento_inscricao', None)
         if val is not None:
@@ -923,7 +923,7 @@ def get_dias_encerramento(db: Session, projeto_id: int = None, cadastro: object 
             pass
     return 2
 
-def calculate_d_minus(event_date: date, reference_year: int = None, dias_encerramento: int = 2) -> int:
+def calculate_d_minus(event_date: date, reference_year: Optional[int] = None, dias_encerramento: int = 2) -> int:
     if not event_date:
         return 0
     registration_close = event_date - timedelta(days=dias_encerramento)
@@ -1004,11 +1004,11 @@ def _interpolate_hist_pattern(hist_pattern: dict, d_minus: int) -> float:
 
 
 def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int, 
-                              media_14d: float = None, daily_sales_dict: dict = None,
-                              media_7d: float = None, media_30d: float = None,
-                              hist_pattern: dict = None,
+                              media_14d: Optional[float] = None, daily_sales_dict: Optional[dict] = None,
+                              media_7d: Optional[float] = None, media_30d: Optional[float] = None,
+                              hist_pattern: Optional[dict] = None,
                               registration_close_date=None,
-                              curva_info: dict = None) -> ISCComponents:
+                              curva_info: Optional[dict] = None) -> ISCComponents:
     """
     registration_close_date: date of last day registrations were open (event_date - dias_enc).
     When provided and d_minus < 0 (past event), all rolling windows are anchored to this date
@@ -1257,7 +1257,7 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
     return pattern
 
 
-def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str = None) -> tuple:
+def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Optional[str] = None) -> tuple:
     """Resolve the best available historical curve for an event group using a fallback chain.
     
     Returns (pattern, curva_info) where curva_info is a dict with:
@@ -1388,7 +1388,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: str 
     }
 
 
-def _average_patterns(patterns: list, weights: list = None) -> dict:
+def _average_patterns(patterns: list, weights: Optional[list] = None) -> dict:
     """Average multiple hist_pattern dicts into one, optionally weighted."""
     all_dms = set()
     for p in patterns:
@@ -1424,11 +1424,10 @@ def _average_patterns(patterns: list, weights: list = None) -> dict:
     return avg
 
 
-def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: int = None, sales_goal: int = 1000, ano: int = None, evento_grupo: str = None, data_evento: date = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: date = None) -> list:
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: Optional[int] = None, sales_goal: int = 1000, ano: Optional[int] = None, evento_grupo: Optional[str] = None, data_evento: Optional[date] = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: Optional[date] = None) -> list:
     from ...services.snapshot_service import get_snapshot_vendas
     
     today = today_brazil()
-    yesterday = today - timedelta(days=1)
     if ano is None:
         ano = today.year
     
@@ -1824,7 +1823,7 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
     return costs
 
 
-def get_kit_breakdown_for_projetos(db: Session, projeto_ids: List[int], ano: int = None) -> dict:
+def get_kit_breakdown_for_projetos(db: Session, projeto_ids: List[int], ano: Optional[int] = None) -> dict:
     """
     Returns {projeto_id: [{tipoKit: str, custoKit: float|None}]} for ALL kit types
     registered in CadastroKitProduto for each projeto.
@@ -1945,11 +1944,11 @@ _MARGEM_REV_FAILURE_COOLDOWN_SECONDS = 1800  # 30 minutos
 def get_margem_por_kit(
     db: Session,
     projeto_ids: list,
-    ano: int = None,
-    card_total_qty: int = None,
-    card_total_receita: float = None,
-    card_kit_cost_avg: float = None,
-    avisos_out: list = None,
+    ano: Optional[int] = None,
+    card_total_qty: Optional[int] = None,
+    card_total_receita: Optional[float] = None,
+    card_kit_cost_avg: Optional[float] = None,
+    avisos_out: Optional[list] = None,
     force_refresh: bool = False,
     incluir_cortesias: bool = False,
 ) -> list:
@@ -2223,7 +2222,7 @@ def get_margem_por_kit(
                 if not force_refresh:
                     try:
                         from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBR
-                        from datetime import timezone as _tz, timedelta as _td
+                        from datetime import timezone as _tz
                         _snap_rows = db.query(_MBR).filter(
                             _MBR.bundle_entity_id.in_(bundle_ids)
                         ).all()
@@ -2323,7 +2322,7 @@ def get_margem_por_kit(
             import time as _time  # may not have been imported if primary block was skipped
 
             try:
-                _log_margem_magento_failed  # noqa: defined in primary block above, if reachable
+                _log_margem_magento_failed  # noqa: F821
             except NameError:
                 def _log_margem_magento_failed(e_exc, label=""):
                     _aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
@@ -2803,7 +2802,7 @@ GROUP BY sub.id_evento, sub.ds_categoria
 def get_detalhe_vendas_por_kit(
     db: Session,
     projeto_ids: list,
-    ano: int = None,
+    ano: Optional[int] = None,
     incluir_cortesias: bool = False,
 ) -> Optional[list]:
     """Breakdown detalhado de vendas Magento por kit/canal/modalidade/distância.
@@ -2875,7 +2874,7 @@ def get_detalhe_vendas_por_kit(
         return None
 
 
-def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int, cortesia_magento_ids: set = None) -> str:
+def build_query_isc_magento_detalhe(magento_event_ids: list, ano: int, cortesia_magento_ids: Optional[set] = None) -> str:
     """Returns SQL for detailed Magento sales by kit/canal/modalidade (V6).
 
     Returns rows grouped by: id_evento, evento, kit, tipo_categoria, distancia, canal, lote_atual, price, special_price.
@@ -3209,7 +3208,7 @@ ORDER BY b.id_evento, canal, inscritos DESC
 def get_detalhe_vendas_ativo(
     db: Session,
     projeto_ids: list,
-    ano: int = None,
+    ano: Optional[int] = None,
 ) -> list:
     """Breakdown detalhado de vendas Ativo por modalidade/categoria/canal (CORAÇÃO EVENTO)."""
     if not projeto_ids or db_module.engine_ssh is None:
@@ -3292,7 +3291,7 @@ _event_computing_lock = _threading_module.Lock()
 # are automatically detected as stale and recomputed in background (SWR pattern).
 _DETAIL_CACHE_VERSION = "11"  # v11: faixas_preco_site added to event detail response
 
-def build_query_isc_ativo(excluded_ids: list = None) -> str:
+def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
     if excluded_ids:
         ids_str = ", ".join(str(int(i)) for i in excluded_ids)
@@ -3390,7 +3389,7 @@ ORDER BY base.id_evento;
 """
 
 
-def build_query_isc_magento(excluded_ids: list = None, cortesia_magento_ids: set = None) -> str:
+def build_query_isc_magento(excluded_ids: Optional[list] = None, cortesia_magento_ids: Optional[set] = None) -> str:
     excl_clause = ""
     if excluded_ids:
         ids_str = ", ".join(str(i) for i in excluded_ids)
@@ -3527,14 +3526,14 @@ def fetch_isc_data_ativo():
     return _fetch_with_retry(db_module.engine_ssh, build_query_isc_ativo, "Ativo")
 
 
-def fetch_isc_data_magento(cortesia_magento_ids: set = None):
+def fetch_isc_data_magento(cortesia_magento_ids: Optional[set] = None):
     return _fetch_with_retry(db_module.engine_magento, lambda: build_query_isc_magento(cortesia_magento_ids=cortesia_magento_ids), "Magento")
 
 
 _isc_warnings = []
 
 
-def fetch_isc_pricing_data(db: Session = None, force_refresh: bool = False) -> dict:
+def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = False) -> dict:
     """
     Reads ISC totals and rolling averages from vendas_diaria_snapshot (PostgreSQL).
     No MySQL queries in the read path — data comes from the background auto-sync.
@@ -3799,7 +3798,7 @@ def get_isc_warnings() -> list:
 _sales_cache = {}
 _cache_timestamp = None
 
-def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: bool = False, db: Session = None) -> dict:
+def fetch_consolidated_sales_by_skus(skus: List[str], ano: int, apenas_site: bool = False, db: Optional[Session] = None) -> dict:
     """
     Busca vendas consolidadas (Ativo + Magento) para uma lista de SKUs.
     Usa cache para evitar queries repetidas.
@@ -5476,7 +5475,7 @@ ORDER BY sub.id_evento, sub.dia
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_magento_ids: set = None) -> dict:
+def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> dict:
     if not magento_event_ids:
         return {}
     cort_ids = cortesia_magento_ids or set()
@@ -5705,7 +5704,7 @@ GROUP BY sub.dia
         return {}
 
 
-def _fetch_today_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: set = None) -> dict:
+def _fetch_today_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> dict:
     if not magento_event_ids or db_module.engine_magento is None:
         return {}
     try:
@@ -5838,7 +5837,7 @@ GROUP BY sub.id_evento
         return {}
 
 
-def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: set = None) -> dict:
+def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
@@ -5930,7 +5929,7 @@ GROUP BY cpev1.value
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: set = None) -> list:
+def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> list:
     if not magento_event_ids:
         return []
     cort_ids = cortesia_magento_ids or set()
@@ -7196,10 +7195,8 @@ def get_evento_insights(
     all_dias = set(daily_atual.keys()) | set(daily_anterior.keys())
     if not all_dias:
         max_dias = 180
-        min_dias = 0
     else:
         max_dias = max(all_dias)
-        min_dias = min(d for d in all_dias if d >= 0) if any(d >= 0 for d in all_dias) else 0
 
     def _bucket_key(d: int) -> int:
         if d >= 0:
@@ -8986,7 +8983,7 @@ def refresh_all_caches(
 @router.get("/debug/snapshot-grupo")
 def debug_snapshot_grupo(
     grupo: str,
-    ano: int = None,
+    ano: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user),
 ):
@@ -8995,7 +8992,6 @@ def debug_snapshot_grupo(
     for a specific grupo, grouped by calendar year and date range.
     Useful for identifying pre-sale orders or data contamination.
     """
-    from sqlalchemy import func
     from app.models.vendas_snapshot import VendasDiariaSnapshot
     import datetime as _diag_dt
 
@@ -9432,7 +9428,7 @@ def calculate_pricing_metrics(
     average_ticket: float,
     kit_cost: float,
     total_capacity: int,
-    rolling_avg_14d_real: float = None,
+    rolling_avg_14d_real: Optional[float] = None,
     rolling_avg_14d_last_year: float = 0.0
 ) -> PricingMetrics:
     if d_minus <= 0:
@@ -10032,13 +10028,13 @@ def diagnostico_inscricoes(
         try:
             with db_module.engine_ssh.connect() as conn:
                 scenarios = [
-                    ("A1_site_fl1_status12", f"fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2)", "Site"),
-                    ("A2_site_nofl_status12", f"c.id_pedido_status IN (1, 2)", "Site"),
-                    ("A3_site_fl1_status123", f"fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2, 3)", "Site"),
-                    ("A4_site_nofl_status123", f"c.id_pedido_status IN (1, 2, 3)", "Site"),
-                    ("A5_todos_canais_fl1_status12", f"fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2)", None),
-                    ("A6_todos_canais_nofl_status12", f"c.id_pedido_status IN (1, 2)", None),
-                    ("A7_todos_canais_nofl_status123", f"c.id_pedido_status IN (1, 2, 3)", None),
+                    ("A1_site_fl1_status12", "fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2)", "Site"),
+                    ("A2_site_nofl_status12", "c.id_pedido_status IN (1, 2)", "Site"),
+                    ("A3_site_fl1_status123", "fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2, 3)", "Site"),
+                    ("A4_site_nofl_status123", "c.id_pedido_status IN (1, 2, 3)", "Site"),
+                    ("A5_todos_canais_fl1_status12", "fl_local_inscricao = '1' AND c.id_pedido_status IN (1, 2)", None),
+                    ("A6_todos_canais_nofl_status12", "c.id_pedido_status IN (1, 2)", None),
+                    ("A7_todos_canais_nofl_status123", "c.id_pedido_status IN (1, 2, 3)", None),
                 ]
                 for name, pedido_filter, canal_filter in scenarios:
                     canal_clause = f"AND {canal_case} = 'Site'" if canal_filter == "Site" else ""

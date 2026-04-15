@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from typing import List
+from typing import List, Optional
 from datetime import date
 from app.core.database import get_db
 from app.core.security import get_current_user, require_permission
@@ -570,7 +570,7 @@ def get_unconfigured_summary(
 def _invalidate_event_detail_for_bundle(
     db: Session,
     bundle_entity_id: int,
-    id_evento: int = None,
+    id_evento: Optional[int] = None,
 ) -> bool:
     """Invalidate only the event_detail cache entries affected by this bundle change.
 

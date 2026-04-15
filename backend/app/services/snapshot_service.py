@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot, MargemBundleRevSnapshot
@@ -8,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: date = None, data_fim: date = None) -> dict:
+def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None) -> dict:
     query = db.query(VendasDiariaSnapshot).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo
     )
@@ -24,7 +25,7 @@ def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: date = None
     return daily
 
 
-def get_snapshot_vendas_com_receita(db: Session, evento_grupo: str, data_inicio: date = None, data_fim: date = None) -> list:
+def get_snapshot_vendas_com_receita(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None) -> list:
     query = db.query(VendasDiariaSnapshot).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo
     )
@@ -94,7 +95,7 @@ def get_curva_historica_snapshot_with_meta(db: Session, evento_grupo: str, ano_r
     return pattern, origem
 
 
-def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: int = None, origem: str = None):
+def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: Optional[int] = None, origem: Optional[str] = None):
     db.query(CurvaHistoricaSnapshot).filter(
         CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
         CurvaHistoricaSnapshot.ano_referencia == ano_referencia
@@ -115,7 +116,7 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
     logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
 
 
-def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: date = None, data_fim: date = None):
+def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None):
     from ..api.routes.marketing import (
         _fetch_daily_sales_ativo_by_ids, _fetch_daily_sales_magento_by_ids,
         _get_cortesia_magento_ids
@@ -520,7 +521,6 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
     # not calendar year of the order). Falls back to a broad data_venda range that
     # includes typical pre-sale windows (up to 4 months before Jan 1) for rows written
     # by older code that stored ano=d.year instead of ano=event_edition_year.
-    year_start     = date(ano, 1, 1)
     year_end       = date(ano + 1, 1, 1)
     presale_start  = date(ano - 1, 9, 1)   # Sep 1 of previous year covers ~4-month pre-sale
 
@@ -723,7 +723,7 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     return {"status": "ok", "bundles_processados": len(bundle_ids_all), "bundles_com_receita": upserted}
 
 
-def backfill_historico(db: Session, ano: int, data_inicio: date = None, data_fim: date = None):
+def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None):
     from ..api.routes.marketing import _build_sku_to_grupo_map
 
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)

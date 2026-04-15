@@ -1,7 +1,6 @@
 import logging
 import threading
 import smtplib
-import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone
@@ -100,7 +99,7 @@ def _dispatch_alert_force(event_type: str, severity: str, message: str, detail: 
         if cfg is None:
             return
         now_brt = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M:%S BRT")
-        subject = f"[TESTE] Verificação dos canais de alerta"
+        subject = "[TESTE] Verificação dos canais de alerta"
         body_text = f"""Teste de Alerta
 ===============
 Este é um alerta de teste enviado manualmente.

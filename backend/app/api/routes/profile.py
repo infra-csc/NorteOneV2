@@ -1,12 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from ...core.database import get_db
 from ...core.security import get_current_user, verify_password, get_password_hash
 from ...models.user import Usuario
 import os
 import uuid
-import shutil
 
 router = APIRouter(prefix="/profile", tags=["Perfil"])
 

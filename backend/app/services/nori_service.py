@@ -117,7 +117,7 @@ Use formatação visual, emojis e seja entusiasmado!"""
             max_tokens=1200,
             temperature=0.7
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ""
     except RateLimitError:
         raise OpenAIQuotaError("A cota da API OpenAI foi excedida. Verifique os créditos da sua conta OpenAI.")
     except APIError as e:
@@ -151,7 +151,7 @@ async def chat_with_nori(message: str, context: Optional[list] = None, events_da
             max_tokens=900,
             temperature=0.7
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ""
     except RateLimitError:
         raise OpenAIQuotaError("A cota da API OpenAI foi excedida. Verifique os créditos da sua conta OpenAI.")
     except APIError as e:
@@ -225,7 +225,7 @@ def get_greeting() -> str:
     try:
         br_tz = pytz.timezone('America/Sao_Paulo')
         hour = datetime.now(br_tz).hour
-    except:
+    except Exception:
         hour = datetime.now().hour
     
     if hour < 12:

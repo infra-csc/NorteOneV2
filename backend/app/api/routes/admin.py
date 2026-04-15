@@ -1,10 +1,9 @@
-import json
 from datetime import datetime, date
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc
-from typing import Optional, List
+from typing import Optional
 from ...core.database import get_db
 from ...core.security import require_permission
 from ...models.user import Usuario
@@ -188,7 +187,6 @@ def get_health_events(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
-    from sqlalchemy import func as sqlfunc
     from ...models.system_health import SystemHealthEvent
     query = db.query(SystemHealthEvent).order_by(desc(SystemHealthEvent.created_at))
     if severity:
@@ -400,7 +398,7 @@ def test_alert(
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
     from app.services.health_alert_service import log_event, _dispatch_alert_force
-    event_id = log_event(
+    log_event(
         event_type="TEST",
         severity="INFO",
         message="Teste de alerta enviado manualmente",
