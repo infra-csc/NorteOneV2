@@ -737,7 +737,7 @@ _PLAYBOOK: dict = {
         "narrative": "\"Quem se antecipa, vive a experiência completa.\"",
         "actions": ["Subir +R$2 a +R$3", "Conteúdo de experiência (vibe, percurso)", "Prova social leve e orgânica", "Zero urgência / zero cupom"],
         "kpis": ["Rolling 14 estável ou crescente"],
-        "cutoffs": ["D-70", "D-50"],
+        "cutoffs": ["D-65", "D-50"],
     },
     ("analitico", "estavel"): {
         "letter": "A2", "name": "Consolidação de Narrativa",
@@ -747,7 +747,7 @@ _PLAYBOOK: dict = {
         "narrative": "\"Esse é o evento que representa a cidade / comunidade.\"",
         "actions": ["Conteúdo de cultura, percurso e pertencimento", "Ativação com assessorias", "Presença consistente nos canais"],
         "kpis": ["IA 7/30 > 1,00"],
-        "cutoffs": ["D-70", "D-50"],
+        "cutoffs": ["D-65", "D-50"],
     },
     ("analitico", "fraco"): {
         "letter": "A3", "name": "Socorro Precoce (sem desconto público)",
@@ -757,7 +757,7 @@ _PLAYBOOK: dict = {
         "narrative": "\"Você faz parte desse movimento.\"",
         "actions": ["Ativação com grupos / assessorias locais", "Embaixadores reais", "Incentivo privado (CRM / grupos)"],
         "kpis": ["IA 7/30 reage (>1,00)"],
-        "cutoffs": ["D-70", "D-50"],
+        "cutoffs": ["D-65", "D-50"],
     },
     ("estrategico", "forte"): {
         "letter": "E1", "name": "Confirmação de Valor / Escala Moderada",
@@ -3974,9 +3974,9 @@ def get_playbook():
             entries.append({**entry, "stageInfo": stage, "iscInfo": isc})
     return {"stages": stages, "iscStates": isc_states, "entries": entries}
 
-_CUTOFF_VALUES = [70, 50, 45, 35, 30, 15, 7]
-_CUTOFF_ESTAGIO = {70: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional", 7: "final"}
-_CUTOFF_ESTAGIO_LABEL = {70: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional", 7: "Final"}
+_CUTOFF_VALUES = [65, 50, 45, 35, 30, 15, 7]
+_CUTOFF_ESTAGIO = {65: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional", 7: "final"}
+_CUTOFF_ESTAGIO_LABEL = {65: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional", 7: "Final"}
 
 def _match_cutoff_with_weekend(d_minus: int) -> int | None:
     if d_minus in _CUTOFF_VALUES:

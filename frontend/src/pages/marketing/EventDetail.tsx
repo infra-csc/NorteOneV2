@@ -519,7 +519,7 @@ const EventDetail: React.FC = () => {
 
   const getActionCutoffInfo = (dMinus: number): { ponto_corte: string; estagio: string } => {
     if (dMinus >= 50) {
-      return { ponto_corte: dMinus >= 70 ? 'D-70' : 'D-50', estagio: 'analitico' };
+      return { ponto_corte: dMinus >= 65 ? 'D-65' : 'D-50', estagio: 'analitico' };
     } else if (dMinus >= 32) {
       return { ponto_corte: dMinus >= 45 ? 'D-45' : 'D-35', estagio: 'estrategico' };
     } else {
@@ -1944,7 +1944,7 @@ const EventDetail: React.FC = () => {
         {!acoesColapsadas && (() => {
           const dInscricoes = event.dMinusInscricoes ?? event.dMinus ?? 999;
           const SLOTS = [
-            { ponto_corte: 'D-70', estagio: 'analitico', cutoffValue: 70, nextCutoff: 50 },
+            { ponto_corte: 'D-65', estagio: 'analitico', cutoffValue: 65, nextCutoff: 50 },
             { ponto_corte: 'D-50', estagio: 'analitico', cutoffValue: 50, nextCutoff: 45 },
             { ponto_corte: 'D-45', estagio: 'estrategico', cutoffValue: 45, nextCutoff: 35 },
             { ponto_corte: 'D-35', estagio: 'estrategico', cutoffValue: 35, nextCutoff: 30 },

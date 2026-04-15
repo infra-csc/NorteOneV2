@@ -98,7 +98,7 @@ const VALID_ZONE = ['all', 'accelerating', 'stable', 'decelerating'];
 const VALID_DMINUS = ['all', 'critical', '41-60', '61-90', '91-120', '120+'];
 
 const PLAYBOOK_CUTOFFS = [
-  { value: 70, label: 'D-70', stage: 'Analítico' },
+  { value: 65, label: 'D-65', stage: 'Analítico' },
   { value: 50, label: 'D-50', stage: 'Analítico' },
   { value: 45, label: 'D-45', stage: 'Estratégico' },
   { value: 35, label: 'D-35', stage: 'Estratégico' },
