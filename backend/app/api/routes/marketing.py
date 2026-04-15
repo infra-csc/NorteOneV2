@@ -428,18 +428,16 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
         return {}
 
-    # Build per-bundle: special_price_base, status_kit and nome_kit
     bundle_data: dict = {}
     for row in rows:
         row_dict = dict(zip(columns, row))
         bundle_id = int(row_dict["bundle_entity_id"])
-        sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
-        raw_mult = row_dict.get("multiplicador")
-        mult_sugerido = int(raw_mult) if raw_mult and int(raw_mult) > 0 else 1
-        sp_base = (sp / mult_sugerido) if sp is not None else None
+        price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
+        sp_val = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
+        base = price_val if price_val is not None else sp_val
         status_kit = row_dict.get("status_kit")
         nome_kit = row_dict.get("nome_kit")
-        bundle_data[bundle_id] = {"sp_base": sp_base, "status_kit": status_kit, "nome_kit": nome_kit}
+        bundle_data[bundle_id] = {"sp_base": base, "status_kit": status_kit, "nome_kit": nome_kit}
 
     # Separate basic configs and promo configs per event
     # promo_principal_by_evento: explicit flag takes top priority
@@ -2049,7 +2047,7 @@ def get_margem_por_kit(
         import datetime as _dt
         _ano = ano if ano else _dt.datetime.now().year
 
-        # Fetch ticket_atual (special_price) per tipo_kit from Magento
+        # Fetch ticket_atual (price) per tipo_kit from Magento
         tipo_kit_ticket_atual: dict = {}
         if global_bundle_tipo_map and db_module.engine_magento is not None:
             from ..routes.kit_config import MAGENTO_KITS_QUERY
@@ -2063,27 +2061,25 @@ def get_margem_por_kit(
                     _mq_res = _conn_sp.execute(text(MAGENTO_KITS_QUERY))
                     _mq_rows = _mq_res.fetchall()
                     _mq_cols = list(_mq_res.keys())
-                _sp_by_bid: dict = {}
-                _msug_by_bid: dict = {}
+                _price_by_bid: dict = {}
                 for _r in _mq_rows:
                     _d = dict(zip(_mq_cols, _r))
                     _bid_v = _d.get("bundle_entity_id")
                     if _bid_v is None:
                         continue
                     _bid_i = int(_bid_v)
-                    if _bid_i not in _bid_set or _bid_i in _sp_by_bid:
+                    if _bid_i not in _bid_set or _bid_i in _price_by_bid:
                         continue
+                    _p_v = float(_d["price"]) if _d.get("price") is not None else None
                     _sp_v = float(_d["special_price"]) if _d.get("special_price") is not None else None
-                    _ms_v = int(_d.get("multiplicador") or 1) or 1
-                    if _sp_v is not None:
-                        _sp_by_bid[_bid_i] = _sp_v
-                        _msug_by_bid[_bid_i] = _ms_v
+                    _base_v = _p_v if _p_v is not None else _sp_v
+                    if _base_v is not None:
+                        _price_by_bid[_bid_i] = _base_v
                 for _bid_k, _tipo_k in global_bundle_tipo_map.items():
-                    _sp_k = _sp_by_bid.get(_bid_k)
-                    _ms_k = _msug_by_bid.get(_bid_k, 1)
+                    _p_k = _price_by_bid.get(_bid_k)
                     _mc_k = _kc_mult_by_bid.get(_bid_k, 1)
-                    if _sp_k is not None and _ms_k > 0:
-                        tipo_kit_ticket_atual[_tipo_k] = round((_sp_k / _ms_k) * _mc_k, 2)
+                    if _p_k is not None:
+                        tipo_kit_ticket_atual[_tipo_k] = round(_p_k * _mc_k, 2)
             except Exception as _e_sp:
                 logger.warning(f"Erro ao buscar special_price por tipo de kit: {_e_sp}")
 
