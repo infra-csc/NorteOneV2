@@ -703,6 +703,14 @@ export interface MarketingEvent {
     margemTotal: number;
   }> | null;
   margemAvisos?: string[] | null;
+  consistencyWarning?: {
+    totalIsc: number;
+    totalMargem: number;
+    diff: number;
+    diffAbs: number;
+    diffPct: number;
+    tolerance: number;
+  } | null;
   detalheVendasPorKit?: Array<{
     kit: string;
     tipoCategoria: string | null;

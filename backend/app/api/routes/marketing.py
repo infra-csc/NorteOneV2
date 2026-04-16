@@ -668,6 +668,7 @@ class MarketingEvent(BaseModel):
     ticketKitNome: Optional[str] = None
     margemPorKit: Optional[List[dict]] = None
     margemAvisos: Optional[List[str]] = None
+    consistencyWarning: Optional[dict] = None
     detalheVendasPorKit: Optional[List[dict]] = None
     detalheVendasAtivoKit: Optional[List[dict]] = None
     kitQueryFailed: bool = False
@@ -1939,6 +1940,36 @@ _MARGEM_REV_TTL_SECONDS = 14400  # 4 horas
 # a query já falhou recentemente (ex: timeout). Após o cooldown, tenta novamente.
 _margem_rev_failure_cache: dict = {}  # frozenset(bundle_ids) → timestamp da última falha
 _MARGEM_REV_FAILURE_COOLDOWN_SECONDS = 1800  # 30 minutos
+
+
+def _build_consistency_warning(total_isc: Optional[int], margem_por_kit: Optional[list]) -> Optional[dict]:
+    """
+    Compara total de inscrições do card ISC com a soma da tabela Margem por Tipo de Kit.
+    Retorna um dict de aviso quando a diferença excede a tolerância (2% ou 20 inscrições).
+    """
+    try:
+        if not margem_por_kit or not total_isc or total_isc <= 0:
+            return None
+        total_margem = sum(int(row.get("qtd", 0) or 0) for row in margem_por_kit)
+        if total_margem <= 0:
+            return None
+        diff = total_isc - total_margem
+        abs_diff = abs(diff)
+        diff_pct = (abs_diff / total_isc) * 100 if total_isc else 0.0
+        tolerance_abs = max(20, int(total_isc * 0.02))
+        if abs_diff <= tolerance_abs:
+            return None
+        return {
+            "totalIsc": int(total_isc),
+            "totalMargem": int(total_margem),
+            "diff": int(diff),
+            "diffAbs": int(abs_diff),
+            "diffPct": round(diff_pct, 2),
+            "tolerance": int(tolerance_abs),
+        }
+    except Exception as _e:
+        logger.warning(f"[Consistency] falha ao calcular aviso: {_e}")
+        return None
 
 
 def get_margem_por_kit(
@@ -8279,6 +8310,7 @@ def get_marketing_event_by_id(
             force_refresh=force_refresh,
             incluir_cortesias=_grupo_incluir_cortesias,
         )
+        detail_consistency_warning = _build_consistency_warning(current_sales, detail_margem_por_kit)
         detail_detalhe_vendas = []
         detail_kit_query_failed = False
         if detail_regime == "consolidated":
@@ -8309,6 +8341,7 @@ def get_marketing_event_by_id(
             ticketKitNome=detail_ticket_kit_nome,
             margemPorKit=detail_margem_por_kit if detail_margem_por_kit else None,
             margemAvisos=_detail_margem_avisos if _detail_margem_avisos else None,
+            consistencyWarning=detail_consistency_warning,
             kitQueryFailed=detail_kit_query_failed,
             detalheVendasPorKit=detail_detalhe_vendas if detail_detalhe_vendas else None,
             detalheVendasAtivoKit=detail_detalhe_ativo if detail_detalhe_ativo else None,
@@ -8727,6 +8760,7 @@ def get_marketing_event_by_id(
         ticketKitNome=sa_detail_ticket_kit_nome,
         margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
         margemAvisos=_sa_margem_avisos if _sa_margem_avisos else None,
+        consistencyWarning=_build_consistency_warning(current_sales, sa_margem_por_kit),
         kitQueryFailed=sa_kit_query_failed,
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,
         detalheVendasAtivoKit=sa_detalhe_ativo if sa_detalhe_ativo else None,
