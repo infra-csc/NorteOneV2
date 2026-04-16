@@ -345,13 +345,13 @@ const CotacoesImportacao: React.FC = () => {
                           <span className="font-semibold text-emerald-500">$ {fmt(item.valor_fob)}</span>
                         </td>
                         <td className={`py-2.5 px-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {item.indice_importacao != null ? fmtDec(item.indice_importacao, 4) : '-'}
+                          {item.indice_importacao != null ? fmtDec(item.indice_importacao, 2) : '-'}
                         </td>
                         <td className={`py-2.5 px-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {item.bec != null ? `${fmtDec(item.bec, 2)}%` : '-'}
+                          {item.bec != null ? `${fmtDec(item.bec, 1)}%` : '-'}
                         </td>
                         <td className={`py-2.5 px-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {item.cotacao_cambio != null ? fmtDec(item.cotacao_cambio, 4) : '-'}
+                          {item.cotacao_cambio != null ? `R$ ${fmt(item.cotacao_cambio)}` : '-'}
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           {item.valor_brl ? (
@@ -446,11 +446,11 @@ const CotacoesImportacao: React.FC = () => {
                   <label className={labelClass}>Índice de Importação</label>
                   <input
                     type="number"
-                    step="0.0001"
+                    step="0.01"
                     min="0"
                     value={formIndice}
                     onChange={e => setFormIndice(e.target.value)}
-                    placeholder="0.0000"
+                    placeholder="0.00"
                     className={inputClass}
                   />
                 </div>
@@ -459,11 +459,11 @@ const CotacoesImportacao: React.FC = () => {
                   <div className="relative">
                     <input
                       type="number"
-                      step="0.01"
+                      step="0.1"
                       min="0"
                       value={formBec}
                       onChange={e => setFormBec(e.target.value)}
-                      placeholder="0.00"
+                      placeholder="0.0"
                       className={`${inputClass} pr-8`}
                     />
                     <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>%</span>
@@ -471,15 +471,18 @@ const CotacoesImportacao: React.FC = () => {
                 </div>
                 <div>
                   <label className={labelClass}>Cotação (USD/BRL)</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    min="0"
-                    value={formCotacao}
-                    onChange={e => setFormCotacao(e.target.value)}
-                    placeholder="0.0000"
-                    className={inputClass}
-                  />
+                  <div className="relative">
+                    <span className={`absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>R$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formCotacao}
+                      onChange={e => setFormCotacao(e.target.value)}
+                      placeholder="0,00"
+                      className={`${inputClass} pl-9`}
+                    />
+                  </div>
                 </div>
               </div>
 
