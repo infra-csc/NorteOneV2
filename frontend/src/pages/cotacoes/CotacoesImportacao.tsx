@@ -161,8 +161,9 @@ const CotacoesImportacao: React.FC = () => {
     setShowModal(true);
   };
 
-  const calcNacionalizado = (fob: number, indice: number, bec: number, cotacao: number): number => {
-    return fob * indice * cotacao + (bec * fob * cotacao);
+  const calcNacionalizado = (fob: number, indice: number, becPercent: number, cotacao: number): number => {
+    const becDecimal = becPercent / 100;
+    return fob * indice * cotacao + (becDecimal * fob * cotacao);
   };
 
   const handleSave = async () => {
@@ -347,7 +348,7 @@ const CotacoesImportacao: React.FC = () => {
                           {item.indice_importacao != null ? fmtDec(item.indice_importacao, 4) : '-'}
                         </td>
                         <td className={`py-2.5 px-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {item.bec != null ? fmtDec(item.bec, 4) : '-'}
+                          {item.bec != null ? `${fmtDec(item.bec, 2)}%` : '-'}
                         </td>
                         <td className={`py-2.5 px-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                           {item.cotacao_cambio != null ? fmtDec(item.cotacao_cambio, 4) : '-'}
@@ -454,16 +455,19 @@ const CotacoesImportacao: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className={labelClass}>BEC</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    min="0"
-                    value={formBec}
-                    onChange={e => setFormBec(e.target.value)}
-                    placeholder="0.0000"
-                    className={inputClass}
-                  />
+                  <label className={labelClass}>BEC (%)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formBec}
+                      onChange={e => setFormBec(e.target.value)}
+                      placeholder="0.00"
+                      className={`${inputClass} pr-8`}
+                    />
+                    <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>%</span>
+                  </div>
                 </div>
                 <div>
                   <label className={labelClass}>Cotação (USD/BRL)</label>

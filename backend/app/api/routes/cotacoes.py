@@ -714,9 +714,10 @@ def list_produtos_fob(
     return [r[0] for r in rows]
 
 
-def _calc_nacionalizado(fob: float, indice: float | None, bec: float | None, cotacao: float | None) -> float | None:
-    if fob is not None and indice is not None and bec is not None and cotacao is not None:
-        return round(fob * indice * cotacao + (bec * fob * cotacao), 4)
+def _calc_nacionalizado(fob: float, indice: float | None, bec_percent: float | None, cotacao: float | None) -> float | None:
+    if fob is not None and indice is not None and bec_percent is not None and cotacao is not None:
+        bec_decimal = bec_percent / 100
+        return round(fob * indice * cotacao + (bec_decimal * fob * cotacao), 4)
     return None
 
 
