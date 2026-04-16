@@ -227,6 +227,39 @@ const ProjecaoInscritos: React.FC = () => {
 
   const [expandedConsolidado, setExpandedConsolidado] = useState<Set<number>>(new Set());
 
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    variant: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  } | null>(null);
+
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (message: string, type: 'error' | 'success' = 'error') => {
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    setToast({ message, type });
+    toastTimeout.current = setTimeout(() => setToast(null), 4000);
+  };
+
+  const showConfirm = (opts: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    variant?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  }) => {
+    setConfirmModal({
+      title: opts.title,
+      message: opts.message,
+      confirmLabel: opts.confirmLabel || 'Confirmar',
+      variant: opts.variant || 'danger',
+      onConfirm: opts.onConfirm,
+    });
+  };
+
   const cardClass = `relative overflow-hidden rounded-2xl p-4 ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`;
   const inputClass = `w-full px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-blue-500`;
   const selectClass = `px-3 py-2 rounded-xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-blue-500`;
@@ -297,25 +330,41 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
-  const handleRestaurar = async (id: number) => {
-    if (!confirm('Deseja restaurar esta projeção?')) return;
-    try {
-      await projecaoService.restaurar(id);
-      loadLixeira();
-      loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Erro ao restaurar');
-    }
+  const handleRestaurar = (id: number) => {
+    showConfirm({
+      title: 'Restaurar projeção',
+      message: 'Deseja restaurar esta projeção? Ela voltará a aparecer na listagem principal.',
+      confirmLabel: 'Restaurar',
+      variant: 'info',
+      onConfirm: async () => {
+        try {
+          await projecaoService.restaurar(id);
+          loadLixeira();
+          loadData();
+          showToast('Projeção restaurada com sucesso', 'success');
+        } catch (error: any) {
+          showToast(error.response?.data?.detail || 'Erro ao restaurar');
+        }
+      },
+    });
   };
 
-  const handleDeletePermanente = async (id: number) => {
-    if (!confirm('ATENÇÃO: Esta ação é irreversível. Deseja excluir permanentemente esta projeção e todo seu histórico?')) return;
-    try {
-      await projecaoService.deletePermanente(id);
-      loadLixeira();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Erro ao excluir permanentemente');
-    }
+  const handleDeletePermanente = (id: number) => {
+    showConfirm({
+      title: 'Exclusão permanente',
+      message: 'ATENÇÃO: Esta ação é irreversível. A projeção e todo seu histórico serão excluídos permanentemente.',
+      confirmLabel: 'Excluir permanentemente',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await projecaoService.deletePermanente(id);
+          loadLixeira();
+          showToast('Projeção excluída permanentemente', 'success');
+        } catch (error: any) {
+          showToast(error.response?.data?.detail || 'Erro ao excluir permanentemente');
+        }
+      },
+    });
   };
 
   const handleExportar = async () => {
@@ -323,7 +372,7 @@ const ProjecaoInscritos: React.FC = () => {
       await projecaoService.exportar(buildFilters());
     } catch (error) {
       console.error('Erro ao exportar:', error);
-      alert('Erro ao exportar relatório');
+      showToast('Erro ao exportar relatório');
     }
   };
 
@@ -381,7 +430,7 @@ const ProjecaoInscritos: React.FC = () => {
       resetForm();
       loadData();
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Erro ao criar projeção');
+      showToast(error.response?.data?.detail || 'Erro ao criar projeção');
     }
   };
 
@@ -394,18 +443,26 @@ const ProjecaoInscritos: React.FC = () => {
       resetForm();
       loadData();
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Erro ao atualizar projeção');
+      showToast(error.response?.data?.detail || 'Erro ao atualizar projeção');
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Deseja realmente excluir esta projeção?')) return;
-    try {
-      await projecaoService.delete(id);
-      loadData();
-    } catch (error: any) {
-      alert(error.response?.data?.detail || 'Erro ao excluir');
-    }
+  const handleDelete = (id: number) => {
+    showConfirm({
+      title: 'Excluir projeção',
+      message: 'Deseja realmente excluir esta projeção? Ela será movida para a lixeira.',
+      confirmLabel: 'Excluir',
+      variant: 'warning',
+      onConfirm: async () => {
+        try {
+          await projecaoService.delete(id);
+          loadData();
+          showToast('Projeção excluída com sucesso', 'success');
+        } catch (error: any) {
+          showToast(error.response?.data?.detail || 'Erro ao excluir');
+        }
+      },
+    });
   };
 
   const openHistorico = async (p: Projecao) => {
@@ -446,7 +503,7 @@ const ProjecaoInscritos: React.FC = () => {
       setShowAtribuirModal(false);
       loadAreasDetail();
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Erro ao atribuir usuários');
+      showToast(error.response?.data?.detail || 'Erro ao atribuir usuários');
     }
   };
 
@@ -1248,6 +1305,88 @@ const ProjecaoInscritos: React.FC = () => {
                 Salvar Atribuições
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className={`p-3 rounded-xl shrink-0 ${
+                  confirmModal.variant === 'danger'
+                    ? 'bg-red-500/15'
+                    : confirmModal.variant === 'warning'
+                      ? 'bg-amber-500/15'
+                      : 'bg-blue-500/15'
+                }`}>
+                  <AlertTriangle className={`w-6 h-6 ${
+                    confirmModal.variant === 'danger'
+                      ? 'text-red-500'
+                      : confirmModal.variant === 'warning'
+                        ? 'text-amber-500'
+                        : 'text-blue-500'
+                  }`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    {confirmModal.title}
+                  </h3>
+                  <p className={`mt-2 text-sm leading-relaxed ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    {confirmModal.message}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className={`flex items-center justify-end gap-3 px-6 py-4 border-t ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+              <button
+                onClick={() => setConfirmModal(null)}
+                className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { confirmModal.onConfirm(); setConfirmModal(null); }}
+                className={`px-5 py-2.5 rounded-xl font-semibold text-sm text-white shadow-lg transition-all hover:scale-105 ${
+                  confirmModal.variant === 'danger'
+                    ? 'bg-gradient-to-r from-red-600 to-red-500 shadow-red-500/30 hover:shadow-red-500/50'
+                    : confirmModal.variant === 'warning'
+                      ? 'bg-gradient-to-r from-amber-600 to-orange-500 shadow-amber-500/30 hover:shadow-amber-500/50'
+                      : 'bg-gradient-to-r from-blue-600 to-cyan-500 shadow-blue-500/30 hover:shadow-blue-500/50'
+                }`}
+              >
+                {confirmModal.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[70] animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border ${
+            toast.type === 'error'
+              ? isDark ? 'bg-red-950/90 border-red-800/60 text-red-200' : 'bg-red-50 border-red-200 text-red-800'
+              : isDark ? 'bg-emerald-950/90 border-emerald-800/60 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          }`}>
+            {toast.type === 'error'
+              ? <AlertTriangle className="w-5 h-5 shrink-0" />
+              : <Check className="w-5 h-5 shrink-0" />
+            }
+            <span className="text-sm font-medium">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className={`p-1 rounded-lg transition-colors ${
+                toast.type === 'error'
+                  ? isDark ? 'hover:bg-red-800/50' : 'hover:bg-red-100'
+                  : isDark ? 'hover:bg-emerald-800/50' : 'hover:bg-emerald-100'
+              }`}
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
