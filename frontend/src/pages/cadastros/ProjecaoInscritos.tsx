@@ -215,7 +215,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [editingProjecao, setEditingProjecao] = useState<Projecao | null>(null);
   const [formEventoId, setFormEventoId] = useState<number | ''>('');
   const [formAreaId, setFormAreaId] = useState<number | ''>('');
-  const [formQuantidade, setFormQuantidade] = useState<number>(0);
+  const [formQuantidade, setFormQuantidade] = useState<string>('');
   const [eventoSearchTerm, setEventoSearchTerm] = useState('');
   const [showEventoDropdown, setShowEventoDropdown] = useState(false);
   const eventoDropdownRef = useRef<HTMLDivElement>(null);
@@ -422,12 +422,16 @@ const ProjecaoInscritos: React.FC = () => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formEventoId || !formAreaId) return;
+    const qty = parseInt(formQuantidade);
+    if (!formEventoId || !formAreaId || !qty || qty <= 0) {
+      showToast('Informe uma quantidade válida (maior que zero).');
+      return;
+    }
     try {
       await projecaoService.create({
         evento_id: formEventoId as number,
         area_projecao_id: formAreaId as number,
-        quantidade: formQuantidade,
+        quantidade: qty,
       });
       setShowCreateModal(false);
       resetForm();
@@ -439,9 +443,13 @@ const ProjecaoInscritos: React.FC = () => {
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingProjecao) return;
+    const qty = parseInt(formQuantidade);
+    if (!editingProjecao || !qty || qty <= 0) {
+      showToast('Informe uma quantidade válida (maior que zero).');
+      return;
+    }
     try {
-      await projecaoService.update(editingProjecao.id, { quantidade: formQuantidade });
+      await projecaoService.update(editingProjecao.id, { quantidade: qty });
       setEditingProjecao(null);
       resetForm();
       loadData();
@@ -481,13 +489,13 @@ const ProjecaoInscritos: React.FC = () => {
 
   const openEdit = (p: Projecao) => {
     setEditingProjecao(p);
-    setFormQuantidade(p.quantidade);
+    setFormQuantidade(String(p.quantidade));
   };
 
   const resetForm = () => {
     setFormEventoId('');
     setFormAreaId('');
-    setFormQuantidade(0);
+    setFormQuantidade('');
     setEventoSearchTerm('');
     setShowEventoDropdown(false);
   };
@@ -1172,9 +1180,10 @@ const ProjecaoInscritos: React.FC = () => {
                 <input
                   type="number"
                   value={formQuantidade}
-                  onChange={e => setFormQuantidade(parseInt(e.target.value) || 0)}
+                  onChange={e => setFormQuantidade(e.target.value)}
+                  placeholder="Ex: 150"
                   className={inputClass}
-                  min={0}
+                  min={1}
                   required
                 />
               </div>
@@ -1219,9 +1228,10 @@ const ProjecaoInscritos: React.FC = () => {
                 <input
                   type="number"
                   value={formQuantidade}
-                  onChange={e => setFormQuantidade(parseInt(e.target.value) || 0)}
+                  onChange={e => setFormQuantidade(e.target.value)}
+                  placeholder="Ex: 150"
                   className={inputClass}
-                  min={0}
+                  min={1}
                   required
                 />
               </div>
