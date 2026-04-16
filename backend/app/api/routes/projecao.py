@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sqlfunc, extract
 from typing import List, Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import logging
 
 from ...core.database import get_db
@@ -366,7 +367,7 @@ def delete_projecao(
     _record_history(db, projecao.id, "DELECAO", current_user.id,
                     campo="quantidade", anterior=str(projecao.quantidade), novo=None)
 
-    projecao.deleted_at = datetime.utcnow()
+    projecao.deleted_at = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
     projecao.updated_by = current_user.id
     db.commit()
     return {"message": "Projeção removida"}

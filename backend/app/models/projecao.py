@@ -1,7 +1,12 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from ..core.database import Base
+
+
+def _now_brasilia():
+    return datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
 
 
 class AreaProjecao(Base):
@@ -10,8 +15,8 @@ class AreaProjecao(Base):
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), unique=True, nullable=False)
     ativo = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
+    created_at = Column(DateTime, default=_now_brasilia)
+    updated_at = Column(DateTime, onupdate=_now_brasilia)
 
     usuarios = relationship("AreaProjecaoUsuario", back_populates="area", cascade="all, delete-orphan")
     projecoes = relationship("ProjecaoInscritos", back_populates="area_projecao")
@@ -23,7 +28,7 @@ class AreaProjecaoUsuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False)
     usuario_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=_now_brasilia)
 
     area = relationship("AreaProjecao", back_populates="usuarios")
     usuario = relationship("Usuario")
@@ -42,8 +47,8 @@ class ProjecaoInscritos(Base):
     quantidade = Column(Integer, nullable=False, default=0)
     created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, onupdate=func.now())
+    created_at = Column(DateTime, default=_now_brasilia)
+    updated_at = Column(DateTime, onupdate=_now_brasilia)
     deleted_at = Column(DateTime, nullable=True)
 
     evento = relationship("CadastroEvento")
@@ -63,7 +68,7 @@ class ProjecaoInscritosHistorico(Base):
     valor_anterior = Column(Text, nullable=True)
     valor_novo = Column(Text, nullable=True)
     usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
-    created_at = Column(DateTime, default=func.now())
+    created_at = Column(DateTime, default=_now_brasilia)
 
     projecao = relationship("ProjecaoInscritos", back_populates="historico")
     usuario = relationship("Usuario")
