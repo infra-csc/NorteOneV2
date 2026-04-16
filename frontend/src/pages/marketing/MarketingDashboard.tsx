@@ -269,7 +269,7 @@ const MarketingDashboard: React.FC = () => {
       setLoading(true);
       setLoadingTooLong(false);
       if (loadingTooLongTimerRef.current) clearTimeout(loadingTooLongTimerRef.current);
-      loadingTooLongTimerRef.current = setTimeout(() => setLoadingTooLong(true), 12000);
+      loadingTooLongTimerRef.current = setTimeout(() => setLoadingTooLong(true), 30000);
     }
 
     try {
