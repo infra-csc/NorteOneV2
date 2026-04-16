@@ -1959,8 +1959,13 @@ def get_margem_por_kit(
         return []
 
     try:
-        # 1. Custo por kit: mescla de TODOS os cadastros de todos os projetos
+        # 1. Cadastro do Evento → Kits & Produtos serve APENAS como fonte de custo
+        # por nome (auto-preenchimento). O nome dos kits exibidos e o custo final
+        # vêm do KitConfig (mapeamento). Aqui só montamos um dicionário
+        # {nome_kit -> custo_itens} para servir de fallback quando o KitConfig
+        # não tiver custo_kit preenchido.
         kit_map: dict = {}
+        cadastro_cost_by_name: dict = {}
 
         for pid in projeto_ids:
             cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == pid).first()
@@ -1983,16 +1988,12 @@ def get_margem_por_kit(
 
             for kc in kit_configs_db:
                 kit_name = (kc.kit or "").strip()
-                if not kit_name or kit_name in kit_map:
+                if not kit_name:
                     continue
                 cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kc.id, []))
-                kit_map[kit_name] = {
-                    "custo": cost,
-                    "ativo_categoria": kc.ativo_categoria,
-                    "qtd": 0,
-                    "receita": 0.0,
-                    "has_cost": True,
-                }
+                # Se o mesmo nome aparece em múltiplos projetos, preserva o primeiro custo > 0.
+                if kit_name not in cadastro_cost_by_name or (cost > 0 and cadastro_cost_by_name[kit_name] == 0):
+                    cadastro_cost_by_name[kit_name] = cost
 
         # 2. SKU mappings filtrados por ano para evitar contaminação entre edições
         proj_by_id = {
@@ -2042,6 +2043,29 @@ def get_margem_por_kit(
                         global_bundle_tipo_map[b.bundle_entity_id] = b.tipo_kit
                         if b.custo_kit is not None:
                             custo_kit_override[b.tipo_kit] = float(b.custo_kit)
+
+        # Seed kit_map com TODOS os tipo_kit do mapeamento (KitConfig), mesmo sem
+        # vendas. Assim o card lista exatamente os kits que o admin configurou.
+        # O custo vem do KitConfig.custo_kit; se nulo, cai no custo-por-nome do
+        # cadastro do evento (soma dos itens). Se nenhuma fonte tem valor, custo=0.
+        for _tipo_kit in set(global_bundle_tipo_map.values()):
+            if not _tipo_kit or _tipo_kit in kit_map:
+                continue
+            _seed_cost = 0.0
+            _seed_has_cost = False
+            if _tipo_kit in custo_kit_override:
+                _seed_cost = custo_kit_override[_tipo_kit]
+                _seed_has_cost = True
+            elif _tipo_kit in cadastro_cost_by_name:
+                _seed_cost = cadastro_cost_by_name[_tipo_kit]
+                _seed_has_cost = _seed_cost > 0
+            kit_map[_tipo_kit] = {
+                "custo": _seed_cost,
+                "ativo_categoria": None,
+                "qtd": 0,
+                "receita": 0.0,
+                "has_cost": _seed_has_cost,
+            }
 
         import datetime as _dt
         _ano = ano if ano else _dt.datetime.now().year
@@ -3333,7 +3357,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "12"  # v12: margem por kit prefere match mais específico (longest substring)
+_DETAIL_CACHE_VERSION = "13"  # v13: margem por kit seed só do KitConfig; Cadastro é fallback de custo
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
