@@ -604,6 +604,18 @@ const ProjecaoInscritos: React.FC = () => {
                 className={`${selectClass} pl-9 w-full`}
               />
             </div>
+            {(filterMes.length > 0 || filterTipoEvento.length > 0 || filterModalidade.length > 0 || filterArea.length > 0 || searchTerm) && (
+              <button
+                type="button"
+                onClick={() => { setFilterMes([]); setFilterTipoEvento([]); setFilterModalidade([]); setFilterArea([]); setSearchTerm(''); }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:scale-105 ${
+                  isDark ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                }`}
+              >
+                <X className="w-3.5 h-3.5" />
+                Limpar filtros
+              </button>
+            )}
           </div>
         )}
 
