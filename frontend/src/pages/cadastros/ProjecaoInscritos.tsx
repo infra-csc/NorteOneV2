@@ -216,6 +216,9 @@ const ProjecaoInscritos: React.FC = () => {
   const [formEventoId, setFormEventoId] = useState<number | ''>('');
   const [formAreaId, setFormAreaId] = useState<number | ''>('');
   const [formQuantidade, setFormQuantidade] = useState<number>(0);
+  const [eventoSearchTerm, setEventoSearchTerm] = useState('');
+  const [showEventoDropdown, setShowEventoDropdown] = useState(false);
+  const eventoDropdownRef = useRef<HTMLDivElement>(null);
 
   const [showHistorico, setShowHistorico] = useState(false);
   const [historico, setHistorico] = useState<HistoricoItem[]>([]);
@@ -485,7 +488,31 @@ const ProjecaoInscritos: React.FC = () => {
     setFormEventoId('');
     setFormAreaId('');
     setFormQuantidade(0);
+    setEventoSearchTerm('');
+    setShowEventoDropdown(false);
   };
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (eventoDropdownRef.current && !eventoDropdownRef.current.contains(e.target as Node)) {
+        setShowEventoDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filteredEventos = useMemo(() => {
+    if (!eventoSearchTerm) return eventos;
+    const term = eventoSearchTerm.toLowerCase();
+    return eventos.filter(ev => ev.nome.toLowerCase().includes(term));
+  }, [eventos, eventoSearchTerm]);
+
+  const selectedEventoNome = useMemo(() => {
+    if (!formEventoId) return '';
+    const ev = eventos.find(e => e.id === formEventoId);
+    return ev ? `${ev.nome}${ev.info_geral?.data ? ` (${formatDate(ev.info_geral.data)})` : ''}` : '';
+  }, [formEventoId, eventos]);
 
   const openAtribuir = (area: AreaDetail) => {
     setAtribuirArea(area);
@@ -1072,19 +1099,59 @@ const ProjecaoInscritos: React.FC = () => {
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Evento</label>
-                <select
-                  value={formEventoId}
-                  onChange={e => setFormEventoId(e.target.value ? parseInt(e.target.value) : '')}
-                  className={inputClass}
-                  required
-                >
-                  <option value="">Selecione um evento</option>
-                  {eventos.map(ev => (
-                    <option key={ev.id} value={ev.id}>
-                      {ev.nome} {ev.info_geral?.data ? `(${formatDate(ev.info_geral.data)})` : ''}
-                    </option>
-                  ))}
-                </select>
+                <div ref={eventoDropdownRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowEventoDropdown(!showEventoDropdown)}
+                    className={`${inputClass} text-left flex items-center justify-between`}
+                  >
+                    <span className={formEventoId ? '' : (isDark ? 'text-gray-500' : 'text-gray-400')}>
+                      {formEventoId ? selectedEventoNome : 'Selecione um evento'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${showEventoDropdown ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </button>
+                  {showEventoDropdown && (
+                    <div className={`absolute z-50 mt-1 w-full rounded-xl border shadow-xl overflow-hidden ${isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'}`}>
+                      <div className={`p-2 border-b ${isDark ? 'border-gray-700' : 'border-gray-100'}`}>
+                        <div className="relative">
+                          <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                          <input
+                            type="text"
+                            value={eventoSearchTerm}
+                            onChange={e => setEventoSearchTerm(e.target.value)}
+                            placeholder="Filtrar eventos..."
+                            className={`w-full pl-9 pr-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/50 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        {filteredEventos.length === 0 ? (
+                          <p className={`px-3 py-3 text-sm text-center ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</p>
+                        ) : (
+                          filteredEventos.map(ev => (
+                            <button
+                              key={ev.id}
+                              type="button"
+                              onClick={() => { setFormEventoId(ev.id); setShowEventoDropdown(false); setEventoSearchTerm(''); }}
+                              className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
+                                formEventoId === ev.id
+                                  ? isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-50 text-violet-700'
+                                  : isDark ? 'text-gray-300 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-50'
+                              }`}
+                            >
+                              <div className="font-medium">{ev.nome}</div>
+                              {ev.info_geral?.data && (
+                                <div className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{formatDate(ev.info_geral.data)}</div>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <input type="hidden" value={formEventoId} required />
+                </div>
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Área</label>
@@ -1198,21 +1265,23 @@ const ProjecaoInscritos: React.FC = () => {
                 <p className={`text-center py-8 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum registro no histórico</p>
               ) : (
                 <div className="space-y-4">
-                  {historico.map(h => (
+                  {historico.map(h => {
+                    const acaoConfig: Record<string, { bg: string; icon: React.ReactNode; label: string }> = {
+                      CRIACAO: { bg: 'bg-emerald-500/20', icon: <Plus className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />, label: 'Criação' },
+                      EDICAO: { bg: 'bg-amber-500/20', icon: <Pencil className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />, label: 'Edição' },
+                      DELECAO: { bg: 'bg-red-500/20', icon: <Trash2 className={`w-5 h-5 ${isDark ? 'text-red-400' : 'text-red-600'}`} />, label: 'Exclusão' },
+                      RESTAURACAO: { bg: 'bg-blue-500/20', icon: <RotateCcw className={`w-5 h-5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />, label: 'Restauração' },
+                    };
+                    const cfg = acaoConfig[h.acao] || acaoConfig.EDICAO;
+                    return (
                     <div key={h.id} className={`flex gap-4 p-4 rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-50'}`}>
-                      <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-                        h.acao === 'CRIACAO' ? 'bg-emerald-500/20' : 'bg-amber-500/20'
-                      }`}>
-                        {h.acao === 'CRIACAO' ? (
-                          <Plus className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                        ) : (
-                          <Pencil className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
-                        )}
+                      <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${cfg.bg}`}>
+                        {cfg.icon}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
                           <span className={`font-semibold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            {h.acao === 'CRIACAO' ? 'Criação' : 'Edição'}
+                            {cfg.label}
                           </span>
                           <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                             {formatDateTime(h.created_at)}
@@ -1232,7 +1301,8 @@ const ProjecaoInscritos: React.FC = () => {
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
