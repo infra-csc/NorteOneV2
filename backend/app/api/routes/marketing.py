@@ -2346,6 +2346,23 @@ AND    value        IN :ev_ids_fb
                     _pid_rows = _pid_conn.execute(_cpev1_q, {"ev_ids_fb": ev_ids_fb}).fetchall()
                 fb_bundle_ids = [int(r[0]) for r in _pid_rows]
                 logger.info(f"[Margem] fallback cpev1 prefetch: {len(ev_ids_fb)} ev_ids → {len(fb_bundle_ids)} bundle_ids")
+
+                # Exclui bundles que o usuário deflagou explicitamente no KitConfig
+                # (linha existe com tipo_kit=NULL). Sem este filtro, o matching por
+                # substring abaixo agrega bundles como "Kit Básico - 21k", "Kit Básico
+                # - 42k" e "Kit Básico - 5k" em uma única linha "Kit Básico", mesmo
+                # depois do usuário remover a flag.
+                if fb_bundle_ids:
+                    _deflagged_bids = {
+                        r[0] for r in db.query(KitConfig.bundle_entity_id).filter(
+                            KitConfig.bundle_entity_id.in_(fb_bundle_ids),
+                            KitConfig.tipo_kit.is_(None),
+                        ).all()
+                    }
+                    if _deflagged_bids:
+                        _before = len(fb_bundle_ids)
+                        fb_bundle_ids = [bid for bid in fb_bundle_ids if bid not in _deflagged_bids]
+                        logger.info(f"[Margem] fallback: excluídos {_before - len(fb_bundle_ids)} bundles deflagados (tipo_kit=NULL no KitConfig)")
             except Exception as _cpev1_err:
                 logger.warning(f"[Margem] fallback cpev1 prefetch falhou: {_cpev1_err}")
 
@@ -2472,6 +2489,15 @@ AND    value        IN :ev_ids_fb
         # cujos tipos de kit já têm dados são perdidas. Este bloco as recupera e acumula.
         if seen_magento_events and global_bundle_tipo_map and db_module.engine_magento is not None:
             _kc_bid_set = set(global_bundle_tipo_map.keys())
+            # Bundles deflagados explicitamente pelo usuário (linha existe no
+            # KitConfig com tipo_kit=NULL) também devem ser excluídos do bloco
+            # suplementar, caso contrário o matching por substring abaixo
+            # reagregaria as inscrições no kit que o usuário queria desclassificar.
+            _deflagged_bid_set = {
+                r[0] for r in db.query(KitConfig.bundle_entity_id).filter(
+                    KitConfig.tipo_kit.is_(None)
+                ).all()
+            }
             _supp_extra_bids: list = []
             try:
                 _cpev1_supp = text("""
@@ -2485,7 +2511,7 @@ AND    value        IN :ev_ids
                     _supp_extra_bids = [
                         int(r[0]) for r in
                         _csupp.execute(_cpev1_supp, {"ev_ids": list(seen_magento_events)}).fetchall()
-                        if int(r[0]) not in _kc_bid_set
+                        if int(r[0]) not in _kc_bid_set and int(r[0]) not in _deflagged_bid_set
                     ]
                 if _supp_extra_bids:
                     logger.info(f"[Margem] supplementary: {len(seen_magento_events)} ev_ids → {len(_supp_extra_bids)} bundles extras fora do KitConfig")
