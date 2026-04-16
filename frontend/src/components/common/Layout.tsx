@@ -41,6 +41,7 @@ const menuItems = [
   { path: '/nori', icon: Sparkles, label: 'Nori - Assistente', modulo: 'nori' },
   { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas', modulo: 'categorias_atletas' },
   { path: '/cadastros/eventos', icon: Target, label: 'Eventos', modulo: 'eventos' },
+  { path: '/projecao-inscritos', icon: BarChart3, label: 'Projeção Inscritos', modulo: 'projecao_inscritos' },
 ];
 
 const cotacaoItems = [

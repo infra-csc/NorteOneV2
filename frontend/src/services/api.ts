@@ -1218,4 +1218,47 @@ export const profileService = {
   },
 };
 
+export const projecaoService = {
+  listAreas: async () => {
+    const response = await api.get('/projecao/areas');
+    return response.data;
+  },
+  listAreasDetail: async () => {
+    const response = await api.get('/projecao/areas/detail');
+    return response.data;
+  },
+  atribuirUsuarios: async (data: { area_projecao_id: number; usuario_ids: number[] }) => {
+    const response = await api.post('/projecao/areas/atribuir', data);
+    return response.data;
+  },
+  minhasAreas: async () => {
+    const response = await api.get('/projecao/minhas-areas');
+    return response.data;
+  },
+  list: async (params?: { mes?: number; tipo_evento?: string; area_projecao_id?: number; evento_id?: number }) => {
+    const response = await api.get('/projecao/', { params });
+    return response.data;
+  },
+  create: async (data: { evento_id: number; area_projecao_id: number; quantidade: number }) => {
+    const response = await api.post('/projecao/', data);
+    return response.data;
+  },
+  update: async (id: number, data: { quantidade: number }) => {
+    const response = await api.put(`/projecao/${id}`, data);
+    return response.data;
+  },
+  delete: async (id: number) => {
+    const response = await api.delete(`/projecao/${id}`);
+    return response.data;
+  },
+  getHistorico: async (id: number) => {
+    const response = await api.get(`/projecao/${id}/historico`);
+    return response.data;
+  },
+  getConsolidado: async (params?: { mes?: number; tipo_evento?: string; evento_id?: number }) => {
+    const response = await api.get('/projecao/consolidado', { params });
+    return response.data;
+  },
+};
+
 export default api;

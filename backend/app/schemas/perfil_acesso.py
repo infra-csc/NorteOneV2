@@ -18,6 +18,7 @@ MODULOS_SISTEMA = [
     {"key": "admin_usuarios", "label": "Admin - Usuários"},
     {"key": "admin_centros_custo", "label": "Admin - Centros de Custo"},
     {"key": "admin_contas", "label": "Admin - Contas"},
+    {"key": "projecao_inscritos", "label": "Projeção de Inscritos"},
     {"key": "admin_perfis_acesso", "label": "Admin - Perfis de Acesso"},
     {"key": "cotacoes_importacao", "label": "Cotação & Importação"},
     {"key": "admin_monitoramento", "label": "Admin - Monitoramento"},

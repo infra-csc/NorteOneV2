@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import os
 import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, stop_ssh_watchdog, engine_ssh
-from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile, projecao
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
@@ -885,7 +885,8 @@ def seed_admin_user():
             modulos = [
                 "admin_usuarios", "centro_custo", "categorias_atletas",
                 "projetos", "dashboard", "tarefas", "cadastro_eventos",
-                "marketing", "sku_mappings", "perfil_acesso", "cotacoes"
+                "marketing", "sku_mappings", "perfil_acesso", "cotacoes",
+                "projecao_inscritos"
             ]
             for modulo in modulos:
                 perm = PerfilPermissao(
@@ -1042,6 +1043,53 @@ def _run_column_migrations():
             """,
             "ALTER TABLE acoes_comerciais DROP CONSTRAINT IF EXISTS check_tipo_acao",
             "ALTER TABLE acoes_comerciais ADD CONSTRAINT check_tipo_acao CHECK (tipo IN ('AUMENTO_PRECO', 'REDUCAO_PRECO', 'PROMOCAO', 'CAMPANHA', 'COMUNICACAO', 'NENHUMA_ACAO', 'OUTROS'))",
+            """
+            CREATE TABLE IF NOT EXISTS area_projecao (
+                id SERIAL PRIMARY KEY,
+                nome VARCHAR(100) UNIQUE NOT NULL,
+                ativo BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS area_projecao_usuario (
+                id SERIAL PRIMARY KEY,
+                area_projecao_id INTEGER NOT NULL REFERENCES area_projecao(id) ON DELETE CASCADE,
+                usuario_id INTEGER NOT NULL REFERENCES dim_usuario(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                CONSTRAINT uq_area_usuario UNIQUE (area_projecao_id, usuario_id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS projecao_inscritos (
+                id SERIAL PRIMARY KEY,
+                evento_id INTEGER NOT NULL REFERENCES cadastro_evento(id) ON DELETE CASCADE,
+                area_projecao_id INTEGER NOT NULL REFERENCES area_projecao(id) ON DELETE CASCADE,
+                quantidade INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER NOT NULL REFERENCES dim_usuario(id),
+                updated_by INTEGER REFERENCES dim_usuario(id),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP,
+                CONSTRAINT uq_evento_area_projecao UNIQUE (evento_id, area_projecao_id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS projecao_inscritos_historico (
+                id SERIAL PRIMARY KEY,
+                projecao_id INTEGER NOT NULL REFERENCES projecao_inscritos(id) ON DELETE CASCADE,
+                acao VARCHAR(20) NOT NULL,
+                campo_alterado VARCHAR(50),
+                valor_anterior TEXT,
+                valor_novo TEXT,
+                usuario_id INTEGER NOT NULL REFERENCES dim_usuario(id),
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_projecao_evento ON projecao_inscritos (evento_id)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_area ON projecao_inscritos (area_projecao_id)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_hist_projecao ON projecao_inscritos_historico (projecao_id)",
+            "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
@@ -1072,6 +1120,31 @@ def _run_column_migrations():
         logger.info("Column migrations completed")
     except Exception as e:
         logger.error(f"Column migrations failed: {e}")
+
+def _seed_areas_projecao():
+    from app.core.database import SessionLocal
+    try:
+        db = SessionLocal()
+        areas_padrao = [
+            "Atendimento",
+            "Marketing",
+            "Relações Institucionais",
+            "Company",
+            "Comercial",
+            "Cortesia RH",
+            "Relações Institucionais - Sem Kit",
+            "Company - Sem Kit",
+        ]
+        for nome in areas_padrao:
+            exists = db.execute(text("SELECT id FROM area_projecao WHERE nome = :nome"), {"nome": nome}).fetchone()
+            if not exists:
+                db.execute(text("INSERT INTO area_projecao (nome, ativo) VALUES (:nome, TRUE)"), {"nome": nome})
+        db.commit()
+        db.close()
+        logger.info(f"Seed áreas de projeção: {len(areas_padrao)} áreas verificadas/criadas")
+    except Exception as e:
+        logger.error(f"Seed áreas de projeção failed: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1114,11 +1187,13 @@ async def lifespan(app: FastAPI):
         try:
             from app.models import nori_insights as _ni_models  # noqa: F401 — ensure table is registered
             from app.models import system_health as _sh_models  # noqa: F401 — ensure health tables are registered
+            from app.models import projecao as _proj_models  # noqa: F401 — ensure projecao tables are registered
             if engine:
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()
             seed_admin_user()
             _seed_kit_config()
+            _seed_areas_projecao()
         except Exception as e:
             logger.error(f"Schema/seed setup failed: {e}")
 
@@ -1468,6 +1543,7 @@ app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importaç
 app.include_router(admin.router, tags=["Admin"])
 app.include_router(kit_config.router, tags=["Kit Config"])
 app.include_router(profile.router, prefix="/api", tags=["Perfil"])
+app.include_router(projecao.router, prefix="/api", tags=["Projeção de Inscritos"])
 
 @app.get("/api/health")
 async def health_check():
