@@ -221,12 +221,12 @@ def create_projecao(
     if not area:
         raise HTTPException(status_code=404, detail="Área de projeção não encontrada")
 
-    existing = db.query(ProjecaoInscritos).filter(
+    existing_active = db.query(ProjecaoInscritos).filter(
         ProjecaoInscritos.evento_id == data.evento_id,
         ProjecaoInscritos.area_projecao_id == data.area_projecao_id,
         ProjecaoInscritos.deleted_at.is_(None),
     ).first()
-    if existing:
+    if existing_active:
         raise HTTPException(status_code=409, detail="Já existe uma projeção para este evento e área")
 
     projecao = ProjecaoInscritos(

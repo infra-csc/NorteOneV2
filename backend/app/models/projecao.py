@@ -52,10 +52,6 @@ class ProjecaoInscritos(Base):
     editor = relationship("Usuario", foreign_keys=[updated_by])
     historico = relationship("ProjecaoInscritosHistorico", back_populates="projecao")
 
-    __table_args__ = (
-        UniqueConstraint("evento_id", "area_projecao_id", name="uq_evento_area_projecao"),
-    )
-
 
 class ProjecaoInscritosHistorico(Base):
     __tablename__ = "projecao_inscritos_historico"

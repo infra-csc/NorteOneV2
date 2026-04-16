@@ -1090,6 +1090,8 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_projecao_area ON projecao_inscritos (area_projecao_id)",
             "CREATE INDEX IF NOT EXISTS ix_projecao_hist_projecao ON projecao_inscritos_historico (projecao_id)",
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+            "ALTER TABLE projecao_inscritos DROP CONSTRAINT IF EXISTS uq_evento_area_projecao",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_evento_area_projecao_active ON projecao_inscritos (evento_id, area_projecao_id) WHERE deleted_at IS NULL",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

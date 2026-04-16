@@ -73,6 +73,7 @@ interface SimpleUser {
   id: number;
   nome: string;
   email: string;
+  ativo?: boolean;
 }
 
 const meses = [
@@ -820,7 +821,7 @@ const ProjecaoInscritos: React.FC = () => {
               </p>
               <div className="space-y-2">
                 {allUsers
-                  .filter(u => (u as any).ativo !== false)
+                  .filter(u => u.ativo !== false)
                   .map(u => (
                   <label
                     key={u.id}
