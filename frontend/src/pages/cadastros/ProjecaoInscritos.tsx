@@ -587,7 +587,6 @@ const ProjecaoInscritos: React.FC = () => {
                 {/* Event Cards */}
                 <div className="space-y-4">
                   {filteredConsolidado.map(c => {
-                    const pctReal = c.total_geral > 0 ? (c.inscritos_reais / c.total_geral) * 100 : 0;
                     const isExpanded = expandedConsolidado.has(c.evento_id);
                     const maxAreaQtd = Math.max(...c.projecoes.map(p => p.quantidade), 1);
 
@@ -596,7 +595,7 @@ const ProjecaoInscritos: React.FC = () => {
                         key={c.evento_id}
                         className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50 hover:border-gray-600/70' : 'bg-white/80 backdrop-blur-xl border border-gray-200 shadow-sm hover:shadow-md'}`}
                       >
-                        <div className={`absolute top-0 left-0 h-full w-1 bg-gradient-to-b ${pctReal >= 50 ? 'from-emerald-400 to-teal-500' : 'from-amber-400 to-orange-500'}`} />
+                        <div className="absolute top-0 left-0 h-full w-1 bg-gradient-to-b from-violet-400 to-blue-500" />
 
                         <div
                           className="cursor-pointer p-5 pl-6"
@@ -639,20 +638,6 @@ const ProjecaoInscritos: React.FC = () => {
                                 </div>
                               </div>
 
-                              <div className="mt-4 max-w-xl">
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Participação real</span>
-                                  <span className={`text-xs font-bold ${pctReal >= 50 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-amber-400' : 'text-amber-600')}`}>
-                                    {pctReal.toFixed(1)}%
-                                  </span>
-                                </div>
-                                <div className={`h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/70' : 'bg-gray-200'}`}>
-                                  <div
-                                    className={`h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r ${pctReal >= 50 ? 'from-emerald-400 to-teal-500' : 'from-amber-400 to-orange-500'}`}
-                                    style={{ width: `${Math.min(pctReal, 100)}%` }}
-                                  />
-                                </div>
-                              </div>
                             </div>
 
                             <button className={`mt-1 p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-gray-700/50 text-gray-400' : 'hover:bg-gray-100 text-gray-400'}`}>
