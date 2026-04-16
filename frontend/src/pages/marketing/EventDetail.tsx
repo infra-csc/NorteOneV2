@@ -82,6 +82,30 @@ interface ExtendedEvent extends MarketingEvent {
   commercialActions?: CommercialAction[];
 }
 
+const mapEventResponseToActions = (actions: any[]): CommercialAction[] =>
+  actions.map((a: any) => ({
+    id: a.id,
+    tipo: a.tipo,
+    type: a.type as CommercialAction['type'],
+    description: a.description,
+    date: a.date,
+    impact: a.impact,
+    vendas_antes: a.vendas_antes,
+    vendas_depois: a.vendas_depois,
+    impacto_percentual: a.impacto_percentual,
+    status_impacto: a.status_impacto,
+    ponto_corte: a.ponto_corte,
+    estagio: a.estagio,
+    snapshot_isc: a.snapshot_isc,
+    snapshot_isc_state: a.snapshot_isc_state,
+    snapshot_d_minus: a.snapshot_d_minus,
+    snapshot_ia730: a.snapshot_ia730,
+    snapshot_rolling14d: a.snapshot_rolling14d,
+    snapshot_curva_percent: a.snapshot_curva_percent,
+    snapshot_vendas_acumuladas: a.snapshot_vendas_acumuladas,
+    snapshot_playbook_letter: a.snapshot_playbook_letter,
+  }));
+
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -529,30 +553,6 @@ const EventDetail: React.FC = () => {
       return { ponto_corte: dMinus >= 15 ? 'D-30' : 'D-15', estagio: 'operacional' };
     }
   };
-
-  const mapEventResponseToActions = (actions: any[]): CommercialAction[] =>
-    actions.map((a: any) => ({
-      id: a.id,
-      tipo: a.tipo,
-      type: a.type as CommercialAction['type'],
-      description: a.description,
-      date: a.date,
-      impact: a.impact,
-      vendas_antes: a.vendas_antes,
-      vendas_depois: a.vendas_depois,
-      impacto_percentual: a.impacto_percentual,
-      status_impacto: a.status_impacto,
-      ponto_corte: a.ponto_corte,
-      estagio: a.estagio,
-      snapshot_isc: a.snapshot_isc,
-      snapshot_isc_state: a.snapshot_isc_state,
-      snapshot_d_minus: a.snapshot_d_minus,
-      snapshot_ia730: a.snapshot_ia730,
-      snapshot_rolling14d: a.snapshot_rolling14d,
-      snapshot_curva_percent: a.snapshot_curva_percent,
-      snapshot_vendas_acumuladas: a.snapshot_vendas_acumuladas,
-      snapshot_playbook_letter: a.snapshot_playbook_letter,
-    }));
 
   const handleSaveAction = async () => {
     if (viewOnlyAction) return;
