@@ -91,10 +91,13 @@ const EventDetail: React.FC = () => {
   const { permissions } = usePermissions();
   const isAdmin = permissions?.is_admin ?? false;
   const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
-  const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
-  const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
-  const [loading, setLoading] = useState(!previewEvent);
-  const [detailsLoading, setDetailsLoading] = useState(!!previewEvent);
+  // NOTE: We intentionally do NOT use `location.state.previewEvent` to seed the event,
+  // because it contains partial/cached numbers that could be misinterpreted by the user
+  // as the real (fresh) values. The backend cache is pre-warmed for all active events,
+  // so the full data arrives in <1s in normal conditions.
+  const [event, setEvent] = useState<ExtendedEvent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [viewOnlyAction, setViewOnlyAction] = useState(false);
@@ -181,7 +184,7 @@ const EventDetail: React.FC = () => {
         if (!forceRefresh) {
           if (!event) setLoading(true);
         }
-        if (!silent && previewEvent) setDetailsLoading(true);
+        if (!silent && forceRefresh) setDetailsLoading(true);
         const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
         if (controller.signal.aborted) return;
 
@@ -972,7 +975,7 @@ const EventDetail: React.FC = () => {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-center gap-3">
           <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400 flex-shrink-0" />
           <span className="text-sm text-blue-700 dark:text-blue-300">
-            {previewEvent ? 'Atualizando dados do evento em tempo real...' : 'Carregando dados completos do evento...'}
+            {'Atualizando dados do evento em tempo real...'}
           </span>
         </div>
       )}

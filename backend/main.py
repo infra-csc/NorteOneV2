@@ -327,9 +327,13 @@ def _full_cache_warmup():
             _detail_prewarm_executor.shutdown(wait=False)
             logger.info(f"[Warmup] event_detail background pre-warm started for {len(active_evento_ids)} active + {len(recently_completed_ids)} recent events ({min(3, len(_all_prewarm_ids))} workers)")
 
-            # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for Tier 1 events ---
-            if tier1_evento_ids:
-                _tier1_aux_executor = _TPE(max_workers=min(2, len(tier1_evento_ids)), thread_name_prefix="warmup_tier1")
+            # --- Phase 1b-extra: prewarm medias_vendas + curva_comparativa for ALL active events ---
+            # Previously this was Tier 1 only. Extended to all active events so that opening
+            # the detail of any active event responds in <1s (no on-demand computation).
+            from app.api.routes.marketing import get_curva_comparativa_evento as _get_curva_comp
+            _aux_target_ids = active_evento_ids
+            if _aux_target_ids:
+                _tier1_aux_executor = _TPE(max_workers=min(3, len(_aux_target_ids)), thread_name_prefix="warmup_aux")
 
                 def _prewarm_tier1_aux(eid, _ano):
                     if eid in _no_grupo_event_ids:
@@ -337,22 +341,24 @@ def _full_cache_warmup():
                     _db3 = SessionLocal()
                     try:
                         _get_medias(evento_id=eid, periodo=30, ano=_ano, force_refresh=True, db=_db3, current_user=None, response=None)
-                        logger.info(f"[Warmup BG] medias pre-warm OK: {eid}")
                     except Exception as _e:
                         logger.warning(f"[Warmup BG] medias pre-warm failed for {eid}: {_e}")
                     try:
                         _get_curva(evento_id=eid, ano=_ano, db=_db3, current_user=None)
-                        logger.info(f"[Warmup BG] curva pre-warm OK: {eid}")
                     except Exception as _e:
-                        logger.warning(f"[Warmup BG] curva pre-warm failed for {eid}: {_e}")
+                        logger.warning(f"[Warmup BG] curva snapshot pre-warm failed for {eid}: {_e}")
+                    try:
+                        _get_curva_comp(evento_id=eid, ano=_ano, force_refresh=True, db=_db3, current_user=None, response=None)
+                    except Exception as _e:
+                        logger.warning(f"[Warmup BG] curva_comparativa pre-warm failed for {eid}: {_e}")
                     finally:
                         _db3.close()
                     return "ok"
 
-                for _eid in tier1_evento_ids:
+                for _eid in _aux_target_ids:
                     _tier1_aux_futures[_eid] = _tier1_aux_executor.submit(_prewarm_tier1_aux, _eid, ano)
                 _tier1_aux_executor.shutdown(wait=False)
-                logger.info(f"[Warmup] medias+curva Tier 1 pre-warm started for {len(tier1_evento_ids)} events ({min(3, len(tier1_evento_ids))} workers)")
+                logger.info(f"[Warmup] medias+curva pre-warm started for {len(_aux_target_ids)} active events ({min(3, len(_aux_target_ids))} workers)")
 
         # --- Phase 1b-early: pre-populate eventos_list with seeded ISC data ---
         # This ensures users see data immediately even while the slow ISC Magento
@@ -1337,8 +1343,27 @@ async def lifespan(app: FastAPI):
         if not _snapshot_is_fresh:
             snapshot_thread.start()
         else:
-            # Snapshots are fresh — mark thread as not started (join will return immediately)
-            snapshot_thread = threading.Thread(target=lambda: None, daemon=True)
+            # Snapshots are fresh — skip the heavy consolidation, but ALWAYS run
+            # sincronizar_hoje_batch in background to guarantee TODAY's data exists.
+            # The "freshness" check only verifies that some snapshot was updated recently,
+            # not that today's date has rows. Without this, after a restart users may see
+            # zero inscritos until the 30-min scheduler tick or a manual "Sincronizar Hoje".
+            def _run_sync_hoje_only():
+                try:
+                    from app.core.database import SessionLocal as _SyncSL
+                    from app.services.snapshot_service import sincronizar_hoje_batch as _sync_hoje
+                    import time as _stime
+                    logger.info("[Startup] Snapshots fresh — running sincronizar_hoje_batch only (guarantees today's data)")
+                    _sdb = _SyncSL()
+                    try:
+                        _count = _sync_hoje(_sdb)
+                        set_last_sync_hoje(_stime.time())
+                        logger.info(f"[Startup] sincronizar_hoje_batch completed: {_count} groups synced for today")
+                    finally:
+                        _sdb.close()
+                except Exception as _e_sh:
+                    logger.error(f"[Startup] sincronizar_hoje_batch failed: {_e_sh}")
+            snapshot_thread = threading.Thread(target=_run_sync_hoje_only, daemon=True, name="startup-sync-hoje")
             snapshot_thread.start()
 
         # Se a tabela margem_bundle_rev_snapshot estiver vazia (deploy inicial ou primeiro boot
