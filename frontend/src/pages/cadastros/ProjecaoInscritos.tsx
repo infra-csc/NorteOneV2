@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { projecaoService, usersService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -7,8 +7,104 @@ import {
   BarChart3, Plus, Pencil, Trash2, X, History, Users, Settings,
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   TrendingUp, Target, UserCheck, Layers, Download, RotateCcw,
-  AlertTriangle, Trash,
+  AlertTriangle, Trash, Check,
 } from 'lucide-react';
+
+interface MultiSelectOption {
+  value: string;
+  label: string;
+}
+
+const MultiSelectDropdown: React.FC<{
+  options: MultiSelectOption[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  placeholder: string;
+  isDark: boolean;
+}> = ({ options, selected, onChange, placeholder, isDark }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggle = (val: string) => {
+    onChange(
+      selected.includes(val)
+        ? selected.filter(s => s !== val)
+        : [...selected, val]
+    );
+  };
+
+  const displayLabel = selected.length === 0
+    ? placeholder
+    : selected.length === 1
+      ? options.find(o => o.value === selected[0])?.label || selected[0]
+      : `${selected.length} selecionados`;
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm min-w-[150px] text-left transition-all ${
+          isDark
+            ? 'bg-gray-800/50 border-gray-600 text-white hover:border-gray-500'
+            : 'bg-white border-gray-300 text-gray-900 hover:border-gray-400'
+        } ${open ? 'ring-2 ring-blue-500' : ''} ${selected.length > 0 ? (isDark ? 'border-violet-500/60' : 'border-violet-400') : ''}`}
+      >
+        <span className="flex-1 truncate">{displayLabel}</span>
+        <ChevronDown className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+      </button>
+      {open && (
+        <div className={`absolute z-50 mt-1 w-full min-w-[200px] max-h-64 overflow-y-auto rounded-xl border shadow-xl ${
+          isDark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
+        }`}>
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className={`w-full px-3 py-2 text-xs font-semibold text-left border-b transition-colors ${
+                isDark ? 'text-red-400 hover:bg-gray-700/50 border-gray-700' : 'text-red-500 hover:bg-red-50 border-gray-100'
+              }`}
+            >
+              Limpar seleção
+            </button>
+          )}
+          {options.map(opt => {
+            const isSelected = selected.includes(opt.value);
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => toggle(opt.value)}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                  isSelected
+                    ? isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-50 text-violet-700'
+                    : isDark ? 'text-gray-300 hover:bg-gray-700/50' : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
+                  isSelected
+                    ? 'bg-violet-500 border-violet-500'
+                    : isDark ? 'border-gray-500' : 'border-gray-300'
+                }`}>
+                  {isSelected && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <span className="truncate">{opt.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface AreaProjecao {
   id: number;
@@ -80,8 +176,7 @@ interface SimpleUser {
   ativo?: boolean;
 }
 
-const meses = [
-  { value: '', label: 'Todos os meses' },
+const mesesOptions: MultiSelectOption[] = [
   { value: '1', label: 'Janeiro' }, { value: '2', label: 'Fevereiro' },
   { value: '3', label: 'Março' }, { value: '4', label: 'Abril' },
   { value: '5', label: 'Maio' }, { value: '6', label: 'Junho' },
@@ -110,10 +205,10 @@ const ProjecaoInscritos: React.FC = () => {
   const [lixeira, setLixeira] = useState<Projecao[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [filterMes, setFilterMes] = useState('');
-  const [filterTipoEvento, setFilterTipoEvento] = useState('');
-  const [filterModalidade, setFilterModalidade] = useState('');
-  const [filterArea, setFilterArea] = useState('');
+  const [filterMes, setFilterMes] = useState<string[]>([]);
+  const [filterTipoEvento, setFilterTipoEvento] = useState<string[]>([]);
+  const [filterModalidade, setFilterModalidade] = useState<string[]>([]);
+  const [filterArea, setFilterArea] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -186,10 +281,10 @@ const ProjecaoInscritos: React.FC = () => {
 
   const buildFilters = () => {
     const params: any = {};
-    if (filterMes) params.mes = parseInt(filterMes);
-    if (filterTipoEvento) params.tipo_evento = filterTipoEvento;
-    if (filterModalidade) params.modalidade = filterModalidade;
-    if (filterArea) params.area_projecao_id = parseInt(filterArea);
+    if (filterMes.length > 0) params.mes = filterMes.join(',');
+    if (filterTipoEvento.length > 0) params.tipo_evento = filterTipoEvento.join(',');
+    if (filterModalidade.length > 0) params.modalidade = filterModalidade.join(',');
+    if (filterArea.length > 0) params.area_projecao_id = filterArea.join(',');
     return params;
   };
 
@@ -471,21 +566,34 @@ const ProjecaoInscritos: React.FC = () => {
         {(activeTab === 'projecoes' || activeTab === 'consolidado') && (
           <div className={`flex flex-wrap items-center gap-3 p-4 rounded-2xl ${isDark ? 'bg-gray-800/30 border border-gray-700/50' : 'bg-white/50 border border-gray-200'}`}>
             <Filter className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-            <select value={filterMes} onChange={e => setFilterMes(e.target.value)} className={selectClass}>
-              {meses.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-            <select value={filterTipoEvento} onChange={e => setFilterTipoEvento(e.target.value)} className={selectClass}>
-              <option value="">Todos os tipos</option>
-              {tiposEvento.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select value={filterModalidade} onChange={e => setFilterModalidade(e.target.value)} className={selectClass}>
-              <option value="">Todas as modalidades</option>
-              {modalidades.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <select value={filterArea} onChange={e => setFilterArea(e.target.value)} className={selectClass}>
-              <option value="">Todas as áreas</option>
-              {areas.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
-            </select>
+            <MultiSelectDropdown
+              options={mesesOptions}
+              selected={filterMes}
+              onChange={setFilterMes}
+              placeholder="Todos os meses"
+              isDark={isDark}
+            />
+            <MultiSelectDropdown
+              options={tiposEvento.map(t => ({ value: t, label: t }))}
+              selected={filterTipoEvento}
+              onChange={setFilterTipoEvento}
+              placeholder="Todos os tipos"
+              isDark={isDark}
+            />
+            <MultiSelectDropdown
+              options={modalidades.map(m => ({ value: m, label: m }))}
+              selected={filterModalidade}
+              onChange={setFilterModalidade}
+              placeholder="Todas as modalidades"
+              isDark={isDark}
+            />
+            <MultiSelectDropdown
+              options={areas.map(a => ({ value: String(a.id), label: a.nome }))}
+              selected={filterArea}
+              onChange={setFilterArea}
+              placeholder="Todas as áreas"
+              isDark={isDark}
+            />
             <div className="relative flex-1 min-w-[200px]">
               <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               <input

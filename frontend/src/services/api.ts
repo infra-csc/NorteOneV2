@@ -1235,7 +1235,7 @@ export const projecaoService = {
     const response = await api.get('/projecao/minhas-areas');
     return response.data;
   },
-  list: async (params?: { mes?: number; tipo_evento?: string; modalidade?: string; area_projecao_id?: number; evento_id?: number }) => {
+  list: async (params?: { mes?: string; tipo_evento?: string; modalidade?: string; area_projecao_id?: string; evento_id?: number }) => {
     const response = await api.get('/projecao/', { params });
     return response.data;
   },
@@ -1255,7 +1255,7 @@ export const projecaoService = {
     const response = await api.get(`/projecao/${id}/historico`);
     return response.data;
   },
-  getConsolidado: async (params?: { mes?: number; tipo_evento?: string; modalidade?: string; area_projecao_id?: number; evento_id?: number }) => {
+  getConsolidado: async (params?: { mes?: string; tipo_evento?: string; modalidade?: string; area_projecao_id?: string; evento_id?: number }) => {
     const response = await api.get('/projecao/consolidado', { params });
     return response.data;
   },
@@ -1271,7 +1271,7 @@ export const projecaoService = {
     const response = await api.delete(`/projecao/lixeira/${id}/permanente`);
     return response.data;
   },
-  exportar: async (params?: { mes?: number; tipo_evento?: string; modalidade?: string; area_projecao_id?: number }) => {
+  exportar: async (params?: { mes?: string; tipo_evento?: string; modalidade?: string; area_projecao_id?: string }) => {
     const response = await api.get('/projecao/exportar', { params, responseType: 'blob' });
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');

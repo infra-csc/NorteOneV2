@@ -146,10 +146,10 @@ def minhas_areas(
 
 @router.get("/", response_model=List[ProjecaoInscritosResponse])
 def list_projecoes(
-    mes: Optional[int] = Query(None, ge=1, le=12),
+    mes: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
-    area_projecao_id: Optional[int] = Query(None),
+    area_projecao_id: Optional[str] = Query(None),
     evento_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
@@ -167,13 +167,21 @@ def list_projecoes(
     )
 
     if mes:
-        query = query.filter(extract("month", CadastroEvento.data_evento) == mes)
+        mes_list = [int(m) for m in mes.split(',') if m.strip().isdigit()]
+        if mes_list:
+            query = query.filter(extract("month", CadastroEvento.data_evento).in_(mes_list))
     if tipo_evento:
-        query = query.filter(CadastroEvento.tipo_evento == tipo_evento)
+        tipos = [t.strip() for t in tipo_evento.split(',') if t.strip()]
+        if tipos:
+            query = query.filter(CadastroEvento.tipo_evento.in_(tipos))
     if modalidade:
-        query = query.filter(CadastroEvento.modalidade == modalidade)
+        mods = [m.strip() for m in modalidade.split(',') if m.strip()]
+        if mods:
+            query = query.filter(CadastroEvento.modalidade.in_(mods))
     if area_projecao_id:
-        query = query.filter(ProjecaoInscritos.area_projecao_id == area_projecao_id)
+        area_ids = [int(a) for a in area_projecao_id.split(',') if a.strip().isdigit()]
+        if area_ids:
+            query = query.filter(ProjecaoInscritos.area_projecao_id.in_(area_ids))
     if evento_id:
         query = query.filter(ProjecaoInscritos.evento_id == evento_id)
 
@@ -493,10 +501,10 @@ def delete_permanente(
 
 @router.get("/exportar")
 def exportar_projecoes(
-    mes: Optional[int] = Query(None, ge=1, le=12),
+    mes: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
-    area_projecao_id: Optional[int] = Query(None),
+    area_projecao_id: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
@@ -517,13 +525,21 @@ def exportar_projecoes(
     )
 
     if mes:
-        query = query.filter(extract("month", CadastroEvento.data_evento) == mes)
+        mes_list = [int(m) for m in mes.split(',') if m.strip().isdigit()]
+        if mes_list:
+            query = query.filter(extract("month", CadastroEvento.data_evento).in_(mes_list))
     if tipo_evento:
-        query = query.filter(CadastroEvento.tipo_evento == tipo_evento)
+        tipos = [t.strip() for t in tipo_evento.split(',') if t.strip()]
+        if tipos:
+            query = query.filter(CadastroEvento.tipo_evento.in_(tipos))
     if modalidade:
-        query = query.filter(CadastroEvento.modalidade == modalidade)
+        mods = [m.strip() for m in modalidade.split(',') if m.strip()]
+        if mods:
+            query = query.filter(CadastroEvento.modalidade.in_(mods))
     if area_projecao_id:
-        query = query.filter(ProjecaoInscritos.area_projecao_id == area_projecao_id)
+        area_ids = [int(a) for a in area_projecao_id.split(',') if a.strip().isdigit()]
+        if area_ids:
+            query = query.filter(ProjecaoInscritos.area_projecao_id.in_(area_ids))
 
     user_areas = None
     if not is_user_admin(current_user):
@@ -573,21 +589,27 @@ def exportar_projecoes(
 
 @router.get("/consolidado", response_model=List[ConsolidadoEventoResponse])
 def get_consolidado(
-    mes: Optional[int] = Query(None, ge=1, le=12),
+    mes: Optional[str] = Query(None),
     tipo_evento: Optional[str] = Query(None),
     modalidade: Optional[str] = Query(None),
-    area_projecao_id: Optional[int] = Query(None),
+    area_projecao_id: Optional[str] = Query(None),
     evento_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
     if mes:
-        query = query.filter(extract("month", CadastroEvento.data_evento) == mes)
+        mes_list = [int(m) for m in mes.split(',') if m.strip().isdigit()]
+        if mes_list:
+            query = query.filter(extract("month", CadastroEvento.data_evento).in_(mes_list))
     if tipo_evento:
-        query = query.filter(CadastroEvento.tipo_evento == tipo_evento)
+        tipos = [t.strip() for t in tipo_evento.split(',') if t.strip()]
+        if tipos:
+            query = query.filter(CadastroEvento.tipo_evento.in_(tipos))
     if modalidade:
-        query = query.filter(CadastroEvento.modalidade == modalidade)
+        mods = [m.strip() for m in modalidade.split(',') if m.strip()]
+        if mods:
+            query = query.filter(CadastroEvento.modalidade.in_(mods))
     if evento_id:
         query = query.filter(CadastroEvento.id == evento_id)
 
@@ -618,7 +640,9 @@ def get_consolidado(
         if user_areas is not None:
             proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(user_areas))
         if area_projecao_id:
-            proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id == area_projecao_id)
+            area_ids = [int(a) for a in area_projecao_id.split(',') if a.strip().isdigit()]
+            if area_ids:
+                proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(area_ids))
         projecoes = proj_query.all()
 
         if not projecoes:
