@@ -714,21 +714,32 @@ def list_produtos_fob(
     return [r[0] for r in rows]
 
 
+def _calc_nacionalizado(fob: float, indice: float | None, bec: float | None, cotacao: float | None) -> float | None:
+    if fob is not None and indice is not None and bec is not None and cotacao is not None:
+        return round(fob * indice * cotacao + (bec * fob * cotacao), 4)
+    return None
+
+
 @router.post("/fob", response_model=CotacaoFobResponse, status_code=201)
 def create_cotacao_fob(
     data: CotacaoFobCreate,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(_edit_cotacao)
 ):
-    taxa = data.taxa_cambio
-    valor_brl = data.valor_brl
-    if taxa and data.valor_fob and not valor_brl:
-        valor_brl = round(data.valor_fob * taxa, 4)
+    cotacao_cambio = data.cotacao_cambio
+    valor_brl = None
+    if cotacao_cambio is not None and data.valor_fob is not None:
+        valor_brl = round(data.valor_fob * cotacao_cambio, 4)
+    valor_nac = _calc_nacionalizado(data.valor_fob, data.indice_importacao, data.bec, cotacao_cambio)
     item = CotacaoFob(
         circuito=data.circuito.strip(),
         produto=data.produto.strip(),
         valor_fob=data.valor_fob,
-        taxa_cambio=taxa,
+        indice_importacao=data.indice_importacao,
+        bec=data.bec,
+        cotacao_cambio=cotacao_cambio,
+        valor_nacionalizado=valor_nac,
+        taxa_cambio=cotacao_cambio,
         valor_brl=valor_brl,
     )
     db.add(item)
@@ -751,8 +762,17 @@ def update_cotacao_fob(
         if k in ("circuito", "produto") and isinstance(v, str):
             v = v.strip()
         setattr(item, k, v)
-    if item.taxa_cambio and item.valor_fob:
-        item.valor_brl = round(float(item.valor_fob) * float(item.taxa_cambio), 4)
+    cotacao_val = float(item.cotacao_cambio) if item.cotacao_cambio is not None else None
+    if cotacao_val is not None and item.valor_fob is not None:
+        item.valor_brl = round(float(item.valor_fob) * cotacao_val, 4)
+        item.taxa_cambio = cotacao_val
+    valor_nac = _calc_nacionalizado(
+        float(item.valor_fob) if item.valor_fob is not None else 0,
+        float(item.indice_importacao) if item.indice_importacao is not None else None,
+        float(item.bec) if item.bec is not None else None,
+        cotacao_val,
+    )
+    item.valor_nacionalizado = valor_nac
     db.commit()
     db.refresh(item)
     return item

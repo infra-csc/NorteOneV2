@@ -175,6 +175,10 @@ class CotacaoFobCreate(BaseModel):
     circuito: str
     produto: str
     valor_fob: float = 0
+    indice_importacao: Optional[float] = None
+    bec: Optional[float] = None
+    cotacao_cambio: Optional[float] = None
+    valor_nacionalizado: Optional[float] = None
     taxa_cambio: Optional[float] = None
     valor_brl: Optional[float] = None
 
@@ -183,6 +187,10 @@ class CotacaoFobUpdate(BaseModel):
     circuito: Optional[str] = None
     produto: Optional[str] = None
     valor_fob: Optional[float] = None
+    indice_importacao: Optional[float] = None
+    bec: Optional[float] = None
+    cotacao_cambio: Optional[float] = None
+    valor_nacionalizado: Optional[float] = None
     taxa_cambio: Optional[float] = None
     valor_brl: Optional[float] = None
 
@@ -192,6 +200,10 @@ class CotacaoFobResponse(BaseModel):
     circuito: str
     produto: str
     valor_fob: float
+    indice_importacao: Optional[float] = None
+    bec: Optional[float] = None
+    cotacao_cambio: Optional[float] = None
+    valor_nacionalizado: Optional[float] = None
     taxa_cambio: Optional[float] = None
     valor_brl: Optional[float] = None
     created_at: Optional[datetime] = None

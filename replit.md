@@ -62,7 +62,7 @@ The frontend utilizes React, TypeScript, and Tailwind CSS for a modern and consi
 - **Strategic Insights Dashboard:** Calculates insights including Acceleration Index, Daily Pace, Closing Projection, and Category Mix.
 - **Marketing Settings Persistence:** API for persisting key-value JSON marketing settings, used in ISC calculations.
 - **Event Detail Layout:** Redesigned for improved readability with D- bar, ISC gauge, sales indicators, and a "Controle Diário" tab.
-- **Cotação & Importação (Quote & Import):** Simplified FOB quote registration page with automatic USD/BRL exchange rate fetching and conversion.
+- **Cotação & Importação (Quote & Import):** FOB quote registration page with manual inputs for Índice de Importação, BEC, and Cotação (USD/BRL). Calculates Nacionalizado as `FOB × Índice × Cotação + (BEC × FOB × Cotação)` and Valor BRL as `FOB × Cotação`. No external exchange rate API dependency on frontend.
 - **Manual do Sistema:** Built-in documentation/knowledge base page (`/manual`) accessible to all authenticated users, with search and navigation.
 - **Projeção de Inscritos por Eventos e Áreas:** Allows users to input projected subscriber counts per event across predefined areas. Includes admin assignment of users to areas, full audit history, and a consolidated view of real and projected subscribers.
 
