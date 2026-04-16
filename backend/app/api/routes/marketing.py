@@ -2471,12 +2471,26 @@ AND    value        IN :ev_ids_fb
                     }
                     for bname in all_fb_names
                 }
+                # Para cada bundle, escolhe APENAS o kit mais específico (substring mais longa)
+                # entre todos os kits do kit_map. Sem isso, um bundle como "Kit Básico - 21k"
+                # acaba contado tanto no kit "Kit Básico - 21k" quanto no kit genérico "Kit Básico".
+                _all_kit_names_lower = [(str(kn), str(kn).lower()) for kn in kit_map.keys()]
+                _bundle_to_kit: dict = {}
+                for bname in fb_by_name.keys():
+                    bname_lower = str(bname).lower()
+                    _best_kn = None
+                    _best_len = -1
+                    for _kn_orig, _kn_lower in _all_kit_names_lower:
+                        if _kn_lower and _kn_lower in bname_lower and len(_kn_lower) > _best_len:
+                            _best_kn = _kn_orig
+                            _best_len = len(_kn_lower)
+                    if _best_kn is not None:
+                        _bundle_to_kit[bname] = _best_kn
                 for kit_name in kits_sem_venda:
-                    kit_name_lower = str(kit_name).lower()
                     total_qtd = 0
                     total_rec = 0.0
                     for bname, bdata in fb_by_name.items():
-                        if kit_name_lower in str(bname).lower():
+                        if _bundle_to_kit.get(bname) == kit_name:
                             total_qtd += bdata["qtd"]
                             total_rec += bdata["receita"]
                     if total_qtd > 0 and kit_name in kit_map:
@@ -2607,13 +2621,17 @@ AND    value        IN :ev_ids
                     except Exception as _e_supp2:
                         logger.warning(f"[Margem] supplementary revenue query falhou: {_e_supp2}")
 
+                # Ordena pelos nomes de kit MAIS LONGOS primeiro, garantindo que
+                # bundles como "Kit Básico - 21k Floripa" sejam atribuídos ao kit
+                # específico "Kit Básico - 21k" e não ao kit genérico "Kit Básico".
+                _kit_names_sorted_supp = sorted(kit_map.keys(), key=lambda k: -len(str(k)))
                 for _sname, _sqtd in _supp_qtd_by_name.items():
                     if _sqtd <= 0:
                         continue
                     _sname_lower = str(_sname).lower()
                     _srec = _supp_rev_by_name.get(_sname, 0.0)
                     _matched = False
-                    for _kit_nm in sorted(kit_map.keys(), key=lambda k: str(k)):
+                    for _kit_nm in _kit_names_sorted_supp:
                         if str(_kit_nm).lower() in _sname_lower:
                             kit_map[_kit_nm]["qtd"]     += _sqtd
                             kit_map[_kit_nm]["receita"] += _srec
@@ -3315,7 +3333,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "11"  # v11: faixas_preco_site added to event detail response
+_DETAIL_CACHE_VERSION = "12"  # v12: margem por kit prefere match mais específico (longest substring)
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
