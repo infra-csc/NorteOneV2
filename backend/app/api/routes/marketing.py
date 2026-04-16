@@ -7828,6 +7828,85 @@ def get_marketing_event_by_id(
     isc_cfg = _get_isc_settings(db)
     is_grouped = evento_id.startswith("grp_")
 
+    # ── FAST PATH: snapshot persistente em PostgreSQL ──────────────────────────
+    # Sobrevive a restarts do servidor e à invalidação do cache em memória.
+    # O scheduler atualiza este snapshot a cada 30 min em background.
+    # Resolve o `ano` efetivo aqui (mesma lógica usada nos branches abaixo)
+    # para garantir que a chave de leitura/escrita seja consistente.
+    if ano is not None:
+        _ano_for_persist = ano
+    elif is_grouped:
+        _ano_for_persist = datetime.now().year
+    else:
+        try:
+            _proj_for_year = _wq_dim_projeto_by_id(db, int(evento_id))
+            _ano_for_persist = (_proj_for_year.data_evento.year
+                                if _proj_for_year and _proj_for_year.data_evento
+                                else datetime.now().year)
+        except Exception:
+            _ano_for_persist = datetime.now().year
+    if not force_refresh:
+        try:
+            from ...services.event_detail_snapshot_service import get_persisted_detail as _gpd
+            _persisted = _gpd(db, evento_id, _ano_for_persist)
+        except Exception:
+            _persisted = None
+        if _persisted is not None:
+            from app.core.cache import get_last_full_refresh as _gpd_lfr
+            _gpd_lfr_ts = _gpd_lfr() or 0
+            _gpd_comp = _persisted.get("computed_at")
+            _gpd_comp_ts = _gpd_comp.timestamp() if _gpd_comp else 0
+            _gpd_completed = _persisted.get("is_completed", False)
+            _gpd_payload_version = (_persisted["payload"] or {}).get("_cache_version") if isinstance(_persisted["payload"], dict) else None
+            _gpd_version_mismatch = _gpd_payload_version != _DETAIL_CACHE_VERSION
+            # Bypass se schema do payload é incompatível — força recomputo síncrono
+            # para garantir formato correto (em vez de devolver shape antigo).
+            if _gpd_version_mismatch:
+                logger.info(f"[Persist] '{_ano_for_persist}_{evento_id}' version mismatch ({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) — bypassing fast path")
+                _persisted = None
+        if _persisted is not None:
+            # Stale se evento ainda ativo E (último refresh global é mais novo OU >30 min)
+            _gpd_age = (datetime.now() - _gpd_comp.replace(tzinfo=None)).total_seconds() if _gpd_comp else 9999
+            _gpd_stale = (not _gpd_completed) and (
+                (_gpd_lfr_ts and _gpd_comp_ts < _gpd_lfr_ts) or _gpd_age > 1800
+            )
+            _gpd_key = f"{_ano_for_persist}_{evento_id}_detail"
+            if _gpd_stale and _gpd_key not in _swr_recompute_in_progress:
+                logger.info(f"[Persist] '{_gpd_key}' stale (age={_gpd_age:.0f}s) — serving snapshot + bg refresh")
+                _swr_recompute_in_progress.add(_gpd_key)
+                import threading as _gpd_threading
+                def _gpd_bg():
+                    from ...core.database import SessionLocal as _GPD_SL
+                    _gpd_db = _GPD_SL()
+                    try:
+                        get_marketing_event_by_id(
+                            evento_id=evento_id, ano=_ano_for_persist,
+                            force_refresh=True, db=_gpd_db, current_user=None,
+                        )
+                    except Exception as _gpd_e:
+                        logger.warning(f"[Persist] bg refresh '{_gpd_key}' failed: {_gpd_e}")
+                    finally:
+                        _gpd_db.close()
+                        _swr_recompute_in_progress.discard(_gpd_key)
+                _gpd_threading.Thread(target=_gpd_bg, daemon=True).start()
+            _gpd_result = dict(_persisted["payload"]) if isinstance(_persisted["payload"], dict) else {}
+            _gpd_result["ultima_atualizacao_completa"] = (
+                datetime.fromtimestamp(_gpd_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+                if _gpd_lfr_ts else None
+            )
+            if _gpd_stale:
+                _gpd_result["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
+            _gpd_pids = [p["id"] for p in _gpd_result.get("projetos_vinculados", [])]
+            if not _gpd_pids and not is_grouped:
+                try:
+                    _gpd_pids = [int(evento_id)]
+                except (ValueError, TypeError):
+                    pass
+            _gpd_result["commercialActions"] = _fetch_commercial_actions_from_db(db, _gpd_pids)
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true" if _gpd_stale else "false"
+            return _gpd_result
+
     def _swr_detail_refresh(_swr_key: str):
         from ...core.database import SessionLocal
         _db = SessionLocal()
@@ -8410,6 +8489,12 @@ def get_marketing_event_by_id(
             logger.info(f"Event '{grupo_nome}' ({projeto_data_evento}) cached permanently (completed event)")
         else:
             event_detail_cache.set(detail_cache_key, grouped_result)
+        # Persiste em PostgreSQL para sobreviver a restarts e cache invalidations
+        try:
+            from ...services.event_detail_snapshot_service import save_persisted_detail as _spd
+            _spd(db, evento_id, ano, grouped_result, data_evento=projeto_data_evento, is_completed=_event_is_past)
+        except Exception as _spd_e:
+            logger.warning(f"[Persist] save grouped '{evento_id}/{ano}' falhou: {_spd_e}")
         # Signal any waiting threads that computation is done
         with _event_computing_lock:
             _done_evt = _event_computing_events.pop(detail_cache_key, None)
@@ -8739,6 +8824,12 @@ def get_marketing_event_by_id(
         logger.info(f"Standalone event {evento_id} ({projeto_data_evento}) cached permanently (completed event)")
     else:
         event_detail_cache.set(standalone_cache_key, standalone_result)
+    # Persiste em PostgreSQL para sobreviver a restarts e cache invalidations
+    try:
+        from ...services.event_detail_snapshot_service import save_persisted_detail as _spd_sa
+        _spd_sa(db, evento_id, ano, standalone_result, data_evento=projeto_data_evento, is_completed=_sa_event_is_past)
+    except Exception as _spd_sa_e:
+        logger.warning(f"[Persist] save standalone '{evento_id}/{ano}' falhou: {_spd_sa_e}")
     sa_result = {k: v for k, v in standalone_result.items() if k != "__is_completed"}
     sa_result["commercialActions"] = _fetch_commercial_actions_from_db(db, [int(evento_id)])
     return sa_result

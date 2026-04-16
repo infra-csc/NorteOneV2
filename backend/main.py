@@ -50,6 +50,7 @@ def _scheduled_sincronizar_hoje():
     from app.core.database import SessionLocal
     from app.services.snapshot_service import sincronizar_hoje_batch
     import time as _time
+    import threading as _sh_threading
     db = None
     try:
         db = SessionLocal()
@@ -57,6 +58,14 @@ def _scheduled_sincronizar_hoje():
         logger.info(f"Scheduled sincronizar_hoje_batch completed: {count} groups synced")
         set_last_sync_hoje(_time.time())
         logger.info("last_sync_hoje atualizado após sincronizar_hoje_batch")
+        # Refresh persisted event detail snapshots in background so clicks are instant
+        def _refresh_details_bg():
+            try:
+                from app.services.event_detail_snapshot_service import refresh_active_event_details
+                refresh_active_event_details()
+            except Exception as _rd_e:
+                logger.warning(f"refresh_active_event_details failed: {_rd_e}")
+        _sh_threading.Thread(target=_refresh_details_bg, daemon=True).start()
     except Exception as e:
         logger.error(f"Scheduled sincronizar_hoje_batch failed: {e}")
         try:
@@ -1200,6 +1209,7 @@ async def lifespan(app: FastAPI):
             from app.models import nori_insights as _ni_models  # noqa: F401 — ensure table is registered
             from app.models import system_health as _sh_models  # noqa: F401 — ensure health tables are registered
             from app.models import projecao as _proj_models  # noqa: F401 — ensure projecao tables are registered
+            from app.models import evento_detail_snapshot as _eds_models  # noqa: F401 — ensure detail snapshot table is registered
             if engine:
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()
@@ -1336,6 +1346,12 @@ async def lifespan(app: FastAPI):
                     logger.info("Startup snapshot consolidation completed")
                 finally:
                     db.close()
+                # Pre-warm persisted event detail snapshots so first click is instant
+                try:
+                    from app.services.event_detail_snapshot_service import refresh_active_event_details
+                    refresh_active_event_details()
+                except Exception as _e_eds:
+                    logger.warning(f"[Startup] refresh_active_event_details failed: {_e_eds}")
             except Exception as e:
                 logger.error(f"Startup snapshot consolidation failed: {e}")
 
@@ -1361,6 +1377,12 @@ async def lifespan(app: FastAPI):
                         logger.info(f"[Startup] sincronizar_hoje_batch completed: {_count} groups synced for today")
                     finally:
                         _sdb.close()
+                    # Pre-warm persisted event detail snapshots so first click is instant
+                    try:
+                        from app.services.event_detail_snapshot_service import refresh_active_event_details as _refr
+                        _refr()
+                    except Exception as _e_eds2:
+                        logger.warning(f"[Startup] refresh_active_event_details failed: {_e_eds2}")
                 except Exception as _e_sh:
                     logger.error(f"[Startup] sincronizar_hoje_batch failed: {_e_sh}")
             snapshot_thread = threading.Thread(target=_run_sync_hoje_only, daemon=True, name="startup-sync-hoje")
