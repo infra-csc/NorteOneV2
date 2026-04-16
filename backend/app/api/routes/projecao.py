@@ -191,14 +191,8 @@ def list_projecoes(
     )
     projecoes = query.order_by(CadastroEvento.data_evento.desc(), AreaProjecao.nome).all()
 
-    user_areas = None
-    if not is_user_admin(current_user):
-        user_areas = _get_user_area_ids(db, current_user.id)
-
     result = []
     for p in projecoes:
-        if user_areas is not None and p.area_projecao_id not in user_areas:
-            continue
         result.append(ProjecaoInscritosResponse(
             id=p.id,
             evento_id=p.evento_id,
@@ -336,8 +330,6 @@ def get_historico(
     projecao = db.query(ProjecaoInscritos).filter(ProjecaoInscritos.id == projecao_id).first()
     if not projecao:
         raise HTTPException(status_code=404, detail="Projeção não encontrada")
-
-    _check_area_permission(db, current_user, projecao.area_projecao_id)
 
     historicos = (
         db.query(ProjecaoInscritosHistorico)
@@ -541,10 +533,6 @@ def exportar_projecoes(
         if area_ids:
             query = query.filter(ProjecaoInscritos.area_projecao_id.in_(area_ids))
 
-    user_areas = None
-    if not is_user_admin(current_user):
-        user_areas = _get_user_area_ids(db, current_user.id)
-
     projecoes = query.order_by(CadastroEvento.data_evento.desc(), AreaProjecao.nome).all()
 
     def _sanitize_csv(val: str) -> str:
@@ -561,8 +549,6 @@ def exportar_projecoes(
     ])
 
     for p in projecoes:
-        if user_areas is not None and p.area_projecao_id not in user_areas:
-            continue
         writer.writerow([
             _sanitize_csv(p.evento.nome if p.evento else ''),
             p.evento.data_evento.strftime('%d/%m/%Y') if p.evento and p.evento.data_evento else '',
@@ -615,10 +601,6 @@ def get_consolidado(
 
     eventos = query.order_by(CadastroEvento.data_evento.desc()).all()
 
-    user_areas = None
-    if not is_user_admin(current_user):
-        user_areas = _get_user_area_ids(db, current_user.id)
-
     sku_to_grupo = {}
     all_mappings = db.query(SkuMapping).filter(SkuMapping.ativo == True).all()
     for m in all_mappings:
@@ -637,8 +619,6 @@ def get_consolidado(
             ProjecaoInscritos.evento_id == evento.id,
             ProjecaoInscritos.deleted_at.is_(None),
         )
-        if user_areas is not None:
-            proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(user_areas))
         if area_projecao_id:
             area_ids = [int(a) for a in area_projecao_id.split(',') if a.strip().isdigit()]
             if area_ids:

@@ -198,6 +198,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config' | 'lixeira'>('projecoes');
   const [projecoes, setProjecoes] = useState<Projecao[]>([]);
   const [areas, setAreas] = useState<AreaProjecao[]>([]);
+  const [myAreaIds, setMyAreaIds] = useState<Set<number>>(new Set());
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [consolidado, setConsolidado] = useState<ConsolidadoEvento[]>([]);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
@@ -270,11 +271,13 @@ const ProjecaoInscritos: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [areasData, projecoesData] = await Promise.all([
+      const [areasData, myAreasData, projecoesData] = await Promise.all([
+        projecaoService.listAreas(),
         projecaoService.minhasAreas(),
         projecaoService.list(buildFilters()),
       ]);
       setAreas(areasData);
+      setMyAreaIds(new Set(myAreasData.map((a: AreaProjecao) => a.id)));
       setProjecoes(projecoesData);
     } catch (error) {
       console.error('Erro ao carregar projeções:', error);
@@ -768,7 +771,7 @@ const ProjecaoInscritos: React.FC = () => {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            {canEditProjecao && (
+                            {canEditProjecao && myAreaIds.has(p.area_projecao_id) && (
                               <button
                                 onClick={() => openEdit(p)}
                                 className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
@@ -784,7 +787,7 @@ const ProjecaoInscritos: React.FC = () => {
                             >
                               <History className="w-4 h-4" />
                             </button>
-                            {canDeleteProjecao && (
+                            {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && (
                               <button
                                 onClick={() => handleDelete(p.id)}
                                 className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
@@ -1170,7 +1173,7 @@ const ProjecaoInscritos: React.FC = () => {
                   required
                 >
                   <option value="">Selecione uma área</option>
-                  {areas.map(a => (
+                  {areas.filter(a => myAreaIds.has(a.id)).map(a => (
                     <option key={a.id} value={a.id}>{a.nome}</option>
                   ))}
                 </select>
