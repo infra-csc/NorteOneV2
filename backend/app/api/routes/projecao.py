@@ -58,7 +58,7 @@ def _record_history(db: Session, projecao_id: int, acao: str, usuario_id: int,
 @router.get("/areas", response_model=List[AreaProjecaoResponse])
 def list_areas(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     return db.query(AreaProjecao).filter(AreaProjecao.ativo == True).order_by(AreaProjecao.nome).all()
 
@@ -66,7 +66,7 @@ def list_areas(
 @router.get("/areas/detail", response_model=List[AreaProjecaoDetailResponse])
 def list_areas_detail(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
 ):
     if not is_user_admin(current_user):
         raise HTTPException(status_code=403, detail="Apenas administradores podem ver detalhes de atribuições")
@@ -104,7 +104,7 @@ def list_areas_detail(
 def atribuir_usuarios_area(
     data: AreaProjecaoUsuarioBulk,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
 ):
     if not is_user_admin(current_user):
         raise HTTPException(status_code=403, detail="Apenas administradores podem gerenciar atribuições")
@@ -127,7 +127,7 @@ def atribuir_usuarios_area(
 @router.get("/minhas-areas")
 def minhas_areas(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     if is_user_admin(current_user):
         areas = db.query(AreaProjecao).filter(AreaProjecao.ativo == True).all()
@@ -148,7 +148,7 @@ def list_projecoes(
     area_projecao_id: Optional[int] = Query(None),
     evento_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     query = (
         db.query(ProjecaoInscritos)
@@ -209,7 +209,7 @@ def list_projecoes(
 def create_projecao(
     data: ProjecaoInscritosCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_criar")),
 ):
     _check_area_permission(db, current_user, data.area_projecao_id)
 
@@ -267,7 +267,7 @@ def update_projecao(
     projecao_id: int,
     data: ProjecaoInscritosUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
 ):
     projecao = db.query(ProjecaoInscritos).options(
         joinedload(ProjecaoInscritos.evento),
@@ -317,7 +317,7 @@ def update_projecao(
 def get_historico(
     projecao_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     projecao = db.query(ProjecaoInscritos).filter(ProjecaoInscritos.id == projecao_id).first()
     if not projecao:
@@ -352,7 +352,7 @@ def get_historico(
 def delete_projecao(
     projecao_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_deletar")),
 ):
     projecao = db.query(ProjecaoInscritos).filter(
         ProjecaoInscritos.id == projecao_id,
@@ -378,7 +378,7 @@ def get_consolidado(
     tipo_evento: Optional[str] = Query(None),
     evento_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION)),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
     if mes:

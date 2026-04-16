@@ -89,9 +89,12 @@ const meses = [
 const ProjecaoInscritos: React.FC = () => {
   const { isDark } = useTheme();
   const { user } = useAuth();
-  const { canView } = usePermissions();
+  const { canView, canCreate, canEdit, canDelete } = usePermissions();
   const isAdmin = user?.is_admin || false;
   const hasAccess = canView('projecao_inscritos');
+  const canCreateProjecao = canCreate('projecao_inscritos');
+  const canEditProjecao = canEdit('projecao_inscritos');
+  const canDeleteProjecao = canDelete('projecao_inscritos');
 
   const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config'>('projecoes');
   const [projecoes, setProjecoes] = useState<Projecao[]>([]);
@@ -362,7 +365,7 @@ const ProjecaoInscritos: React.FC = () => {
             </div>
           </div>
 
-          {activeTab === 'projecoes' && (
+          {activeTab === 'projecoes' && canCreateProjecao && (
             <button
               onClick={() => { resetForm(); setShowCreateModal(true); }}
               className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
@@ -485,13 +488,15 @@ const ProjecaoInscritos: React.FC = () => {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => openEdit(p)}
-                              className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
-                              title="Editar"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
+                            {canEditProjecao && (
+                              <button
+                                onClick={() => openEdit(p)}
+                                className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
+                                title="Editar"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => openHistorico(p)}
                               className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-400 transition-colors"
@@ -499,13 +504,15 @@ const ProjecaoInscritos: React.FC = () => {
                             >
                               <History className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => handleDelete(p.id)}
-                              className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
-                              title="Excluir"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {canDeleteProjecao && (
+                              <button
+                                onClick={() => handleDelete(p.id)}
+                                className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
