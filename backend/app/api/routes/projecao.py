@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func as sqlfunc, extract
+from sqlalchemy import extract
 from typing import List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -11,7 +11,6 @@ from ...core.security import get_current_user, is_user_admin, require_permission
 from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos, ProjecaoInscritosHistorico
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
-from ...models.vendas_snapshot import VendasDiariaSnapshot
 from ...models.dimensoes import SkuMapping, EventoGrupo
 from ...schemas.projecao import (
     AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
@@ -401,6 +400,10 @@ def get_consolidado(
         if m.evento_grupo and m.sku:
             sku_to_grupo[m.sku.upper().strip()] = m.evento_grupo
 
+    from ...services.snapshot_service import get_isc_totals_from_snapshot
+    current_year = datetime.now().year
+    isc_totals = get_isc_totals_from_snapshot(db, current_year)
+
     result = []
     for evento in eventos:
         proj_query = db.query(ProjecaoInscritos).options(
@@ -419,11 +422,8 @@ def get_consolidado(
         inscritos_reais = 0
         if evento.sku:
             grupo_nome = sku_to_grupo.get(evento.sku.upper().strip())
-            if grupo_nome:
-                total = db.query(sqlfunc.sum(VendasDiariaSnapshot.quantidade)).filter(
-                    VendasDiariaSnapshot.evento_grupo == grupo_nome
-                ).scalar()
-                inscritos_reais = total or 0
+            if grupo_nome and grupo_nome in isc_totals:
+                inscritos_reais = isc_totals[grupo_nome].get("qtd_site", 0)
 
         projecoes_items = []
         total_projecoes = 0
