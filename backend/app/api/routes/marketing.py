@@ -2472,11 +2472,11 @@ AND    value        IN :ev_ids_fb
                     for bname in all_fb_names
                 }
                 for kit_name in kits_sem_venda:
-                    kit_name_lower = kit_name.lower()
+                    kit_name_lower = str(kit_name).lower()
                     total_qtd = 0
                     total_rec = 0.0
                     for bname, bdata in fb_by_name.items():
-                        if kit_name_lower in bname.lower():
+                        if kit_name_lower in str(bname).lower():
                             total_qtd += bdata["qtd"]
                             total_rec += bdata["receita"]
                     if total_qtd > 0 and kit_name in kit_map:
@@ -2610,11 +2610,11 @@ AND    value        IN :ev_ids
                 for _sname, _sqtd in _supp_qtd_by_name.items():
                     if _sqtd <= 0:
                         continue
-                    _sname_lower = _sname.lower()
+                    _sname_lower = str(_sname).lower()
                     _srec = _supp_rev_by_name.get(_sname, 0.0)
                     _matched = False
-                    for _kit_nm in sorted(kit_map.keys()):
-                        if _kit_nm.lower() in _sname_lower:
+                    for _kit_nm in sorted(kit_map.keys(), key=lambda k: str(k)):
+                        if str(_kit_nm).lower() in _sname_lower:
                             kit_map[_kit_nm]["qtd"]     += _sqtd
                             kit_map[_kit_nm]["receita"] += _srec
                             logger.info(f"[Margem] supplementary: +{_sqtd} inscrições de '{_sname}' → kit '{_kit_nm}'")
@@ -2650,7 +2650,7 @@ AND    value        IN :ev_ids
                                 _cat_to_kit[_ac_part.lower()] = _kn
                     else:
                         # No explicit mapping: exact case-insensitive kit name fallback
-                        _cat_to_kit.setdefault(_kn.lower(), _kn)
+                        _cat_to_kit.setdefault(str(_kn).lower(), _kn)
 
                 _ativo_query = text("""
 SELECT
