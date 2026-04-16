@@ -4029,6 +4029,17 @@ def get_cutoff_alerts(
     if cached is None:
         cache_key2 = f"{ano}_all_all_"
         cached, _ = eventos_list_cache.get_or_revalidate(cache_key2, refresh_fn=None)
+    # Cache miss (e.g., right after a dash refresh invalidated it): compute the
+    # eventos list inline so the Nori cutoff alerts don't temporarily disappear.
+    if cached is None:
+        try:
+            cached = get_marketing_events(
+                ano=ano, status=None, categoria=None, busca=None,
+                force_refresh=False, db=db, current_user=current_user, response=None,
+            )
+        except Exception as _e_recompute:
+            logger.warning(f"[CutoffAlerts] fallback recompute falhou: {_e_recompute}")
+            cached = None
     eventos = cached.get("eventos", []) if cached else []
     alerts = []
     for ev in eventos:

@@ -71,7 +71,14 @@ const NoriAssistant: React.FC = () => {
 
   useEffect(() => {
     if (showCutoffAlerts) {
-      marketingService.getCutoffAlerts().then(r => setCutoffAlerts(r.alerts)).catch(() => {});
+      marketingService.getCutoffAlerts().then(r => {
+        // Avoid clearing previously shown alerts when the API returns an empty list
+        // (transient cache miss right after a dash refresh). Only update when the
+        // backend actually returns alerts.
+        if (r.alerts && r.alerts.length > 0) {
+          setCutoffAlerts(r.alerts);
+        }
+      }).catch(() => {});
     }
   }, [showCutoffAlerts]);
 
