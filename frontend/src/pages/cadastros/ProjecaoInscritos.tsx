@@ -508,6 +508,26 @@ const ProjecaoInscritos: React.FC = () => {
     return eventos.filter(ev => ev.nome.toLowerCase().includes(term));
   }, [eventos, eventoSearchTerm]);
 
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '-';
+    try {
+      return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return '-';
+    try {
+      return new Date(dateStr).toLocaleString('pt-BR');
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatNumber = (n: number) => n.toLocaleString('pt-BR');
+
   const selectedEventoNome = useMemo(() => {
     if (!formEventoId) return '';
     const ev = eventos.find(e => e.id === formEventoId);
@@ -542,26 +562,6 @@ const ProjecaoInscritos: React.FC = () => {
       return next;
     });
   };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    try {
-      return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR');
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const formatDateTime = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    try {
-      return new Date(dateStr).toLocaleString('pt-BR');
-    } catch {
-      return dateStr;
-    }
-  };
-
-  const formatNumber = (n: number) => n.toLocaleString('pt-BR');
 
   if (!hasAccess) {
     return (
