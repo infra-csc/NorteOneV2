@@ -780,13 +780,15 @@ const ProjecaoInscritos: React.FC = () => {
                                 <Pencil className="w-4 h-4" />
                               </button>
                             )}
-                            <button
-                              onClick={() => openHistorico(p)}
-                              className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-400 transition-colors"
-                              title="Histórico"
-                            >
-                              <History className="w-4 h-4" />
-                            </button>
+                            {myAreaIds.has(p.area_projecao_id) && (
+                              <button
+                                onClick={() => openHistorico(p)}
+                                className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-400 transition-colors"
+                                title="Histórico"
+                              >
+                                <History className="w-4 h-4" />
+                              </button>
+                            )}
                             {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && (
                               <button
                                 onClick={() => handleDelete(p.id)}
