@@ -6,6 +6,7 @@ import { usePermissions } from '../../context/PermissionContext';
 import {
   BarChart3, Plus, Pencil, Trash2, X, History, Users, Settings,
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
+  TrendingUp, Target, UserCheck, Layers,
 } from 'lucide-react';
 
 interface AreaProjecao {
@@ -525,67 +526,194 @@ const ProjecaoInscritos: React.FC = () => {
         )}
 
         {activeTab === 'consolidado' && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {filteredConsolidado.length === 0 ? (
-              <div className={`text-center py-12 rounded-2xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50 text-gray-400' : 'bg-white/70 border border-gray-200 text-gray-500'}`}>
-                <Eye className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="font-semibold">Nenhum evento com projeções</p>
+              <div className={`text-center py-16 rounded-2xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50 text-gray-400' : 'bg-white/70 border border-gray-200 text-gray-500'}`}>
+                <Eye className="w-14 h-14 mx-auto mb-4 opacity-20" />
+                <p className="text-lg font-semibold">Nenhum evento com projeções</p>
                 <p className="text-sm mt-1">Crie projeções na aba anterior para ver a visão consolidada</p>
               </div>
             ) : (
-              filteredConsolidado.map(c => (
-                <div key={c.evento_id} className={cardClass}>
-                  <div
-                    className="flex items-center justify-between cursor-pointer"
-                    onClick={() => toggleConsolidado(c.evento_id)}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-1">
-                        <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          {c.evento_nome}
-                        </h3>
-                        <span className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {formatDate(c.evento_data)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-6 mt-2">
-                        <div>
-                          <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Inscritos Reais</span>
-                          <p className={`text-xl font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{formatNumber(c.inscritos_reais)}</p>
+              <>
+                {/* KPI Summary Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {[
+                    {
+                      label: 'Total Inscritos Reais',
+                      value: filteredConsolidado.reduce((s, c) => s + c.inscritos_reais, 0),
+                      icon: UserCheck,
+                      gradient: 'from-emerald-500 to-teal-600',
+                      shadow: 'shadow-emerald-500/25',
+                      textColor: isDark ? 'text-emerald-400' : 'text-emerald-600',
+                      bgIcon: 'bg-emerald-500/15',
+                    },
+                    {
+                      label: 'Total Projeções',
+                      value: filteredConsolidado.reduce((s, c) => s + c.total_projecoes, 0),
+                      icon: TrendingUp,
+                      gradient: 'from-violet-500 to-purple-600',
+                      shadow: 'shadow-violet-500/25',
+                      textColor: isDark ? 'text-violet-400' : 'text-violet-600',
+                      bgIcon: 'bg-violet-500/15',
+                    },
+                    {
+                      label: 'Total Geral',
+                      value: filteredConsolidado.reduce((s, c) => s + c.total_geral, 0),
+                      icon: Target,
+                      gradient: 'from-blue-500 to-cyan-600',
+                      shadow: 'shadow-blue-500/25',
+                      textColor: isDark ? 'text-blue-400' : 'text-blue-600',
+                      bgIcon: 'bg-blue-500/15',
+                    },
+                  ].map((kpi) => (
+                    <div
+                      key={kpi.label}
+                      className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200 shadow-sm'}`}
+                    >
+                      <div className={`absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-gradient-to-br ${kpi.gradient}`} />
+                      <div className="relative flex items-center gap-4">
+                        <div className={`p-3 rounded-xl ${kpi.bgIcon}`}>
+                          <kpi.icon className={`w-6 h-6 ${kpi.textColor}`} />
                         </div>
-                        <div className={`text-2xl font-light ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>+</div>
                         <div>
-                          <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Projeções</span>
-                          <p className={`text-xl font-bold ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>{formatNumber(c.total_projecoes)}</p>
+                          <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{kpi.label}</p>
+                          <p className={`text-3xl font-black tracking-tight ${kpi.textColor}`}>{formatNumber(kpi.value)}</p>
                         </div>
-                        <div className={`text-2xl font-light ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>=</div>
-                        <div>
-                          <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Geral</span>
-                          <p className={`text-xl font-black ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{formatNumber(c.total_geral)}</p>
-                        </div>
-                      </div>
-                    </div>
-                    {expandedConsolidado.has(c.evento_id) ? (
-                      <ChevronUp className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-                    ) : (
-                      <ChevronDown className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-                    )}
-                  </div>
-
-                  {expandedConsolidado.has(c.evento_id) && (
-                    <div className={`mt-4 pt-4 border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {c.projecoes.map(p => (
-                          <div key={p.area_projecao_id} className={`p-3 rounded-xl ${isDark ? 'bg-gray-900/50' : 'bg-gray-50'}`}>
-                            <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{p.area_projecao_nome}</span>
-                            <p className={`text-lg font-bold mt-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(p.quantidade)}</p>
-                          </div>
-                        ))}
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-              ))
+
+                {/* Event Cards */}
+                <div className="space-y-4">
+                  {filteredConsolidado.map(c => {
+                    const pctReal = c.total_geral > 0 ? (c.inscritos_reais / c.total_geral) * 100 : 0;
+                    const isExpanded = expandedConsolidado.has(c.evento_id);
+                    const maxAreaQtd = Math.max(...c.projecoes.map(p => p.quantidade), 1);
+
+                    return (
+                      <div
+                        key={c.evento_id}
+                        className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50 hover:border-gray-600/70' : 'bg-white/80 backdrop-blur-xl border border-gray-200 shadow-sm hover:shadow-md'}`}
+                      >
+                        <div className={`absolute top-0 left-0 h-full w-1 bg-gradient-to-b ${pctReal >= 50 ? 'from-emerald-400 to-teal-500' : 'from-amber-400 to-orange-500'}`} />
+
+                        <div
+                          className="cursor-pointer p-5 pl-6"
+                          onClick={() => toggleConsolidado(c.evento_id)}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <h3 className={`text-lg font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                  {c.evento_nome}
+                                </h3>
+                                {c.evento_data && (
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${isDark ? 'bg-gray-700/70 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>
+                                    <Calendar className="w-3 h-3" />
+                                    {formatDate(c.evento_data)}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="mt-4 flex items-end gap-8 flex-wrap">
+                                <div className="flex items-baseline gap-2">
+                                  <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                                    {formatNumber(c.inscritos_reais)}
+                                  </span>
+                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>reais</span>
+                                </div>
+                                <div className={`text-lg ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>+</div>
+                                <div className="flex items-baseline gap-2">
+                                  <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>
+                                    {formatNumber(c.total_projecoes)}
+                                  </span>
+                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>projeções</span>
+                                </div>
+                                <div className={`text-lg ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>=</div>
+                                <div className="flex items-baseline gap-2">
+                                  <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                                    {formatNumber(c.total_geral)}
+                                  </span>
+                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>total</span>
+                                </div>
+                              </div>
+
+                              <div className="mt-4 max-w-xl">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Participação real</span>
+                                  <span className={`text-xs font-bold ${pctReal >= 50 ? (isDark ? 'text-emerald-400' : 'text-emerald-600') : (isDark ? 'text-amber-400' : 'text-amber-600')}`}>
+                                    {pctReal.toFixed(1)}%
+                                  </span>
+                                </div>
+                                <div className={`h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/70' : 'bg-gray-200'}`}>
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-700 ease-out bg-gradient-to-r ${pctReal >= 50 ? 'from-emerald-400 to-teal-500' : 'from-amber-400 to-orange-500'}`}
+                                    style={{ width: `${Math.min(pctReal, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <button className={`mt-1 p-2 rounded-xl transition-colors ${isDark ? 'hover:bg-gray-700/50 text-gray-400' : 'hover:bg-gray-100 text-gray-400'}`}>
+                              {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className={`px-5 pl-6 pb-5 border-t ${isDark ? 'border-gray-700/40' : 'border-gray-100'}`}>
+                            <div className="pt-4">
+                              <div className="flex items-center gap-2 mb-4">
+                                <Layers className={`w-4 h-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`} />
+                                <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                  Projeção por Área
+                                </span>
+                              </div>
+                              <div className="space-y-3">
+                                {c.projecoes
+                                  .slice()
+                                  .sort((a, b) => b.quantidade - a.quantidade)
+                                  .map((p, idx) => {
+                                    const barPct = (p.quantidade / maxAreaQtd) * 100;
+                                    const areaColors = [
+                                      { bar: 'from-violet-500 to-purple-500', text: isDark ? 'text-violet-300' : 'text-violet-700', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
+                                      { bar: 'from-blue-500 to-cyan-500', text: isDark ? 'text-blue-300' : 'text-blue-700', bg: isDark ? 'bg-blue-500/10' : 'bg-blue-50' },
+                                      { bar: 'from-emerald-500 to-teal-500', text: isDark ? 'text-emerald-300' : 'text-emerald-700', bg: isDark ? 'bg-emerald-500/10' : 'bg-emerald-50' },
+                                      { bar: 'from-amber-500 to-orange-500', text: isDark ? 'text-amber-300' : 'text-amber-700', bg: isDark ? 'bg-amber-500/10' : 'bg-amber-50' },
+                                      { bar: 'from-rose-500 to-pink-500', text: isDark ? 'text-rose-300' : 'text-rose-700', bg: isDark ? 'bg-rose-500/10' : 'bg-rose-50' },
+                                      { bar: 'from-indigo-500 to-blue-500', text: isDark ? 'text-indigo-300' : 'text-indigo-700', bg: isDark ? 'bg-indigo-500/10' : 'bg-indigo-50' },
+                                      { bar: 'from-teal-500 to-cyan-500', text: isDark ? 'text-teal-300' : 'text-teal-700', bg: isDark ? 'bg-teal-500/10' : 'bg-teal-50' },
+                                      { bar: 'from-fuchsia-500 to-purple-500', text: isDark ? 'text-fuchsia-300' : 'text-fuchsia-700', bg: isDark ? 'bg-fuchsia-500/10' : 'bg-fuchsia-50' },
+                                    ];
+                                    const color = areaColors[idx % areaColors.length];
+
+                                    return (
+                                      <div key={p.area_projecao_id} className={`p-3 rounded-xl ${color.bg}`}>
+                                        <div className="flex items-center justify-between mb-2">
+                                          <span className={`text-sm font-semibold ${color.text}`}>{p.area_projecao_nome}</span>
+                                          <span className={`text-sm font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                            {formatNumber(p.quantidade)}
+                                          </span>
+                                        </div>
+                                        <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
+                                          <div
+                                            className={`h-full rounded-full bg-gradient-to-r ${color.bar} transition-all duration-500 ease-out`}
+                                            style={{ width: `${barPct}%` }}
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         )}
