@@ -523,7 +523,7 @@ const NoriAssistant: React.FC = () => {
                       </span>
                       {alert.isc !== null && (
                         <span className={`text-xs font-semibold ml-auto ${iscColor}`}>
-                          ISC {alert.isc}
+                          ISC {alert.isc.toFixed(2)}
                         </span>
                       )}
                     </div>
