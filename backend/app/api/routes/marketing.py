@@ -2821,7 +2821,7 @@ GROUP BY sub.id_evento, sub.ds_categoria
         return result_list
 
     except Exception as e:
-        logger.error(f"Erro ao calcular margem por kit: {e}")
+        logger.exception(f"Erro ao calcular margem por kit: {e}")
         return []
 
 
