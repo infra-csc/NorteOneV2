@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import extract
 from typing import List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
+import csv
+import io
 
 from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin, require_permission
@@ -145,6 +148,7 @@ def minhas_areas(
 def list_projecoes(
     mes: Optional[int] = Query(None, ge=1, le=12),
     tipo_evento: Optional[str] = Query(None),
+    modalidade: Optional[str] = Query(None),
     area_projecao_id: Optional[int] = Query(None),
     evento_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
@@ -166,6 +170,8 @@ def list_projecoes(
         query = query.filter(extract("month", CadastroEvento.data_evento) == mes)
     if tipo_evento:
         query = query.filter(CadastroEvento.tipo_evento == tipo_evento)
+    if modalidade:
+        query = query.filter(CadastroEvento.modalidade == modalidade)
     if area_projecao_id:
         query = query.filter(ProjecaoInscritos.area_projecao_id == area_projecao_id)
     if evento_id:
@@ -372,10 +378,205 @@ def delete_projecao(
     return {"message": "Projeção removida"}
 
 
+@router.get("/lixeira", response_model=List[ProjecaoInscritosResponse])
+def list_lixeira(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem acessar a lixeira")
+
+    projecoes = (
+        db.query(ProjecaoInscritos)
+        .join(CadastroEvento, ProjecaoInscritos.evento_id == CadastroEvento.id)
+        .join(AreaProjecao, ProjecaoInscritos.area_projecao_id == AreaProjecao.id)
+        .options(
+            joinedload(ProjecaoInscritos.evento),
+            joinedload(ProjecaoInscritos.area_projecao),
+            joinedload(ProjecaoInscritos.criador),
+            joinedload(ProjecaoInscritos.editor),
+        )
+        .filter(ProjecaoInscritos.deleted_at.isnot(None))
+        .order_by(ProjecaoInscritos.deleted_at.desc())
+        .all()
+    )
+
+    result = []
+    for p in projecoes:
+        deleted_by_nome = None
+        if p.updated_by:
+            deleter = db.query(Usuario).filter(Usuario.id == p.updated_by).first()
+            deleted_by_nome = deleter.nome if deleter else None
+
+        result.append(ProjecaoInscritosResponse(
+            id=p.id,
+            evento_id=p.evento_id,
+            evento_nome=p.evento.nome if p.evento else None,
+            evento_data=p.evento.data_evento.isoformat() if p.evento and p.evento.data_evento else None,
+            evento_tipo=p.evento.tipo_evento if p.evento else None,
+            evento_modalidade=p.evento.modalidade if p.evento else None,
+            area_projecao_id=p.area_projecao_id,
+            area_projecao_nome=p.area_projecao.nome if p.area_projecao else None,
+            quantidade=p.quantidade,
+            created_by=p.created_by,
+            created_by_nome=p.criador.nome if p.criador else None,
+            updated_by=p.updated_by,
+            updated_by_nome=p.editor.nome if p.editor else None,
+            created_at=p.created_at,
+            updated_at=p.updated_at,
+            deleted_at=p.deleted_at,
+            deleted_by_nome=deleted_by_nome,
+        ))
+    return result
+
+
+@router.post("/lixeira/{projecao_id}/restaurar")
+def restaurar_projecao(
+    projecao_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem restaurar projeções")
+
+    projecao = db.query(ProjecaoInscritos).filter(
+        ProjecaoInscritos.id == projecao_id,
+        ProjecaoInscritos.deleted_at.isnot(None),
+    ).first()
+    if not projecao:
+        raise HTTPException(status_code=404, detail="Projeção não encontrada na lixeira")
+
+    existing_active = db.query(ProjecaoInscritos).filter(
+        ProjecaoInscritos.evento_id == projecao.evento_id,
+        ProjecaoInscritos.area_projecao_id == projecao.area_projecao_id,
+        ProjecaoInscritos.deleted_at.is_(None),
+        ProjecaoInscritos.id != projecao.id,
+    ).first()
+    if existing_active:
+        raise HTTPException(
+            status_code=409,
+            detail="Já existe uma projeção ativa para este evento e área. Exclua-a antes de restaurar."
+        )
+
+    projecao.deleted_at = None
+    projecao.updated_by = current_user.id
+
+    _record_history(db, projecao.id, "RESTAURACAO", current_user.id,
+                    campo="quantidade", novo=str(projecao.quantidade))
+    db.commit()
+    return {"message": "Projeção restaurada com sucesso"}
+
+
+@router.delete("/lixeira/{projecao_id}/permanente")
+def delete_permanente(
+    projecao_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_deletar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem excluir permanentemente")
+
+    projecao = db.query(ProjecaoInscritos).filter(
+        ProjecaoInscritos.id == projecao_id,
+        ProjecaoInscritos.deleted_at.isnot(None),
+    ).first()
+    if not projecao:
+        raise HTTPException(status_code=404, detail="Projeção não encontrada na lixeira")
+
+    db.query(ProjecaoInscritosHistorico).filter(
+        ProjecaoInscritosHistorico.projecao_id == projecao_id
+    ).delete()
+    db.delete(projecao)
+    db.commit()
+    return {"message": "Projeção excluída permanentemente"}
+
+
+@router.get("/exportar")
+def exportar_projecoes(
+    mes: Optional[int] = Query(None, ge=1, le=12),
+    tipo_evento: Optional[str] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    area_projecao_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    query = (
+        db.query(ProjecaoInscritos)
+        .join(CadastroEvento, ProjecaoInscritos.evento_id == CadastroEvento.id)
+        .join(AreaProjecao, ProjecaoInscritos.area_projecao_id == AreaProjecao.id)
+        .options(
+            joinedload(ProjecaoInscritos.evento),
+            joinedload(ProjecaoInscritos.area_projecao),
+            joinedload(ProjecaoInscritos.criador),
+            joinedload(ProjecaoInscritos.editor),
+        )
+        .filter(
+            CadastroEvento.deleted_at.is_(None),
+            ProjecaoInscritos.deleted_at.is_(None),
+        )
+    )
+
+    if mes:
+        query = query.filter(extract("month", CadastroEvento.data_evento) == mes)
+    if tipo_evento:
+        query = query.filter(CadastroEvento.tipo_evento == tipo_evento)
+    if modalidade:
+        query = query.filter(CadastroEvento.modalidade == modalidade)
+    if area_projecao_id:
+        query = query.filter(ProjecaoInscritos.area_projecao_id == area_projecao_id)
+
+    user_areas = None
+    if not is_user_admin(current_user):
+        user_areas = _get_user_area_ids(db, current_user.id)
+
+    projecoes = query.order_by(CadastroEvento.data_evento.desc(), AreaProjecao.nome).all()
+
+    def _sanitize_csv(val: str) -> str:
+        if val and val[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return "'" + val
+        return val
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow([
+        'Evento', 'Data Evento', 'Tipo', 'Modalidade',
+        'Área', 'Quantidade', 'Criado por', 'Data Criação',
+        'Editado por', 'Data Edição',
+    ])
+
+    for p in projecoes:
+        if user_areas is not None and p.area_projecao_id not in user_areas:
+            continue
+        writer.writerow([
+            _sanitize_csv(p.evento.nome if p.evento else ''),
+            p.evento.data_evento.strftime('%d/%m/%Y') if p.evento and p.evento.data_evento else '',
+            _sanitize_csv(p.evento.tipo_evento if p.evento else ''),
+            _sanitize_csv(p.evento.modalidade if p.evento else ''),
+            _sanitize_csv(p.area_projecao.nome if p.area_projecao else ''),
+            p.quantidade,
+            _sanitize_csv(p.criador.nome if p.criador else ''),
+            p.created_at.strftime('%d/%m/%Y %H:%M') if p.created_at else '',
+            _sanitize_csv(p.editor.nome if p.editor else ''),
+            p.updated_at.strftime('%d/%m/%Y %H:%M') if p.updated_at else '',
+        ])
+
+    output.seek(0)
+    bom = '\ufeff'
+    content = bom + output.getvalue()
+
+    return StreamingResponse(
+        io.BytesIO(content.encode('utf-8-sig')),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=projecao_inscritos.csv'},
+    )
+
+
 @router.get("/consolidado", response_model=List[ConsolidadoEventoResponse])
 def get_consolidado(
     mes: Optional[int] = Query(None, ge=1, le=12),
     tipo_evento: Optional[str] = Query(None),
+    modalidade: Optional[str] = Query(None),
+    area_projecao_id: Optional[int] = Query(None),
     evento_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
@@ -385,6 +586,8 @@ def get_consolidado(
         query = query.filter(extract("month", CadastroEvento.data_evento) == mes)
     if tipo_evento:
         query = query.filter(CadastroEvento.tipo_evento == tipo_evento)
+    if modalidade:
+        query = query.filter(CadastroEvento.modalidade == modalidade)
     if evento_id:
         query = query.filter(CadastroEvento.id == evento_id)
 
@@ -414,6 +617,8 @@ def get_consolidado(
         )
         if user_areas is not None:
             proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(user_areas))
+        if area_projecao_id:
+            proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id == area_projecao_id)
         projecoes = proj_query.all()
 
         if not projecoes:

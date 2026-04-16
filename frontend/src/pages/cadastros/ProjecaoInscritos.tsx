@@ -6,7 +6,8 @@ import { usePermissions } from '../../context/PermissionContext';
 import {
   BarChart3, Plus, Pencil, Trash2, X, History, Users, Settings,
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
-  TrendingUp, Target, UserCheck, Layers,
+  TrendingUp, Target, UserCheck, Layers, Download, RotateCcw,
+  AlertTriangle, Trash,
 } from 'lucide-react';
 
 interface AreaProjecao {
@@ -30,6 +31,8 @@ interface Projecao {
   updated_by_nome: string | null;
   created_at: string | null;
   updated_at: string | null;
+  deleted_at: string | null;
+  deleted_by_nome: string | null;
 }
 
 interface HistoricoItem {
@@ -97,17 +100,19 @@ const ProjecaoInscritos: React.FC = () => {
   const canEditProjecao = canEdit('projecao_inscritos');
   const canDeleteProjecao = canDelete('projecao_inscritos');
 
-  const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config'>('projecoes');
+  const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config' | 'lixeira'>('projecoes');
   const [projecoes, setProjecoes] = useState<Projecao[]>([]);
   const [areas, setAreas] = useState<AreaProjecao[]>([]);
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [consolidado, setConsolidado] = useState<ConsolidadoEvento[]>([]);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
   const [allUsers, setAllUsers] = useState<SimpleUser[]>([]);
+  const [lixeira, setLixeira] = useState<Projecao[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [filterMes, setFilterMes] = useState('');
   const [filterTipoEvento, setFilterTipoEvento] = useState('');
+  const [filterModalidade, setFilterModalidade] = useState('');
   const [filterArea, setFilterArea] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -183,8 +188,48 @@ const ProjecaoInscritos: React.FC = () => {
     const params: any = {};
     if (filterMes) params.mes = parseInt(filterMes);
     if (filterTipoEvento) params.tipo_evento = filterTipoEvento;
+    if (filterModalidade) params.modalidade = filterModalidade;
     if (filterArea) params.area_projecao_id = parseInt(filterArea);
     return params;
+  };
+
+  const loadLixeira = async () => {
+    try {
+      const data = await projecaoService.getLixeira();
+      setLixeira(data);
+    } catch (error) {
+      console.error('Erro ao carregar lixeira:', error);
+    }
+  };
+
+  const handleRestaurar = async (id: number) => {
+    if (!confirm('Deseja restaurar esta projeção?')) return;
+    try {
+      await projecaoService.restaurar(id);
+      loadLixeira();
+      loadData();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Erro ao restaurar');
+    }
+  };
+
+  const handleDeletePermanente = async (id: number) => {
+    if (!confirm('ATENÇÃO: Esta ação é irreversível. Deseja excluir permanentemente esta projeção e todo seu histórico?')) return;
+    try {
+      await projecaoService.deletePermanente(id);
+      loadLixeira();
+    } catch (error: any) {
+      alert(error.response?.data?.detail || 'Erro ao excluir permanentemente');
+    }
+  };
+
+  const handleExportar = async () => {
+    try {
+      await projecaoService.exportar(buildFilters());
+    } catch (error) {
+      console.error('Erro ao exportar:', error);
+      alert('Erro ao exportar relatório');
+    }
   };
 
   useEffect(() => {
@@ -195,16 +240,22 @@ const ProjecaoInscritos: React.FC = () => {
   useEffect(() => {
     loadData();
     if (activeTab === 'consolidado') loadConsolidado();
-  }, [filterMes, filterTipoEvento, filterArea]);
+  }, [filterMes, filterTipoEvento, filterModalidade, filterArea]);
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
     if (activeTab === 'config' && isAdmin) loadAreasDetail();
+    if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
   const tiposEvento = useMemo(() => {
     const tipos = [...new Set(eventos.map(e => e.tipo_evento).filter(Boolean))] as string[];
     return tipos.sort();
+  }, [eventos]);
+
+  const modalidades = useMemo(() => {
+    const mods = [...new Set(eventos.map(e => e.modalidade).filter(Boolean))] as string[];
+    return mods.sort();
   }, [eventos]);
 
   const filteredProjecoes = useMemo(() => {
@@ -366,18 +417,29 @@ const ProjecaoInscritos: React.FC = () => {
             </div>
           </div>
 
-          {activeTab === 'projecoes' && canCreateProjecao && (
-            <button
-              onClick={() => { resetForm(); setShowCreateModal(true); }}
-              className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
-            >
-              <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              <span className="relative flex items-center gap-2">
-                <Plus className="w-5 h-5" />
-                Nova Projeção
-              </span>
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {(activeTab === 'projecoes' || activeTab === 'consolidado') && (
+              <button
+                onClick={handleExportar}
+                className={`flex items-center gap-2 px-4 py-3 rounded-2xl font-semibold text-sm transition-all duration-300 hover:scale-105 ${isDark ? 'bg-gray-700/60 text-gray-200 hover:bg-gray-600/80 border border-gray-600' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 shadow-sm'}`}
+              >
+                <Download className="w-4 h-4" />
+                Exportar CSV
+              </button>
+            )}
+            {activeTab === 'projecoes' && canCreateProjecao && (
+              <button
+                onClick={() => { resetForm(); setShowCreateModal(true); }}
+                className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                <span className="relative flex items-center gap-2">
+                  <Plus className="w-5 h-5" />
+                  Nova Projeção
+                </span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabs */}
@@ -385,7 +447,10 @@ const ProjecaoInscritos: React.FC = () => {
           {[
             { key: 'projecoes' as const, label: 'Projeções', icon: BarChart3 },
             { key: 'consolidado' as const, label: 'Visão Consolidada', icon: Eye },
-            ...(isAdmin ? [{ key: 'config' as const, label: 'Configuração de Áreas', icon: Settings }] : []),
+            ...(isAdmin ? [
+              { key: 'config' as const, label: 'Configuração de Áreas', icon: Settings },
+              { key: 'lixeira' as const, label: 'Lixeira', icon: Trash },
+            ] : []),
           ].map(tab => (
             <button
               key={tab.key}
@@ -403,7 +468,7 @@ const ProjecaoInscritos: React.FC = () => {
         </div>
 
         {/* Filters */}
-        {activeTab !== 'config' && (
+        {(activeTab === 'projecoes' || activeTab === 'consolidado') && (
           <div className={`flex flex-wrap items-center gap-3 p-4 rounded-2xl ${isDark ? 'bg-gray-800/30 border border-gray-700/50' : 'bg-white/50 border border-gray-200'}`}>
             <Filter className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
             <select value={filterMes} onChange={e => setFilterMes(e.target.value)} className={selectClass}>
@@ -413,12 +478,14 @@ const ProjecaoInscritos: React.FC = () => {
               <option value="">Todos os tipos</option>
               {tiposEvento.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            {activeTab === 'projecoes' && (
-              <select value={filterArea} onChange={e => setFilterArea(e.target.value)} className={selectClass}>
-                <option value="">Todas as áreas</option>
-                {areas.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
-              </select>
-            )}
+            <select value={filterModalidade} onChange={e => setFilterModalidade(e.target.value)} className={selectClass}>
+              <option value="">Todas as modalidades</option>
+              {modalidades.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <select value={filterArea} onChange={e => setFilterArea(e.target.value)} className={selectClass}>
+              <option value="">Todas as áreas</option>
+              {areas.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+            </select>
             <div className="relative flex-1 min-w-[200px]">
               <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               <input
@@ -595,7 +662,7 @@ const ProjecaoInscritos: React.FC = () => {
                         key={c.evento_id}
                         className={`relative overflow-hidden rounded-2xl transition-all duration-300 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50 hover:border-gray-600/70' : 'bg-white/80 backdrop-blur-xl border border-gray-200 shadow-sm hover:shadow-md'}`}
                       >
-                        <div className="absolute top-0 left-0 h-full w-1 bg-gradient-to-b from-violet-400 to-blue-500" />
+                        <div className={`absolute top-0 left-0 h-full w-1 bg-gradient-to-b ${c.total_geral > 0 && (c.inscritos_reais / c.total_geral) >= 0.5 ? 'from-emerald-400 to-teal-500' : 'from-amber-400 to-orange-500'}`} />
 
                         <div
                           className="cursor-pointer p-5 pl-6"
@@ -735,6 +802,82 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {activeTab === 'lixeira' && isAdmin && (
+          <div className="space-y-4">
+            <div className={`flex items-center gap-3 p-4 rounded-2xl ${isDark ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-amber-50 border border-amber-200'}`}>
+              <AlertTriangle className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+              <p className={`text-sm ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>
+                Itens na lixeira podem ser restaurados ou excluídos permanentemente. A exclusão permanente é irreversível.
+              </p>
+            </div>
+
+            {lixeira.length === 0 ? (
+              <div className={`text-center py-16 rounded-2xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50 text-gray-400' : 'bg-white/70 border border-gray-200 text-gray-500'}`}>
+                <Trash className="w-14 h-14 mx-auto mb-4 opacity-20" />
+                <p className="text-lg font-semibold">Lixeira vazia</p>
+                <p className="text-sm mt-1">Nenhuma projeção excluída</p>
+              </div>
+            ) : (
+              <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
+                        {['Evento', 'Área', 'Quantidade', 'Excluído por', 'Data exclusão', 'Ações'].map(h => (
+                          <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+                      {lixeira.map(p => (
+                        <tr key={p.id} className={`transition-colors ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}>
+                          <td className={`px-4 py-3 text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            {p.evento_nome}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
+                              {p.area_projecao_nome}
+                            </span>
+                          </td>
+                          <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            {formatNumber(p.quantidade)}
+                          </td>
+                          <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {p.deleted_by_nome || p.updated_by_nome || '-'}
+                          </td>
+                          <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {formatDateTime(p.deleted_at)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleRestaurar(p.id)}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+                                title="Restaurar"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                Restaurar
+                              </button>
+                              <button
+                                onClick={() => handleDeletePermanente(p.id)}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                                title="Excluir permanentemente"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Excluir
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
