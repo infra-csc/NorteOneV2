@@ -820,24 +820,35 @@ const EventDetail: React.FC = () => {
     ? ((mediaSemanaAtual / mediaDiariaNecessaria) * 100) - 100
     : (mediaSemanaAtual > 0 ? 100 : 0);
 
-  const indicadoresVolume = [3, 7, 14, 30].map(dias => {
-    const vendas = completeDailySales.slice(-dias);
-    const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
-    const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
-    const potencial = media * dMinusCalc;
-    const atingimento = totalInscritosConsolidado + potencial;
-    const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
-    return {
-      periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
-      media: Math.round(media * 10) / 10,
-      dMinus: dMinusCalc,
-      potencial: Math.round(potencial),
-      vendasAcumuladas: totalInscritosConsolidado,
-      atingimento: Math.round(atingimento),
-      meta: event.salesGoal,
-      alvo: Math.round(alvo * 1000) / 10,
-    };
-  });
+  const indicadoresVolume = (() => {
+    const ticketAtualKit = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : 0;
+    const custoKitBasico = event.kitCostPerUnit || 0;
+    const margRealizada = margemRealizadaKits != null ? margemRealizadaKits : (event.margemRealizadaTotal || 0);
+    const margOrcada = event.budgetTicket > 0 && custoKitBasico > 0 ? (event.budgetTicket - custoKitBasico) * event.salesGoal : 0;
+
+    return [3, 7, 14, 30].map(dias => {
+      const vendas = completeDailySales.slice(-dias);
+      const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
+      const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
+      const potencial = media * dMinusCalc;
+      const atingimento = totalInscritosConsolidado + potencial;
+      const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
+      const insightMargem = ticketAtualKit > 0 && custoKitBasico > 0 && event.budgetTicket > 0 && event.salesGoal > 0
+        ? (margRealizada + (potencial * (ticketAtualKit - custoKitBasico))) - margOrcada
+        : null;
+      return {
+        periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
+        media: Math.round(media * 10) / 10,
+        dMinus: dMinusCalc,
+        potencial: Math.round(potencial),
+        vendasAcumuladas: totalInscritosConsolidado,
+        atingimento: Math.round(atingimento),
+        meta: event.salesGoal,
+        alvo: Math.round(alvo * 1000) / 10,
+        insightMargem,
+      };
+    });
+  })();
 
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
@@ -2609,6 +2620,7 @@ const EventDetail: React.FC = () => {
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Atingimento</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Acum.</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Alvo</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Insight Margem</th>
               </tr>
             </thead>
             <tbody>
@@ -2623,6 +2635,9 @@ const EventDetail: React.FC = () => {
                   <td className="py-2.5 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(row.meta)}</td>
                   <td className={`py-2.5 px-3 text-right font-bold ${row.alvo >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
                     {row.alvo > 0 ? '+' : ''}{row.alvo.toFixed(1)}%
+                  </td>
+                  <td className={`py-2.5 px-3 text-right font-bold ${row.insightMargem == null ? 'text-gray-400 dark:text-gray-500' : row.insightMargem >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {row.insightMargem != null ? (row.insightMargem >= 0 ? '+' : '') + formatCurrency(row.insightMargem) : '—'}
                   </td>
                 </tr>
               ))}
