@@ -390,6 +390,10 @@ def get_consolidado(
 
     eventos = query.order_by(CadastroEvento.data_evento.desc()).all()
 
+    user_areas = None
+    if not is_user_admin(current_user):
+        user_areas = _get_user_area_ids(db, current_user.id)
+
     sku_to_grupo = {}
     all_mappings = db.query(SkuMapping).filter(SkuMapping.ativo == True).all()
     for m in all_mappings:
@@ -398,12 +402,15 @@ def get_consolidado(
 
     result = []
     for evento in eventos:
-        projecoes = db.query(ProjecaoInscritos).options(
+        proj_query = db.query(ProjecaoInscritos).options(
             joinedload(ProjecaoInscritos.area_projecao)
         ).filter(
             ProjecaoInscritos.evento_id == evento.id,
             ProjecaoInscritos.deleted_at.is_(None),
-        ).all()
+        )
+        if user_areas is not None:
+            proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(user_areas))
+        projecoes = proj_query.all()
 
         if not projecoes:
             continue
