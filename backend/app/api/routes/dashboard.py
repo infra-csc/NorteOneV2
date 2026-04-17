@@ -235,8 +235,10 @@ def get_dashboard_operacional(
         calculate_isc_components, calculate_isc, get_isc_status,
         get_meta_from_cadastro, get_meta_orcada, calculate_d_minus,
         get_dias_encerramento, get_data_regime, normalize_sku,
-        _get_snapshot_metrics_for_grupo
+        _get_snapshot_metrics_for_grupo, today_brazil
     )
+    from sqlalchemy import case as sa_case, or_, and_
+    from ...models.vendas_snapshot import VendasDiariaSnapshot
 
     projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade, cidade=cidade)
     projeto_ids = [p.id for p in projetos]
@@ -246,8 +248,55 @@ def get_dashboard_operacional(
     isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
 
-    today = date.today()
+    today = today_brazil()
+    yesterday = today - timedelta(days=1)
     window_end = today + timedelta(days=28)
+
+    # --- Per-grupo daily snapshot rollup (hoje/ontem/total) for the inscrições table ---
+    # Restricted to grupos relevant to the filtered projetos and to the dashboard's `ano`
+    # (matches the pattern used by snapshot_service.get_isc_totals_from_snapshot).
+    grupos_relevantes: set = set()
+    for _p in projetos:
+        _sku_raw = str(_p.codigo) if _p.codigo else None
+        _sku_norm = normalize_sku(_sku_raw) if _sku_raw else None
+        _g = sku_to_grupo.get(_sku_norm) if _sku_norm else None
+        if _g:
+            grupos_relevantes.add(_g)
+
+    snapshot_grupo_map: dict = {}
+    if grupos_relevantes:
+        try:
+            year_end = date(ano + 1, 1, 1)
+            presale_start = date(ano - 1, 9, 1)
+            snap_rows = db.query(
+                VendasDiariaSnapshot.evento_grupo,
+                sa_func.sum(sa_case(
+                    (VendasDiariaSnapshot.data_venda == today, VendasDiariaSnapshot.quantidade), else_=0
+                )).label("hoje"),
+                sa_func.sum(sa_case(
+                    (VendasDiariaSnapshot.data_venda == yesterday, VendasDiariaSnapshot.quantidade), else_=0
+                )).label("ontem"),
+                sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
+            ).filter(
+                VendasDiariaSnapshot.evento_grupo.in_(grupos_relevantes),
+                or_(
+                    VendasDiariaSnapshot.ano == ano,
+                    and_(
+                        VendasDiariaSnapshot.data_venda >= presale_start,
+                        VendasDiariaSnapshot.data_venda <  year_end,
+                    )
+                )
+            ).group_by(VendasDiariaSnapshot.evento_grupo).all()
+            for r in snap_rows:
+                snapshot_grupo_map[r.evento_grupo] = {
+                    "hoje": int(r.hoje or 0),
+                    "ontem": int(r.ontem or 0),
+                    "total": int(r.total or 0),
+                }
+        except Exception:
+            snapshot_grupo_map = {}
+
+    tabela_eventos: list = []
 
     total_atletas_orcado = 0
     total_atletas_confirmados = 0
@@ -378,6 +427,35 @@ def get_dashboard_operacional(
         atletas_por_modalidade[mod]["atletas"] += current_sales
         atletas_por_modalidade[mod]["eventos"] += 1
 
+        # --- Build the inscrições table row (Dash ISC numbers on the home dashboard) ---
+        snap_metrics = snapshot_grupo_map.get(grupo_nome) if grupo_nome else None
+        inscritos_total = (snap_metrics or {}).get("total", 0) if snap_metrics else current_sales
+        # Garantir consistência: total nunca menor que current_sales calculado acima
+        if current_sales and inscritos_total < current_sales:
+            inscritos_total = current_sales
+        inscritos_hoje = (snap_metrics or {}).get("hoje", 0) if snap_metrics else 0
+        inscritos_ontem = (snap_metrics or {}).get("ontem", 0) if snap_metrics else 0
+
+        produto_nome = (str(cadastro.produto) if cadastro and getattr(cadastro, "produto", None) else None) or (str(p.produto) if p.produto else "N/D")
+
+        tabela_eventos.append({
+            "id": p.id,
+            "evento": nome_evento,
+            "cidade": cidade,
+            "modalidade": mod,
+            "produto": produto_nome,
+            "data_evento": p.data_evento.isoformat() if p.data_evento else None,
+            "dias_para_evento": (p.data_evento - today).days if p.data_evento else None,
+            "inscritos_total": int(inscritos_total or 0),
+            "inscritos_hoje": int(inscritos_hoje or 0),
+            "inscritos_ontem": int(inscritos_ontem or 0),
+            "media_7d": round(m7d or 0.0, 1),
+            "media_14d": round(m14d or 0.0, 1),
+            "isc_status": isc_status,
+            "taxa_ocupacao": taxa_ocupacao,
+            "capacidade": cap,
+        })
+
     upcoming_events.sort(key=lambda x: x["dias_para_evento"])
     baixa_ocupacao.sort(key=lambda x: x["taxa_ocupacao"])
     sellout_candidates.sort(key=lambda x: x["taxa_ocupacao"], reverse=True)
@@ -406,6 +484,7 @@ def get_dashboard_operacional(
         "candidatos_sellout": sellout_candidates[:5],
         "top_por_velocity": top_por_velocity[:8],
         "distribuicao_modalidade": modalidade_list,
+        "tabela_eventos": tabela_eventos,
     }
 
 

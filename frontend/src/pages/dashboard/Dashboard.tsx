@@ -11,7 +11,8 @@ import {
 import {
   Filter, Search, ChevronDown, LayoutDashboard, RotateCcw,
   Users, CalendarDays, TrendingUp, AlertTriangle,
-  RefreshCw, Target, Percent, Zap, DollarSign, TrendingDown, ArrowRight
+  RefreshCw, Target, Percent, Zap, DollarSign, TrendingDown, ArrowRight,
+  ListOrdered, ArrowUp, ArrowDown, ArrowUpDown
 } from 'lucide-react';
 
 const formatCurrency = (value: number) =>
@@ -138,6 +139,207 @@ const OcupacaoBar: React.FC<{ taxa: number }> = ({ taxa }) => {
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(taxa, 100)}%` }} />
       </div>
       <span className={`text-xs font-medium ${textColor}`}>{taxa}%</span>
+    </div>
+  );
+};
+
+interface EventoInscricoes {
+  id: number;
+  evento: string;
+  cidade: string;
+  modalidade: string;
+  produto: string;
+  data_evento: string | null;
+  dias_para_evento: number | null;
+  inscritos_total: number;
+  inscritos_hoje: number;
+  inscritos_ontem: number;
+  media_7d: number;
+  media_14d: number;
+  isc_status: string;
+  taxa_ocupacao: number;
+  capacidade: number;
+}
+
+type SortKey = keyof Pick<EventoInscricoes,
+  'evento' | 'data_evento' | 'inscritos_total' | 'inscritos_hoje' | 'inscritos_ontem' | 'media_7d' | 'media_14d' | 'taxa_ocupacao'
+>;
+
+const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boolean }> = ({ rows, isDark }) => {
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [periodoFilter, setPeriodoFilter] = useState<string>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('data_evento');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    return rows.filter(r => {
+      if (s && !(r.evento.toLowerCase().includes(s) || (r.cidade || '').toLowerCase().includes(s))) return false;
+      if (statusFilter !== 'all' && r.isc_status !== statusFilter) return false;
+      if (periodoFilter !== 'all') {
+        const d = r.dias_para_evento;
+        if (d == null || d < 0) return false;
+        if (periodoFilter === '30' && d > 30) return false;
+        if (periodoFilter === '60' && d > 60) return false;
+        if (periodoFilter === '90' && d > 90) return false;
+      }
+      return true;
+    });
+  }, [rows, search, statusFilter, periodoFilter]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const av = (a[sortKey] ?? '') as any;
+      const bv = (b[sortKey] ?? '') as any;
+      if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
+      const as = String(av), bs = String(bv);
+      return sortDir === 'asc' ? as.localeCompare(bs) : bs.localeCompare(as);
+    });
+    return arr;
+  }, [filtered, sortKey, sortDir]);
+
+  const totals = useMemo(() => {
+    const sum = filtered.reduce((acc, r) => ({
+      total: acc.total + (r.inscritos_total || 0),
+      hoje: acc.hoje + (r.inscritos_hoje || 0),
+      ontem: acc.ontem + (r.inscritos_ontem || 0),
+      m7: acc.m7 + (r.media_7d || 0),
+      m14: acc.m14 + (r.media_14d || 0),
+    }), { total: 0, hoje: 0, ontem: 0, m7: 0, m14: 0 });
+    const n = filtered.length || 1;
+    return { ...sum, m7Avg: sum.m7 / n, m14Avg: sum.m14 / n };
+  }, [filtered]);
+
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(k); setSortDir(k === 'evento' || k === 'data_evento' ? 'asc' : 'desc'); }
+  };
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (sortKey !== k) return <ArrowUpDown className="w-3 h-3 opacity-40" />;
+    return sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-400" />;
+  };
+
+  const Th: React.FC<{ k?: SortKey; align?: 'left' | 'right' | 'center'; children: React.ReactNode }> = ({ k, align = 'left', children }) => (
+    <th className={`px-4 py-3 text-${align} text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'} ${k ? 'cursor-pointer select-none' : ''}`}
+      onClick={k ? () => toggleSort(k) : undefined}>
+      <span className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'justify-end w-full' : ''}`}>
+        {children}{k && <SortIcon k={k} />}
+      </span>
+    </th>
+  );
+
+  const fmtNum = (v: number) => new Intl.NumberFormat('pt-BR').format(v);
+  const fmtAvg = (v: number) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v);
+  const fmtDate = (iso: string | null) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+
+  const deltaCell = (hoje: number, ontem: number) => {
+    if (!ontem && !hoje) return <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>—</span>;
+    if (!ontem) return <span className="text-emerald-400 font-semibold">+{fmtNum(hoje)}</span>;
+    const diff = hoje - ontem;
+    const cls = diff > 0 ? 'text-emerald-400' : diff < 0 ? 'text-red-400' : (isDark ? 'text-gray-300' : 'text-gray-600');
+    const sign = diff > 0 ? '+' : '';
+    return <span className={`font-semibold ${cls}`}>{sign}{fmtNum(diff)}</span>;
+  };
+
+  const cardClass = `rounded-2xl ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
+
+  return (
+    <div className={`${cardClass} overflow-hidden`}>
+      <div className="p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-gray-200/50 dark:border-gray-700/50">
+        <h3 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+          <ListOrdered className="w-4 h-4 text-indigo-400" />
+          Inscrições por Evento <span className={`text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>· {filtered.length} de {rows.length}</span>
+        </h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar evento ou cidade..."
+              className={`pl-9 pr-3 py-2 text-sm rounded-lg border w-56 ${
+                isDark ? 'bg-gray-700/60 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-500'
+              } focus:ring-2 focus:ring-indigo-500 focus:border-transparent`} />
+          </div>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
+            <option value="all">Todos os status</option>
+            <option value="accelerating">Acelerando</option>
+            <option value="stable">Estável</option>
+            <option value="decelerating">Desacelerando</option>
+          </select>
+          <select value={periodoFilter} onChange={e => setPeriodoFilter(e.target.value)}
+            className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
+            <option value="all">Todos os períodos</option>
+            <option value="30">Próximos 30 dias</option>
+            <option value="60">Próximos 60 dias</option>
+            <option value="90">Próximos 90 dias</option>
+          </select>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={isDark ? 'bg-gray-700/40' : 'bg-gray-50/80'}>
+              <Th k="evento">Evento</Th>
+              <Th k="data_evento">Data</Th>
+              <Th align="center">ISC</Th>
+              <Th k="inscritos_total" align="right">Inscritos Total</Th>
+              <Th k="inscritos_ontem" align="right">Ontem</Th>
+              <Th k="inscritos_hoje" align="right">Hoje</Th>
+              <Th align="right">Δ Hoje</Th>
+              <Th k="media_7d" align="right">Média 7d</Th>
+              <Th k="media_14d" align="right">Média 14d</Th>
+              <Th k="taxa_ocupacao" align="right">Ocupação</Th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
+            {sorted.length === 0 && (
+              <tr><td colSpan={10} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
+            )}
+            {sorted.map(r => (
+              <tr key={r.id} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-indigo-50/40'}>
+                <td className="px-4 py-3">
+                  <div className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{r.evento}</div>
+                  <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.cidade} · {r.modalidade}</div>
+                </td>
+                <td className="px-4 py-3">
+                  <div className={isDark ? 'text-gray-200' : 'text-gray-800'}>{fmtDate(r.data_evento)}</div>
+                  {r.dias_para_evento != null && r.dias_para_evento >= 0 && (
+                    <div className={`text-xs font-bold mt-0.5 inline-block px-2 py-0.5 rounded-full ${
+                      r.dias_para_evento <= 7 ? 'bg-red-500/20 text-red-400' :
+                      r.dias_para_evento <= 30 ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-indigo-500/20 text-indigo-400'
+                    }`}>D-{r.dias_para_evento}</div>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-center"><IscBadge status={r.isc_status} /></td>
+                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
+                <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
+                <td className={`px-4 py-3 text-right font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
+                <td className="px-4 py-3 text-right">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
+                <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_7d)}</td>
+                <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_14d)}</td>
+                <td className="px-4 py-3 text-right"><div className="inline-flex"><OcupacaoBar taxa={r.taxa_ocupacao} /></div></td>
+              </tr>
+            ))}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot>
+              <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
+                <td colSpan={3} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
+                <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
+                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
+                <td className={`px-4 py-3 text-right font-bold ${totals.hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.hoje)}</td>
+                <td className="px-4 py-3 text-right">{deltaCell(totals.hoje, totals.ontem)}</td>
+                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 7d">⌀ {fmtAvg(totals.m7Avg)}</td>
+                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 14d">⌀ {fmtAvg(totals.m14Avg)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 };
@@ -460,6 +662,10 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {opData.tabela_eventos?.length > 0 && (
+              <EventosInscricoesTable rows={opData.tabela_eventos} isDark={isDark} />
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {opData.proximos_eventos?.length > 0 && (
