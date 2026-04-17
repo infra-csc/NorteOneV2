@@ -8310,7 +8310,24 @@ def get_marketing_event_by_id(
             force_refresh=force_refresh,
             incluir_cortesias=_grupo_incluir_cortesias,
         )
-        detail_consistency_warning = _build_consistency_warning(current_sales, detail_margem_por_kit)
+        # Align currentSales with the kit table total so the card and the
+        # "Margem por Tipo de Kit" table always display the same number of athletes.
+        # The kit table counts only Magento bundles registered in KitConfig; the
+        # snapshot/ISC-cache count is broader. ISC was already calculated above, so
+        # changing current_sales here does NOT affect the displayed ISC value.
+        _kit_rows_aligned = [r for r in (detail_margem_por_kit or []) if r.get('tipoKit') != 'CONSOLIDADO']
+        _kit_total_qty_aligned = sum(int(r.get('qtd', 0) or 0) for r in _kit_rows_aligned)
+        if _kit_total_qty_aligned > 0 and _kit_total_qty_aligned != current_sales:
+            logger.info(
+                f"[Detalhe] Alinhando currentSales '{grupo_nome}': {current_sales} → {_kit_total_qty_aligned} "
+                f"(diff={current_sales - _kit_total_qty_aligned})"
+            )
+            current_sales = _kit_total_qty_aligned
+            avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else avg_ticket
+            detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
+                                                 avg_ticket, current_sales, current_receita)
+
+        detail_consistency_warning = None  # aligned above; retained field for API compatibility
         detail_detalhe_vendas = []
         detail_kit_query_failed = False
         if detail_regime == "consolidated":
@@ -8730,6 +8747,19 @@ def get_marketing_event_by_id(
         force_refresh=force_refresh,
         incluir_cortesias=_sa_incluir_cortesias,
     )
+    # Align currentSales with the kit table total (same logic as consolidated group branch).
+    _sa_kit_rows_aligned = [r for r in (sa_margem_por_kit or []) if r.get('tipoKit') != 'CONSOLIDADO']
+    _sa_kit_total_qty_aligned = sum(int(r.get('qtd', 0) or 0) for r in _sa_kit_rows_aligned)
+    if _sa_kit_total_qty_aligned > 0 and _sa_kit_total_qty_aligned != current_sales:
+        logger.info(
+            f"[Detalhe SA] Alinhando currentSales '{projeto_nome}': {current_sales} → {_sa_kit_total_qty_aligned} "
+            f"(diff={current_sales - _sa_kit_total_qty_aligned})"
+        )
+        current_sales = _sa_kit_total_qty_aligned
+        avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else avg_ticket
+        detail_sa_margin = _calc_margin_fields(detail_standalone_bt, detail_sa_kit_cost, sales_goal,
+                                               avg_ticket, current_sales, current_receita)
+
     sa_detalhe_vendas = []
     sa_kit_query_failed = False
     if standalone_detail_regime == "consolidated":
@@ -8760,7 +8790,7 @@ def get_marketing_event_by_id(
         ticketKitNome=sa_detail_ticket_kit_nome,
         margemPorKit=sa_margem_por_kit if sa_margem_por_kit else None,
         margemAvisos=_sa_margem_avisos if _sa_margem_avisos else None,
-        consistencyWarning=_build_consistency_warning(current_sales, sa_margem_por_kit),
+        consistencyWarning=None,  # aligned above; retained field for API compatibility
         kitQueryFailed=sa_kit_query_failed,
         detalheVendasPorKit=sa_detalhe_vendas if sa_detalhe_vendas else None,
         detalheVendasAtivoKit=sa_detalhe_ativo if sa_detalhe_ativo else None,
