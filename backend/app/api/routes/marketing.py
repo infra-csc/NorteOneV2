@@ -4133,7 +4133,7 @@ def get_cutoff_alerts(
                 "ponto_corte": f"D-{matched_cutoff}",
                 "estagio": _CUTOFF_ESTAGIO.get(matched_cutoff, ""),
                 "estagio_label": _CUTOFF_ESTAGIO_LABEL.get(matched_cutoff, ""),
-                "isc": round(ev_isc, 1) if ev_isc is not None else None,
+                "isc": round(ev_isc, 2) if ev_isc is not None else None,
                 "iscStatus": ev_isc_status,
                 "antecipado": antecipado,
             })
