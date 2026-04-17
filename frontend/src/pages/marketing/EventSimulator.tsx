@@ -127,7 +127,11 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
 
   const custoKit = atualEfetivo?.custo_kit ?? 50;
   const meta = metaCustom ?? data?.evento?.meta_orcada ?? 0;
-  const ticketAtual = atualEfetivo?.ticket_medio ?? 0;
+  // Ticket médio realizado (média ponderada já vendida) — exibido apenas como referência.
+  const ticketMedioRealizado = atualEfetivo?.ticket_medio ?? 0;
+  // Ticket atual (preço vigente no Magento) — base de TODOS os cálculos prospectivos.
+  // Cai para o realizado como fallback quando o preço vigente não está disponível.
+  const ticketAtual = (dashTicketAtual && dashTicketAtual > 0) ? dashTicketAtual : ticketMedioRealizado;
   const ticketAlvo = novoTicket ?? Math.round(ticketAtual);
 
   // ───────────────────────────────────────────────
@@ -365,12 +369,12 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
             <p className="text-xs text-gray-400 mt-0.5">{fmt(evento.dias_ate_evento)} dias restantes</p>
           </div>
           <div>
-            <p className={labelCls} title="Preço vigente do kit no site (special_price do Magento)">
+            <p className={labelCls} title="Preço vigente do kit no site (special_price do Magento). Base de todos os cálculos prospectivos do simulador.">
               Ticket Atual
               <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-500">(preço vigente)</span>
             </p>
-            <p className={valueCls}>{fmtR$(dashTicketAtual && dashTicketAtual > 0 ? dashTicketAtual : ticketAtual)}</p>
-            <p className="text-xs text-gray-400 mt-0.5">médio realizado: {fmtR$(ticketAtual)}</p>
+            <p className={valueCls}>{fmtR$(ticketAtual)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">médio realizado: {fmtR$(ticketMedioRealizado)}</p>
           </div>
           <div>
             <p className={labelCls}>Custo Kit</p>
@@ -418,7 +422,7 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
             <h4 className="text-sm font-bold text-indigo-700 dark:text-indigo-300">Cenário 1 — Estratégia Volume</h4>
           </div>
           <p className={`text-sm font-medium mb-4 px-3 py-2 rounded-lg ${isDark ? 'bg-indigo-900/40 text-indigo-200' : 'bg-indigo-100 text-indigo-800'}`}>
-            Mantenho o ticket em <strong>{fmtR$(ticketAtual)}</strong> e trabalho o ritmo de vendas
+            Mantenho o ticket atual em <strong>{fmtR$(ticketAtual)}</strong> e trabalho o ritmo de vendas
           </p>
 
           {/* Controle: ajuste de ritmo */}
@@ -505,7 +509,8 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-1.5">
                 <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Novo Ticket Médio</span>
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Novo Ticket Atual</span>
+                <InfoTooltip text="Simula uma alteração no preço vigente do kit (special_price). Toda a projeção de receita futura passa a usar este novo valor." isDark={isDark} />
               </div>
               <span className={`text-sm font-bold ${cenarioTicket.delta_pct_ticket > 0 ? 'text-emerald-500' : cenarioTicket.delta_pct_ticket < 0 ? 'text-red-500' : 'text-gray-400'}`}>
                 {cenarioTicket.delta_pct_ticket > 0 ? '+' : ''}{fmtPct(cenarioTicket.delta_pct_ticket)}
