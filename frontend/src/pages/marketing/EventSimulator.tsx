@@ -37,6 +37,8 @@ interface EventSimulatorProps {
   dashTicketMedio?: number;
   dashMargem?: number;
   dashTotalVendas?: number;
+  /** Ticket atual (preço vigente / special_price do Magento) para exibição no painel */
+  dashTicketAtual?: number;
 }
 
 const fmt = (n: number) => n.toLocaleString('pt-BR');
@@ -61,7 +63,7 @@ const MargemBadge = ({ pct, isDark }: { pct: number; isDark: boolean }) => {
   );
 };
 
-export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas }: EventSimulatorProps) {
+export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas, dashTicketAtual }: EventSimulatorProps) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -363,9 +365,12 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
             <p className="text-xs text-gray-400 mt-0.5">{fmt(evento.dias_ate_evento)} dias restantes</p>
           </div>
           <div>
-            <p className={labelCls}>Ticket Médio</p>
-            <p className={valueCls}>{fmtR$(ticketAtual)}</p>
-            <p className="text-xs text-gray-400 mt-0.5">últimos 7d: {fmtR$(atual.ticket_medio_7d)}</p>
+            <p className={labelCls} title="Preço vigente do kit no site (special_price do Magento)">
+              Ticket Atual
+              <span className="ml-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-500">(preço vigente)</span>
+            </p>
+            <p className={valueCls}>{fmtR$(dashTicketAtual && dashTicketAtual > 0 ? dashTicketAtual : ticketAtual)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">médio realizado: {fmtR$(ticketAtual)}</p>
           </div>
           <div>
             <p className={labelCls}>Custo Kit</p>
