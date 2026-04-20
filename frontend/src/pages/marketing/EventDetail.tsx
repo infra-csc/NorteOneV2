@@ -2258,7 +2258,16 @@ const EventDetail: React.FC = () => {
                       <span className={`text-lg font-black font-mono leading-none ${meta.text}`}>{slot.ponto_corte}</span>
                       <button
                         onClick={() => {
-                          setActionForm(f => ({ ...f, forced_ponto_corte: slot.ponto_corte, forced_estagio: slot.estagio }));
+                          setEditingActionId(null);
+                          setViewOnlyAction(false);
+                          setActionForm({
+                            tipo: '',
+                            descricao: '',
+                            data_acao: getTodayLocalDate(),
+                            projeto_id_selecionado: 0,
+                            forced_ponto_corte: slot.ponto_corte,
+                            forced_estagio: slot.estagio,
+                          });
                           setShowActionModal(true);
                           setActionError(null);
                         }}
@@ -2392,7 +2401,16 @@ const EventDetail: React.FC = () => {
                     </div>
                     <button
                       onClick={() => {
-                        setActionForm(f => ({ ...f, forced_ponto_corte: 'D-7', forced_estagio: 'final' }));
+                        setEditingActionId(null);
+                        setViewOnlyAction(false);
+                        setActionForm({
+                          tipo: '',
+                          descricao: '',
+                          data_acao: getTodayLocalDate(),
+                          projeto_id_selecionado: 0,
+                          forced_ponto_corte: 'D-7',
+                          forced_estagio: 'final',
+                        });
                         setShowActionModal(true);
                         setActionError(null);
                       }}
