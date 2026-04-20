@@ -366,12 +366,14 @@ def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
     ):
         return _ativo_kits_cache["data"]
 
-    if db_module.engine_ativo is None:
-        logger.info("[KitConfig] engine_ativo não configurado; pulando ATIVO_KITS_QUERY")
+    # As tabelas sa_evento/sa_combo/sa_modalidade* ficam no banco "0_transfer"
+    # acessado via SSH tunnel (mesma conexão usada por fetch_eventos_ativo).
+    if db_module.engine_ssh is None:
+        logger.info("[KitConfig] engine_ssh não configurado; pulando ATIVO_KITS_QUERY")
         return {}
 
     try:
-        with db_module.engine_ativo.connect() as conn:
+        with db_module.engine_ssh.connect() as conn:
             result = conn.execute(text(ATIVO_KITS_QUERY))
             rows = result.fetchall()
             columns = list(result.keys())
