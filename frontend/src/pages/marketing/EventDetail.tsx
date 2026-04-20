@@ -974,12 +974,15 @@ const EventDetail: React.FC = () => {
     const diffMs = now.getTime() - updatedAt.getTime();
     const diffMin = diffMs / (1000 * 60);
     const diffHours = diffMin / 60;
-    const timeStr = updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+    const TZ = 'America/Sao_Paulo';
+    const timeStr = updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+    const ymdInTz = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: TZ });
+    const updatedYmd = ymdInTz(updatedAt);
+    const todayYmd = ymdInTz(now);
+    const yesterdayYmd = ymdInTz(new Date(now.getTime() - 86400000));
     let labelTime: string;
-    if (updatedAt >= todayStart) labelTime = `hoje às ${timeStr}`;
-    else if (updatedAt >= yesterdayStart) labelTime = `ontem às ${timeStr}`;
+    if (updatedYmd === todayYmd) labelTime = `hoje às ${timeStr}`;
+    else if (updatedYmd === yesterdayYmd) labelTime = `ontem às ${timeStr}`;
     else labelTime = `${Math.floor(diffHours / 24)}d atrás (${timeStr})`;
 
     let greenMax: number;  // em horas
@@ -1033,26 +1036,15 @@ const EventDetail: React.FC = () => {
               <span>/</span>
               <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
             </div>
-            {(dataAgeInfo || detailAgeInfo) && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs">
-                {dataAgeInfo && (
-                  <span
-                    className={`flex items-center gap-1 ${dataAgeInfo.color}`}
-                    title="Quando os dados de inscrições (vendas, ticket, dailySales[hoje]) foram atualizados pelo MySQL"
-                  >
-                    <Clock className="w-3 h-3" />
-                    <span>{dataAgeInfo.label}</span>
-                  </span>
-                )}
-                {detailAgeInfo && (
-                  <span
-                    className={`flex items-center gap-1 ${detailAgeInfo.color}`}
-                    title="Quando o detalhe completo (ISC, kits, margem, curvas) foi recomputado pelo servidor"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>{detailAgeInfo.label}</span>
-                  </span>
-                )}
+            {dataAgeInfo && (
+              <div className="flex items-center gap-x-3 mt-0.5 text-xs">
+                <span
+                  className={`flex items-center gap-1 ${dataAgeInfo.color}`}
+                  title="Quando os dados de inscrições (vendas, ticket, vendas de hoje) foram atualizados"
+                >
+                  <Clock className="w-3 h-3" />
+                  <span>{dataAgeInfo.label}</span>
+                </span>
               </div>
             )}
           </div>
