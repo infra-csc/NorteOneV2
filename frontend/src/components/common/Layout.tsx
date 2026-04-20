@@ -41,8 +41,9 @@ const menuItems = [
   { path: '/nori', icon: Sparkles, label: 'Nori - Assistente', modulo: 'nori' },
   { path: '/cadastros/categorias-atletas', icon: Users, label: 'Categorias Atletas', modulo: 'categorias_atletas' },
   { path: '/cadastros/eventos', icon: Target, label: 'Eventos', modulo: 'eventos' },
-  { path: '/projecao-inscritos', icon: BarChart3, label: 'Projeção Inscritos', modulo: 'projecao_inscritos' },
 ];
+
+const projecaoInscritosItem = { path: '/projecao-inscritos', icon: BarChart3, label: 'Projeção Inscritos', modulo: 'projecao_inscritos' };
 
 const cotacaoItems = [
   { path: '/cotacoes', icon: Plane, label: 'Cotação & Importação', modulo: 'cotacoes_importacao' },
@@ -129,6 +130,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const mainItems = menuItems.filter(item => !item.path.includes('/cadastros/') && canView(item.modulo));
   const filteredCotacaoItems = cotacaoItems.filter(item => canView(item.modulo));
   const filteredMarketingItems = marketingItems.filter(item => canView(item.modulo));
+  const showProjecaoInscritos = canView(projecaoInscritosItem.modulo);
   const filteredAdminItems = adminItems.filter(item => canView(item.modulo));
 
   return (
@@ -227,6 +229,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </div>
           )}
+
+          {showProjecaoInscritos && (() => {
+            const Icon = projecaoInscritosItem.icon;
+            const isActive = location.pathname === projecaoInscritosItem.path;
+            return (
+              <Link
+                to={projecaoInscritosItem.path}
+                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                    : isDark
+                    ? 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Icon className="w-5 h-5 mr-3" />
+                {projecaoInscritosItem.label}
+              </Link>
+            );
+          })()}
 
           {cadastroItems.length > 0 && (
           <div>
