@@ -14,6 +14,7 @@ import app.core.database as db_module
 import logging
 import time as _time
 import unicodedata
+import hashlib
 
 
 def _normalize_kit_name(s: Optional[str]) -> str:
@@ -21,6 +22,20 @@ def _normalize_kit_name(s: Optional[str]) -> str:
         return ""
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
     return " ".join(s.upper().split())
+
+
+def _ativo_synthetic_id(id_evento_ativo: int, kit_name: str) -> int:
+    """ID sintético estável para kits do Ativo sem CadastroKitProduto.
+
+    Deriva um inteiro negativo de sha1(eid|nome_kit_normalizado), garantindo
+    que o mesmo kit sempre receba o mesmo ID entre execuções (necessário
+    para que KitConfig persistido continue válido). A magnitude é grande
+    (até ~2.8e14) para nunca colidir com `-CadastroKitProduto.id`, que
+    fica na faixa de poucos milhares.
+    """
+    raw = f"ativo|{id_evento_ativo}|{_normalize_kit_name(kit_name)}".encode("utf-8")
+    digest = hashlib.sha1(raw).hexdigest()[:12]  # 48 bits
+    return -int(digest, 16)
 
 logger = logging.getLogger(__name__)
 
@@ -388,8 +403,11 @@ def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
             evt_id = int(rd["id_evento"])
         except (TypeError, ValueError):
             continue
-        key = (evt_id, _normalize_kit_name(rd.get("nome_kit")))
+        kit_display_raw = rd.get("nome_kit") or ""
+        key = (evt_id, _normalize_kit_name(kit_display_raw))
         indexed.setdefault(key, []).append({
+            "kit_display": kit_display_raw,
+            "nome_evento": rd.get("nome_evento") or "",
             "tipo_categoria": rd.get("tipo_categoria") or None,
             "lote_atual": rd.get("lote_atual"),
             "price": float(rd["price"]) if rd.get("price") is not None else None,
@@ -580,6 +598,23 @@ def get_kits_with_config(
     _dbg = {"total": len(ativo_maps), "no_sku": 0, "in_magento": 0, "no_projeto": 0,
             "no_cadastro_id": 0, "no_cadastro": 0, "wrong_year": 0, "no_kps": 0,
             "passed": 0, "id_externo_none": 0}
+
+    # Rastreia (id_evento_ativo, kit_normalizado) já emitidos pelo path com
+    # cadastro, para que o path direto (abaixo) não duplique linhas para o
+    # mesmo kit.
+    emitted_ativo_keys: set = set()
+    # SkuMappings ATIVO indexados por id_externo_int, usados pelo path direto
+    # logo abaixo. Preenche aqui ANTES dos filtros para que o path direto
+    # consiga emitir kits mesmo quando o evento Ativo não tem cadastro/projeto.
+    sm_ativo_by_eid: dict = {}
+    for _sm in ativo_maps:
+        try:
+            _eid = int(_sm.id_externo) if _sm.id_externo is not None else None
+        except (ValueError, TypeError):
+            _eid = None
+        if _eid is not None and _eid not in sm_ativo_by_eid:
+            sm_ativo_by_eid[_eid] = _sm
+
     for sm in ativo_maps:
         sku = (sm.sku or "").upper().strip()
         if not sku:
@@ -619,6 +654,8 @@ def get_kits_with_config(
             id_externo_int = None
 
         for kp in kps:
+            if id_externo_int is not None:
+                emitted_ativo_keys.add((id_externo_int, _normalize_kit_name(kp.kit)))
             synthetic_bundle_id = -kp.id
             cfg = config_map.get(synthetic_bundle_id)
             multiplicador = cfg.multiplicador if cfg else 1
@@ -680,6 +717,70 @@ def get_kits_with_config(
                     cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
                 ))
 
+    # ── PATH DIRETO (Ativo-only sem cadastro) ─────────────────────────────
+    # Para todo (id_evento, kit) presente em ATIVO_KITS_QUERY que tenha
+    # SkuMapping ATIVO no ano corrente e ainda não tenha sido emitido pelo
+    # path com cadastro, gera UMA linha por variante (tipo_categoria),
+    # todas com o mesmo synthetic_bundle_id estável (sha1-derivado). Isso
+    # permite que o usuário configure o kit nessa tela mesmo quando não
+    # existe CadastroEvento/CadastroKitProduto no sistema.
+    direct_emitted = 0
+    direct_skipped_no_sm = 0
+    direct_skipped_in_magento = 0
+    direct_skipped_already = 0
+    for (eid, norm_kit), variants in ativo_kits_index.items():
+        sm = sm_ativo_by_eid.get(eid)
+        if sm is None:
+            direct_skipped_no_sm += 1
+            continue
+        sm_sku = (sm.sku or "").upper().strip()
+        if sm_sku and sm_sku in current_magento_skus:
+            direct_skipped_in_magento += 1
+            continue
+        if (eid, norm_kit) in emitted_ativo_keys:
+            direct_skipped_already += 1
+            continue
+
+        kit_display = variants[0].get("kit_display") or norm_kit
+        nome_evento = sm.nome_evento or variants[0].get("nome_evento") or ""
+        synth_id = _ativo_synthetic_id(eid, kit_display)
+        cfg = config_map.get(synth_id)
+        multiplicador = cfg.multiplicador if cfg else 1
+        is_configured = cfg is not None
+        is_kit_basico = cfg.is_kit_basico if cfg else False
+        is_promo_principal = cfg.is_promo_principal if cfg else False
+        tipo_kit = cfg.tipo_kit if cfg else None
+        custo_kit_val = float(cfg.custo_kit) if cfg and cfg.custo_kit is not None else None
+        ativo_categoria_val = cfg.ativo_categoria if cfg else None
+        cenario_ciclismo_val = cfg.cenario_ciclismo if cfg else None
+
+        for v in variants:
+            kits.append(KitRow(
+                id_evento=str(sm.id_externo),
+                nome_evento=nome_evento,
+                bundle_entity_id=synth_id,
+                nome_kit=kit_display,
+                tipo_kit=tipo_kit,
+                tipo_categoria=v["tipo_categoria"],
+                lote_atual=v["lote_atual"],
+                multiplicador_sugerido=1,
+                multiplicador=multiplicador,
+                price_base=v["price"],
+                special_price_base=v["special_price"],
+                price=v["price"],
+                special_price=v["special_price"],
+                is_configured=is_configured,
+                is_kit_basico=is_kit_basico,
+                is_promo_principal=is_promo_principal,
+                custo_cadastro=None,
+                custo_kit=custo_kit_val,
+                ativo_categoria=ativo_categoria_val,
+                status_kit=None,
+                fonte="ativo",
+                cenario_ciclismo=cenario_ciclismo_val,
+            ))
+            direct_emitted += 1
+
     _kits_cache["data"] = kits
     _kits_cache["ts"] = _time.time()
     # Invalidate the unconfigured summary cache so it is rebuilt from fresh kit data
@@ -688,6 +789,7 @@ def get_kits_with_config(
     logger.info(f"[KitConfig] Kit list refreshed and cached ({len(kits)} kits)")
     logger.info(f"[KitConfig][DEBUG] Ativo match: {_debug_match_hits} hits / {len(_debug_match_attempts)} (mostrando até 10) tentativas. Amostra: {_debug_match_attempts}")
     logger.info(f"[KitConfig][DEBUG] Ativo filter funnel: {_dbg}")
+    logger.info(f"[KitConfig][DEBUG] Ativo direct path: emitidos={direct_emitted} linhas, skip_no_sm={direct_skipped_no_sm}, skip_in_magento={direct_skipped_in_magento}, skip_already_emitted={direct_skipped_already}")
     return kits
 
 
