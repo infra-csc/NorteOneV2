@@ -239,10 +239,28 @@ def get_dashboard_operacional(
     )
     from sqlalchemy import case as sa_case, or_, and_
     from ...models.vendas_snapshot import VendasDiariaSnapshot
+    from ...models.projecao import ProjecaoInscritos
 
     projetos = build_project_filter(db, ano=ano, mes=mes, produto=produto, modalidade=modalidade, cidade=cidade)
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
+
+    # --- Sum projected registrations per cadastro_evento.id ---
+    projecoes_por_cadastro: dict = {}
+    cadastro_ids_for_proj = [c.id for c in cadastros_map.values()]
+    if cadastro_ids_for_proj:
+        try:
+            proj_rows = db.query(
+                ProjecaoInscritos.evento_id,
+                sa_func.coalesce(sa_func.sum(ProjecaoInscritos.quantidade), 0).label("total"),
+            ).filter(
+                ProjecaoInscritos.evento_id.in_(cadastro_ids_for_proj),
+                ProjecaoInscritos.deleted_at.is_(None),
+            ).group_by(ProjecaoInscritos.evento_id).all()
+            for r in proj_rows:
+                projecoes_por_cadastro[r.evento_id] = int(r.total or 0)
+        except Exception:
+            projecoes_por_cadastro = {}
 
     isc_cfg = _get_isc_settings(db)
     isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
@@ -438,6 +456,10 @@ def get_dashboard_operacional(
 
         produto_nome = (str(cadastro.produto) if cadastro and getattr(cadastro, "produto", None) else None) or (str(p.produto) if p.produto else "N/D")
 
+        inscritos_projetados = int(projecoes_por_cadastro.get(cadastro.id, 0)) if cadastro else 0
+        inscritos_total_int = int(inscritos_total or 0)
+        total_geral = inscritos_total_int + inscritos_projetados
+
         tabela_eventos.append({
             "id": p.id,
             "evento": nome_evento,
@@ -446,7 +468,9 @@ def get_dashboard_operacional(
             "produto": produto_nome,
             "data_evento": p.data_evento.isoformat() if p.data_evento else None,
             "dias_para_evento": (p.data_evento - today).days if p.data_evento else None,
-            "inscritos_total": int(inscritos_total or 0),
+            "inscritos_total": inscritos_total_int,
+            "inscritos_projetados": inscritos_projetados,
+            "total_geral": total_geral,
             "inscritos_hoje": int(inscritos_hoje or 0),
             "inscritos_ontem": int(inscritos_ontem or 0),
             "media_7d": round(m7d or 0.0, 1),

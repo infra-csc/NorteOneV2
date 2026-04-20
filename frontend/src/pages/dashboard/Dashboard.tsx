@@ -152,6 +152,8 @@ interface EventoInscricoes {
   data_evento: string | null;
   dias_para_evento: number | null;
   inscritos_total: number;
+  inscritos_projetados?: number;
+  total_geral?: number;
   inscritos_hoje: number;
   inscritos_ontem: number;
   media_7d: number;
@@ -162,7 +164,7 @@ interface EventoInscricoes {
 }
 
 type SortKey = keyof Pick<EventoInscricoes,
-  'evento' | 'data_evento' | 'inscritos_total' | 'inscritos_hoje' | 'inscritos_ontem' | 'media_7d' | 'media_14d' | 'taxa_ocupacao'
+  'evento' | 'data_evento' | 'inscritos_total' | 'inscritos_projetados' | 'total_geral' | 'inscritos_hoje' | 'inscritos_ontem' | 'media_7d' | 'media_14d' | 'taxa_ocupacao'
 >;
 
 const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boolean }> = ({ rows, isDark }) => {
@@ -203,11 +205,13 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   const totals = useMemo(() => {
     const sum = filtered.reduce((acc, r) => ({
       total: acc.total + (r.inscritos_total || 0),
+      projetados: acc.projetados + (r.inscritos_projetados || 0),
+      geral: acc.geral + (r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0))),
       hoje: acc.hoje + (r.inscritos_hoje || 0),
       ontem: acc.ontem + (r.inscritos_ontem || 0),
       m7: acc.m7 + (r.media_7d || 0),
       m14: acc.m14 + (r.media_14d || 0),
-    }), { total: 0, hoje: 0, ontem: 0, m7: 0, m14: 0 });
+    }), { total: 0, projetados: 0, geral: 0, hoje: 0, ontem: 0, m7: 0, m14: 0 });
     const n = filtered.length || 1;
     return { ...sum, m7Avg: sum.m7 / n, m14Avg: sum.m14 / n };
   }, [filtered]);
@@ -284,7 +288,9 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
               <Th k="evento">Evento</Th>
               <Th k="data_evento">Data</Th>
               <Th align="center">ISC</Th>
-              <Th k="inscritos_total" align="right">Inscritos Total</Th>
+              <Th k="inscritos_total" align="right">Inscritos</Th>
+              <Th k="inscritos_projetados" align="right">Projetados</Th>
+              <Th k="total_geral" align="right">Total Geral</Th>
               <Th k="inscritos_ontem" align="right">Ontem</Th>
               <Th k="inscritos_hoje" align="right">Hoje</Th>
               <Th align="right">Δ Hoje</Th>
@@ -295,7 +301,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
             {sorted.length === 0 && (
-              <tr><td colSpan={10} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
+              <tr><td colSpan={12} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
             {sorted.map(r => (
               <tr key={r.id} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-indigo-50/40'}>
@@ -315,6 +321,8 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                 </td>
                 <td className="px-4 py-3 text-center"><IscBadge status={r.isc_status} /></td>
                 <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
+                <td className={`px-4 py-3 text-right ${(r.inscritos_projetados || 0) > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(r.inscritos_projetados || 0)}</td>
+                <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}</td>
                 <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
                 <td className={`px-4 py-3 text-right font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
                 <td className="px-4 py-3 text-right">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
@@ -329,6 +337,8 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
               <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
                 <td colSpan={3} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
                 <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
+                <td className={`px-4 py-3 text-right font-bold ${totals.projetados > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
+                <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.geral)}</td>
                 <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
                 <td className={`px-4 py-3 text-right font-bold ${totals.hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.hoje)}</td>
                 <td className="px-4 py-3 text-right">{deltaCell(totals.hoje, totals.ontem)}</td>
