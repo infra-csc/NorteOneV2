@@ -402,142 +402,258 @@ def calculate_action_impact(db: Session, acao) -> dict:
     }
 
 _ticket_atual_cache: dict = {}
+_ticket_atual_cache_ts: float = 0.0
+_TICKET_ATUAL_TTL = 120  # segundos — espelha o TTL dos caches de kits Magento/Ativo
 _ticket_atual_cache_lock = _threading.Lock()
 
 def clear_ticket_atual_cache():
+    global _ticket_atual_cache_ts
     with _ticket_atual_cache_lock:
         _ticket_atual_cache.clear()
+        _ticket_atual_cache_ts = 0.0
+
+def _resolve_ticket_for_event(
+    bundle_data: dict,
+    basico_cfg,
+    promo_principal_cfg,
+    promo_configs: list,
+    require_status_active: bool,
+) -> Optional[dict]:
+    """Aplica a regra de prioridade promo_principal → promo → básico para um evento.
+
+    bundle_data deve mapear bundle_entity_id → {sp_base, status_kit, nome_kit}.
+    Retorna {"value": float, "nome_kit": str} ou None.
+    """
+    # 1. Promo principal explícito
+    if promo_principal_cfg:
+        bd = bundle_data.get(promo_principal_cfg.bundle_entity_id)
+        if bd and bd.get("sp_base") is not None:
+            return {
+                "value": round(bd["sp_base"] * promo_principal_cfg.multiplicador, 2),
+                "nome_kit": bd.get("nome_kit"),
+            }
+
+    # 2. Kit promo (fallback)
+    for promo_cfg in promo_configs or []:
+        bd = bundle_data.get(promo_cfg.bundle_entity_id)
+        if not bd or bd.get("sp_base") is None:
+            continue
+        if require_status_active and bd.get("status_kit") != "ativo":
+            continue
+        return {
+            "value": round(bd["sp_base"] * promo_cfg.multiplicador, 2),
+            "nome_kit": bd.get("nome_kit"),
+        }
+
+    # 3. Kit básico (fallback final)
+    if basico_cfg:
+        bd = bundle_data.get(basico_cfg.bundle_entity_id)
+        if bd and bd.get("sp_base") is not None:
+            return {
+                "value": round(bd["sp_base"] * basico_cfg.multiplicador, 2),
+                "nome_kit": bd.get("nome_kit"),
+            }
+
+    return None
+
+
+def _bucket_configs_by_evento(configs):
+    """Separa configs em básico, promo_principal e promo (heurística por tipo_kit)."""
+    basico_by_evento: dict = {}
+    promo_principal_by_evento: dict = {}
+    promo_by_evento: dict = {}
+    for cfg in configs:
+        evt_key = str(cfg.id_evento)
+        if cfg.is_kit_basico:
+            basico_by_evento[evt_key] = cfg
+        if getattr(cfg, "is_promo_principal", False):
+            promo_principal_by_evento[evt_key] = cfg
+        elif cfg.tipo_kit and "promo" in cfg.tipo_kit.lower():
+            promo_by_evento.setdefault(evt_key, []).append(cfg)
+    return basico_by_evento, promo_principal_by_evento, promo_by_evento
+
 
 def _fetch_ticket_atual_map(db: Session) -> dict:
     from ...models.kit_config import KitConfig
-    from ...models.cadastro_evento import CadastroEvento
-    from ..routes.kit_config import MAGENTO_KITS_QUERY
+    from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto
+    from ..routes.kit_config import (
+        MAGENTO_KITS_QUERY,
+        fetch_ativo_kits_indexed,
+        _normalize_kit_name,
+    )
 
     all_configs = db.query(KitConfig).filter(KitConfig.id_evento.isnot(None)).all()
     if not all_configs:
         return {}
 
-    if db_module.engine_magento is None:
-        return {}
+    # Synthetic bundle (negativo) = evento Ativo-only. Magento = positivo.
+    magento_configs = [c for c in all_configs if c.bundle_entity_id is not None and c.bundle_entity_id >= 0]
+    ativo_configs = [c for c in all_configs if c.bundle_entity_id is not None and c.bundle_entity_id < 0]
 
-    try:
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(MAGENTO_KITS_QUERY))
-            rows = result.fetchall()
-            columns = list(result.keys())
-    except Exception as e:
-        logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
-        return {}
+    # ───────────────────────── MAGENTO ─────────────────────────
+    magento_projeto_tickets: dict = {}
+    if magento_configs and db_module.engine_magento is not None:
+        try:
+            with db_module.engine_magento.connect() as conn:
+                result = conn.execute(text(MAGENTO_KITS_QUERY))
+                rows = result.fetchall()
+                columns = list(result.keys())
+        except Exception as e:
+            logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
+            rows, columns = [], []
 
-    bundle_data: dict = {}
-    for row in rows:
-        row_dict = dict(zip(columns, row))
-        bundle_id = int(row_dict["bundle_entity_id"])
-        sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
-        price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
-        sp_base = sp if sp is not None else price_val
-        status_kit = row_dict.get("status_kit")
-        nome_kit = row_dict.get("nome_kit")
-        bundle_data[bundle_id] = {"sp_base": sp_base, "status_kit": status_kit, "nome_kit": nome_kit}
+        bundle_data: dict = {}
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            bundle_id = int(row_dict["bundle_entity_id"])
+            sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
+            price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
+            sp_base = sp if sp is not None else price_val
+            bundle_data[bundle_id] = {
+                "sp_base": sp_base,
+                "status_kit": row_dict.get("status_kit"),
+                "nome_kit": row_dict.get("nome_kit"),
+            }
 
-    # Separate basic configs and promo configs per event
-    # promo_principal_by_evento: explicit flag takes top priority
-    # promo_by_evento: fallback detection via tipo_kit containing "promo"
-    basico_by_evento: dict = {}
-    promo_principal_by_evento: dict = {}
-    promo_by_evento: dict = {}
-    for cfg in all_configs:
-        evt_key = str(cfg.id_evento)
-        if cfg.is_kit_basico:
-            basico_by_evento[evt_key] = cfg
-        if getattr(cfg, 'is_promo_principal', False):
-            promo_principal_by_evento[evt_key] = cfg
-        elif cfg.tipo_kit and 'promo' in cfg.tipo_kit.lower():
-            promo_by_evento.setdefault(evt_key, []).append(cfg)
+        basico_by_evento, promo_principal_by_evento, promo_by_evento = _bucket_configs_by_evento(magento_configs)
+        evento_tickets: dict = {}
+        all_evt_keys = set(basico_by_evento) | set(promo_principal_by_evento) | set(promo_by_evento)
+        for evt_key in all_evt_keys:
+            ticket = _resolve_ticket_for_event(
+                bundle_data,
+                basico_by_evento.get(evt_key),
+                promo_principal_by_evento.get(evt_key),
+                promo_by_evento.get(evt_key, []),
+                require_status_active=True,
+            )
+            if ticket is not None:
+                evento_tickets[evt_key] = ticket
 
-    # Compute final ticket per event:
-    # 1. Explicit promo principal flag (is_promo_principal) → highest priority
-    # 2. Active kit with tipo_kit containing "promo" → second priority
-    # 3. Basic kit (is_kit_basico) → fallback
-    evento_tickets: dict = {}  # evt_key -> {"value": float, "nome_kit": str}
-    all_evt_keys = set(basico_by_evento.keys()) | set(promo_principal_by_evento.keys()) | set(promo_by_evento.keys())
-    for evt_key in all_evt_keys:
-        ticket_final = None
-        nome_kit_final = None
+        if evento_tickets:
+            magento_evt_ids = [int(k) for k in evento_tickets if k.isdigit()]
+            magento_sms = db.query(SkuMapping.sku, SkuMapping.id_externo).filter(
+                SkuMapping.fonte == 'MAGENTO',
+                SkuMapping.ativo == True,
+                SkuMapping.id_externo.in_(magento_evt_ids),
+            ).all()
+            evt_id_to_sku = {str(sm.id_externo): sm.sku for sm in magento_sms}
+            matched_skus = list(evt_id_to_sku.values())
+            if matched_skus:
+                cad_rows = db.query(CadastroEvento.projeto_id, CadastroEvento.sku).filter(
+                    CadastroEvento.sku.in_(matched_skus),
+                    CadastroEvento.projeto_id.isnot(None),
+                ).all()
+                sku_to_projeto = {c.sku: c.projeto_id for c in cad_rows}
+                for evt_id, ticket_data in evento_tickets.items():
+                    sku = evt_id_to_sku.get(evt_id)
+                    if not sku:
+                        continue
+                    pid = sku_to_projeto.get(sku)
+                    if pid:
+                        magento_projeto_tickets[pid] = ticket_data
 
-        # 1. Explicit promo principal
-        promo_principal_cfg = promo_principal_by_evento.get(evt_key)
-        if promo_principal_cfg:
-            bd = bundle_data.get(promo_principal_cfg.bundle_entity_id)
-            if bd and bd.get("sp_base") is not None:
-                ticket_final = round(bd["sp_base"] * promo_principal_cfg.multiplicador, 2)
-                nome_kit_final = bd.get("nome_kit")
+    # ───────────────────────── ATIVO (somente eventos não-Magento) ─────────────────────────
+    # Synthetic bundle_entity_id = -kp.id; cfg.id_evento aqui é o id do
+    # evento no Ativo. Cobertura intencional: eventos que existem no banco
+    # do Ativo e NÃO têm kit equivalente no Magento. Quando o mesmo projeto
+    # já tem ticket vindo do Magento, o Magento prevalece.
+    ativo_projeto_tickets: dict = {}
+    if ativo_configs:
+        kp_ids = [-c.bundle_entity_id for c in ativo_configs]
+        kps = db.query(CadastroKitProduto).filter(CadastroKitProduto.id.in_(kp_ids)).all()
+        kp_by_id = {kp.id: kp for kp in kps}
+        cadastro_ids = list({kp.cadastro_id for kp in kps if kp.cadastro_id})
+        cads = db.query(
+            CadastroEvento.id, CadastroEvento.projeto_id, CadastroEvento.ano_evento
+        ).filter(CadastroEvento.id.in_(cadastro_ids)).all() if cadastro_ids else []
+        cadastro_to_projeto = {c.id: c.projeto_id for c in cads if c.projeto_id}
 
-        # 2. Fallback: active kit whose tipo_kit contains "promo"
-        if ticket_final is None:
-            promo_configs = promo_by_evento.get(evt_key, [])
-            for promo_cfg in promo_configs:
-                bd = bundle_data.get(promo_cfg.bundle_entity_id)
-                if bd and bd.get("status_kit") == "ativo" and bd.get("sp_base") is not None:
-                    ticket_final = round(bd["sp_base"] * promo_cfg.multiplicador, 2)
-                    nome_kit_final = bd.get("nome_kit")
-                    break
+        ativo_kits_index = fetch_ativo_kits_indexed()
 
-        # 3. Fallback: basic kit
-        if ticket_final is None:
-            basico_cfg = basico_by_evento.get(evt_key)
-            if basico_cfg:
-                bd = bundle_data.get(basico_cfg.bundle_entity_id)
-                if bd and bd.get("sp_base") is not None:
-                    ticket_final = round(bd["sp_base"] * basico_cfg.multiplicador, 2)
-                    nome_kit_final = bd.get("nome_kit")
+        # bundle_data sintético para reusar _resolve_ticket_for_event.
+        # Para Ativo não temos status_kit, então tratamos como sempre 'ativo'.
+        bundle_data_ativo: dict = {}
+        for cfg in ativo_configs:
+            kp = kp_by_id.get(-cfg.bundle_entity_id)
+            if not kp:
+                continue
+            try:
+                evt_id_int = int(cfg.id_evento) if cfg.id_evento is not None else None
+            except (TypeError, ValueError):
+                evt_id_int = None
+            if evt_id_int is None:
+                continue
+            variants = ativo_kits_index.get((evt_id_int, _normalize_kit_name(kp.kit)), [])
+            if not variants:
+                continue
+            # Múltiplas categorias (combo): pega o menor special_price (= mais
+            # barato do lote vigente), espelhando o ORDER BY ASC da query.
+            sp_values = [
+                v["special_price"] if v.get("special_price") is not None else v.get("price")
+                for v in variants
+            ]
+            sp_values = [v for v in sp_values if v is not None]
+            if not sp_values:
+                continue
+            bundle_data_ativo[cfg.bundle_entity_id] = {
+                "sp_base": min(sp_values),
+                "status_kit": "ativo",
+                "nome_kit": kp.kit,
+            }
 
-        if ticket_final is not None:
-            evento_tickets[evt_key] = {"value": ticket_final, "nome_kit": nome_kit_final}
+        basico_a, promo_principal_a, promo_a = _bucket_configs_by_evento(ativo_configs)
+        evento_tickets_ativo: dict = {}
+        all_evt_keys_a = set(basico_a) | set(promo_principal_a) | set(promo_a)
+        for evt_key in all_evt_keys_a:
+            ticket = _resolve_ticket_for_event(
+                bundle_data_ativo,
+                basico_a.get(evt_key),
+                promo_principal_a.get(evt_key),
+                promo_a.get(evt_key, []),
+                require_status_active=False,
+            )
+            if ticket is not None:
+                evento_tickets_ativo[evt_key] = ticket
 
-    if not evento_tickets:
-        return {}
+        # Mapeia evt_key (id_evento Ativo) → projeto_id via cfg → kp → cadastro.
+        # Aplica precedência Magento: pula se o projeto já tem ticket do Magento.
+        cfg_by_evt_key: dict = {}
+        for cfg in ativo_configs:
+            cfg_by_evt_key.setdefault(str(cfg.id_evento), []).append(cfg)
 
-    magento_evt_ids = [int(k) for k in evento_tickets.keys() if k.isdigit()]
-    magento_sms = db.query(SkuMapping.sku, SkuMapping.id_externo).filter(
-        SkuMapping.fonte == 'MAGENTO',
-        SkuMapping.ativo == True,
-        SkuMapping.id_externo.in_(magento_evt_ids),
-    ).all()
-    evt_id_to_sku = {str(sm.id_externo): sm.sku for sm in magento_sms}
+        for evt_key, ticket_data in evento_tickets_ativo.items():
+            for cfg in cfg_by_evt_key.get(evt_key, []):
+                kp = kp_by_id.get(-cfg.bundle_entity_id)
+                if not kp:
+                    continue
+                pid = cadastro_to_projeto.get(kp.cadastro_id)
+                if not pid:
+                    continue
+                if pid in magento_projeto_tickets:
+                    # Magento prevalece — evento existe nas duas bases.
+                    continue
+                ativo_projeto_tickets[pid] = ticket_data
+                break
 
-    matched_skus = list(evt_id_to_sku.values())
-    if not matched_skus:
-        return {}
-
-    cad_rows = db.query(CadastroEvento.projeto_id, CadastroEvento.sku).filter(
-        CadastroEvento.sku.in_(matched_skus),
-        CadastroEvento.projeto_id.isnot(None),
-    ).all()
-    sku_to_projeto = {c.sku: c.projeto_id for c in cad_rows}
-
-    projeto_tickets: dict = {}
-    for evt_id, ticket_data in evento_tickets.items():
-        sku = evt_id_to_sku.get(evt_id)
-        if sku:
-            pid = sku_to_projeto.get(sku)
-            if pid:
-                projeto_tickets[pid] = ticket_data
-
-    return projeto_tickets
+    # Magento sobrescreve Ativo (defensivo; no caminho acima Ativo já
+    # foi filtrado para não tocar projetos com ticket Magento).
+    return {**ativo_projeto_tickets, **magento_projeto_tickets}
 
 
 
 
 def _get_ticket_atual_map(db: Session) -> dict:
+    global _ticket_atual_cache_ts
+    now = _time.time()
     with _ticket_atual_cache_lock:
-        if _ticket_atual_cache:
+        if _ticket_atual_cache and (now - _ticket_atual_cache_ts) < _TICKET_ATUAL_TTL:
             return dict(_ticket_atual_cache)
 
     result = _fetch_ticket_atual_map(db)
     with _ticket_atual_cache_lock:
         _ticket_atual_cache.clear()
         _ticket_atual_cache.update(result)
+        _ticket_atual_cache_ts = _time.time()
     return result
 
 

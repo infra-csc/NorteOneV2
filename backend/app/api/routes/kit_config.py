@@ -13,6 +13,14 @@ from app.schemas.kit_config import KitConfigUpsert, KitRow, KitConfigResponse, K
 import app.core.database as db_module
 import logging
 import time as _time
+import unicodedata
+
+
+def _normalize_kit_name(s: Optional[str]) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    return " ".join(s.upper().split())
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +240,167 @@ ORDER BY
 """
 
 
+# ============================================================
+# Tickets por evento no banco do Ativo: COMBO + Modalidade Simples
+# Preço do lote vigente (menor dt_limite >= hoje).
+# Uma linha por kit (COMBO expande por tipo_categoria; modalidade simples
+# agrupa por nome do kit).
+# Usado para enriquecer eventos Ativo-only no Mapeamento de Kits e para
+# alimentar o ticket atual desses eventos no Dash ISC.
+# ============================================================
+ATIVO_KITS_QUERY = """
+SELECT
+    e.id_evento                                         AS id_evento,
+    e.ds_evento                                         AS nome_evento,
+    c.ds_titulo                                         AS nome_kit,
+    cec.ds_categoria                                    AS tipo_categoria,
+    l_atual.ds_lote                                     AS lote_atual,
+    c.nr_valor_de                                       AS price,
+    c.nr_valor                                          AS special_price,
+    el_atual.dt_limite                                  AS lote_dt_limite,
+    el_atual.ds_classificacao                           AS lote_classificacao,
+    'combo'                                             AS origem
+FROM sa_combo c
+JOIN sa_combo_evento_categoria cec
+       ON cec.id_combo = c.id_combo
+JOIN sa_evento e
+       ON e.id_evento = cec.id_evento
+JOIN sa_evento_lote el_atual
+       ON el_atual.id_evento = cec.id_evento
+      AND el_atual.id_evento_lote = (
+            SELECT id_evento_lote
+            FROM sa_evento_lote
+            WHERE id_evento = cec.id_evento
+              AND dt_limite >= CURDATE()
+            ORDER BY dt_limite ASC
+            LIMIT 1
+      )
+JOIN sa_lotes l_atual
+       ON l_atual.id_lote = el_atual.id_lote
+WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
+GROUP BY
+    e.id_evento,
+    e.ds_evento,
+    c.id_combo,
+    c.ds_titulo,
+    cec.ds_categoria,
+    c.nr_valor_de,
+    c.nr_valor,
+    l_atual.ds_lote,
+    el_atual.dt_limite,
+    el_atual.ds_classificacao
+
+UNION ALL
+
+SELECT
+    e.id_evento                                         AS id_evento,
+    e.ds_evento                                         AS nome_evento,
+    mc.ds_categoria                                     AS nome_kit,
+    ''                                                  AS tipo_categoria,
+    l_atual.ds_lote                                     AS lote_atual,
+    MIN(mck.vl_kit)                                     AS price,
+    MIN(mck.vl_kit)                                     AS special_price,
+    el_atual.dt_limite                                  AS lote_dt_limite,
+    el_atual.ds_classificacao                           AS lote_classificacao,
+    'modalidade'                                        AS origem
+FROM sa_evento_modalidade em
+JOIN sa_evento e
+       ON e.id_evento = em.id_evento
+JOIN sa_modalidade_categoria mc
+       ON mc.id_modalidade = em.id_modalidade
+JOIN sa_evento_lote el_atual
+       ON el_atual.id_evento = em.id_evento
+      AND el_atual.id_evento_lote = (
+            SELECT id_evento_lote
+            FROM sa_evento_lote
+            WHERE id_evento = em.id_evento
+              AND dt_limite >= CURDATE()
+            ORDER BY dt_limite ASC
+            LIMIT 1
+      )
+JOIN sa_modalidade_categoria_kit mck
+       ON mck.id_categoria  = mc.id_categoria
+      AND mck.id_evento_lote = el_atual.id_evento_lote
+JOIN sa_lotes l_atual
+       ON l_atual.id_lote = el_atual.id_lote
+WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
+  AND NOT EXISTS (
+        SELECT 1
+        FROM sa_combo_evento_categoria cec2
+        WHERE cec2.id_evento = em.id_evento
+  )
+GROUP BY
+    e.id_evento,
+    e.ds_evento,
+    mc.ds_categoria,
+    l_atual.ds_lote,
+    el_atual.dt_limite,
+    el_atual.ds_classificacao
+ORDER BY
+    id_evento,
+    nome_kit,
+    special_price ASC
+"""
+
+
+_ativo_kits_cache: dict = {"data": None, "ts": 0.0}
+_ATIVO_KITS_TTL = 120
+
+
+def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
+    """Roda ATIVO_KITS_QUERY no banco do Ativo e devolve um índice:
+
+        {(id_evento_ativo:int, nome_kit_normalizado:str): [variant_dict, ...]}
+
+    Cada variant_dict contém: tipo_categoria, lote_atual, price,
+    special_price, origem. Quando uma chave tem combo + modalidade, o
+    NOT EXISTS da Parte 2 da query garante que só uma das duas aparece
+    por evento. Se o engine do Ativo não estiver configurado ou a
+    consulta falhar, devolve {} (e o caller cai no fallback atual).
+    """
+    now = _time.time()
+    if (
+        not force_refresh
+        and _ativo_kits_cache["data"] is not None
+        and (now - _ativo_kits_cache["ts"]) < _ATIVO_KITS_TTL
+    ):
+        return _ativo_kits_cache["data"]
+
+    if db_module.engine_ativo is None:
+        logger.info("[KitConfig] engine_ativo não configurado; pulando ATIVO_KITS_QUERY")
+        return {}
+
+    try:
+        with db_module.engine_ativo.connect() as conn:
+            result = conn.execute(text(ATIVO_KITS_QUERY))
+            rows = result.fetchall()
+            columns = list(result.keys())
+    except Exception as e:
+        logger.error(f"[KitConfig] Erro ao buscar kits do Ativo: {e}")
+        return {}
+
+    indexed: dict = {}
+    for row in rows:
+        rd = dict(zip(columns, row))
+        try:
+            evt_id = int(rd["id_evento"])
+        except (TypeError, ValueError):
+            continue
+        key = (evt_id, _normalize_kit_name(rd.get("nome_kit")))
+        indexed.setdefault(key, []).append({
+            "tipo_categoria": rd.get("tipo_categoria") or None,
+            "lote_atual": rd.get("lote_atual"),
+            "price": float(rd["price"]) if rd.get("price") is not None else None,
+            "special_price": float(rd["special_price"]) if rd.get("special_price") is not None else None,
+            "origem": rd.get("origem"),
+        })
+
+    _ativo_kits_cache["data"] = indexed
+    _ativo_kits_cache["ts"] = _time.time()
+    logger.info(f"[KitConfig] ATIVO_KITS_QUERY indexada: {len(indexed)} chaves (evento, kit)")
+    return indexed
+
+
 @router.get("/kits", response_model=List[KitRow])
 def get_kits_with_config(
     db: Session = Depends(get_db),
@@ -392,6 +561,11 @@ def get_kits_with_config(
         SkuMapping.ano == current_year,
     ).all()
 
+    # Índice (id_evento_ativo, nome_kit_normalizado) → variantes com preço/lote.
+    # Vazio quando o engine_ativo não está configurado ou a query falha — o loop
+    # abaixo então mantém o comportamento histórico (preços nulos).
+    ativo_kits_index = fetch_ativo_kits_indexed(force_refresh=force_refresh)
+
     for sm in ativo_maps:
         sku = (sm.sku or "").upper().strip()
         if not sku or sku in current_magento_skus:
@@ -415,6 +589,11 @@ def get_kits_with_config(
         if not kps:
             continue
 
+        try:
+            id_externo_int = int(sm.id_externo) if sm.id_externo is not None else None
+        except (ValueError, TypeError):
+            id_externo_int = None
+
         for kp in kps:
             synthetic_bundle_id = -kp.id
             cfg = config_map.get(synthetic_bundle_id)
@@ -428,30 +607,52 @@ def get_kits_with_config(
             custo_cadastro_val = kit_cost if kit_cost > 0 else None
             custo_kit_val = float(cfg.custo_kit) if cfg and cfg.custo_kit is not None else None
 
-            kits.append(KitRow(
-                id_evento=str(sm.id_externo),
-                nome_evento=sm.nome_evento,
-                bundle_entity_id=synthetic_bundle_id,
-                nome_kit=kp.kit,
-                tipo_kit=tipo_kit,
-                tipo_categoria=None,
-                lote_atual=None,
-                multiplicador_sugerido=1,
-                multiplicador=multiplicador,
-                price_base=None,
-                special_price_base=None,
-                price=None,
-                special_price=None,
-                is_configured=is_configured,
-                is_kit_basico=is_kit_basico,
-                is_promo_principal=is_promo_principal,
-                custo_cadastro=custo_cadastro_val,
-                custo_kit=custo_kit_val,
-                ativo_categoria=kp.ativo_categoria or (cfg.ativo_categoria if cfg else None),
-                status_kit=None,
-                fonte="ativo",
-                cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
-            ))
+            # Procura variantes do kit no banco do Ativo. Se houver match,
+            # expande em N linhas (uma por tipo_categoria, espelhando o
+            # comportamento do Magento). Sem match, mantém o fallback de
+            # preço nulo. O synthetic_bundle_id continua o mesmo em todas
+            # as variantes, então o KitConfig salvo permanece intacto.
+            variants = []
+            if id_externo_int is not None:
+                variants = ativo_kits_index.get(
+                    (id_externo_int, _normalize_kit_name(kp.kit)),
+                    [],
+                )
+
+            if not variants:
+                variants = [{
+                    "tipo_categoria": None,
+                    "lote_atual": None,
+                    "price": None,
+                    "special_price": None,
+                    "origem": None,
+                }]
+
+            for v in variants:
+                kits.append(KitRow(
+                    id_evento=str(sm.id_externo),
+                    nome_evento=sm.nome_evento,
+                    bundle_entity_id=synthetic_bundle_id,
+                    nome_kit=kp.kit,
+                    tipo_kit=tipo_kit,
+                    tipo_categoria=v["tipo_categoria"],
+                    lote_atual=v["lote_atual"],
+                    multiplicador_sugerido=1,
+                    multiplicador=multiplicador,
+                    price_base=v["price"],
+                    special_price_base=v["special_price"],
+                    price=v["price"],
+                    special_price=v["special_price"],
+                    is_configured=is_configured,
+                    is_kit_basico=is_kit_basico,
+                    is_promo_principal=is_promo_principal,
+                    custo_cadastro=custo_cadastro_val,
+                    custo_kit=custo_kit_val,
+                    ativo_categoria=kp.ativo_categoria or (cfg.ativo_categoria if cfg else None),
+                    status_kit=None,
+                    fonte="ativo",
+                    cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
+                ))
 
     _kits_cache["data"] = kits
     _kits_cache["ts"] = _time.time()
