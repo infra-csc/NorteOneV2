@@ -142,6 +142,173 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
     return out
 
 
+def aggregate_eventos_list_from_snapshots(
+    db: Session,
+    ano: int,
+    status: str | None = None,
+    categoria: str | None = None,
+    busca: str | None = None,
+    min_coverage: float = 0.5,
+) -> dict | None:
+    """Monta a resposta de GET /marketing/eventos a partir dos snapshots
+    persistidos por evento, aplicando o overlay de HOJE em cada um.
+
+    Permite que a lista abra instantaneamente após restarts (mesmo motivo
+    do detalhe). Retorna None quando a cobertura de snapshots é baixa,
+    para que o caller faça fallback para o caminho lento.
+    """
+    from ..models.cadastro_evento import CadastroEvento
+    from ..models.dimensoes import DimProjeto, SkuMapping
+
+    try:
+        rows = (
+            db.query(EventoDetailSnapshot)
+            .filter(EventoDetailSnapshot.ano == ano)
+            .all()
+        )
+    except Exception as e:
+        logger.warning(f"[EventosListSnap] read snapshots falhou: {e}")
+        return None
+
+    if not rows:
+        return None
+
+    # Cobertura é avaliada na mesma granularidade que o endpoint da lista
+    # produz: 1 entrada por evento_grupo ativo (ano) + 1 entrada por projeto
+    # standalone (cadastro cujo SKU não pertence a nenhum grupo no ano).
+    expected = 0
+    try:
+        from ..api.routes.inscricoes_consolidado import normalize_sku as _ns
+
+        grupo_names_q = (
+            db.query(SkuMapping.evento_grupo)
+            .filter(
+                SkuMapping.ano == ano,
+                SkuMapping.ativo == True,  # noqa: E712
+                SkuMapping.evento_grupo.isnot(None),
+            )
+            .distinct()
+            .all()
+        )
+        grupo_names = {g[0] for g in grupo_names_q if g[0]}
+        expected_grouped = len(grupo_names)
+
+        sku_to_grupo: dict[str, str] = {}
+        if grupo_names:
+            sm_rows = (
+                db.query(SkuMapping.sku, SkuMapping.evento_grupo)
+                .filter(
+                    SkuMapping.ano == ano,
+                    SkuMapping.ativo == True,  # noqa: E712
+                    SkuMapping.evento_grupo.in_(list(grupo_names)),
+                )
+                .all()
+            )
+            for s, g in sm_rows:
+                if s and g:
+                    sku_to_grupo[_ns(str(s))] = g
+
+        cad_codigos = (
+            db.query(DimProjeto.codigo)
+            .join(CadastroEvento, CadastroEvento.projeto_id == DimProjeto.id)
+            .filter(DimProjeto.codigo.isnot(None))
+            .all()
+        )
+        expected_standalone = sum(
+            1 for (codigo,) in cad_codigos
+            if _ns(str(codigo)) not in sku_to_grupo
+        )
+        expected = expected_grouped + expected_standalone
+    except Exception as e:
+        logger.debug(f"[EventosListSnap] expected count falhou: {e}")
+        expected = 0
+
+    coverage = (len(rows) / float(expected)) if expected > 0 else 1.0
+    logger.info(
+        f"[EventosListSnap] ano={ano} snapshots={len(rows)} expected={expected} "
+        f"coverage={coverage:.2f} threshold={min_coverage}"
+    )
+    if expected > 0 and coverage < min_coverage:
+        return None
+
+    eventos: list[dict] = []
+    categorias_set: set[str] = set()
+    events_green = events_yellow = events_red = active_count = 0
+
+    busca_lower = (busca or "").strip().lower()
+
+    for r in rows:
+        payload = r.payload if isinstance(r.payload, dict) else {}
+        try:
+            payload = apply_today_overlay(db, payload, r.evento_id)
+        except Exception as e:
+            logger.debug(f"[EventosListSnap] overlay falhou {r.evento_id}: {e}")
+
+        evt = payload.get("evento") if isinstance(payload, dict) else None
+        if not isinstance(evt, dict):
+            continue
+        if "currentSales" not in evt or "salesGoal" not in evt:
+            continue
+
+        is_active = bool(evt.get("isActive"))
+        if status == "active" and not is_active:
+            continue
+        if status == "closed" and is_active:
+            continue
+        cat = evt.get("category")
+        if categoria and categoria != "all" and cat != categoria:
+            continue
+        if busca_lower and busca_lower not in (evt.get("name") or "").lower():
+            continue
+
+        if cat:
+            categorias_set.add(cat)
+        if is_active:
+            active_count += 1
+            isc_status = evt.get("iscStatus")
+            if isc_status == "accelerating":
+                events_green += 1
+            elif isc_status == "stable":
+                events_yellow += 1
+            else:
+                events_red += 1
+
+        eventos.append(evt)
+
+    eventos.sort(key=lambda e: (not e.get("isActive"), e.get("dMinus", 0)))
+
+    try:
+        from ..core.cache import get_last_full_refresh
+        lfr = get_last_full_refresh()
+    except Exception:
+        lfr = None
+    if lfr:
+        ts = datetime.fromtimestamp(lfr, tz=ZoneInfo("America/Sao_Paulo")).isoformat()
+    else:
+        ts = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
+
+    avisos: list[str] = []
+    try:
+        from ..api.routes.marketing import get_isc_warnings as _giw
+        avisos = list(_giw() or [])
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "eventos": eventos,
+        "resumo": {
+            "totalActiveEvents": active_count,
+            "eventsGreen": events_green,
+            "eventsYellow": events_yellow,
+            "eventsRed": events_red,
+        },
+        "categorias": sorted(categorias_set),
+        "ultima_atualizacao": ts,
+        "avisos": avisos,
+    }
+
+
 def _to_jsonable(payload: Any) -> Any:
     """Converte payload (incluindo modelos Pydantic) em estrutura JSON-safe."""
     return jsonable_encoder(payload)

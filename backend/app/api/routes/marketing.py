@@ -4243,6 +4243,10 @@ def get_marketing_events(
         except Exception:
             _swr_recompute_in_progress.discard(_bg_key)
 
+    _USE_SNAPSHOT_FIRST_LIST = os.getenv(
+        "USE_SNAPSHOT_FIRST_LIST", "true"
+    ).lower() not in ("0", "false", "no")
+
     if not _is_internal_call:
         # Usuário: sempre tenta cache primeiro.
         cached, is_stale = eventos_list_cache.get_or_revalidate(
@@ -4262,8 +4266,28 @@ def get_marketing_events(
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if (is_stale or _user_force_refresh) else "false"
             return cached
-        # Sem cache: dispara refresh em background (deduplicado) e retorna
-        # preparing imediatamente. O frontend faz polling até o cache popular.
+        # Sem cache em memória: tenta agregar dos snapshots persistentes
+        # (mesmo motivo do detalhe — abrir instantâneo após restart). Se a
+        # cobertura for boa, retorna imediatamente e dispara um refresh em bg
+        # para promover ao caminho lento (margem por kit, etc.).
+        if _USE_SNAPSHOT_FIRST_LIST:
+            try:
+                from ...services.event_detail_snapshot_service import (
+                    aggregate_eventos_list_from_snapshots as _agg_list,
+                )
+                _snap_list = _agg_list(db, ano, status, categoria, busca)
+            except Exception as _agg_e:
+                logger.warning(f"[EventosList] snapshot aggregate falhou: {_agg_e}")
+                _snap_list = None
+            if _snap_list is not None:
+                eventos_list_cache.set(cache_key, _snap_list)
+                _kick_bg_refresh()
+                if response is not None:
+                    response.headers["X-Data-Stale"] = "true"
+                    response.headers["X-Data-Source"] = "snapshot-aggregate"
+                return _snap_list
+        # Sem cache e sem cobertura de snapshot: dispara refresh em background
+        # (deduplicado) e retorna preparing. O frontend faz polling.
         _kick_bg_refresh()
         if response is not None:
             response.headers["X-Data-Preparing"] = "true"
