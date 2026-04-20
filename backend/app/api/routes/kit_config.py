@@ -564,9 +564,18 @@ def get_kits_with_config(
     ).all()
 
     # Índice (id_evento_ativo, nome_kit_normalizado) → variantes com preço/lote.
-    # Vazio quando o engine_ativo não está configurado ou a query falha — o loop
+    # Vazio quando o engine_ssh não está configurado ou a query falha — o loop
     # abaixo então mantém o comportamento histórico (preços nulos).
     ativo_kits_index = fetch_ativo_kits_indexed(force_refresh=force_refresh)
+
+    # Diagnóstico temporário: amostra de chaves do índice e quais id_externo de
+    # SkuMapping ATIVO estão sendo tentados.
+    if ativo_kits_index:
+        sample_idx_keys = list(ativo_kits_index.keys())[:5]
+        idx_event_ids = sorted({k[0] for k in ativo_kits_index.keys()})
+        logger.info(f"[KitConfig][DEBUG] Index: {len(ativo_kits_index)} chaves, {len(idx_event_ids)} id_eventos distintos. Primeiros: {idx_event_ids[:10]}. Amostra de chaves: {sample_idx_keys}")
+    _debug_match_attempts = []
+    _debug_match_hits = 0
 
     for sm in ativo_maps:
         sku = (sm.sku or "").upper().strip()
@@ -616,10 +625,12 @@ def get_kits_with_config(
             # as variantes, então o KitConfig salvo permanece intacto.
             variants = []
             if id_externo_int is not None:
-                variants = ativo_kits_index.get(
-                    (id_externo_int, _normalize_kit_name(kp.kit)),
-                    [],
-                )
+                lookup_key = (id_externo_int, _normalize_kit_name(kp.kit))
+                variants = ativo_kits_index.get(lookup_key, [])
+                if len(_debug_match_attempts) < 10:
+                    _debug_match_attempts.append((lookup_key, kp.kit, len(variants)))
+                if variants:
+                    _debug_match_hits += 1
 
             if not variants:
                 variants = [{
@@ -662,6 +673,7 @@ def get_kits_with_config(
     _unconfigured_cache["data"] = None
     _unconfigured_cache["ts"] = 0.0
     logger.info(f"[KitConfig] Kit list refreshed and cached ({len(kits)} kits)")
+    logger.info(f"[KitConfig][DEBUG] Ativo match: {_debug_match_hits} hits / {len(_debug_match_attempts)} (mostrando até 10) tentativas. Amostra: {_debug_match_attempts}")
     return kits
 
 
