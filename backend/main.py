@@ -1388,27 +1388,50 @@ async def lifespan(app: FastAPI):
             snapshot_thread = threading.Thread(target=_run_sync_hoje_only, daemon=True, name="startup-sync-hoje")
             snapshot_thread.start()
 
-        # Se a tabela margem_bundle_rev_snapshot estiver vazia (deploy inicial ou primeiro boot
-        # após criação da tabela), dispara o sync em background independentemente da freshness
-        # dos outros snapshots.
+        # Dispara o sync de margem_bundle_rev_snapshot em background quando a tabela
+        # estiver vazia OU desatualizada (> 25h), independentemente da freshness dos
+        # demais snapshots. Sem este gatilho, restarts frequentes podem manter o
+        # snapshot antigo por dias (o agendamento das 04:00 BRT não fira se a
+        # instância for substituída antes desse horário), forçando o detalhe do
+        # evento a cair em queries ao vivo no Magento (timeout) e exibir o aviso
+        # "Dados do Magento indisponíveis" na Análise de Margem.
         def _maybe_sync_margem_rev():
             try:
                 from app.core.database import SessionLocal as _SL2
                 from app.models.vendas_snapshot import MargemBundleRevSnapshot as _MBR2
                 from app.services.snapshot_service import sincronizar_margem_bundle_rev_batch as _smrb
+                from sqlalchemy import func as _sfunc2
+                from datetime import datetime as _dt_m, timezone as _tz_m
                 _db2 = _SL2()
                 try:
-                    _empty = _db2.query(_MBR2).count() == 0
-                    if _empty:
-                        logger.info("[Startup] margem_bundle_rev_snapshot vazio — disparando sync inicial em background")
+                    _total = _db2.query(_MBR2).count()
+                    _empty = _total == 0
+                    _stale = False
+                    _age_h = None
+                    if not _empty:
+                        # Idade considerada pelo consumidor em routes/marketing.py
+                        # (_SNAP_MAX_AGE_H = 25). Se o snapshot mais novo já passou
+                        # desse limite, o fallback PostgreSQL não é usado e o detalhe
+                        # do evento cai em queries ao vivo no Magento (frequentemente
+                        # timeout). Disparamos o sync para reabilitar o fallback.
+                        _MAX_AGE_H = 25
+                        _newest_ts = _db2.query(_sfunc2.max(_MBR2.calculado_em)).scalar()
+                        if _newest_ts is not None:
+                            if _newest_ts.tzinfo is None:
+                                _newest_ts = _newest_ts.replace(tzinfo=_tz_m.utc)
+                            _age_h = (_dt_m.now(_tz_m.utc) - _newest_ts).total_seconds() / 3600
+                            _stale = _age_h > _MAX_AGE_H
+                    if _empty or _stale:
+                        _motivo = "vazio" if _empty else f"desatualizado ({_age_h:.1f}h > 25h)"
+                        logger.info(f"[Startup] margem_bundle_rev_snapshot {_motivo} — disparando sync em background")
                         result = _smrb(_db2)
-                        logger.info(f"[Startup] margem_bundle_rev_snapshot sync inicial: {result}")
+                        logger.info(f"[Startup] margem_bundle_rev_snapshot sync: {result}")
                     else:
-                        logger.info("[Startup] margem_bundle_rev_snapshot já populado — sync inicial ignorado")
+                        logger.info(f"[Startup] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h) — sync ignorado")
                 finally:
                     _db2.close()
             except Exception as _e_m:
-                logger.error(f"[Startup] Erro no sync inicial de margem_bundle_rev_snapshot: {_e_m}")
+                logger.error(f"[Startup] Erro no sync de margem_bundle_rev_snapshot: {_e_m}")
 
         _margem_thread = threading.Thread(target=_maybe_sync_margem_rev, daemon=True, name="startup-margem-rev-sync")
         _margem_thread.start()
