@@ -400,22 +400,15 @@ const MarketingDashboard: React.FC = () => {
     setFullRefreshing(true);
     setRefreshProgress(null);
     setRefreshResult(null);
-    const MAX_POLL_TIME = 3 * 60 * 1000;
-    const POLL_INTERVAL = 3000;
+    // Atualização completa pode levar 30-45 min. Mantemos polling enquanto o
+    // servidor reportar in_progress, sem encerrar por timeout de UI (apenas mantemos
+    // o usuário informado do progresso). Ele pode navegar/sair — o estado é restaurado
+    // pelo cacheStatus polling de 60s do useEffect.
+    const POLL_INTERVAL = 5000;
 
     const startPolling = () => {
-      const pollStart = Date.now();
       const pollStatus = setInterval(async () => {
         try {
-          if (Date.now() - pollStart > MAX_POLL_TIME) {
-            clearInterval(pollStatus);
-            setFullRefreshing(false);
-            setRefreshProgress(null);
-            showRefreshResult('timeout');
-            setAvisos(prev => [...prev, 'A atualização está demorando mais que o esperado. Ela continua em andamento no servidor e será concluída em breve.']);
-            fetchData(true, false);
-            return;
-          }
           const status = await marketingService.getCacheStatus();
           if (!status.refresh_in_progress) {
             clearInterval(pollStatus);

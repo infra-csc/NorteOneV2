@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text, bindparam, func
@@ -7918,34 +7919,74 @@ def get_marketing_event_by_id(
                                 else datetime.now().year)
         except Exception:
             _ano_for_persist = datetime.now().year
-    if not force_refresh:
+    # Snapshot-first read. O recomputo "force_refresh=True" só faz bypass quando
+    # disparado internamente (scheduler/warmup com current_user=None). Cliques de
+    # usuário com force_refresh=True são tratados como pedido de refresh em
+    # background: servimos snapshot+overlay imediatamente e enfileiramos recompute.
+    _internal_recompute = force_refresh and current_user is None
+    _user_refresh_request = force_refresh and current_user is not None
+    _USE_SNAPSHOT_FIRST = os.getenv("USE_SNAPSHOT_FIRST_READ", "true").lower() not in ("0", "false", "no")
+    if _USE_SNAPSHOT_FIRST and not _internal_recompute:
         try:
-            from ...services.event_detail_snapshot_service import get_persisted_detail as _gpd
+            from ...services.event_detail_snapshot_service import (
+                get_persisted_detail as _gpd,
+                apply_today_overlay as _apply_overlay,
+            )
             _persisted = _gpd(db, evento_id, _ano_for_persist)
         except Exception:
             _persisted = None
         if _persisted is not None:
-            from app.core.cache import get_last_full_refresh as _gpd_lfr
+            from app.core.cache import (
+                get_last_full_refresh as _gpd_lfr,
+                get_last_sync_hoje as _gpd_lsh,
+            )
             _gpd_lfr_ts = _gpd_lfr() or 0
+            _gpd_lsh_ts = _gpd_lsh() or 0
             _gpd_comp = _persisted.get("computed_at")
             _gpd_comp_ts = _gpd_comp.timestamp() if _gpd_comp else 0
             _gpd_completed = _persisted.get("is_completed", False)
             _gpd_payload_version = (_persisted["payload"] or {}).get("_cache_version") if isinstance(_persisted["payload"], dict) else None
             _gpd_version_mismatch = _gpd_payload_version != _DETAIL_CACHE_VERSION
-            # Bypass se schema do payload é incompatível — força recomputo síncrono
-            # para garantir formato correto (em vez de devolver shape antigo).
+            # Safety guard: se a versão mudou, só servimos o snapshot se ele tem
+            # as chaves essenciais que o frontend exige. Caso contrário caímos
+            # para o caminho lento (mantém o comportamento seguro pré-refactor
+            # quando há um bump de schema realmente incompatível).
             if _gpd_version_mismatch:
-                logger.info(f"[Persist] '{_ano_for_persist}_{evento_id}' version mismatch ({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) — bypassing fast path")
-                _persisted = None
+                _pl = _persisted["payload"] if isinstance(_persisted["payload"], dict) else {}
+                _evt_chk = _pl.get("evento") if isinstance(_pl, dict) else None
+                _has_essentials = (
+                    isinstance(_evt_chk, dict)
+                    and "currentSales" in _evt_chk
+                    and "salesGoal" in _evt_chk
+                    and isinstance(_pl.get("dailySales"), list)
+                )
+                if not _has_essentials:
+                    logger.warning(
+                        f"[Persist] '{_ano_for_persist}_{evento_id}' version mismatch "
+                        f"({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) AND missing essential "
+                        f"keys — bypassing snapshot, fallback ao recompute síncrono"
+                    )
+                    _persisted = None
         if _persisted is not None:
-            # Stale se evento ainda ativo E (último refresh global é mais novo OU >30 min)
+            # Stale se: (a) usuário pediu refresh, (b) versão do schema mudou,
+            # (c) evento ativo e snapshot mais antigo que último warmup ou >30 min.
             _gpd_age = (datetime.now() - _gpd_comp.replace(tzinfo=None)).total_seconds() if _gpd_comp else 9999
-            _gpd_stale = (not _gpd_completed) and (
-                (_gpd_lfr_ts and _gpd_comp_ts < _gpd_lfr_ts) or _gpd_age > 1800
+            _gpd_stale = (
+                _user_refresh_request
+                or _gpd_version_mismatch
+                or (
+                    (not _gpd_completed)
+                    and ((_gpd_lfr_ts and _gpd_comp_ts < _gpd_lfr_ts) or _gpd_age > 1800)
+                )
             )
             _gpd_key = f"{_ano_for_persist}_{evento_id}_detail"
             if _gpd_stale and _gpd_key not in _swr_recompute_in_progress:
-                logger.info(f"[Persist] '{_gpd_key}' stale (age={_gpd_age:.0f}s) — serving snapshot + bg refresh")
+                _reason = (
+                    "user refresh" if _user_refresh_request
+                    else "version mismatch" if _gpd_version_mismatch
+                    else f"age={_gpd_age:.0f}s"
+                )
+                logger.info(f"[Persist] '{_gpd_key}' stale ({_reason}) — serving snapshot+overlay + bg refresh")
                 _swr_recompute_in_progress.add(_gpd_key)
                 import threading as _gpd_threading
                 def _gpd_bg():
@@ -7962,13 +8003,24 @@ def get_marketing_event_by_id(
                         _gpd_db.close()
                         _swr_recompute_in_progress.discard(_gpd_key)
                 _gpd_threading.Thread(target=_gpd_bg, daemon=True).start()
-            _gpd_result = dict(_persisted["payload"]) if isinstance(_persisted["payload"], dict) else {}
+            _gpd_payload = _persisted["payload"] if isinstance(_persisted["payload"], dict) else {}
+            # Aplica overlay de HOJE (currentSales, dailySales[hoje], averageTicket)
+            try:
+                _gpd_payload = _apply_overlay(db, _gpd_payload, evento_id)
+            except Exception as _ov_e:
+                logger.warning(f"[Persist] apply_today_overlay '{_gpd_key}' falhou: {_ov_e}")
+            _gpd_result = dict(_gpd_payload)
             _gpd_result["ultima_atualizacao_completa"] = (
                 datetime.fromtimestamp(_gpd_lfr_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
                 if _gpd_lfr_ts else None
             )
-            if _gpd_stale:
-                _gpd_result["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
+            # snapshot computed_at (timestamp do recompute completo deste evento)
+            if _gpd_comp:
+                try:
+                    _gpd_comp_aware = _gpd_comp if _gpd_comp.tzinfo else _gpd_comp.replace(tzinfo=ZoneInfo('America/Sao_Paulo'))
+                    _gpd_result["snapshot_computed_at"] = _gpd_comp_aware.isoformat()
+                except Exception:
+                    pass
             _gpd_pids = [p["id"] for p in _gpd_result.get("projetos_vinculados", [])]
             if not _gpd_pids and not is_grouped:
                 try:
@@ -7978,6 +8030,8 @@ def get_marketing_event_by_id(
             _gpd_result["commercialActions"] = _fetch_commercial_actions_from_db(db, _gpd_pids)
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if _gpd_stale else "false"
+                if _gpd_version_mismatch:
+                    response.headers["X-Schema-Stale"] = "true"
             return _gpd_result
 
     def _swr_detail_refresh(_swr_key: str):

@@ -182,6 +182,8 @@ const EventDetail: React.FC = () => {
   const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
   const [isStaleData, setIsStaleData] = useState(false);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
+  const [ultimaAtualizacaoInscricoes, setUltimaAtualizacaoInscricoes] = useState<string | null>(null);
+  const [snapshotComputedAt, setSnapshotComputedAt] = useState<string | null>(null);
   const silentRefetchDoneRef = useRef(false);
   const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean) => void) | null>(null);
 
@@ -240,8 +242,12 @@ const EventDetail: React.FC = () => {
         setEvent(eventWithData);
         const cacheTime: string | undefined = (response as any).ultima_atualizacao;
         const systemRefresh: string | undefined = (response as any).ultima_atualizacao_completa;
+        const inscricoesSync: string | undefined = (response as any).ultima_atualizacao_inscricoes;
+        const snapshotAt: string | undefined = (response as any).snapshot_computed_at;
         // Display uses last full-system refresh time for consistency with the dashboard
         setUltimaAtualizacao(systemRefresh || cacheTime || null);
+        setUltimaAtualizacaoInscricoes(inscricoesSync || cacheTime || null);
+        setSnapshotComputedAt(snapshotAt || systemRefresh || cacheTime || null);
         // If the event cache is older than the last full refresh, silently refetch once
         if (
           !forceRefresh &&
@@ -868,9 +874,10 @@ const EventDetail: React.FC = () => {
 
   const gaugeRotation = Math.min(Math.max(((event.isc ?? 0) - 0.5) * 180, 0), 180);
 
-  const getDataAgeInfo = () => {
-    if (!ultimaAtualizacao) return null;
-    const updatedAt = new Date(ultimaAtualizacao);
+  const buildAgeInfo = (iso: string | null, prefix: string) => {
+    if (!iso) return null;
+    const updatedAt = new Date(iso);
+    if (isNaN(updatedAt.getTime())) return null;
     const now = new Date();
     const diffMs = now.getTime() - updatedAt.getTime();
     const diffHours = diffMs / (1000 * 60 * 60);
@@ -879,15 +886,16 @@ const EventDetail: React.FC = () => {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
     if (updatedAt >= todayStart) {
-      return { label: `Dados atualizados às ${timeStr} de hoje`, color: 'text-green-600 dark:text-green-400', isStale: false };
+      return { label: `${prefix} hoje às ${timeStr}`, color: 'text-green-600 dark:text-green-400', isStale: false };
     } else if (updatedAt >= yesterdayStart) {
-      return { label: `Dados de ontem às ${timeStr}`, color: 'text-yellow-600 dark:text-yellow-400', isStale: diffHours > 25 };
+      return { label: `${prefix} ontem às ${timeStr}`, color: 'text-yellow-600 dark:text-yellow-400', isStale: diffHours > 25 };
     } else {
-      return { label: `Dados de ${diffDays} dias atrás (${timeStr})`, color: 'text-red-600 dark:text-red-400', isStale: true };
+      return { label: `${prefix} ${diffDays}d atrás (${timeStr})`, color: 'text-red-600 dark:text-red-400', isStale: true };
     }
   };
 
-  const dataAgeInfo = getDataAgeInfo();
+  const dataAgeInfo = buildAgeInfo(ultimaAtualizacaoInscricoes || ultimaAtualizacao, 'Inscrições');
+  const detailAgeInfo = buildAgeInfo(snapshotComputedAt, 'Detalhe');
   const showDataStaleWarning = dataAgeInfo?.isStale && !refreshing;
 
   return (
@@ -913,10 +921,26 @@ const EventDetail: React.FC = () => {
               <span>/</span>
               <span className={isDark ? 'text-white' : 'text-gray-900'}>{event.name}</span>
             </div>
-            {dataAgeInfo && (
-              <div className={`flex items-center gap-1 mt-0.5 text-xs ${dataAgeInfo.color}`}>
-                <Clock className="w-3 h-3" />
-                <span>{dataAgeInfo.label}</span>
+            {(dataAgeInfo || detailAgeInfo) && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-xs">
+                {dataAgeInfo && (
+                  <span
+                    className={`flex items-center gap-1 ${dataAgeInfo.color}`}
+                    title="Quando os dados de inscrições (vendas, ticket, dailySales[hoje]) foram atualizados pelo MySQL"
+                  >
+                    <Clock className="w-3 h-3" />
+                    <span>{dataAgeInfo.label}</span>
+                  </span>
+                )}
+                {detailAgeInfo && (
+                  <span
+                    className={`flex items-center gap-1 ${detailAgeInfo.color}`}
+                    title="Quando o detalhe completo (ISC, kits, margem, curvas) foi recomputado pelo servidor"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>{detailAgeInfo.label}</span>
+                  </span>
+                )}
               </div>
             )}
           </div>
