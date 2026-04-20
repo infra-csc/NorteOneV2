@@ -287,10 +287,9 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <tr className={isDark ? 'bg-gray-700/40' : 'bg-gray-50/80'}>
               <Th k="evento">Evento</Th>
               <Th k="data_evento">Data</Th>
-              <Th align="center">ISC</Th>
-              <Th k="inscritos_total" align="right">Inscritos</Th>
-              <Th k="inscritos_projetados" align="right">Projetados</Th>
-              <Th k="total_geral" align="right">Total Geral</Th>
+              <Th k="inscritos_total" align="right">Inscritos Site</Th>
+              <Th k="inscritos_projetados" align="right">Projeção</Th>
+              <Th k="total_geral" align="right">Total Inscritos</Th>
               <Th k="inscritos_ontem" align="right">Ontem</Th>
               <Th k="inscritos_hoje" align="right">Hoje</Th>
               <Th align="right">Δ Hoje</Th>
@@ -301,7 +300,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
             {sorted.length === 0 && (
-              <tr><td colSpan={12} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
+              <tr><td colSpan={11} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
             {sorted.map(r => (
               <tr key={r.id} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-indigo-50/40'}>
@@ -319,7 +318,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                     }`}>D-{r.dias_para_evento}</div>
                   )}
                 </td>
-                <td className="px-4 py-3 text-center"><IscBadge status={r.isc_status} /></td>
                 <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
                 <td className={`px-4 py-3 text-right ${(r.inscritos_projetados || 0) > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(r.inscritos_projetados || 0)}</td>
                 <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}</td>
@@ -335,7 +333,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           {sorted.length > 0 && (
             <tfoot>
               <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
-                <td colSpan={3} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
+                <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
                 <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
                 <td className={`px-4 py-3 text-right font-bold ${totals.projetados > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
                 <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.geral)}</td>
