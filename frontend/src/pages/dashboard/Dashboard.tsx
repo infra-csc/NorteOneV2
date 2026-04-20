@@ -226,14 +226,17 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
     return sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-400" />;
   };
 
-  const Th: React.FC<{ k?: SortKey; align?: 'left' | 'right' | 'center'; children: React.ReactNode }> = ({ k, children }) => (
-    <th className={`px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'} ${k ? 'cursor-pointer select-none' : ''}`}
-      onClick={k ? () => toggleSort(k) : undefined}>
-      <span className="inline-flex items-center gap-1.5 justify-center w-full">
-        {children}{k && <SortIcon k={k} />}
-      </span>
-    </th>
-  );
+  const Th: React.FC<{ k?: SortKey; align?: 'left' | 'right' | 'center'; children: React.ReactNode }> = ({ k, align = 'left', children }) => {
+    const justify = align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start';
+    return (
+      <th className={`px-4 py-3 text-${align} text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'} ${k ? 'cursor-pointer select-none' : ''}`}
+        onClick={k ? () => toggleSort(k) : undefined}>
+        <span className={`inline-flex items-center gap-1.5 w-full ${justify}`}>
+          {children}{k && <SortIcon k={k} />}
+        </span>
+      </th>
+    );
+  };
 
   const fmtNum = (v: number) => new Intl.NumberFormat('pt-BR').format(v);
   const fmtAvg = (v: number) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v);
@@ -286,16 +289,16 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           <thead>
             <tr className={isDark ? 'bg-gray-700/40' : 'bg-gray-50/80'}>
               <Th k="evento">Evento</Th>
-              <Th k="data_evento">Data</Th>
-              <Th k="inscritos_total" align="right">Inscritos Site</Th>
-              <Th k="inscritos_projetados" align="right">Projeção</Th>
-              <Th k="total_geral" align="right">Total Inscritos</Th>
-              <Th k="inscritos_ontem" align="right">Ontem</Th>
-              <Th k="inscritos_hoje" align="right">Hoje</Th>
-              <Th align="right">Δ Hoje</Th>
-              <Th k="media_7d" align="right">Média 7d</Th>
-              <Th k="media_14d" align="right">Média 14d</Th>
-              <Th k="taxa_ocupacao" align="right">Ocupação</Th>
+              <Th k="data_evento" align="center">Data</Th>
+              <Th k="inscritos_total" align="center">Inscritos Site</Th>
+              <Th k="inscritos_projetados" align="center">Projeção</Th>
+              <Th k="total_geral" align="center">Total Inscritos</Th>
+              <Th k="inscritos_ontem" align="center">Ontem</Th>
+              <Th k="inscritos_hoje" align="center">Hoje</Th>
+              <Th align="center">Δ Hoje</Th>
+              <Th k="media_7d" align="center">Média 7d</Th>
+              <Th k="media_14d" align="center">Média 14d</Th>
+              <Th k="taxa_ocupacao" align="center">Ocupação</Th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
@@ -308,7 +311,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                   <div className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{r.evento}</div>
                   <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.cidade} · {r.modalidade}</div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 text-center">
                   <div className={isDark ? 'text-gray-200' : 'text-gray-800'}>{fmtDate(r.data_evento)}</div>
                   {r.dias_para_evento != null && r.dias_para_evento >= 0 && (
                     <div className={`text-xs font-bold mt-0.5 inline-block px-2 py-0.5 rounded-full ${
@@ -318,15 +321,15 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                     }`}>D-{r.dias_para_evento}</div>
                   )}
                 </td>
-                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
-                <td className={`px-4 py-3 text-right ${(r.inscritos_projetados || 0) > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(r.inscritos_projetados || 0)}</td>
-                <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}</td>
-                <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
-                <td className={`px-4 py-3 text-right font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
-                <td className="px-4 py-3 text-right">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
-                <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_7d)}</td>
-                <td className={`px-4 py-3 text-right ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_14d)}</td>
-                <td className="px-4 py-3 text-right"><div className="inline-flex"><OcupacaoBar taxa={r.taxa_ocupacao} /></div></td>
+                <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
+                <td className={`px-4 py-3 text-center ${(r.inscritos_projetados || 0) > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(r.inscritos_projetados || 0)}</td>
+                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}</td>
+                <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
+                <td className={`px-4 py-3 text-center font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
+                <td className="px-4 py-3 text-center">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
+                <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_7d)}</td>
+                <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_14d)}</td>
+                <td className="px-4 py-3 text-center"><div className="inline-flex"><OcupacaoBar taxa={r.taxa_ocupacao} /></div></td>
               </tr>
             ))}
           </tbody>
@@ -334,14 +337,14 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <tfoot>
               <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
                 <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
-                <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
-                <td className={`px-4 py-3 text-right font-bold ${totals.projetados > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
-                <td className={`px-4 py-3 text-right font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.geral)}</td>
-                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
-                <td className={`px-4 py-3 text-right font-bold ${totals.hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.hoje)}</td>
-                <td className="px-4 py-3 text-right">{deltaCell(totals.hoje, totals.ontem)}</td>
-                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 7d">⌀ {fmtAvg(totals.m7Avg)}</td>
-                <td className={`px-4 py-3 text-right font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 14d">⌀ {fmtAvg(totals.m14Avg)}</td>
+                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${totals.projetados > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
+                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.geral)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${totals.hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.hoje)}</td>
+                <td className="px-4 py-3 text-center">{deltaCell(totals.hoje, totals.ontem)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 7d">⌀ {fmtAvg(totals.m7Avg)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 14d">⌀ {fmtAvg(totals.m14Avg)}</td>
                 <td />
               </tr>
             </tfoot>
