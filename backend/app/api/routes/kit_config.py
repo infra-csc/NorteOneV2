@@ -577,28 +577,41 @@ def get_kits_with_config(
     _debug_match_attempts = []
     _debug_match_hits = 0
 
+    _dbg = {"total": len(ativo_maps), "no_sku": 0, "in_magento": 0, "no_projeto": 0,
+            "no_cadastro_id": 0, "no_cadastro": 0, "wrong_year": 0, "no_kps": 0,
+            "passed": 0, "id_externo_none": 0}
     for sm in ativo_maps:
         sku = (sm.sku or "").upper().strip()
-        if not sku or sku in current_magento_skus:
+        if not sku:
+            _dbg["no_sku"] += 1
+            continue
+        if sku in current_magento_skus:
+            _dbg["in_magento"] += 1
             continue
 
         projeto_id = sku_to_projeto_id.get(sku)
         if not projeto_id:
+            _dbg["no_projeto"] += 1
             continue
         cadastro_id = projeto_to_cadastro_id.get(projeto_id)
         if not cadastro_id:
+            _dbg["no_cadastro_id"] += 1
             continue
 
         # Year guard: require CadastroEvento.ano_evento to match current year
         cadastro = cadastro_by_id.get(cadastro_id)
         if not cadastro:
+            _dbg["no_cadastro"] += 1
             continue
         if cadastro.ano_evento and cadastro.ano_evento != current_year:
+            _dbg["wrong_year"] += 1
             continue
 
         kps = kps_by_cadastro_id.get(cadastro_id, [])
         if not kps:
+            _dbg["no_kps"] += 1
             continue
+        _dbg["passed"] += 1
 
         try:
             id_externo_int = int(sm.id_externo) if sm.id_externo is not None else None
@@ -674,6 +687,7 @@ def get_kits_with_config(
     _unconfigured_cache["ts"] = 0.0
     logger.info(f"[KitConfig] Kit list refreshed and cached ({len(kits)} kits)")
     logger.info(f"[KitConfig][DEBUG] Ativo match: {_debug_match_hits} hits / {len(_debug_match_attempts)} (mostrando até 10) tentativas. Amostra: {_debug_match_attempts}")
+    logger.info(f"[KitConfig][DEBUG] Ativo filter funnel: {_dbg}")
     return kits
 
 
