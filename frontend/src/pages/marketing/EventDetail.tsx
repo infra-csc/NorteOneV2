@@ -184,8 +184,12 @@ const EventDetail: React.FC = () => {
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
   const [ultimaAtualizacaoInscricoes, setUltimaAtualizacaoInscricoes] = useState<string | null>(null);
   const [snapshotComputedAt, setSnapshotComputedAt] = useState<string | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [preparingGaveUp, setPreparingGaveUp] = useState(false);
   const silentRefetchDoneRef = useRef(false);
   const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean) => void) | null>(null);
+  const preparingStartedAtRef = useRef<number | null>(null);
+  const PREPARING_GIVE_UP_MS = 3 * 60 * 1000;
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -194,6 +198,9 @@ const EventDetail: React.FC = () => {
 
   useEffect(() => {
     silentRefetchDoneRef.current = false;
+    preparingStartedAtRef.current = null;
+    setIsPreparing(false);
+    setPreparingGaveUp(false);
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -216,6 +223,19 @@ const EventDetail: React.FC = () => {
         // Backend sinaliza que ainda está preparando o snapshot — retry em 5s.
         if ((response as any)?.status === 'preparing') {
           if (!event) setLoading(true);
+          setIsPreparing(true);
+          if (preparingStartedAtRef.current === null) {
+            preparingStartedAtRef.current = Date.now();
+          }
+          const elapsed = Date.now() - (preparingStartedAtRef.current || Date.now());
+          if (elapsed >= PREPARING_GIVE_UP_MS) {
+            setPreparingGaveUp(true);
+            if (staleRetryTimerRef.current) {
+              clearTimeout(staleRetryTimerRef.current);
+              staleRetryTimerRef.current = null;
+            }
+            return;
+          }
           if (staleRetryTimerRef.current) clearTimeout(staleRetryTimerRef.current);
           const retrySec = Number((response as any).retry_after_seconds) || 5;
           staleRetryTimerRef.current = setTimeout(() => {
@@ -225,6 +245,9 @@ const EventDetail: React.FC = () => {
           }, retrySec * 1000);
           return;
         }
+        setIsPreparing(false);
+        setPreparingGaveUp(false);
+        preparingStartedAtRef.current = null;
 
         const stale = response._isStale === true;
         setIsStaleData(stale);
@@ -500,7 +523,52 @@ const EventDetail: React.FC = () => {
     }
   };
 
-  if (!event && (loading || error)) {
+  const renderPreparingSkeleton = (giveUp: boolean) => (
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-8">
+      <div className="flex flex-col items-center justify-center text-center mb-6">
+        {giveUp ? (
+          <>
+            <AlertTriangle className="w-10 h-10 text-amber-500" />
+            <p className="mt-4 text-gray-700 dark:text-gray-200 font-medium">
+              Ainda não conseguimos preparar este evento.
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Tente novamente em alguns minutos. Se persistir, avise o time de dados.
+            </p>
+            <button
+              onClick={() => {
+                setPreparingGaveUp(false);
+                preparingStartedAtRef.current = null;
+                if (fetchEventRef.current) fetchEventRef.current(false, true);
+              }}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 inline-flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Tentar novamente
+            </button>
+          </>
+        ) : (
+          <>
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <p className="mt-4 text-gray-700 dark:text-gray-200 font-medium">
+              Estamos preparando este evento, isso leva ~30s
+            </p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Você pode aguardar nesta tela — vamos atualizar automaticamente.
+            </p>
+          </>
+        )}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="h-24 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse" />
+        ))}
+      </div>
+      <div className="mt-4 h-48 rounded-lg bg-gray-100 dark:bg-gray-700 animate-pulse" />
+    </div>
+  );
+
+  if (!event && (loading || error || isPreparing)) {
     return (
       <div className="p-6">
         <div className="flex items-center gap-2 mb-6">
@@ -522,6 +590,8 @@ const EventDetail: React.FC = () => {
               Voltar ao Dashboard
             </button>
           </div>
+        ) : isPreparing ? (
+          renderPreparingSkeleton(preparingGaveUp)
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-xl p-12 flex flex-col items-center justify-center">
             <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
