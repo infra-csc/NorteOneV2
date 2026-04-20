@@ -4204,18 +4204,39 @@ def get_marketing_events(
     """
     if ano is None:
         ano = datetime.now().year
-    
-    cache_key = f"{ano}_{status or 'all'}_{categoria or 'all'}_{busca or ''}"
-    if not force_refresh:
-        def _swr_refresh():
-            from ...core.database import SessionLocal
-            _db = SessionLocal()
-            try:
-                get_marketing_events(ano=ano, status=status, categoria=categoria, busca=busca, force_refresh=True, db=_db, current_user=None)
-            finally:
-                _db.close()
 
-        cached, is_stale = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
+    cache_key = f"{ano}_{status or 'all'}_{categoria or 'all'}_{busca or ''}"
+
+    # Caminho de usuário: nunca recomputa síncrono. force_refresh=True de um
+    # usuário é tratado como "serve cache + bg refresh" — mesma semântica SWR.
+    # Apenas chamadas internas (current_user=None) executam o caminho lento.
+    _is_internal_call = current_user is None
+    _user_force_refresh = force_refresh and not _is_internal_call
+
+    def _swr_refresh():
+        from ...core.database import SessionLocal
+        _db = SessionLocal()
+        try:
+            get_marketing_events(
+                ano=ano, status=status, categoria=categoria, busca=busca,
+                force_refresh=True, db=_db, current_user=None,
+            )
+        finally:
+            _db.close()
+
+    if not _is_internal_call:
+        # Usuário: sempre tenta cache primeiro.
+        cached, is_stale = eventos_list_cache.get_or_revalidate(
+            cache_key,
+            refresh_fn=_swr_refresh if not _user_force_refresh else None,
+        )
+        if _user_force_refresh:
+            # Dispara um refresh em background sem bloquear.
+            try:
+                import threading as _list_threading
+                _list_threading.Thread(target=_swr_refresh, daemon=True).start()
+            except Exception:
+                pass
         if cached is not None:
             from app.core.cache import get_last_full_refresh as _glf_eventos
             _lfr_ev = _glf_eventos()
@@ -4225,8 +4246,26 @@ def get_marketing_events(
                     _lfr_ev, tz=ZoneInfo('America/Sao_Paulo')
                 ).isoformat()
             if response is not None:
-                response.headers["X-Data-Stale"] = "true" if is_stale else "false"
+                response.headers["X-Data-Stale"] = "true" if (is_stale or _user_force_refresh) else "false"
             return cached
+        # Sem cache: retorna preparing payload, não bloqueia o usuário.
+        if response is not None:
+            response.headers["X-Data-Preparing"] = "true"
+            response.headers["X-Data-Stale"] = "true"
+        return {
+            "status": "preparing",
+            "eventos": [],
+            "resumo": {
+                "totalActiveEvents": 0,
+                "eventsGreen": 0,
+                "eventsYellow": 0,
+                "eventsRed": 0,
+            },
+            "categorias": [],
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+            "avisos": ["Estamos preparando os eventos. Em alguns segundos a lista aparece aqui."],
+        }
+    # Caminho interno (warmup/SWR): executa o caminho completo abaixo.
     
     isc_cfg = _get_isc_settings(db)
     
@@ -8034,6 +8073,50 @@ def get_marketing_event_by_id(
                     response.headers["X-Schema-Stale"] = "true"
             return _gpd_result
 
+    # ── NUNCA RECOMPUTAR SÍNCRONO PARA REQUEST DE USUÁRIO ─────────────────────
+    # Se chegamos aqui via clique de usuário (current_user is not None) e o
+    # snapshot não estava disponível (não existe ainda, ou foi descartado por
+    # version mismatch sem chaves essenciais), enfileiramos um recompute em
+    # background e retornamos um payload "preparing". O frontend mostra um
+    # skeleton e fica fazendo polling. Apenas chamadas internas
+    # (current_user=None: scheduler, warmup, SWR) seguem para o caminho lento.
+    if (
+        _USE_SNAPSHOT_FIRST
+        and current_user is not None
+        and not _internal_recompute
+    ):
+        _prep_key = f"{_ano_for_persist}_{evento_id}_detail"
+        if _prep_key not in _swr_recompute_in_progress:
+            _swr_recompute_in_progress.add(_prep_key)
+            import threading as _prep_threading
+            def _prep_bg():
+                from ...core.database import SessionLocal as _PREP_SL
+                _prep_db = _PREP_SL()
+                try:
+                    get_marketing_event_by_id(
+                        evento_id=evento_id, ano=_ano_for_persist,
+                        force_refresh=True, db=_prep_db, current_user=None,
+                    )
+                except Exception as _prep_e:
+                    logger.warning(f"[Prepare] bg recompute '{_prep_key}' falhou: {_prep_e}")
+                finally:
+                    _prep_db.close()
+                    _swr_recompute_in_progress.discard(_prep_key)
+            _prep_threading.Thread(target=_prep_bg, daemon=True).start()
+            logger.info(f"[Prepare] '{_prep_key}' sem snapshot — retornando preparing + bg recompute")
+        else:
+            logger.info(f"[Prepare] '{_prep_key}' sem snapshot — bg já em andamento, retornando preparing")
+        if response is not None:
+            response.headers["X-Data-Stale"] = "true"
+            response.headers["X-Data-Preparing"] = "true"
+        return {
+            "status": "preparing",
+            "evento_id": evento_id,
+            "ano": _ano_for_persist,
+            "message": "Estamos preparando este evento. Em alguns segundos os dados aparecem aqui.",
+            "retry_after_seconds": 5,
+        }
+
     def _swr_detail_refresh(_swr_key: str):
         from ...core.database import SessionLocal
         _db = SessionLocal()
@@ -9245,26 +9328,38 @@ def sync_hoje_todos(
 def refresh_all_caches(
     current_user: Usuario = Depends(get_current_user)
 ):
-    from app.core.cache import is_full_refresh_in_progress, trigger_full_warmup_async
+    from app.core.cache import (
+        is_full_refresh_in_progress,
+        trigger_full_warmup_async,
+        get_warmup_progress,
+        is_full_refresh_pending,
+    )
 
-    if is_full_refresh_in_progress():
+    # Sempre aceita o clique. Se já tem rodada em andamento, enfileira a próxima.
+    result = trigger_full_warmup_async()
+    now_iso = datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+    progress = get_warmup_progress() if is_full_refresh_in_progress() else None
+
+    if result == "queued":
         return {
             "status": "in_progress",
-            "message": "Uma atualização completa já está em andamento. Aguarde.",
-            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+            "queued_next": True,
+            "message": "Atualização em andamento — sua nova solicitação foi enfileirada e iniciará logo após.",
+            "progress": progress,
+            "ultima_atualizacao": now_iso,
         }
-
-    started = trigger_full_warmup_async()
-    if not started:
+    if result == "started":
         return {
-            "status": "error",
-            "message": "Não foi possível iniciar a atualização."
+            "status": "started",
+            "queued_next": is_full_refresh_pending(),
+            "message": "Atualização completa iniciada em background.",
+            "progress": progress,
+            "ultima_atualizacao": now_iso,
         }
-
     return {
-        "status": "started",
-        "message": "Atualização completa de todos os caches iniciada em background. Os dados serão atualizados em alguns minutos.",
-        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        "status": "error",
+        "message": "Não foi possível iniciar a atualização (warmup não disponível).",
+        "ultima_atualizacao": now_iso,
     }
 
 

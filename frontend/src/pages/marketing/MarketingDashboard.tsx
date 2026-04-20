@@ -283,18 +283,33 @@ const MarketingDashboard: React.FC = () => {
       }, controller.signal);
       
       if (!controller.signal.aborted) {
-        applyResponse(response);
-        setFromCache(false);
-        const isStale = !!(response as any)._isStale;
-        setServerStale(isStale);
-        if (staleRefetchTimerRef.current) {
-          clearTimeout(staleRefetchTimerRef.current);
-          staleRefetchTimerRef.current = null;
-        }
-        if (isStale) {
+        // Backend ainda está montando a lista pela primeira vez — agenda retry.
+        if ((response as any)?.status === 'preparing') {
+          setServerStale(true);
+          if (staleRefetchTimerRef.current) {
+            clearTimeout(staleRefetchTimerRef.current);
+          }
           staleRefetchTimerRef.current = setTimeout(() => {
             fetchData(true);
-          }, 30000);
+          }, 5000);
+          // Mantém estado anterior se já tiver; senão mostra avisos do payload.
+          if (!hasCachedData) {
+            setAvisos((response as any).avisos || ['Estamos preparando os eventos.']);
+          }
+        } else {
+          applyResponse(response);
+          setFromCache(false);
+          const isStale = !!(response as any)._isStale;
+          setServerStale(isStale);
+          if (staleRefetchTimerRef.current) {
+            clearTimeout(staleRefetchTimerRef.current);
+            staleRefetchTimerRef.current = null;
+          }
+          if (isStale) {
+            staleRefetchTimerRef.current = setTimeout(() => {
+              fetchData(true);
+            }, 30000);
+          }
         }
       }
     } catch (err: any) {

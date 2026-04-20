@@ -213,6 +213,19 @@ const EventDetail: React.FC = () => {
         const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
         if (controller.signal.aborted) return;
 
+        // Backend sinaliza que ainda está preparando o snapshot — retry em 5s.
+        if ((response as any)?.status === 'preparing') {
+          if (!event) setLoading(true);
+          if (staleRetryTimerRef.current) clearTimeout(staleRetryTimerRef.current);
+          const retrySec = Number((response as any).retry_after_seconds) || 5;
+          staleRetryTimerRef.current = setTimeout(() => {
+            if (!controller.signal.aborted && fetchEventRef.current) {
+              fetchEventRef.current(false, true);
+            }
+          }, retrySec * 1000);
+          return;
+        }
+
         const stale = response._isStale === true;
         setIsStaleData(stale);
 
@@ -874,28 +887,57 @@ const EventDetail: React.FC = () => {
 
   const gaugeRotation = Math.min(Math.max(((event.isc ?? 0) - 0.5) * 180, 0), 180);
 
-  const buildAgeInfo = (iso: string | null, prefix: string) => {
+  // Limiares por tipo:
+  // - inscricoes: dado volátil (atualiza no sync_hoje a cada 30 min). Verde
+  //   <=30min, amarelo <=2h, vermelho >2h.
+  // - snapshot: dado pesado (atualiza no recompute completo). Verde <=24h,
+  //   amarelo <=48h, vermelho >48h.
+  const buildAgeInfo = (
+    iso: string | null,
+    prefix: string,
+    kind: 'inscricoes' | 'snapshot',
+  ) => {
     if (!iso) return null;
     const updatedAt = new Date(iso);
     if (isNaN(updatedAt.getTime())) return null;
     const now = new Date();
     const diffMs = now.getTime() - updatedAt.getTime();
-    const diffHours = diffMs / (1000 * 60 * 60);
-    const diffDays = Math.floor(diffHours / 24);
+    const diffMin = diffMs / (1000 * 60);
+    const diffHours = diffMin / 60;
     const timeStr = updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-    if (updatedAt >= todayStart) {
-      return { label: `${prefix} hoje às ${timeStr}`, color: 'text-green-600 dark:text-green-400', isStale: false };
-    } else if (updatedAt >= yesterdayStart) {
-      return { label: `${prefix} ontem às ${timeStr}`, color: 'text-yellow-600 dark:text-yellow-400', isStale: diffHours > 25 };
+    let labelTime: string;
+    if (updatedAt >= todayStart) labelTime = `hoje às ${timeStr}`;
+    else if (updatedAt >= yesterdayStart) labelTime = `ontem às ${timeStr}`;
+    else labelTime = `${Math.floor(diffHours / 24)}d atrás (${timeStr})`;
+
+    let greenMax: number;  // em horas
+    let yellowMax: number;
+    if (kind === 'inscricoes') {
+      greenMax = 0.5;   // 30 min
+      yellowMax = 2;    // 2h
     } else {
-      return { label: `${prefix} ${diffDays}d atrás (${timeStr})`, color: 'text-red-600 dark:text-red-400', isStale: true };
+      greenMax = 24;
+      yellowMax = 48;
     }
+    let color: string;
+    let isStale: boolean;
+    if (diffHours <= greenMax) {
+      color = 'text-green-600 dark:text-green-400';
+      isStale = false;
+    } else if (diffHours <= yellowMax) {
+      color = 'text-yellow-600 dark:text-yellow-400';
+      isStale = false;
+    } else {
+      color = 'text-red-600 dark:text-red-400';
+      isStale = true;
+    }
+    return { label: `${prefix} ${labelTime}`, color, isStale };
   };
 
-  const dataAgeInfo = buildAgeInfo(ultimaAtualizacaoInscricoes || ultimaAtualizacao, 'Inscrições');
-  const detailAgeInfo = buildAgeInfo(snapshotComputedAt, 'Detalhe');
+  const dataAgeInfo = buildAgeInfo(ultimaAtualizacaoInscricoes || ultimaAtualizacao, 'Inscrições', 'inscricoes');
+  const detailAgeInfo = buildAgeInfo(snapshotComputedAt, 'Detalhe', 'snapshot');
   const showDataStaleWarning = dataAgeInfo?.isStale && !refreshing;
 
   return (

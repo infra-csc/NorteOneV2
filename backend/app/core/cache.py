@@ -18,6 +18,7 @@ _last_full_refresh_timestamp = None
 _last_sync_hoje_timestamp = None
 _last_sync_hoje_lock = threading.Lock()
 _full_refresh_in_progress = False
+_full_refresh_pending = False  # outra rodada enfileirada enquanto a atual estiver em andamento
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None
 _warmup_progress = {"step": 0, "total_steps": 4, "label": "", "started_at": None, "sub_current": 0, "sub_total": 0}
@@ -35,17 +36,48 @@ def register_full_warmup_fn(fn: Callable):
 
 
 def trigger_full_warmup_async():
-    global _full_warmup_fn, _full_refresh_in_progress
+    """Inicia uma rodada de aquecimento completo.
+
+    Retorna:
+      - "started"     : nova rodada iniciada agora.
+      - "queued"      : já tem rodada em andamento; outra foi enfileirada para
+                        rodar logo em seguida.
+      - "unavailable" : função de warmup não registrada.
+    """
+    global _full_warmup_fn, _full_refresh_in_progress, _full_refresh_pending
     with _full_refresh_lock:
         if _full_warmup_fn is None:
             logger.warning("No full warmup function registered")
-            return False
+            return "unavailable"
         if _full_refresh_in_progress:
-            return False
+            _full_refresh_pending = True
+            logger.info("[Cache] Refresh-all já em andamento — próxima rodada enfileirada")
+            return "queued"
         _full_refresh_in_progress = True
-    thread = threading.Thread(target=_full_warmup_fn, daemon=True)
+
+    def _wrapper():
+        try:
+            _full_warmup_fn()
+        finally:
+            # Re-trigger se houve clique enquanto a rodada atual rodava.
+            global _full_refresh_pending
+            should_chain = False
+            with _full_refresh_lock:
+                if _full_refresh_pending:
+                    _full_refresh_pending = False
+                    should_chain = True
+            if should_chain:
+                logger.info("[Cache] Iniciando rodada enfileirada de refresh-all")
+                trigger_full_warmup_async()
+
+    thread = threading.Thread(target=_wrapper, daemon=True)
     thread.start()
-    return True
+    return "started"
+
+
+def is_full_refresh_pending():
+    global _full_refresh_pending
+    return _full_refresh_pending
 
 
 def get_last_full_refresh():
