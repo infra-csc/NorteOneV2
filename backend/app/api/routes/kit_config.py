@@ -725,24 +725,31 @@ def get_kits_with_config(
     # permite que o usuário configure o kit nessa tela mesmo quando não
     # existe CadastroEvento/CadastroKitProduto no sistema.
     direct_emitted = 0
-    direct_skipped_no_sm = 0
     direct_skipped_in_magento = 0
     direct_skipped_already = 0
+    direct_no_sm_but_emitted = 0
     for (eid, norm_kit), variants in ativo_kits_index.items():
-        sm = sm_ativo_by_eid.get(eid)
-        if sm is None:
-            direct_skipped_no_sm += 1
-            continue
-        sm_sku = (sm.sku or "").upper().strip()
-        if sm_sku and sm_sku in current_magento_skus:
-            direct_skipped_in_magento += 1
-            continue
+        sm = sm_ativo_by_eid.get(eid)  # pode ser None — evento não mapeado em SkuMapping
+        if sm is not None:
+            sm_sku = (sm.sku or "").upper().strip()
+            # Precedência Magento só pode ser aplicada quando temos SKU ATIVO
+            # para comparar; sem SkuMapping cadastrado, emitimos o kit do
+            # Ativo de qualquer forma (o evento pode até existir no Magento,
+            # mas como não há vínculo formal aqui, deixamos visível para o
+            # usuário decidir).
+            if sm_sku and sm_sku in current_magento_skus:
+                direct_skipped_in_magento += 1
+                continue
+        else:
+            direct_no_sm_but_emitted += 1
+
         if (eid, norm_kit) in emitted_ativo_keys:
             direct_skipped_already += 1
             continue
 
         kit_display = variants[0].get("kit_display") or norm_kit
-        nome_evento = sm.nome_evento or variants[0].get("nome_evento") or ""
+        nome_evento = (sm.nome_evento if sm else None) or variants[0].get("nome_evento") or ""
+        id_evento_str = str(sm.id_externo) if sm else str(eid)
         synth_id = _ativo_synthetic_id(eid, kit_display)
         cfg = config_map.get(synth_id)
         multiplicador = cfg.multiplicador if cfg else 1
@@ -756,7 +763,7 @@ def get_kits_with_config(
 
         for v in variants:
             kits.append(KitRow(
-                id_evento=str(sm.id_externo),
+                id_evento=id_evento_str,
                 nome_evento=nome_evento,
                 bundle_entity_id=synth_id,
                 nome_kit=kit_display,
@@ -789,7 +796,7 @@ def get_kits_with_config(
     logger.info(f"[KitConfig] Kit list refreshed and cached ({len(kits)} kits)")
     logger.info(f"[KitConfig][DEBUG] Ativo match: {_debug_match_hits} hits / {len(_debug_match_attempts)} (mostrando até 10) tentativas. Amostra: {_debug_match_attempts}")
     logger.info(f"[KitConfig][DEBUG] Ativo filter funnel: {_dbg}")
-    logger.info(f"[KitConfig][DEBUG] Ativo direct path: emitidos={direct_emitted} linhas, skip_no_sm={direct_skipped_no_sm}, skip_in_magento={direct_skipped_in_magento}, skip_already_emitted={direct_skipped_already}")
+    logger.info(f"[KitConfig][DEBUG] Ativo direct path: emitidos={direct_emitted} linhas, no_sm_but_emitted={direct_no_sm_but_emitted}, skip_in_magento={direct_skipped_in_magento}, skip_already_emitted={direct_skipped_already}")
     return kits
 
 
