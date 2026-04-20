@@ -304,18 +304,17 @@ const KitConfig: React.FC = () => {
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       const isNumericQuery = /^\d+$/.test(q);
+      const before = result.length;
       result = result.filter((k) => {
-        // Search apenas por nome do evento e id_evento — os nomes de kit
-        // (ex.: "Kit Netshoes" em eventos patrocinados) não devem entrar
-        // aqui para evitar resultados confusos.
         const textMatch =
           (k.nome_evento || '').toLowerCase().includes(q) ||
           (k.id_evento || '').toString().toLowerCase().includes(q);
-        // bundle_entity_id só casa em busca puramente numérica e exata,
-        // pois os IDs sintéticos de Ativo têm 14-15 dígitos.
         const idMatch = isNumericQuery && String(k.bundle_entity_id) === q;
         return textMatch || idMatch;
       });
+      // eslint-disable-next-line no-console
+      console.log(`[KitConfig FILTER v3] q="${q}" total=${before} match=${result.length} sample=`,
+        result.slice(0, 5).map(k => ({ev: k.nome_evento, kit: k.nome_kit, id: k.id_evento, bid: k.bundle_entity_id})));
     }
 
     if (filterTipo) {
