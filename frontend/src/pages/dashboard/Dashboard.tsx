@@ -323,7 +323,15 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                 </td>
                 <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
                 <td className={`px-4 py-3 text-center ${(r.inscritos_projetados || 0) > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(r.inscritos_projetados || 0)}</td>
-                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}</td>
+                <td className="px-4 py-3 text-center">
+                  <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
+                    isDark
+                      ? 'bg-gradient-to-br from-indigo-500/30 to-purple-500/20 text-white ring-1 ring-indigo-400/40'
+                      : 'bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-900 ring-1 ring-indigo-300/60'
+                  }`}>
+                    {fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}
+                  </span>
+                </td>
                 <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
                 <td className={`px-4 py-3 text-center font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
                 <td className="px-4 py-3 text-center">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
@@ -339,7 +347,15 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                 <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
                 <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
                 <td className={`px-4 py-3 text-center font-bold ${totals.projetados > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
-                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.geral)}</td>
+                <td className="px-4 py-3 text-center">
+                  <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
+                    isDark
+                      ? 'bg-gradient-to-br from-indigo-500/40 to-purple-500/30 text-white ring-1 ring-indigo-400/50'
+                      : 'bg-gradient-to-br from-indigo-200 to-purple-200 text-indigo-900 ring-1 ring-indigo-400/60'
+                  }`}>
+                    {fmtNum(totals.geral)}
+                  </span>
+                </td>
                 <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
                 <td className={`px-4 py-3 text-center font-bold ${totals.hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.hoje)}</td>
                 <td className="px-4 py-3 text-center">{deltaCell(totals.hoje, totals.ontem)}</td>
