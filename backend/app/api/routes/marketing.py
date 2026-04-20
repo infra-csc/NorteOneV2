@@ -4224,6 +4224,25 @@ def get_marketing_events(
         finally:
             _db.close()
 
+    def _kick_bg_refresh():
+        """Dispara refresh em background, deduplicado por cache_key."""
+        _bg_key = f"eventos_list:{cache_key}"
+        if _bg_key in _swr_recompute_in_progress:
+            return
+        _swr_recompute_in_progress.add(_bg_key)
+        def _runner():
+            try:
+                _swr_refresh()
+            except Exception as _e:
+                logger.warning(f"[EventosList] bg refresh '{cache_key}' falhou: {_e}")
+            finally:
+                _swr_recompute_in_progress.discard(_bg_key)
+        try:
+            import threading as _list_threading
+            _list_threading.Thread(target=_runner, daemon=True).start()
+        except Exception:
+            _swr_recompute_in_progress.discard(_bg_key)
+
     if not _is_internal_call:
         # Usuário: sempre tenta cache primeiro.
         cached, is_stale = eventos_list_cache.get_or_revalidate(
@@ -4231,12 +4250,7 @@ def get_marketing_events(
             refresh_fn=_swr_refresh if not _user_force_refresh else None,
         )
         if _user_force_refresh:
-            # Dispara um refresh em background sem bloquear.
-            try:
-                import threading as _list_threading
-                _list_threading.Thread(target=_swr_refresh, daemon=True).start()
-            except Exception:
-                pass
+            _kick_bg_refresh()
         if cached is not None:
             from app.core.cache import get_last_full_refresh as _glf_eventos
             _lfr_ev = _glf_eventos()
@@ -4248,7 +4262,9 @@ def get_marketing_events(
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if (is_stale or _user_force_refresh) else "false"
             return cached
-        # Sem cache: retorna preparing payload, não bloqueia o usuário.
+        # Sem cache: dispara refresh em background (deduplicado) e retorna
+        # preparing imediatamente. O frontend faz polling até o cache popular.
+        _kick_bg_refresh()
         if response is not None:
             response.headers["X-Data-Preparing"] = "true"
             response.headers["X-Data-Stale"] = "true"
