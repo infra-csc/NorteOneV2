@@ -335,7 +335,16 @@ def get_dashboard_operacional(
         cadastro = cadastros_map.get(p.id)
         projeto_codigo = str(p.codigo) if p.codigo else None
 
-        cap = get_meta_from_cadastro(cadastro) if cadastro else get_meta_orcada(db, p.id)
+        # Capacidade = Total Geral de Atletas do cadastro (site + grupos + cortesia + appai)
+        if cadastro:
+            cap = (
+                int(cadastro.atletas_site_pago or 0) +
+                int(cadastro.atletas_grupos_pago or 0) +
+                int(cadastro.atletas_cortesia or 0) +
+                int(getattr(cadastro, "atletas_appai_pago", 0) or 0)
+            )
+        else:
+            cap = get_meta_orcada(db, p.id)
         total_capacidade += cap
 
         sku_norm = normalize_sku(projeto_codigo) if projeto_codigo else None
@@ -361,11 +370,8 @@ def get_dashboard_operacional(
                 m14d = isc_data[sku_norm].get("media_14d", 0.0)
                 m30d = isc_data[sku_norm].get("media_30d", 0.0)
 
-        if current_sales == 0:
-            atletas_site = int(cadastro.atletas_site_pago or 0) if cadastro else 0
-            atletas_grupos = int(cadastro.atletas_grupos_pago or 0) if cadastro else 0
-            atletas_cortesia = int(cadastro.atletas_cortesia or 0) if cadastro else 0
-            current_sales = atletas_site + atletas_grupos + atletas_cortesia
+        # Projeção cadastrada manualmente para este evento
+        proj_cadastro = int(projecoes_por_cadastro.get(cadastro.id, 0)) if cadastro else 0
 
         total_atletas_orcado += current_sales
         if cadastro:
@@ -375,7 +381,9 @@ def get_dashboard_operacional(
                 int(cadastro.atletas_cortesia or 0)
             )
 
-        taxa_ocupacao = round((current_sales / cap * 100), 1) if cap > 0 else 0
+        # Ocupação = (Inscritos Site reais + Projeção) / Total Geral de Atletas do cadastro
+        ocupacao_numerador = current_sales + proj_cadastro
+        taxa_ocupacao = round((ocupacao_numerador / cap * 100), 1) if cap > 0 else 0
 
         isc_components = calculate_isc_components(
             current_sales, cap, d_minus_inscricoes,
@@ -456,7 +464,7 @@ def get_dashboard_operacional(
 
         produto_nome = (str(cadastro.produto) if cadastro and getattr(cadastro, "produto", None) else None) or (str(p.produto) if p.produto else "N/D")
 
-        inscritos_projetados = int(projecoes_por_cadastro.get(cadastro.id, 0)) if cadastro else 0
+        inscritos_projetados = proj_cadastro
         inscritos_total_int = int(inscritos_total or 0)
         total_geral = inscritos_total_int + inscritos_projetados
 
