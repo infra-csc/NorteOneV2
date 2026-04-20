@@ -305,15 +305,14 @@ const KitConfig: React.FC = () => {
       const q = search.toLowerCase().trim();
       const isNumericQuery = /^\d+$/.test(q);
       result = result.filter((k) => {
+        // Search apenas por nome do evento e id_evento — os nomes de kit
+        // (ex.: "Kit Netshoes" em eventos patrocinados) não devem entrar
+        // aqui para evitar resultados confusos.
         const textMatch =
           (k.nome_evento || '').toLowerCase().includes(q) ||
-          (k.nome_kit || '').toLowerCase().includes(q) ||
-          (k.tipo_categoria || '').toLowerCase().includes(q) ||
           (k.id_evento || '').toString().toLowerCase().includes(q);
-        // Only match bundle_entity_id when the user is searching for a
-        // numeric value, so that synthetic 14-15 digit IDs (used for
-        // Ativo-only kits) don't accidentally match arbitrary text/digits
-        // that happen to appear inside them.
+        // bundle_entity_id só casa em busca puramente numérica e exata,
+        // pois os IDs sintéticos de Ativo têm 14-15 dígitos.
         const idMatch = isNumericQuery && String(k.bundle_entity_id) === q;
         return textMatch || idMatch;
       });
