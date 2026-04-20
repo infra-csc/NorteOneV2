@@ -226,10 +226,10 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
     return sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-indigo-400" /> : <ArrowDown className="w-3 h-3 text-indigo-400" />;
   };
 
-  const Th: React.FC<{ k?: SortKey; align?: 'left' | 'right' | 'center'; children: React.ReactNode }> = ({ k, align = 'left', children }) => (
-    <th className={`px-4 py-3 text-${align} text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'} ${k ? 'cursor-pointer select-none' : ''}`}
+  const Th: React.FC<{ k?: SortKey; align?: 'left' | 'right' | 'center'; children: React.ReactNode }> = ({ k, children }) => (
+    <th className={`px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'} ${k ? 'cursor-pointer select-none' : ''}`}
       onClick={k ? () => toggleSort(k) : undefined}>
-      <span className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'justify-end w-full' : ''}`}>
+      <span className="inline-flex items-center gap-1.5 justify-center w-full">
         {children}{k && <SortIcon k={k} />}
       </span>
     </th>
