@@ -797,6 +797,13 @@ def get_kits_with_config(
     logger.info(f"[KitConfig][DEBUG] Ativo match: {_debug_match_hits} hits / {len(_debug_match_attempts)} (mostrando até 10) tentativas. Amostra: {_debug_match_attempts}")
     logger.info(f"[KitConfig][DEBUG] Ativo filter funnel: {_dbg}")
     logger.info(f"[KitConfig][DEBUG] Ativo direct path: emitidos={direct_emitted} linhas, no_sm_but_emitted={direct_no_sm_but_emitted}, skip_in_magento={direct_skipped_in_magento}, skip_already_emitted={direct_skipped_already}")
+    _ativo_only_sample = [
+        {"id_evento": k.id_evento, "nome_evento": k.nome_evento, "nome_kit": k.nome_kit}
+        for k in kits if k.fonte == "ativo"
+    ][:8]
+    _ativo_only_empty = sum(1 for k in kits if k.fonte == "ativo" and not (k.nome_evento or "").strip())
+    logger.info(f"[KitConfig][DEBUG] Ativo-only sample names: {_ativo_only_sample}")
+    logger.info(f"[KitConfig][DEBUG] Ativo-only com nome_evento vazio: {_ativo_only_empty}")
     return kits
 
 

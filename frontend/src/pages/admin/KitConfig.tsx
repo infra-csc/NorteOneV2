@@ -302,14 +302,21 @@ const KitConfig: React.FC = () => {
     let result = kits;
 
     if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (k) =>
+      const q = search.toLowerCase().trim();
+      const isNumericQuery = /^\d+$/.test(q);
+      result = result.filter((k) => {
+        const textMatch =
           (k.nome_evento || '').toLowerCase().includes(q) ||
           (k.nome_kit || '').toLowerCase().includes(q) ||
           (k.tipo_categoria || '').toLowerCase().includes(q) ||
-          String(k.bundle_entity_id).includes(q),
-      );
+          (k.id_evento || '').toString().toLowerCase().includes(q);
+        // Only match bundle_entity_id when the user is searching for a
+        // numeric value, so that synthetic 14-15 digit IDs (used for
+        // Ativo-only kits) don't accidentally match arbitrary text/digits
+        // that happen to appear inside them.
+        const idMatch = isNumericQuery && String(k.bundle_entity_id) === q;
+        return textMatch || idMatch;
+      });
     }
 
     if (filterTipo) {
