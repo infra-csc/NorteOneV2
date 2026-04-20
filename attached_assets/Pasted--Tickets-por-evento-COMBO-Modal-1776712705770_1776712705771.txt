@@ -1,0 +1,102 @@
+-- ============================================================
+-- Tickets por evento: COMBO + Modalidade Simples (UNION ALL)
+-- Preço do lote VIGENTE (menor dt_limite >= hoje)
+-- Uma linha por kit (agrupado por nome, sem duplicar por modalidade)
+-- ============================================================
+
+-- PARTE 1: Eventos COM combo
+SELECT
+		'Ativo' AS 'Banco',
+    e.id_evento,
+    e.ds_evento                                         AS nome_evento,
+    c.ds_titulo                                         AS nome_kit,
+    cec.ds_categoria                                    AS tipo_categoria,
+		l_atual.ds_lote                                     AS lote_atual,
+    c.nr_valor_de                                       AS price,
+    c.nr_valor                                          AS special_price,
+    el_atual.dt_limite                                  AS lote_dt_limite,
+    el_atual.ds_classificacao                           AS lote_classificacao,
+    'combo'                                             AS origem
+FROM sa_combo c
+JOIN sa_combo_evento_categoria cec
+       ON cec.id_combo = c.id_combo
+JOIN sa_evento e
+       ON e.id_evento = cec.id_evento
+JOIN sa_evento_lote el_atual
+       ON el_atual.id_evento = cec.id_evento
+      AND el_atual.id_evento_lote = (
+            SELECT id_evento_lote
+            FROM sa_evento_lote
+            WHERE id_evento = cec.id_evento
+              AND dt_limite >= CURDATE()
+            ORDER BY dt_limite ASC
+            LIMIT 1
+      )
+JOIN sa_lotes l_atual
+       ON l_atual.id_lote = el_atual.id_lote
+WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
+GROUP BY
+    e.id_evento,
+    e.ds_evento,
+    c.id_combo,
+    c.ds_titulo,
+    cec.ds_categoria,
+    c.nr_valor_de,
+    c.nr_valor,
+    l_atual.ds_lote,
+    el_atual.dt_limite,
+    el_atual.ds_classificacao
+
+UNION ALL
+
+-- PARTE 2: Eventos SEM combo (modalidade simples)
+-- Agrupa por nome do kit para evitar triplicação por modalidade
+SELECT
+		'Ativo' AS 'Banco',
+    e.id_evento,
+    e.ds_evento                                         AS nome_evento,
+    mc.ds_categoria                                     AS nome_kit,
+    ''                                                  AS tipo_categoria, -- sem modalidade específica
+    MIN(mck.vl_kit)                                     AS price,
+    MIN(mck.vl_kit)                                     AS special_price,
+    l_atual.ds_lote                                     AS lote_atual,
+    el_atual.dt_limite                                  AS lote_dt_limite,
+    el_atual.ds_classificacao                           AS lote_classificacao,
+    'modalidade'                                        AS origem
+FROM sa_evento_modalidade em
+JOIN sa_evento e
+       ON e.id_evento = em.id_evento
+JOIN sa_modalidade_categoria mc
+       ON mc.id_modalidade = em.id_modalidade
+JOIN sa_evento_lote el_atual
+       ON el_atual.id_evento = em.id_evento
+      AND el_atual.id_evento_lote = (
+            SELECT id_evento_lote
+            FROM sa_evento_lote
+            WHERE id_evento = em.id_evento
+              AND dt_limite >= CURDATE()
+            ORDER BY dt_limite ASC
+            LIMIT 1
+      )
+JOIN sa_modalidade_categoria_kit mck
+       ON mck.id_categoria  = mc.id_categoria
+      AND mck.id_evento_lote = el_atual.id_evento_lote
+JOIN sa_lotes l_atual
+       ON l_atual.id_lote = el_atual.id_lote
+WHERE YEAR(e.dt_evento) = YEAR(CURDATE())
+  AND NOT EXISTS (
+        SELECT 1
+        FROM sa_combo_evento_categoria cec2
+        WHERE cec2.id_evento = em.id_evento
+  )
+GROUP BY
+    e.id_evento,
+    e.ds_evento,
+    mc.ds_categoria,
+    l_atual.ds_lote,
+    el_atual.dt_limite,
+    el_atual.ds_classificacao
+ORDER BY
+    id_evento,
+    nome_kit,
+    special_price ASC;
