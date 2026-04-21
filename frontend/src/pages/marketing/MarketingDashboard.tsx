@@ -1004,7 +1004,7 @@ const MarketingDashboard: React.FC = () => {
                     <SortIcon field="name" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('date')}>
+                <th className="hidden md:table-cell px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('date')}>
                   <div className="flex items-center gap-1">
                     Data
                     <SortIcon field="date" />
@@ -1028,7 +1028,7 @@ const MarketingDashboard: React.FC = () => {
                     <SortIcon field="vendas" />
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('ticket')}>
+                <th className="hidden md:table-cell px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('ticket')}>
                   <div className="flex items-center justify-center gap-1">
                     Ticket Atual
                     <SortIcon field="ticket" />
@@ -1046,7 +1046,7 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('ia730')}>
+                <th className="hidden md:table-cell px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('ia730')}>
                   <div className="flex items-center justify-center gap-1">
                     IA 7/30
                     <SortIcon field="ia730" />
@@ -1058,7 +1058,7 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('r14')}>
+                <th className="hidden md:table-cell px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('r14')}>
                   <div className="flex items-center justify-center gap-1">
                     R14
                     <SortIcon field="r14" />
@@ -1070,7 +1070,7 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('curva')}>
+                <th className="hidden md:table-cell px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-200 transition-colors" onClick={() => handleSort('curva')}>
                   <div className="flex items-center justify-center gap-1">
                     Curva D-%
                     <SortIcon field="curva" />
@@ -1082,7 +1082,7 @@ const MarketingDashboard: React.FC = () => {
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="hidden md:table-cell px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   <div className="flex items-center justify-center gap-1">
                     Guia Playbook
                     <div className="group relative">
@@ -1136,6 +1136,10 @@ const MarketingDashboard: React.FC = () => {
                         <p className="text-sm text-gray-500 dark:text-gray-400">
                           {event.location}
                         </p>
+                        {/* Data inline visível só em mobile, já que a coluna Data fica oculta */}
+                        <p className="md:hidden text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {event.date ? new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
+                        </p>
                       </div>
                       {event.dataRegime === 'consolidated' && (
                         <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400 rounded-full flex items-center gap-1 border border-gray-200 dark:border-gray-600">
@@ -1151,7 +1155,7 @@ const MarketingDashboard: React.FC = () => {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-sm text-gray-900 dark:text-white">
+                  <td className="hidden md:table-cell px-4 py-4 text-sm text-gray-900 dark:text-white">
                     {event.date ? new Date(event.date + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
                   </td>
                   <td className="px-4 py-4 text-center">
@@ -1192,7 +1196,7 @@ const MarketingDashboard: React.FC = () => {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-center text-sm font-medium text-gray-900 dark:text-white">
+                  <td className="hidden md:table-cell px-4 py-4 text-center text-sm font-medium text-gray-900 dark:text-white">
                     {event.ticketAtual && event.ticketAtual > 0 ? (
                       <span
                         className="inline-flex items-center gap-1"
@@ -1215,16 +1219,16 @@ const MarketingDashboard: React.FC = () => {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
+                  <td className="hidden md:table-cell px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
                     {event.iscComponents.ia730.toFixed(2)}
                   </td>
-                  <td className="px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
+                  <td className="hidden md:table-cell px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
                     {event.iscComponents.rolling14d.toFixed(2)}
                   </td>
-                  <td className="px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
+                  <td className="hidden md:table-cell px-4 py-4 text-center text-sm text-gray-900 dark:text-white">
                     {event.iscComponents.curvaDPercent.toFixed(2)}
                   </td>
-                  <td className="px-4 py-4 text-center">
+                  <td className="hidden md:table-cell px-4 py-4 text-center">
                     {(() => {
                       const cutoff = getCutoffAlert(event.dMinusInscricoes);
                       if (!cutoff || !event.suggestedAction) return <span className="text-xs text-gray-300 dark:text-gray-600">—</span>;

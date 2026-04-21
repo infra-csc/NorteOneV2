@@ -46,6 +46,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
+    // PWA: limpa caches de runtime do Service Worker para evitar que dados
+    // de marketing do usuário anterior fiquem disponíveis em modo offline
+    // após o logout em dispositivos compartilhados.
+    if (typeof caches !== 'undefined') {
+      caches.keys()
+        .then((keys) =>
+          Promise.all(
+            keys
+              .filter((k) => k.startsWith('norte-marketing-cache') || k.startsWith('norte-images-cache'))
+              .map((k) => caches.delete(k)),
+          ),
+        )
+        .catch(() => {
+          /* sem cache disponível, ignora */
+        });
+    }
   };
 
   const refreshUser = async () => {

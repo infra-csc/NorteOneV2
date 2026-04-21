@@ -28,10 +28,16 @@ body {
   }
 }
 
-/* Garante área de toque mínima (44px) em botões e links em mobile */
+/* Garante área de toque mínima (44px, recomendação WCAG/iOS HIG) em mobile */
 @media (pointer: coarse) and (max-width: 768px) {
   button, a, [role="button"], select, input[type="checkbox"], input[type="radio"] {
-    min-height: 36px;
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Exceções: chips/badges/checkboxes inline em tabelas e células densas */
+  td button, td a, .pwa-compact button, .pwa-compact a {
+    min-height: 0;
+    min-width: 0;
   }
 }
 
