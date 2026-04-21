@@ -72,7 +72,60 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { canView } = usePermissions();
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const isMobileViewport = () =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches;
+  const [sidebarOpen, setSidebarOpen] = useState(() => !isMobileViewport());
+
+  // Fecha sidebar automaticamente ao trocar de rota em mobile
+  useEffect(() => {
+    if (isMobileViewport()) {
+      setSidebarOpen(false);
+    }
+  }, [location.pathname]);
+
+  // Bloqueia scroll do body quando o drawer está aberto em mobile (overlay UX).
+  // Refcount inteiro em data-scroll-lock-count para conviver com outros componentes que também
+  // travam scroll. Cada chamada de "acquire" incrementa, cada "release" decrementa; o overflow
+  // só volta quando o contador chega a 0. Reavalia em resize/orientationchange para soltar o
+  // lock se o viewport ficar desktop (>=768px) sem fechar o menu.
+  useEffect(() => {
+    let held = false;
+
+    const acquire = () => {
+      if (held) return;
+      const body = document.body;
+      const next = Number(body.dataset.scrollLockCount || '0') + 1;
+      body.dataset.scrollLockCount = String(next);
+      body.style.overflow = 'hidden';
+      held = true;
+    };
+
+    const release = () => {
+      if (!held) return;
+      const body = document.body;
+      const next = Math.max(0, Number(body.dataset.scrollLockCount || '0') - 1);
+      body.dataset.scrollLockCount = String(next);
+      if (next === 0) {
+        body.style.overflow = '';
+        delete body.dataset.scrollLockCount;
+      }
+      held = false;
+    };
+
+    const apply = () => {
+      if (sidebarOpen && isMobileViewport()) acquire();
+      else release();
+    };
+
+    apply();
+    window.addEventListener('resize', apply);
+    window.addEventListener('orientationchange', apply);
+    return () => {
+      window.removeEventListener('resize', apply);
+      window.removeEventListener('orientationchange', apply);
+      release();
+    };
+  }, [sidebarOpen]);
   const [cadastrosOpen, setCadastrosOpen] = useState(true);
   const [marketingOpen, setMarketingOpen] = useState(location.pathname.startsWith('/marketing'));
   const [adminOpen, setAdminOpen] = useState(location.pathname.startsWith('/admin'));
@@ -135,6 +188,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className={`min-h-screen ${isDark ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setSidebarOpen(false)}
+          className="lg:hidden fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+        />
+      )}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 flex flex-col transform transition-transform duration-200 ease-in-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} ${isDark ? 'bg-gray-800' : 'bg-white'} shadow-lg`}>
         <div className="flex items-center justify-between h-16 px-4 border-b border-gray-200 dark:border-gray-700">
           <h1 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-800'}`}>Norte One</h1>
@@ -360,7 +421,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Menu className={isDark ? 'text-white' : 'text-gray-600'} />
           </button>
           
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             {isAdmin && unconfiguredKits && unconfiguredKits.total > 0 && (
               <Link
                 to="/admin/kit-config"
@@ -407,7 +468,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                   {user?.nome ? user.nome.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() : '?'}
                 </div>
               )}
-              {user?.nome} <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 ml-1">{user?.perfil_acesso_nome || 'Sem perfil'}</span>
+              <span className="hidden md:inline">{user?.nome}</span>
+              <span className="hidden md:inline text-xs px-2 py-1 rounded bg-blue-100 text-blue-800 ml-1">{user?.perfil_acesso_nome || 'Sem perfil'}</span>
             </Link>
             
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
@@ -451,7 +513,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
         )}
 
-        <main className="p-6">
+        <main className="p-3 sm:p-4 lg:p-6">
           {children}
         </main>
       </div>

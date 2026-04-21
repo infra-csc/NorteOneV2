@@ -6,6 +6,7 @@ import { PermissionProvider } from './context/PermissionContext';
 import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import Login from './pages/auth/Login';
+import PWAManager from './pwa/PWAManager';
 
 const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
 const CentrosCusto = lazy(() => import('./pages/cadastros/CentrosCusto'));
@@ -83,6 +84,7 @@ function App() {
               <Route path="/perfil" element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>
+          <PWAManager />
         </Router>
         </PermissionProvider>
       </AuthProvider>
