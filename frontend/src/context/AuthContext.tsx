@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .then((keys) =>
           Promise.all(
             keys
-              .filter((k) => k.startsWith('norte-marketing-cache') || k.startsWith('norte-images-cache'))
+              .filter((k) => k.startsWith('norte-marketing-cache') || k.startsWith('norte-image-cache'))
               .map((k) => caches.delete(k)),
           ),
         )
