@@ -54,6 +54,12 @@ class ErrorBoundary extends Component<Props, State> {
             <p className="text-gray-500 dark:text-gray-400 mb-4">
               Tente recarregar ou voltar ao dashboard.
             </p>
+            {this.state.error && (
+              <pre className="text-left text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 rounded p-3 mb-4 overflow-auto max-h-48 whitespace-pre-wrap">
+                {this.state.error.name}: {this.state.error.message}
+                {this.state.error.stack ? `\n\n${this.state.error.stack.split('\n').slice(0, 6).join('\n')}` : ''}
+              </pre>
+            )}
             <div className="flex gap-3 justify-center">
               <button
                 onClick={this.handleReset}
