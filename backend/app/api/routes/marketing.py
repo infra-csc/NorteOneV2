@@ -8499,7 +8499,18 @@ def get_marketing_event_by_id(
             else:
                 logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated — snapshot existente, pulando rebuild")
 
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=detail_hist_pattern, data_evento_real=projeto_data_evento)
+        # When normalized-ISC mode is ON, also use the normalized historical pattern
+        # for the per-day expected curve so visualizations compare normalized current
+        # sales against a normalized reference (apples-to-apples).
+        _detail_hist_for_daily = detail_hist_pattern
+        if isc_cfg.get("useNormalizedCurveForISC", False):
+            try:
+                _norm_pat_daily, _ = _resolve_hist_pattern(db, grupo_nome, ano, estado=_rep_estado, use_normalized=True)
+                if _norm_pat_daily:
+                    _detail_hist_for_daily = _norm_pat_daily
+            except Exception as _e_norm_daily:
+                logger.warning(f"Falha ao obter hist_pattern normalizado p/ daily curve: {_e_norm_daily}")
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=_detail_hist_for_daily, data_evento_real=projeto_data_evento)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         _today_detail = today_brazil()

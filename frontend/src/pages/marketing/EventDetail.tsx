@@ -878,7 +878,8 @@ const EventDetail: React.FC = () => {
   // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
   const totalInscritosRaw = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
 
-  const _saleVal = (d: any) => showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
+  type _SaleLike = { sales: number; normalizedSales?: number };
+  const _saleVal = (d: _SaleLike): number => showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
   // Quando o modo normalizado está ON, derivamos o total de vendas atual da curva
   // normalizada (último ponto cumulativeNormalized) para que KPIs e cards coerentemente
   // reflitam a suavização de outliers.
