@@ -914,6 +914,12 @@ const EventDetail: React.FC = () => {
     ? _kitSumMargem
     : _consRowMargem ?? null;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
+  // Média 14d usada como ritmo base no Simulador. Quando showNormalized está ON,
+  // _saleVal já retorna normalizedSales — assim o ritmo reflete a curva suavizada.
+  const _last14DaysSim = completeDailySales.slice(-14);
+  const dashMediaDiaria14 = _last14DaysSim.length > 0
+    ? _last14DaysSim.reduce((sum, d) => sum + _saleVal(d), 0) / _last14DaysSim.length
+    : 0;
   const last7DaysSales = completeDailySales.slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
     ? last7DaysSales.reduce((sum, d) => sum + _saleVal(d), 0) / last7DaysSales.length
@@ -1260,10 +1266,26 @@ const EventDetail: React.FC = () => {
           eventoId={id!}
           ano={anoParam ?? new Date().getFullYear()}
           isDark={isDark}
-          dashTicketMedio={ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined}
-          dashMargem={margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined)}
-          dashTotalVendas={event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined}
+          dashTicketMedio={
+            showNormalized
+              ? (inscritosTotalNorm > 0 && _kitTotalReceita > 0
+                  ? Math.round((_kitTotalReceita / inscritosTotalNorm) * 100) / 100
+                  : (ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined))
+              : (ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined)
+          }
+          dashMargem={
+            showNormalized
+              ? undefined
+              : (margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined))
+          }
+          dashTotalVendas={
+            showNormalized
+              ? (inscritosTotalNorm > 0 ? inscritosTotalNorm : undefined)
+              : (event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined)
+          }
           dashTicketAtual={event?.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : undefined}
+          dashMediaDiaria={showNormalized ? dashMediaDiaria14 : undefined}
+          normalizedBase={showNormalized}
         />
       ) : activeTab === 'controle' ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">

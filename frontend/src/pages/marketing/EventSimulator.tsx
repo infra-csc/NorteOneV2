@@ -15,6 +15,7 @@ import {
   Lightbulb,
   ChevronRight,
   Star,
+  Activity,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -39,6 +40,10 @@ interface EventSimulatorProps {
   dashTotalVendas?: number;
   /** Ticket atual (preço vigente / special_price do Magento) para exibição no painel */
   dashTicketAtual?: number;
+  /** Média diária (janela 14d) já calculada — sobrepõe o media_14d do backend para alinhar ao modo (ex: normalizado) */
+  dashMediaDiaria?: number;
+  /** Indica que os valores acima vêm da curva normalizada (suavização de outliers) */
+  normalizedBase?: boolean;
 }
 
 const fmt = (n: number) => n.toLocaleString('pt-BR');
@@ -63,7 +68,7 @@ const MargemBadge = ({ pct, isDark }: { pct: number; isDark: boolean }) => {
   );
 };
 
-export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas, dashTicketAtual }: EventSimulatorProps) {
+export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas, dashTicketAtual, dashMediaDiaria, normalizedBase }: EventSimulatorProps) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +109,7 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
   const atualEfetivo = useMemo(() => {
     if (!data?.atual) return null;
     const base = data.atual;
+    let result: any = base;
     if (dashTicketMedio != null && dashTotalVendas != null && dashTicketMedio > 0 && dashTotalVendas > 0) {
       const custo = base.custo_kit ?? 50;
       const totalReceita = Math.round(dashTicketMedio * dashTotalVendas * 100) / 100;
@@ -112,7 +118,7 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
         ? dashMargem
         : Math.round((totalReceita - custo * dashTotalVendas) * 100) / 100;
       const margemPct = totalReceita > 0 ? Math.round((margemTotal / totalReceita) * 1000) / 10 : 0;
-      return {
+      result = {
         ...base,
         ticket_medio: dashTicketMedio,
         total_vendas: dashTotalVendas,
@@ -122,8 +128,11 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
         margem_pct: margemPct,
       };
     }
-    return base;
-  }, [data, dashTicketMedio, dashMargem, dashTotalVendas]);
+    if (dashMediaDiaria != null && dashMediaDiaria >= 0) {
+      result = { ...result, media_14d: dashMediaDiaria };
+    }
+    return result;
+  }, [data, dashTicketMedio, dashMargem, dashTotalVendas, dashMediaDiaria]);
 
   const custoKit = atualEfetivo?.custo_kit ?? 50;
   const meta = metaCustom ?? data?.evento?.meta_orcada ?? 0;
@@ -361,6 +370,15 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
           <BarChart3 className="w-5 h-5 text-indigo-500" />
           <h3 className="text-base font-bold text-gray-900 dark:text-white">Situação Atual</h3>
           <InfoTooltip text="Dados reais acumulados até hoje. Margem = Receita − (Custo Kit × Inscritos)." isDark={isDark} />
+          {normalizedBase && (
+            <span
+              className={`ml-1 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${isDark ? 'bg-orange-900/40 text-orange-300 border border-orange-800/50' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}
+              title="O baseline (inscritos, ticket e ritmo) está sendo calculado a partir da curva normalizada (outliers suavizados). Desligue o toggle 'Normalizado' para usar a base bruta."
+            >
+              <Activity className="w-3 h-3" />
+              Base normalizada
+            </span>
+          )}
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div>
