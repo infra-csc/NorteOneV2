@@ -672,6 +672,12 @@ const Cadastro: React.FC = () => {
   };
 
   const populateForm = (item: CadastroEvento) => {
+    const normalizeFaixa = (f: any) => ({
+      faixa: String(f.faixa ?? ''),
+      qtd: Number(f.qtd) || 0,
+      tkt_medio: Number(f.tkt_medio) || 0,
+      total: Number(f.total) || 0,
+    });
     setEditItem(item);
     setForm({
       projeto_id: item.projeto_id,
@@ -707,30 +713,30 @@ const Cadastro: React.FC = () => {
       merchan: (item.merchan || []).map(mk => ({ kit: mk.kit, itens: (mk.itens || []).map(it => ({ nome: it.nome, valor_venda: Number(it.valor_venda) || 0 })) })),
       faixas_preco_site: {
         kit_basico: item.faixas_preco_site?.kit_basico?.length > 0 
-          ? item.faixas_preco_site.kit_basico.map(f => ({ ...f })) 
+          ? item.faixas_preco_site.kit_basico.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_participacao: item.faixas_preco_site?.kit_participacao?.length > 0 
-          ? item.faixas_preco_site.kit_participacao.map(f => ({ ...f })) 
+          ? item.faixas_preco_site.kit_participacao.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_sem_bike: item.faixas_preco_site?.kit_sem_bike?.length > 0 
-          ? item.faixas_preco_site.kit_sem_bike.map(f => ({ ...f })) 
+          ? item.faixas_preco_site.kit_sem_bike.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_com_bike: item.faixas_preco_site?.kit_com_bike?.length > 0 
-          ? item.faixas_preco_site.kit_com_bike.map(f => ({ ...f })) 
+          ? item.faixas_preco_site.kit_com_bike.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
       },
       faixas_preco_grupos: {
         kit_basico: item.faixas_preco_grupos?.kit_basico?.length > 0 
-          ? item.faixas_preco_grupos.kit_basico.map(f => ({ ...f })) 
+          ? item.faixas_preco_grupos.kit_basico.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_participacao: item.faixas_preco_grupos?.kit_participacao?.length > 0 
-          ? item.faixas_preco_grupos.kit_participacao.map(f => ({ ...f })) 
+          ? item.faixas_preco_grupos.kit_participacao.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_sem_bike: item.faixas_preco_grupos?.kit_sem_bike?.length > 0 
-          ? item.faixas_preco_grupos.kit_sem_bike.map(f => ({ ...f })) 
+          ? item.faixas_preco_grupos.kit_sem_bike.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }],
         kit_com_bike: item.faixas_preco_grupos?.kit_com_bike?.length > 0 
-          ? item.faixas_preco_grupos.kit_com_bike.map(f => ({ ...f })) 
+          ? item.faixas_preco_grupos.kit_com_bike.map(normalizeFaixa) 
           : [{ faixa: '1', qtd: 0, tkt_medio: 0, total: 0 }]
       }
     });
@@ -934,8 +940,8 @@ const Cadastro: React.FC = () => {
   };
 
   const calcularTotalizadorFaixa = (faixas: Array<{ faixa: string; qtd: number; tkt_medio: number; total: number }>) => {
-    const totalQtd = faixas.reduce((acc, f) => acc + (f.qtd || 0), 0);
-    const totalValor = Math.round(faixas.reduce((acc, f) => acc + (f.total || 0), 0) * 100) / 100;
+    const totalQtd = faixas.reduce((acc, f) => acc + (Number(f.qtd) || 0), 0);
+    const totalValor = Math.round(faixas.reduce((acc, f) => acc + (Number(f.total) || 0), 0) * 100) / 100;
     const ticketMedioReal = totalQtd > 0 ? Math.round((totalValor / totalQtd) * 100) / 100 : 0;
     return { totalQtd, totalValor, ticketMedioReal };
   };
