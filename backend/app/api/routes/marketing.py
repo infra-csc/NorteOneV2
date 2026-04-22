@@ -8643,24 +8643,19 @@ def get_marketing_event_by_id(
         isc_raw: Optional[float] = None
         if _use_norm_isc:
             try:
-                if _has_cache_medias:
-                    raw_components = calculate_isc_components(
-                        current_sales, sales_goal, d_minus_inscricoes,
-                        media_7d=grupo_media_7d if grupo_media_7d > 0 else None,
-                        media_14d=grupo_media_14d if grupo_media_14d > 0 else None,
-                        media_30d=grupo_media_30d if grupo_media_30d > 0 else None,
-                        hist_pattern=detail_hist_pattern,
-                        registration_close_date=data_fim_inscricoes,
-                        curva_info=detail_curva_info,
-                        use_normalized_curve=False)
-                else:
-                    raw_components = calculate_isc_components(
-                        current_sales, sales_goal, d_minus_inscricoes,
-                        daily_sales_dict=daily_sales_dict,
-                        hist_pattern=detail_hist_pattern,
-                        registration_close_date=data_fim_inscricoes,
-                        curva_info=detail_curva_info,
-                        use_normalized_curve=False)
+                # iscRaw must mirror the normalized run's INPUTS so the only difference
+                # between isc and iscRaw is the normalization itself (daily_sales_dict
+                # smoothing + normalized hist_pattern). If we used cache medias here
+                # while the normalized run used daily_sales_dict, the comparison would
+                # mix two unrelated effects (different sources × normalization), and
+                # turning the flag on/off could appear to have no effect on curvaDPercent.
+                raw_components = calculate_isc_components(
+                    current_sales, sales_goal, d_minus_inscricoes,
+                    daily_sales_dict=daily_sales_dict,
+                    hist_pattern=detail_hist_pattern,
+                    registration_close_date=data_fim_inscricoes,
+                    curva_info=detail_curva_info,
+                    use_normalized_curve=False)
                 isc_raw = calculate_isc(raw_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
             except Exception as _e_raw:
                 logger.warning(f"Falha ao calcular iscRaw para evento (detail group): {_e_raw}")
