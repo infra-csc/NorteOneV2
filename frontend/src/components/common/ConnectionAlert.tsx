@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { AlertTriangle, Database, RefreshCw, WifiOff, Clock, Server } from 'lucide-react';
 
 interface ConnectionAlertProps {
-  avisos: string[];
+  avisos?: string[];
   error?: string | null;
   onRetry?: () => void;
   retrying?: boolean;
@@ -90,8 +90,9 @@ function classifyError(error: string): {
   };
 }
 
-export function ConnectionWarningBanner({ avisos, onRetry, retrying }: { avisos: string[]; onRetry?: () => void; retrying?: boolean }) {
-  if (avisos.length === 0) return null;
+export function ConnectionWarningBanner({ avisos, onRetry, retrying }: { avisos?: string[]; onRetry?: () => void; retrying?: boolean }) {
+  const list = avisos ?? [];
+  if (list.length === 0) return null;
 
   const now = new Date();
   const timestamp = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -110,7 +111,7 @@ export function ConnectionWarningBanner({ avisos, onRetry, retrying }: { avisos:
           </p>
 
           <div className="mt-3 space-y-2">
-            {avisos.map((aviso, index) => {
+            {list.map((aviso, index) => {
               const info = classifyWarning(aviso);
               return (
                 <div key={index} className="flex items-start gap-2 bg-yellow-500/5 rounded-md p-2">
@@ -180,7 +181,7 @@ export default function ConnectionAlert({ avisos, error, onRetry, retrying }: Co
   return (
     <>
       {error && <ConnectionErrorBanner error={error} onRetry={onRetry} retrying={retrying} />}
-      <ConnectionWarningBanner avisos={avisos} onRetry={onRetry} retrying={retrying} />
+      <ConnectionWarningBanner avisos={avisos ?? []} onRetry={onRetry} retrying={retrying} />
     </>
   );
 }

@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { marketingService, MarketingEvent } from '../../services/api';
 import { getISCColor, getISCEmoji, isInCriticalWindow } from '../../types/marketingPerformance';
-import ConnectionAlert from '../../components/common/ConnectionAlert';
 
 interface DailySale {
   date: string;
@@ -303,8 +302,6 @@ const EventOpsView: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-32">
-      <ConnectionAlert />
-
       {/* Sticky header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
         <div className="px-4 py-3 flex items-center gap-3">
