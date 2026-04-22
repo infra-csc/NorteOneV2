@@ -253,21 +253,23 @@ const EventOpsView: React.FC = () => {
   };
 
   const last7Days = useMemo(() => {
-    const sorted = [...dailySales].sort((a, b) => a.date.localeCompare(b.date));
+    const valid = dailySales.filter(d => !!d.date);
+    const sorted = [...valid].sort((a, b) => a.date.localeCompare(b.date));
     return sorted.slice(-7);
   }, [dailySales]);
 
   const maxLast7 = useMemo(() => Math.max(1, ...last7Days.map(d => Math.max(d.sales, d.expected))), [last7Days]);
 
   const recentActions = useMemo(() => {
-    const sorted = [...actions].sort((a, b) => b.date.localeCompare(a.date));
+    const valid = actions.filter(a => !!a.date);
+    const sorted = [...valid].sort((a, b) => b.date.localeCompare(a.date));
     return sorted.slice(0, 5);
   }, [actions]);
 
-  const cutoffAlerta = event && isInCriticalWindow(event.dMinusInscricoes);
+  const cutoffAlerta = event && typeof event.dMinusInscricoes === 'number' && isInCriticalWindow(event.dMinusInscricoes);
 
-  const progresso = event && event.salesGoal > 0
-    ? Math.min(100, Math.round((event.currentSales / event.salesGoal) * 100))
+  const progresso = event && (event.salesGoal ?? 0) > 0
+    ? Math.min(100, Math.round(((event.currentSales ?? 0) / event.salesGoal) * 100))
     : null;
 
   const media7 = salesAvg.find(m => m.periodo === 7)?.media;
@@ -369,13 +371,15 @@ const EventOpsView: React.FC = () => {
         <div className="grid grid-cols-2 gap-3">
           <KpiCard
             label="D- Inscrições"
-            value={`D-${event.dMinusInscricoes}`}
-            tone={event.dMinusInscricoes <= 30 ? 'orange' : event.dMinusInscricoes <= 45 ? 'amber' : 'neutral'}
+            value={typeof event.dMinusInscricoes === 'number' ? `D-${event.dMinusInscricoes}` : '—'}
+            tone={typeof event.dMinusInscricoes === 'number' && event.dMinusInscricoes <= 30 ? 'orange' : typeof event.dMinusInscricoes === 'number' && event.dMinusInscricoes <= 45 ? 'amber' : 'neutral'}
           />
           <KpiCard
             label="ISC"
-            value={`${getISCEmoji(event.iscStatus)} ${event.isc.toFixed(2)}`}
-            valueColor={getISCColor(event.iscStatus)}
+            value={typeof event.isc === 'number'
+              ? `${getISCEmoji(event.iscStatus || 'stable')} ${event.isc.toFixed(2)}`
+              : '—'}
+            valueColor={event.iscStatus ? getISCColor(event.iscStatus) : undefined}
           />
           <KpiCard
             label="Vendas hoje"
@@ -384,9 +388,9 @@ const EventOpsView: React.FC = () => {
           />
           <KpiCard
             label="Vendas / Meta"
-            value={event.salesGoal > 0
-              ? `${formatNumber(event.currentSales)} / ${formatNumber(event.salesGoal)}`
-              : formatNumber(event.currentSales)}
+            value={(event.salesGoal ?? 0) > 0
+              ? `${formatNumber(event.currentSales ?? 0)} / ${formatNumber(event.salesGoal)}`
+              : formatNumber(event.currentSales ?? 0)}
             extra={progresso !== null ? (
               <div className="mt-2">
                 <div className="h-2 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
