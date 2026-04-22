@@ -23,7 +23,8 @@ import {
   Zap,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Smartphone
 } from 'lucide-react';
 import { 
   getISCColor, 
@@ -1249,7 +1250,23 @@ const MarketingDashboard: React.FC = () => {
                     })()}
                   </td>
                   <td className="px-4 py-4">
-                    <ChevronRight className="w-5 h-5 text-gray-400" />
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(
+                            `/marketing/evento/${event.id}/operacao${event.id.startsWith('grp_') ? `?ano=${new Date().getFullYear()}` : ''}`,
+                            { state: { previewEvent: event } }
+                          );
+                        }}
+                        title="Modo evento (mobile)"
+                        aria-label="Modo evento"
+                        className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                      >
+                        <Smartphone className="w-4 h-4" />
+                      </button>
+                      <ChevronRight className="w-5 h-5 text-gray-400" />
+                    </div>
                   </td>
                 </tr>
               ))}

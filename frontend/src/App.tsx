@@ -14,6 +14,7 @@ const CategoriasAtletas = lazy(() => import('./pages/cadastros/CategoriasAtletas
 const Eventos = lazy(() => import('./pages/cadastros/Cadastro'));
 const MarketingDashboard = lazy(() => import('./pages/marketing/MarketingDashboard'));
 const EventDetail = lazy(() => import('./pages/marketing/EventDetail'));
+const EventOpsView = lazy(() => import('./pages/marketing/EventOpsView'));
 const EventComparison = lazy(() => import('./pages/marketing/EventComparison'));
 const MarketingSettings = lazy(() => import('./pages/marketing/MarketingSettings'));
 const PlaybookPage = lazy(() => import('./pages/marketing/PlaybookPage'));
@@ -65,6 +66,7 @@ function App() {
               <Route path="/cadastros/eventos" element={<PrivateRoute><Layout><Eventos /></Layout></PrivateRoute>} />
               <Route path="/marketing" element={<PrivateRoute><Layout><MarketingDashboard /></Layout></PrivateRoute>} />
               <Route path="/marketing/evento/:id" element={<PrivateRoute><Layout><ErrorBoundary fallbackNavigate="/marketing"><EventDetail /></ErrorBoundary></Layout></PrivateRoute>} />
+              <Route path="/marketing/evento/:id/operacao" element={<PrivateRoute><ErrorBoundary fallbackNavigate="/marketing"><EventOpsView /></ErrorBoundary></PrivateRoute>} />
               <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
               <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
               <Route path="/marketing/playbook" element={<PrivateRoute><PlaybookPage /></PrivateRoute>} />
