@@ -357,6 +357,15 @@ const EventOpsView: React.FC = () => {
       </div>
 
       <div className="px-4 pt-4 space-y-4">
+        <button
+          onClick={() => navigate(`/marketing/evento/${id}${anoParam ? `?ano=${anoParam}` : ''}`)}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium shadow-sm"
+        >
+          <Activity className="w-4 h-4" />
+          Ver todos os gráficos (Dash ISC)
+          <ExternalLink className="w-3.5 h-3.5" />
+        </button>
+
         {cutoffAlerta && (
           <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 flex items-center gap-2 text-sm text-amber-800 dark:text-amber-300">
             <Target className="w-4 h-4 flex-shrink-0" />
