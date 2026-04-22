@@ -826,13 +826,14 @@ const EventDetail: React.FC = () => {
         const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
         dMinusInsc = Math.max(0, dMinusEvento - 2);
       }
-      const pct = parseFloat((((d.cumulative / d.cumulativeExpected) * 100) - 100).toFixed(1));
+      const realCumul = showNormalized ? (d.cumulativeNormalized ?? d.cumulative) : d.cumulative;
+      const pct = parseFloat((((realCumul / d.cumulativeExpected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
         dMinus: dMinusInsc,
         label: `D-${dMinusInsc}`,
         percentual: pct,
-        cumulative: Math.round(d.cumulative),
+        cumulative: Math.round(realCumul),
         cumulativeExpected: Math.round(d.cumulativeExpected),
       };
     });
@@ -847,13 +848,14 @@ const EventDetail: React.FC = () => {
         const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
         dMinusInsc = Math.max(0, dMinusEvento - 2);
       }
-      const pct = parseFloat((((d.sales / d.expected) * 100) - 100).toFixed(1));
+      const realDay = showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
+      const pct = parseFloat((((realDay / d.expected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
         dMinus: dMinusInsc,
         label: `D-${dMinusInsc}`,
         percentual: pct,
-        sales: Math.round(d.sales),
+        sales: Math.round(realDay),
         expected: Math.round(d.expected),
       };
     });
@@ -876,11 +878,12 @@ const EventDetail: React.FC = () => {
   // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
   const totalInscritos = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
 
+  const _saleVal = (d: any) => showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
-  const last30Days = completeDailySales.slice(-30);
+  const last30Days = completeDailySales.slice(-30).map(d => ({ ...d, sales: _saleVal(d) }));
   // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
   // Usado nos cards que devem refletir somente inscrições consolidadas até ontem.
-  const totalInscritosConsolidado = completeDailySales.reduce((sum, d) => sum + d.sales, 0);
+  const totalInscritosConsolidado = completeDailySales.reduce((sum, d) => sum + _saleVal(d), 0);
 
   // Card "Meta Acumulada vs Inscritos Total": usa somente dados até ontem (dias fechados).
   const lastCumDataOntem = cumulativeData.filter(d => d.date < todayStr).at(-1) ?? null;
@@ -906,7 +909,7 @@ const EventDetail: React.FC = () => {
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
   const last7DaysSales = completeDailySales.slice(-7);
   const mediaSemanaAtual = last7DaysSales.length > 0
-    ? last7DaysSales.reduce((sum, d) => sum + d.sales, 0) / last7DaysSales.length
+    ? last7DaysSales.reduce((sum, d) => sum + _saleVal(d), 0) / last7DaysSales.length
     : 0;
   const pctMedias = mediaDiariaNecessaria > 0
     ? ((mediaSemanaAtual / mediaDiariaNecessaria) * 100) - 100
@@ -920,7 +923,7 @@ const EventDetail: React.FC = () => {
 
     return [3, 7, 14, 30].map(dias => {
       const vendas = completeDailySales.slice(-dias);
-      const totalVendas = vendas.reduce((sum, d) => sum + d.sales, 0);
+      const totalVendas = vendas.reduce((sum, d) => sum + _saleVal(d), 0);
       const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
       const potencial = media * dMinusCalc;
       const atingimento = totalInscritosConsolidado + potencial;
@@ -1179,7 +1182,8 @@ const EventDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex gap-2">
         <button
           onClick={() => setActiveTab('dashboard')}
           className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${
@@ -1221,7 +1225,28 @@ const EventDetail: React.FC = () => {
           <TableProperties className="w-4 h-4" />
           Controle Diário
         </button>
+        </div>
+        <div className="flex items-center gap-2 pb-2">
+          <button
+            onClick={() => setShowNormalized(!showNormalized)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors border ${
+              showNormalized
+                ? 'bg-orange-500 text-white border-orange-500'
+                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+            title="Suaviza picos pontuais de campanha em todas as curvas, KPIs e tabelas do detalhe do evento"
+          >
+            <Activity className="w-3.5 h-3.5" />
+            {showNormalized ? 'Normalizado: ON' : 'Normalizar Outliers'}
+          </button>
+        </div>
       </div>
+      {showNormalized && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2 text-xs text-orange-800 dark:text-orange-300 flex items-center gap-2">
+          <Activity className="w-3.5 h-3.5" />
+          Modo normalizado ativo: picos diários acima do limite são suavizados (janela 7d, threshold 2,0×). Curva histórica também é normalizada para comparação justa.
+        </div>
+      )}
 
       {activeTab === 'simulator' ? (
         <EventSimulator
@@ -1273,6 +1298,7 @@ const EventDetail: React.FC = () => {
                 isDark={isDark}
                 eventName={event.name}
                 salesGoal={event.salesGoal}
+                showNormalized={showNormalized}
               />
             ) : (
               <div>
@@ -1362,18 +1388,6 @@ const EventDetail: React.FC = () => {
                   Curva de Vendas Acumuladas vs Esperado
                 </h3>
                 <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setShowNormalized(!showNormalized)}
-                    className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                      showNormalized
-                        ? 'bg-orange-500 text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                    title="Mostra curva com outliers de campanhas suavizados"
-                  >
-                    <Activity className="w-3.5 h-3.5" />
-                    Normalizada
-                  </button>
                   <div className="flex flex-wrap gap-1">
                     {[
                       { label: '7d', value: 7 },
@@ -1939,6 +1953,16 @@ const EventDetail: React.FC = () => {
             >
               {getISCEmoji(event.iscStatus)} {(event.isc ?? 0).toFixed(2)}
             </p>
+            {event.iscRaw != null && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1" title="ISC calculado sobre a curva bruta (sem normalização de outliers) para comparação">
+                Bruto: <span className="font-semibold text-gray-700 dark:text-gray-300">{event.iscRaw.toFixed(2)}</span>
+                {event.iscRaw !== event.isc && (
+                  <span className={`ml-1 ${event.isc >= event.iscRaw ? 'text-orange-500' : 'text-blue-500'}`}>
+                    ({event.isc >= event.iscRaw ? '+' : ''}{(event.isc - event.iscRaw).toFixed(2)})
+                  </span>
+                )}
+              </p>
+            )}
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {event.iscStatus === 'accelerating' ? 'Acelerando' : 
                event.iscStatus === 'stable' ? 'Estável' : 'Desacelerando'}

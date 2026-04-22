@@ -57,6 +57,7 @@ export interface Event {
   dMinus: number;
   dMinusInscricoes: number;
   isc: number;
+  iscRaw?: number;
   iscComponents: ISCComponents;
   iscStatus: ISCStatus;
   suggestedAction: PlaybookEntry;

@@ -34,6 +34,7 @@ export interface ISCParameters {
   criticalWindowStart: number;
   criticalWindowEnd: number;
   promotionDeadline: number;
+  useNormalizedCurveForISC?: boolean;
 }
 
 export interface EventCategory {

@@ -764,6 +764,7 @@ class MarketingEvent(BaseModel):
     dMinus: int
     dMinusInscricoes: int
     isc: float
+    iscRaw: Optional[float] = None
     iscComponents: ISCComponents
     iscStatus: str
     suggestedAction: PlaybookEntry
@@ -818,6 +819,7 @@ _DEFAULT_ISC_SETTINGS = {
     "criticalWindowStart": 45,
     "criticalWindowEnd": 40,
     "promotionDeadline": 40,
+    "useNormalizedCurveForISC": False,
 }
 
 def _get_isc_settings(db: Session) -> dict:
@@ -1121,12 +1123,24 @@ def _interpolate_hist_pattern(hist_pattern: dict, d_minus: int) -> float:
     return hist_pattern.get(0, 1.0)
 
 
-def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int, 
+def _normalize_daily_dict_for_isc(daily_sales_dict: dict) -> dict:
+    """Apply outlier normalization to a daily_sales_dict {date: qty} and return
+    a dict of the same shape with smoothed values. Uses normalize_daily_sales_outliers."""
+    if not daily_sales_dict:
+        return daily_sales_dict
+    sorted_dates = sorted(daily_sales_dict.keys())
+    series = [{"date": d.isoformat() if hasattr(d, "isoformat") else str(d), "sales": daily_sales_dict[d]} for d in sorted_dates]
+    series = normalize_daily_sales_outliers(series)
+    return {d: series[i].get("normalizedSales", daily_sales_dict[d]) for i, d in enumerate(sorted_dates)}
+
+
+def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
                               media_14d: Optional[float] = None, daily_sales_dict: Optional[dict] = None,
                               media_7d: Optional[float] = None, media_30d: Optional[float] = None,
                               hist_pattern: Optional[dict] = None,
                               registration_close_date=None,
-                              curva_info: Optional[dict] = None) -> ISCComponents:
+                              curva_info: Optional[dict] = None,
+                              use_normalized_curve: bool = False) -> ISCComponents:
     """
     registration_close_date: date of last day registrations were open (event_date - dias_enc).
     When provided and d_minus < 0 (past event), all rolling windows are anchored to this date
@@ -1162,8 +1176,14 @@ def calculate_isc_components(current_sales: int, sales_goal: int, d_minus: int,
         # For past events anchor to close date; for live events anchor to yesterday
         cutoff = anchor_date if is_past_event and registration_close_date else today_brazil()
         current_sales = sum(v for k, v in daily_sales_dict.items() if k <= cutoff)
-    
-    progress_percent = current_sales / sales_goal
+        if use_normalized_curve:
+            normalized_dict = _normalize_daily_dict_for_isc(daily_sales_dict)
+            normalized_current_sales = sum(v for k, v in normalized_dict.items() if k <= cutoff)
+            progress_percent = normalized_current_sales / sales_goal
+        else:
+            progress_percent = current_sales / sales_goal
+    else:
+        progress_percent = current_sales / sales_goal
 
     tipo_curva = "linear"
     if hist_pattern and len(hist_pattern) > 0:
@@ -1335,6 +1355,13 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
     if not prev_daily:
         logger.info(f"No sales data found for '{evento_grupo}' ano={prev_ano}")
         return None
+
+    # Normalize outliers (campaign spikes) before computing cumulative pattern so the
+    # historical reference curve is smoothed and comparable apples-to-apples.
+    try:
+        prev_daily = _normalize_daily_dict_for_isc(prev_daily)
+    except Exception as _ne:
+        logger.warning(f"Falha ao normalizar curva histórica de '{evento_grupo}' ano={prev_ano}: {_ne}")
 
     total_prev_sales = sum(prev_daily.values())
     if total_prev_sales == 0:
@@ -4598,7 +4625,8 @@ def get_marketing_events(
             media_30d=grupo_m30d,
             hist_pattern=grupo_hist_pattern,
             registration_close_date=grupo_reg_close,
-            curva_info=grupo_curva_info
+            curva_info=grupo_curva_info,
+            use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False)
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -4731,7 +4759,8 @@ def get_marketing_events(
             media_30d=standalone_m30d,
             hist_pattern=standalone_hist,
             registration_close_date=standalone_reg_close,
-            curva_info=standalone_curva_info
+            curva_info=standalone_curva_info,
+            use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False)
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -8562,14 +8591,40 @@ def get_marketing_event_by_id(
                 media_30d=grupo_media_30d if grupo_media_30d > 0 else None,
                 hist_pattern=detail_hist_pattern,
                 registration_close_date=data_fim_inscricoes,
-                curva_info=detail_curva_info)
+                curva_info=detail_curva_info,
+                use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False))
         else:
             isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                        daily_sales_dict=daily_sales_dict,
                                                        hist_pattern=detail_hist_pattern,
                                                        registration_close_date=data_fim_inscricoes,
-                                                       curva_info=detail_curva_info)
+                                                       curva_info=detail_curva_info,
+                use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False))
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        isc_raw: Optional[float] = None
+        if isc_cfg.get("useNormalizedCurveForISC", False):
+            try:
+                if _has_cache_medias:
+                    raw_components = calculate_isc_components(
+                        current_sales, sales_goal, d_minus_inscricoes,
+                        media_7d=grupo_media_7d if grupo_media_7d > 0 else None,
+                        media_14d=grupo_media_14d if grupo_media_14d > 0 else None,
+                        media_30d=grupo_media_30d if grupo_media_30d > 0 else None,
+                        hist_pattern=detail_hist_pattern,
+                        registration_close_date=data_fim_inscricoes,
+                        curva_info=detail_curva_info,
+                        use_normalized_curve=False)
+                else:
+                    raw_components = calculate_isc_components(
+                        current_sales, sales_goal, d_minus_inscricoes,
+                        daily_sales_dict=daily_sales_dict,
+                        hist_pattern=detail_hist_pattern,
+                        registration_close_date=data_fim_inscricoes,
+                        curva_info=detail_curva_info,
+                        use_normalized_curve=False)
+                isc_raw = calculate_isc(raw_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+            except Exception as _e_raw:
+                logger.warning(f"Falha ao calcular iscRaw para evento (detail group): {_e_raw}")
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
@@ -8648,6 +8703,7 @@ def get_marketing_event_by_id(
             dMinus=d_minus,
             dMinusInscricoes=d_minus_inscricoes,
             isc=isc,
+            iscRaw=isc_raw,
             iscComponents=isc_components,
             iscStatus=isc_status,
             suggestedAction=suggested_action,
@@ -9014,8 +9070,22 @@ def get_marketing_event_by_id(
                                                daily_sales_dict=daily_sales_dict,
                                                hist_pattern=standalone_detail_hist,
                                                registration_close_date=data_fim_inscricoes_standalone,
-                                               curva_info=standalone_detail_curva_info)
+                                               curva_info=standalone_detail_curva_info,
+                                               use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False))
     isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+    isc_raw: Optional[float] = None
+    if isc_cfg.get("useNormalizedCurveForISC", False):
+        try:
+            raw_components = calculate_isc_components(
+                current_sales, sales_goal, d_minus_inscricoes,
+                daily_sales_dict=daily_sales_dict,
+                hist_pattern=standalone_detail_hist,
+                registration_close_date=data_fim_inscricoes_standalone,
+                curva_info=standalone_detail_curva_info,
+                use_normalized_curve=False)
+            isc_raw = calculate_isc(raw_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        except Exception as _e_raw:
+            logger.warning(f"Falha ao calcular iscRaw para evento (detail standalone): {_e_raw}")
     isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
     suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
     
@@ -9080,6 +9150,7 @@ def get_marketing_event_by_id(
         dMinus=d_minus,
         dMinusInscricoes=d_minus_inscricoes,
         isc=isc,
+        iscRaw=isc_raw,
         iscComponents=isc_components,
         iscStatus=isc_status,
         suggestedAction=suggested_action,
@@ -10322,7 +10393,8 @@ def get_pricing_analysis(
             media_30d=combined_m30d,
             hist_pattern=pricing_hist_pattern,
             registration_close_date=pricing_grupo_reg_close,
-            curva_info=pricing_curva_info
+            curva_info=pricing_curva_info,
+            use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False)
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
@@ -10452,7 +10524,8 @@ def get_pricing_analysis(
             media_30d=standalone_m30d,
             hist_pattern=standalone_pricing_hist,
             registration_close_date=pricing_standalone_reg_close,
-            curva_info=standalone_pricing_curva_info
+            curva_info=standalone_pricing_curva_info,
+            use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False)
         )
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])

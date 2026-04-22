@@ -674,6 +674,7 @@ export interface MarketingEvent {
   dMinus: number;
   dMinusInscricoes: number;
   isc: number;
+  iscRaw?: number;
   iscComponents: MarketingISCComponents;
   iscStatus: 'accelerating' | 'stable' | 'decelerating';
   suggestedAction: PlaybookEntry;

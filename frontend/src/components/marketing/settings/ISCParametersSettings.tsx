@@ -11,7 +11,8 @@ const defaultISCParameters: ISCParameters = {
   yellowThreshold: 0.90,
   criticalWindowStart: 45,
   criticalWindowEnd: 40,
-  promotionDeadline: 40
+  promotionDeadline: 40,
+  useNormalizedCurveForISC: false
 };
 
 const ISCParametersSettings: React.FC = () => {
@@ -28,6 +29,11 @@ const ISCParametersSettings: React.FC = () => {
   }, []);
 
   const handleChange = (field: keyof ISCParameters, value: number) => {
+    setParameters({ ...parameters, [field]: value });
+    setHasChanges(true);
+  };
+
+  const handleToggle = (field: keyof ISCParameters, value: boolean) => {
     setParameters({ ...parameters, [field]: value });
     setHasChanges(true);
   };
@@ -295,6 +301,33 @@ const ISCParametersSettings: React.FC = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <Activity className="w-5 h-5 text-indigo-600" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Normalização de Outliers no ISC
+          </h3>
+        </div>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!parameters.useNormalizedCurveForISC}
+            onChange={(e) => handleToggle('useNormalizedCurveForISC', e.target.checked)}
+            className="mt-1 w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+          />
+          <div>
+            <span className="text-sm font-medium text-gray-900 dark:text-white">
+              Usar curva normalizada no cálculo do componente CurvaD do ISC
+            </span>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Quando ativo, picos pontuais de campanha são suavizados antes de calcular o
+              componente CurvaD do ISC, reduzindo distorções por dias atípicos. Os componentes
+              IA 7/30 e Rolling 14d continuam sendo calculados sobre os dados brutos.
+            </p>
+          </div>
+        </label>
       </div>
 
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">

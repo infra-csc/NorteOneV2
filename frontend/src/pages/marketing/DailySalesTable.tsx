@@ -12,6 +12,8 @@ interface DailySaleRow {
   dif?: number;
   atingimentoAcumulado?: number;
   atingimentoDiario?: number;
+  normalizedSales?: number;
+  isOutlier?: boolean;
 }
 
 interface DailySalesTableProps {
@@ -19,6 +21,7 @@ interface DailySalesTableProps {
   isDark: boolean;
   eventName?: string;
   salesGoal?: number;
+  showNormalized?: boolean;
 }
 
 const fmtInt = (v: number | undefined | null): string => {
@@ -42,8 +45,29 @@ const colorClass = (v: number | undefined | null, isDark: boolean): string => {
   return v > 0 ? 'text-emerald-400' : 'text-red-400';
 };
 
-const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales, isDark, eventName, salesGoal }) => {
+const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false }) => {
   const [sortAsc, setSortAsc] = useState(false);
+
+  const dailySales = useMemo(() => {
+    if (!showNormalized) return dailySalesRaw;
+    const sortedAsc = [...dailySalesRaw].sort((a, b) => a.date.localeCompare(b.date));
+    let cum = 0;
+    const byDate = new Map<string, number>();
+    sortedAsc.forEach(d => {
+      const v = d.normalizedSales ?? d.sales;
+      cum += v;
+      byDate.set(d.date, cum);
+    });
+    return dailySalesRaw.map(d => {
+      const v = d.normalizedSales ?? d.sales;
+      const cumSales = byDate.get(d.date) ?? d.cumulativeSales;
+      const atingDia = d.expected > 0 ? (v / d.expected) * 100 : d.atingimentoDiario;
+      const atingAcum = (d.cumulativeExpected && d.cumulativeExpected > 0 && cumSales != null)
+        ? (cumSales / d.cumulativeExpected) * 100
+        : d.atingimentoAcumulado;
+      return { ...d, sales: v, cumulativeSales: cumSales, atingimentoDiario: atingDia, atingimentoAcumulado: atingAcum };
+    });
+  }, [dailySalesRaw, showNormalized]);
 
   const sortedData = useMemo(() => {
     const data = [...dailySales];
