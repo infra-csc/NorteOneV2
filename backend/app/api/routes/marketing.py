@@ -4230,6 +4230,12 @@ def get_cutoff_alerts(
         except Exception as _e_recompute:
             logger.warning(f"[CutoffAlerts] fallback recompute falhou: {_e_recompute}")
             cached = None
+    # Detecta estado "preparing" para o frontend pollar até a lista real chegar.
+    data_status = "ready"
+    if not cached:
+        data_status = "preparing"
+    elif isinstance(cached, dict) and cached.get("status") == "preparing":
+        data_status = "preparing"
     eventos = cached.get("eventos", []) if cached else []
     alerts = []
     for ev in eventos:
@@ -4299,7 +4305,7 @@ def get_cutoff_alerts(
             for alert in alerts:
                 alert["acao_definida"] = False
 
-    return {"alerts": alerts, "total": len(alerts)}
+    return {"alerts": alerts, "total": len(alerts), "status": data_status}
 
 
 @router.get("/eventos", response_model=MarketingEventsResponse)

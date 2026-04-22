@@ -943,7 +943,7 @@ export const marketingService = {
     const response = await api.get(`/marketing/resumo${queryString}`, { signal });
     return response.data;
   },
-  getCutoffAlerts: async (signal?: AbortSignal): Promise<{ alerts: CutoffAlert[]; total: number }> => {
+  getCutoffAlerts: async (signal?: AbortSignal): Promise<{ alerts: CutoffAlert[]; total: number; status?: string }> => {
     const response = await api.get('/marketing/cutoff-alerts', { signal });
     return response.data;
   },

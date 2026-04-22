@@ -70,16 +70,43 @@ const NoriAssistant: React.FC = () => {
   const showCutoffAlerts = !!user?.recebe_alertas_corte;
 
   useEffect(() => {
-    if (showCutoffAlerts) {
-      marketingService.getCutoffAlerts().then(r => {
-        // Avoid clearing previously shown alerts when the API returns an empty list
-        // (transient cache miss right after a dash refresh). Only update when the
-        // backend actually returns alerts.
-        if (r.alerts && r.alerts.length > 0) {
-          setCutoffAlerts(r.alerts);
+    if (!showCutoffAlerts) return;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 12; // ~36s no total com intervalo de 3s
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchAlerts = async () => {
+      try {
+        const r = await marketingService.getCutoffAlerts();
+        if (cancelled) return;
+        // Se o backend ainda está preparando os eventos, faz polling até virem
+        // os dados reais — evita "lista some/aparece" entre aberturas.
+        if (r.status === 'preparing') {
+          attempts += 1;
+          if (attempts < maxAttempts) {
+            timer = setTimeout(fetchAlerts, 3000);
+          }
+          return;
         }
-      }).catch(() => {});
-    }
+        // Status "ready": atualiza sempre, inclusive com lista vazia
+        // (quando realmente não há alertas agora).
+        setCutoffAlerts(r.alerts || []);
+      } catch {
+        // erro de rede transitório: tenta de novo algumas vezes
+        if (cancelled) return;
+        attempts += 1;
+        if (attempts < maxAttempts) {
+          timer = setTimeout(fetchAlerts, 3000);
+        }
+      }
+    };
+
+    fetchAlerts();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [showCutoffAlerts]);
 
   useEffect(() => {
