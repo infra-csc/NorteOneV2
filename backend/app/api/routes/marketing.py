@@ -1290,14 +1290,15 @@ def calculate_isc(components: ISCComponents, ia_weight: float = 20.0, curva_weig
     return round(isc, 2)
 
 
-def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int) -> Optional[dict]:
+def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano: int, use_normalized: bool = False) -> Optional[dict]:
     from ...services.snapshot_service import get_curva_historica_snapshot, save_curva_historica_snapshot
     prev_ano = ano - 1
 
-    snapshot_pattern = get_curva_historica_snapshot(db, evento_grupo, prev_ano)
-    if snapshot_pattern:
-        logger.info(f"Using curva histórica snapshot for '{evento_grupo}' ano_ref={prev_ano}: {len(snapshot_pattern)} pontos D-minus")
-        return snapshot_pattern
+    if not use_normalized:
+        snapshot_pattern = get_curva_historica_snapshot(db, evento_grupo, prev_ano)
+        if snapshot_pattern:
+            logger.info(f"Using curva histórica snapshot for '{evento_grupo}' ano_ref={prev_ano}: {len(snapshot_pattern)} pontos D-minus")
+            return snapshot_pattern
 
     prev_data_evento = _find_data_evento(db, evento_grupo, prev_ano)
     if not prev_data_evento:
@@ -1356,12 +1357,13 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
         logger.info(f"No sales data found for '{evento_grupo}' ano={prev_ano}")
         return None
 
-    # Normalize outliers (campaign spikes) before computing cumulative pattern so the
-    # historical reference curve is smoothed and comparable apples-to-apples.
-    try:
-        prev_daily = _normalize_daily_dict_for_isc(prev_daily)
-    except Exception as _ne:
-        logger.warning(f"Falha ao normalizar curva histórica de '{evento_grupo}' ano={prev_ano}: {_ne}")
+    # Normalize outliers (campaign spikes) only when explicitly requested. Normalized
+    # patterns are NOT cached so the snapshot table keeps the canonical raw curve.
+    if use_normalized:
+        try:
+            prev_daily = _normalize_daily_dict_for_isc(prev_daily)
+        except Exception as _ne:
+            logger.warning(f"Falha ao normalizar curva histórica de '{evento_grupo}' ano={prev_ano}: {_ne}")
 
     total_prev_sales = sum(prev_daily.values())
     if total_prev_sales == 0:
@@ -1394,15 +1396,16 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 
     logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano} (inscricao D-): {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
 
-    try:
-        save_curva_historica_snapshot(db, evento_grupo, prev_ano, pattern, total_prev_sales)
-    except Exception as e:
-        logger.warning(f"Failed to save curva histórica snapshot for '{evento_grupo}': {e}")
+    if not use_normalized:
+        try:
+            save_curva_historica_snapshot(db, evento_grupo, prev_ano, pattern, total_prev_sales)
+        except Exception as e:
+            logger.warning(f"Failed to save curva histórica snapshot for '{evento_grupo}': {e}")
 
     return pattern
 
 
-def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Optional[str] = None) -> tuple:
+def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Optional[str] = None, use_normalized: bool = False) -> tuple:
     """Resolve the best available historical curve for an event group using a fallback chain.
     
     Returns (pattern, curva_info) where curva_info is a dict with:
@@ -1417,9 +1420,9 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
     grupo_obj = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == evento_grupo).first()
 
     if grupo_obj and grupo_obj.curva_override:
-        override_pattern = get_curva_historica_snapshot(db, grupo_obj.curva_override, prev_ano)
+        override_pattern = None if use_normalized else get_curva_historica_snapshot(db, grupo_obj.curva_override, prev_ano)
         if not override_pattern:
-            override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano)
+            override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano, use_normalized=use_normalized)
         if override_pattern:
             logger.info(f"[CurvaResolve] '{evento_grupo}' using manual override: '{grupo_obj.curva_override}'")
             return override_pattern, {
@@ -1428,7 +1431,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
                 "ano_referencia": prev_ano
             }
 
-    own_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano)
+    own_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano, use_normalized=use_normalized)
     if own_pattern:
         return own_pattern, {
             "tipo_curva": "historico",
@@ -1447,9 +1450,9 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
             EventoGrupoModel.ativo == True
         ).all()
         for sibling in same_circuit_city:
-            sib_pattern = get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            sib_pattern = None if use_normalized else get_curva_historica_snapshot(db, sibling.nome, prev_ano)
             if not sib_pattern:
-                sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano)
+                sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano, use_normalized=use_normalized)
             if sib_pattern:
                 logger.info(f"[CurvaResolve] '{evento_grupo}' using circuit+city sibling: '{sibling.nome}'")
                 return sib_pattern, {
@@ -1468,7 +1471,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
         source_names = []
         pattern_weights = []
         for sibling in same_circuit:
-            sib_pattern = get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            sib_pattern = None if use_normalized else get_curva_historica_snapshot(db, sibling.nome, prev_ano)
             sib_weight = 0
             if sib_pattern:
                 weight_row = db.query(CurvaHistoricaSnapshot.total_vendas_referencia).filter(
@@ -1477,7 +1480,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
                 ).first()
                 sib_weight = weight_row[0] if weight_row and weight_row[0] else 0
             if not sib_pattern:
-                sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano)
+                sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano, use_normalized=use_normalized)
             if sib_pattern:
                 patterns_found.append(sib_pattern)
                 source_names.append(sibling.nome)
@@ -1507,7 +1510,10 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
         patterns_found = []
         pattern_weights = []
         for rg in regional_grupos:
-            rg_pattern = get_curva_historica_snapshot(db, rg.nome, prev_ano)
+            rg_pattern = (None if use_normalized
+                          else get_curva_historica_snapshot(db, rg.nome, prev_ano))
+            if not rg_pattern and use_normalized:
+                rg_pattern = _fetch_previous_year_cumulative_pattern(db, rg.nome, ano, use_normalized=True)
             if rg_pattern:
                 patterns_found.append(rg_pattern)
                 weight_row = db.query(CurvaHistoricaSnapshot.total_vendas_referencia).filter(
@@ -8581,9 +8587,31 @@ def get_marketing_event_by_id(
         
         # Use ISC cache medias for the ISC component calculation so that the
         # detail view produces the same ISC value as the list view (consistency).
-        # daily_sales_dict is still included in the response payload for charts.
+        # When normalized-ISC mode is ON, the normalized run instead uses
+        # daily_sales_dict + a freshly-rebuilt normalized hist_pattern so the
+        # flag actually affects curvaDPercent.
         _has_cache_medias = (grupo_media_14d > 0 or grupo_media_7d > 0)
-        if _has_cache_medias:
+        _use_norm_isc = isc_cfg.get("useNormalizedCurveForISC", False)
+        detail_hist_pattern_norm = detail_hist_pattern
+        if _use_norm_isc:
+            try:
+                _norm_pat, _ = _resolve_hist_pattern(db, grupo_nome, ano, estado=_rep_estado, use_normalized=True)
+                if _norm_pat:
+                    detail_hist_pattern_norm = _norm_pat
+            except Exception as _e_norm_hist:
+                logger.warning(f"Falha ao obter hist_pattern normalizado (detail group): {_e_norm_hist}")
+        if _use_norm_isc:
+            # In normalized mode, prefer daily_sales_dict so progress_percent + curvaD
+            # are computed on the smoothed series (IA/rolling become daily-derived too,
+            # which is the correct behavior for the normalized comparison value).
+            isc_components = calculate_isc_components(
+                current_sales, sales_goal, d_minus_inscricoes,
+                daily_sales_dict=daily_sales_dict,
+                hist_pattern=detail_hist_pattern_norm,
+                registration_close_date=data_fim_inscricoes,
+                curva_info=detail_curva_info,
+                use_normalized_curve=True)
+        elif _has_cache_medias:
             isc_components = calculate_isc_components(
                 current_sales, sales_goal, d_minus_inscricoes,
                 media_7d=grupo_media_7d if grupo_media_7d > 0 else None,
@@ -8592,17 +8620,17 @@ def get_marketing_event_by_id(
                 hist_pattern=detail_hist_pattern,
                 registration_close_date=data_fim_inscricoes,
                 curva_info=detail_curva_info,
-                use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False))
+                use_normalized_curve=False)
         else:
             isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                        daily_sales_dict=daily_sales_dict,
                                                        hist_pattern=detail_hist_pattern,
                                                        registration_close_date=data_fim_inscricoes,
                                                        curva_info=detail_curva_info,
-                use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False))
+                use_normalized_curve=False)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_raw: Optional[float] = None
-        if isc_cfg.get("useNormalizedCurveForISC", False):
+        if _use_norm_isc:
             try:
                 if _has_cache_medias:
                     raw_components = calculate_isc_components(
@@ -9058,20 +9086,29 @@ def get_marketing_event_by_id(
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_detail_hist = None
+    standalone_detail_hist_norm = None
     standalone_detail_curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
+    _use_norm_isc_sa = isc_cfg.get("useNormalizedCurveForISC", False)
     if standalone_evento_grupo:
         try:
             _sa_estado = str(projeto.estado) if projeto and projeto.estado else None
             standalone_detail_hist, standalone_detail_curva_info = _resolve_hist_pattern(db, standalone_evento_grupo, ano, estado=_sa_estado)
+            if _use_norm_isc_sa:
+                try:
+                    _sa_norm_pat, _ = _resolve_hist_pattern(db, standalone_evento_grupo, ano, estado=_sa_estado, use_normalized=True)
+                    standalone_detail_hist_norm = _sa_norm_pat or standalone_detail_hist
+                except Exception as _e_sa_norm:
+                    logger.warning(f"Falha ao obter hist_pattern normalizado (standalone): {_e_sa_norm}")
+                    standalone_detail_hist_norm = standalone_detail_hist
         except Exception:
             pass
     
     isc_components = calculate_isc_components(current_sales, sales_goal, d_minus_inscricoes,
                                                daily_sales_dict=daily_sales_dict,
-                                               hist_pattern=standalone_detail_hist,
+                                               hist_pattern=(standalone_detail_hist_norm if _use_norm_isc_sa else standalone_detail_hist),
                                                registration_close_date=data_fim_inscricoes_standalone,
                                                curva_info=standalone_detail_curva_info,
-                                               use_normalized_curve=isc_cfg.get("useNormalizedCurveForISC", False))
+                                               use_normalized_curve=_use_norm_isc_sa)
     isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
     isc_raw: Optional[float] = None
     if isc_cfg.get("useNormalizedCurveForISC", False):

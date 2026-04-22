@@ -876,9 +876,15 @@ const EventDetail: React.FC = () => {
     : null;
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
   // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
-  const totalInscritos = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
+  const totalInscritosRaw = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
 
   const _saleVal = (d: any) => showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
+  // Quando o modo normalizado está ON, derivamos o total de vendas atual da curva
+  // normalizada (último ponto cumulativeNormalized) para que KPIs e cards coerentemente
+  // reflitam a suavização de outliers.
+  const inscritosTotalNorm = lastCumData ? Math.round(lastCumData.cumulativeNormalized ?? lastCumData.cumulative) : 0;
+  const displayedCurrentSales = showNormalized ? inscritosTotalNorm : totalInscritosRaw;
+  const totalInscritos = displayedCurrentSales;
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
   const last30Days = completeDailySales.slice(-30).map(d => ({ ...d, sales: _saleVal(d) }));
   // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
@@ -2535,26 +2541,26 @@ const EventDetail: React.FC = () => {
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta{showNormalized ? ' (norm.)' : ''}</p>
             {event.salesGoal > 0 ? (
               <>
                 <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
-                  {formatNumber(event.currentSales)} / {formatNumber(event.salesGoal)}
+                  {formatNumber(displayedCurrentSales)} / {formatNumber(event.salesGoal)}
                 </p>
                 <div className="mt-3 w-full bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                   <div 
                     className="bg-blue-600 h-2 rounded-full transition-all"
-                    style={{ width: `${Math.min((event.currentSales / event.salesGoal) * 100, 100)}%` }}
+                    style={{ width: `${Math.min((displayedCurrentSales / event.salesGoal) * 100, 100)}%` }}
                   />
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                  {Math.round((event.currentSales / event.salesGoal) * 100)}% da meta
+                  {Math.round((displayedCurrentSales / event.salesGoal) * 100)}% da meta
                 </p>
               </>
             ) : (
               <>
                 <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">
-                  {formatNumber(event.currentSales)}
+                  {formatNumber(displayedCurrentSales)}
                 </p>
                 <p className="text-xs text-amber-500 dark:text-amber-400 mt-2">
                   Meta não configurada
@@ -2699,7 +2705,7 @@ const EventDetail: React.FC = () => {
         <div className="mb-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Totais{event.salesGoal > 0 ? ' / Meta Global' : ''}</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {formatNumber(event.currentSales ?? inscritosTotal)}{event.salesGoal > 0 ? ` / ${formatNumber(event.salesGoal)}` : ''}
+            {formatNumber(displayedCurrentSales)}{event.salesGoal > 0 ? ` / ${formatNumber(event.salesGoal)}` : ''}
           </p>
           {event.salesGoal <= 0 && (
             <p className="text-xs text-amber-500 dark:text-amber-400">Meta não configurada</p>
@@ -2921,7 +2927,7 @@ const EventDetail: React.FC = () => {
             const margemOrcadaTotal = event.budgetTicket > 0 && kitCost > 0 ? (event.budgetTicket - kitCost) * event.salesGoal : 0;
             const margemRealizadaTotal = margemRealizadaKits != null
               ? margemRealizadaKits
-              : (ticketRef > 0 && event.currentSales > 0 ? Math.round((ticketRef - kitCost) * event.currentSales * 100) / 100 : 0);
+              : (ticketRef > 0 && displayedCurrentSales > 0 ? Math.round((ticketRef - kitCost) * displayedCurrentSales * 100) / 100 : 0);
             const faltaParaMeta = margemOrcadaTotal - margemRealizadaTotal;
             return (
               <div className="space-y-3">
