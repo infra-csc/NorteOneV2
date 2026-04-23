@@ -359,9 +359,9 @@ const KitConfig: React.FC = () => {
     }
 
     if (filterIgnorado === 'ocultar') {
-      result = result.filter((k) => !(ignoradoValues[k.bundle_entity_id] ?? k.ignorado));
+      result = result.filter((k) => !k.ignorado);
     } else if (filterIgnorado === 'apenas') {
-      result = result.filter((k) => ignoradoValues[k.bundle_entity_id] ?? k.ignorado);
+      result = result.filter((k) => k.ignorado);
     }
 
     return result;
