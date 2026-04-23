@@ -984,6 +984,26 @@ def upsert_kit_config_bulk(
     if not body.items:
         return KitConfigBulkResult(saved=0, errors=0)
 
+    basico_por_evento: dict[int, int] = {}
+    promo_por_evento: dict[int, int] = {}
+    for item in body.items:
+        if item.id_evento is None:
+            continue
+        if item.is_kit_basico:
+            basico_por_evento[item.id_evento] = basico_por_evento.get(item.id_evento, 0) + 1
+        if item.is_promo_principal:
+            promo_por_evento[item.id_evento] = promo_por_evento.get(item.id_evento, 0) + 1
+
+    eventos_basico_dup = [eid for eid, n in basico_por_evento.items() if n > 1]
+    eventos_promo_dup = [eid for eid, n in promo_por_evento.items() if n > 1]
+    if eventos_basico_dup or eventos_promo_dup:
+        partes = []
+        if eventos_basico_dup:
+            partes.append(f"Kit Básico marcado em mais de um kit para o(s) evento(s): {eventos_basico_dup}")
+        if eventos_promo_dup:
+            partes.append(f"Promo Principal marcado em mais de um kit para o(s) evento(s): {eventos_promo_dup}")
+        raise HTTPException(status_code=409, detail=" | ".join(partes))
+
     bundle_ids = [item.bundle_entity_id for item in body.items]
 
     existing_map: dict[int, KitConfig] = {
@@ -1075,13 +1095,19 @@ def upsert_kit_config_bulk(
 
     try:
         db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        logger.exception(f"[KitConfig] IntegrityError no commit do bulk upsert: {e}")
+        msg = str(getattr(e, "orig", e))
+        if "uq_kit_basico_per_evento" in msg:
+            detail = "Já existe um Kit Básico marcado para esse evento. Desmarque o anterior antes de salvar."
+        else:
+            detail = "Conflito ao salvar configurações (violação de restrição única)."
+        raise HTTPException(status_code=409, detail=detail)
     except Exception as e:
         db.rollback()
         logger.exception(f"[KitConfig] Erro no commit do bulk upsert: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erro ao salvar configurações em lote: {type(e).__name__}: {str(e)[:500]}",
-        )
+        raise HTTPException(status_code=500, detail="Erro ao salvar configurações em lote")
 
     _kits_cache["data"] = None
     _kits_cache["ts"] = 0.0
