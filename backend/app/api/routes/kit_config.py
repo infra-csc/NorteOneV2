@@ -1013,14 +1013,16 @@ def upsert_kit_config_bulk(
             KitConfig.id_evento.in_(basico_evento_ids),
             KitConfig.bundle_entity_id.notin_(basico_bundle_ids),
             KitConfig.is_kit_basico == True,
-        ).update({"is_kit_basico": False}, synchronize_session=False)
+        ).update({"is_kit_basico": False}, synchronize_session="fetch")
 
     if promo_evento_ids:
         db.query(KitConfig).filter(
             KitConfig.id_evento.in_(promo_evento_ids),
             KitConfig.bundle_entity_id.notin_(promo_bundle_ids),
             KitConfig.is_promo_principal == True,
-        ).update({"is_promo_principal": False}, synchronize_session=False)
+        ).update({"is_promo_principal": False}, synchronize_session="fetch")
+
+    db.flush()
 
     saved = 0
     errors = 0
@@ -1065,14 +1067,21 @@ def upsert_kit_config_bulk(
                 full_invalidation_needed = True
 
             saved += 1
-        except Exception:
+        except Exception as e:
             errors += 1
+            logger.exception(
+                f"[KitConfig] Erro processando item bundle_entity_id={item.bundle_entity_id}: {e}"
+            )
 
     try:
         db.commit()
-    except Exception:
+    except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Erro ao salvar configurações em lote")
+        logger.exception(f"[KitConfig] Erro no commit do bulk upsert: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao salvar configurações em lote: {type(e).__name__}: {str(e)[:500]}",
+        )
 
     _kits_cache["data"] = None
     _kits_cache["ts"] = 0.0
