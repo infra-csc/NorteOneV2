@@ -4223,6 +4223,51 @@ def get_playbook():
             entries.append({**entry, "stageInfo": stage, "iscInfo": isc})
     return {"stages": stages, "iscStates": isc_states, "entries": entries}
 
+def _refresh_d_minus_in_cached_eventos(cached: dict, cache_key: str) -> dict:
+    """
+    O cache da lista de eventos pode ter sido gerado em um dia anterior
+    (TTL ~22h, stale até 48h). Para que o D- exibido sempre reflita o dia
+    de hoje (Brasil), reduzimos `dMinus` e `dMinusInscricoes` de cada evento
+    pelos dias decorridos desde a criação do cache.
+
+    Não mexemos em isActive/iscStatus/etc — esses são reciclados no próximo
+    refresh do cache; queremos apenas evitar mostrar D- desatualizado nas
+    telas (Dash ISC, Nori, etc.).
+    """
+    if not isinstance(cached, dict):
+        return cached
+    eventos = cached.get("eventos")
+    if not isinstance(eventos, list) or not eventos:
+        return cached
+    cache_ts = eventos_list_cache.get_all_timestamps().get(cache_key)
+    if cache_ts is None:
+        return cached
+    try:
+        cache_date = datetime.fromtimestamp(cache_ts, tz=_TZ_BRAZIL).date()
+    except Exception:
+        return cached
+    days_elapsed = (today_brazil() - cache_date).days
+    if days_elapsed <= 0:
+        return cached
+    new_eventos = []
+    changed = False
+    for ev in eventos:
+        if not isinstance(ev, dict):
+            new_eventos.append(ev)
+            continue
+        d_ins = ev.get("dMinusInscricoes")
+        d_evt = ev.get("dMinus")
+        new_d_ins = max(0, d_ins - days_elapsed) if isinstance(d_ins, int) and d_ins > 0 else d_ins
+        new_d_evt = max(0, d_evt - days_elapsed) if isinstance(d_evt, int) and d_evt > 0 else d_evt
+        if new_d_ins != d_ins or new_d_evt != d_evt:
+            ev = {**ev, "dMinusInscricoes": new_d_ins, "dMinus": new_d_evt}
+            changed = True
+        new_eventos.append(ev)
+    if not changed:
+        return cached
+    return {**cached, "eventos": new_eventos}
+
+
 _CUTOFF_VALUES = [65, 50, 45, 35, 30, 15, 7]
 _CUTOFF_ESTAGIO = {65: "analitico", 50: "analitico", 45: "estrategico", 35: "estrategico", 30: "operacional", 15: "operacional", 7: "final"}
 _CUTOFF_ESTAGIO_LABEL = {65: "Analítico", 50: "Analítico", 45: "Estratégico", 35: "Estratégico", 30: "Operacional", 15: "Operacional", 7: "Final"}
@@ -4272,42 +4317,14 @@ def get_cutoff_alerts(
         data_status = "preparing"
     elif isinstance(cached, dict) and cached.get("status") == "preparing":
         data_status = "preparing"
+    # Aplica o mesmo recálculo diário de D- usado pela lista de eventos para que
+    # os alertas reflitam o dia de hoje mesmo que o cache tenha sido gerado ontem.
+    if cached:
+        cached = _refresh_d_minus_in_cached_eventos(cached, used_cache_key)
     eventos = cached.get("eventos", []) if cached else []
-
-    # O cache de eventos pode ter sido criado em um dia anterior (TTL ~22h, stale até 48h).
-    # Recalculamos D-Inscrição a partir da data do evento sempre que possível, para que
-    # os alertas de ponto de corte e o D- exibido no Nori reflitam o dia de hoje.
-    today_br = today_brazil()
-
-    def _recompute_d_minus(ev) -> Optional[int]:
-        ev_date_str = ev.get("date") if isinstance(ev, dict) else getattr(ev, "date", None)
-        cached_d = ev.get("dMinusInscricoes") if isinstance(ev, dict) else getattr(ev, "dMinusInscricoes", None)
-        if not ev_date_str:
-            return cached_d
-        try:
-            event_date = date.fromisoformat(str(ev_date_str)[:10])
-        except Exception:
-            return cached_d
-        # dias_encerramento é estável dia a dia: derivamos a partir do D- cacheado
-        # comparando a data do evento com a data em que o cache foi gerado.
-        cache_ts = eventos_list_cache.get_all_timestamps().get(used_cache_key)
-        if cache_ts is None or cached_d is None:
-            # Sem timestamp/valor cacheado — assume regra padrão de 2 dias.
-            return calculate_d_minus(event_date, dias_encerramento=2)
-        try:
-            cache_date = datetime.fromtimestamp(cache_ts, tz=_TZ_BRAZIL).date()
-        except Exception:
-            return calculate_d_minus(event_date, dias_encerramento=2)
-        # cached_d == max(0, (event_date - dias_enc) - cache_date)
-        # Se o D- cacheado já estava clampado em 0 (encerrado), mantemos 0.
-        if cached_d <= 0:
-            return 0
-        days_elapsed = max(0, (today_br - cache_date).days)
-        return max(0, cached_d - days_elapsed)
-
     alerts = []
     for ev in eventos:
-        d = _recompute_d_minus(ev)
+        d = ev.get("dMinusInscricoes") if isinstance(ev, dict) else getattr(ev, "dMinusInscricoes", None)
         matched_cutoff = _match_cutoff_with_weekend(d) if d is not None else None
         if matched_cutoff is not None:
             ev_id = ev.get("id") if isinstance(ev, dict) else getattr(ev, "id", None)
@@ -4453,6 +4470,7 @@ def get_marketing_events(
                 cached["ultima_atualizacao"] = datetime.fromtimestamp(
                     _lfr_ev, tz=ZoneInfo('America/Sao_Paulo')
                 ).isoformat()
+            cached = _refresh_d_minus_in_cached_eventos(cached, cache_key)
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if (is_stale or _user_force_refresh) else "false"
             return cached
@@ -4475,7 +4493,7 @@ def get_marketing_events(
                 if response is not None:
                     response.headers["X-Data-Stale"] = "true"
                     response.headers["X-Data-Source"] = "snapshot-aggregate"
-                return _snap_list
+                return _refresh_d_minus_in_cached_eventos(_snap_list, cache_key)
         # Sem cache e sem cobertura de snapshot: dispara refresh em background
         # (deduplicado) e retorna preparing. O frontend faz polling.
         _kick_bg_refresh()
