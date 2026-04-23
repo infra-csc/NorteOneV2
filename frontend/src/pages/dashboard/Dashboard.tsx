@@ -12,7 +12,7 @@ import {
   Filter, Search, ChevronDown, LayoutDashboard, RotateCcw,
   Users, CalendarDays, TrendingUp, AlertTriangle,
   RefreshCw, Target, Percent, Zap, DollarSign, TrendingDown, ArrowRight,
-  ListOrdered, ArrowUp, ArrowDown, ArrowUpDown
+  ListOrdered, ArrowUp, ArrowDown, ArrowUpDown, ChevronUp
 } from 'lucide-react';
 
 const formatCurrency = (value: number) =>
@@ -172,6 +172,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [periodoFilter, setPeriodoFilter] = useState<string>('all');
   const [eventoStatusFilter, setEventoStatusFilter] = useState<string>('em_andamento');
+  const [collapsed, setCollapsed] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('data_evento');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -261,11 +262,18 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
 
   return (
     <div className={`${cardClass} overflow-hidden`}>
-      <div className="p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-gray-200/50 dark:border-gray-700/50">
-        <h3 className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+      <div className={`p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${collapsed ? '' : 'border-b border-gray-200/50 dark:border-gray-700/50'}`}>
+        <button
+          type="button"
+          onClick={() => setCollapsed(c => !c)}
+          title={collapsed ? 'Expandir tabela' : 'Recolher tabela'}
+          className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white hover:text-indigo-300' : 'text-gray-900 hover:text-indigo-600'} transition-colors`}
+        >
           <ListOrdered className="w-4 h-4 text-indigo-400" />
           Inscrições por Evento <span className={`text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>· {filtered.length} de {rows.length}</span>
-        </h3>
+          <ChevronUp className={`w-4 h-4 ml-1 transition-transform ${collapsed ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+        </button>
+        {!collapsed && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
@@ -295,7 +303,9 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <option value="90">Próximos 90 dias</option>
           </select>
         </div>
+        )}
       </div>
+      {!collapsed && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -379,6 +389,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           )}
         </table>
       </div>
+      )}
     </div>
   );
 };
