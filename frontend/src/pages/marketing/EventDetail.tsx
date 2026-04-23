@@ -106,6 +106,98 @@ const mapEventResponseToActions = (actions: any[]): CommercialAction[] =>
     snapshot_playbook_letter: a.snapshot_playbook_letter,
   }));
 
+type _ExpectedItem = { expected: number };
+type _NormExpectedFields = {
+  normalizedExpected: number;
+  expectedLocalMedian: number | null;
+  expectedOutlierLimit: number | null;
+  expectedIsOutlier: boolean;
+  expectedExcessRemoved: number;
+  expectedExcessReceived: number;
+  cumulativeNormalizedExpected: number;
+};
+
+function normalizeExpectedOutliers<T extends _ExpectedItem>(
+  items: T[],
+  window = 7,
+  threshold = 2.0,
+  spread = 3,
+): (T & _NormExpectedFields)[] {
+  const n = items.length;
+  const median = (arr: number[]): number => {
+    if (arr.length === 0) return 0;
+    const s = [...arr].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)];
+  };
+  if (n < window) {
+    let cum = 0;
+    return items.map(it => {
+      const exp = it.expected || 0;
+      cum += exp;
+      return {
+        ...it,
+        normalizedExpected: Math.round(exp * 10) / 10,
+        expectedLocalMedian: null,
+        expectedOutlierLimit: null,
+        expectedIsOutlier: false,
+        expectedExcessRemoved: 0,
+        expectedExcessReceived: 0,
+        cumulativeNormalizedExpected: Math.round(cum * 10) / 10,
+      };
+    });
+  }
+  const raw = items.map(it => it.expected || 0);
+  const normalized = [...raw];
+  const excessReceived = new Array<number>(n).fill(0);
+  const excessRemoved = new Array<number>(n).fill(0);
+  const localMedians: (number | null)[] = new Array(n).fill(null);
+  const outlierLimits: (number | null)[] = new Array(n).fill(null);
+  const isOutlier: boolean[] = new Array(n).fill(false);
+  const globalMedian = median(raw);
+  const half = Math.floor(window / 2);
+  for (let i = 0; i < n; i++) {
+    const lo = Math.max(0, i - half);
+    const hi = Math.min(n, i + half + 1);
+    const lm = median(raw.slice(lo, hi));
+    const limit = Math.max(lm * threshold, globalMedian * 0.5, 5);
+    localMedians[i] = Math.round(lm * 10) / 10;
+    outlierLimits[i] = Math.round(limit * 10) / 10;
+    if (raw[i] > limit) {
+      const excess = raw[i] - limit;
+      normalized[i] = limit;
+      isOutlier[i] = true;
+      excessRemoved[i] = excess;
+      let totalShare = 0;
+      for (let j = Math.max(0, i - spread); j < Math.min(n, i + spread + 1); j++) {
+        if (j !== i) totalShare++;
+      }
+      if (totalShare > 0) {
+        const share = excess / totalShare;
+        for (let j = Math.max(0, i - spread); j < Math.min(n, i + spread + 1); j++) {
+          if (j !== i) {
+            normalized[j] += share;
+            excessReceived[j] += share;
+          }
+        }
+      }
+    }
+  }
+  let cum = 0;
+  return items.map((it, i) => {
+    cum += normalized[i];
+    return {
+      ...it,
+      normalizedExpected: Math.round(normalized[i] * 10) / 10,
+      expectedLocalMedian: localMedians[i],
+      expectedOutlierLimit: outlierLimits[i],
+      expectedIsOutlier: isOutlier[i],
+      expectedExcessRemoved: Math.round(excessRemoved[i] * 10) / 10,
+      expectedExcessReceived: Math.round(excessReceived[i] * 10) / 10,
+      cumulativeNormalizedExpected: Math.round(cum * 10) / 10,
+    };
+  });
+}
+
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -789,23 +881,24 @@ const EventDetail: React.FC = () => {
     OUTROS: 'Outros',
   };
 
-  const cumulativeData = (event.dailySales || []).reduce((acc, day, index) => {
+  const dailySalesNormExpected = normalizeExpectedOutliers(event.dailySales || []);
+
+  const cumulativeData = dailySalesNormExpected.reduce((acc, day, index) => {
     const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
     const prevExpected = index > 0 ? acc[index - 1].cumulativeExpected : 0;
-    const prevNormalized = index > 0 ? acc[index - 1].cumulativeNormalized : 0;
-    const normDaily = day.normalizedSales ?? day.sales;
-    
+
     acc.push({
       date: day.date,
       cumulative: prevCumulative + day.sales,
       cumulativeExpected: day.cumulativeExpected != null ? day.cumulativeExpected : (prevExpected + day.expected),
+      cumulativeExpectedNormalized: day.cumulativeNormalizedExpected,
       daily: day.sales,
-      cumulativeNormalized: day.cumulativeNormalized ?? (prevNormalized + normDaily),
-      normalizedDaily: normDaily
+      expectedDaily: day.expected,
+      normalizedExpectedDaily: day.normalizedExpected,
     });
-    
+
     return acc;
-  }, [] as { date: string; cumulative: number; cumulativeExpected: number; daily: number; cumulativeNormalized: number; normalizedDaily: number }[]);
+  }, [] as { date: string; cumulative: number; cumulativeExpected: number; cumulativeExpectedNormalized: number; daily: number; expectedDaily: number; normalizedExpectedDaily: number }[]);
 
   const filteredCumulativeData = chartPeriod
     ? cumulativeData.slice(-chartPeriod)
@@ -826,19 +919,20 @@ const EventDetail: React.FC = () => {
         const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
         dMinusInsc = Math.max(0, dMinusEvento - 2);
       }
-      const realCumul = showNormalized ? (d.cumulativeNormalized ?? d.cumulative) : d.cumulative;
-      const pct = parseFloat((((realCumul / d.cumulativeExpected) * 100) - 100).toFixed(1));
+      const realCumul = d.cumulative;
+      const refExpected = showNormalized ? d.cumulativeExpectedNormalized : d.cumulativeExpected;
+      const pct = parseFloat((((realCumul / refExpected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
         dMinus: dMinusInsc,
         label: `D-${dMinusInsc}`,
         percentual: pct,
         cumulative: Math.round(realCumul),
-        cumulativeExpected: Math.round(d.cumulativeExpected),
+        cumulativeExpected: Math.round(refExpected),
       };
     });
 
-  const goalAttainmentDailyData = (event.dailySales || [])
+  const goalAttainmentDailyData = dailySalesNormExpected
     .filter(d => d.expected > 0)
     .map(d => {
       let dMinusInsc = 0;
@@ -848,15 +942,16 @@ const EventDetail: React.FC = () => {
         const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
         dMinusInsc = Math.max(0, dMinusEvento - 2);
       }
-      const realDay = showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
-      const pct = parseFloat((((realDay / d.expected) * 100) - 100).toFixed(1));
+      const realDay = d.sales;
+      const refExpected = showNormalized ? d.normalizedExpected : d.expected;
+      const pct = parseFloat((((realDay / refExpected) * 100) - 100).toFixed(1));
       return {
         date: d.date,
         dMinus: dMinusInsc,
         label: `D-${dMinusInsc}`,
         percentual: pct,
         sales: Math.round(realDay),
-        expected: Math.round(d.expected),
+        expected: Math.round(refExpected),
       };
     });
 
@@ -878,13 +973,12 @@ const EventDetail: React.FC = () => {
   // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
   const totalInscritosRaw = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
 
-  type _SaleLike = { sales: number; normalizedSales?: number };
-  const _saleVal = (d: _SaleLike): number => showNormalized ? (d.normalizedSales ?? d.sales) : d.sales;
-  // Quando o modo normalizado está ON, derivamos o total de vendas atual da curva
-  // normalizada (último ponto cumulativeNormalized) para que KPIs e cards coerentemente
-  // reflitam a suavização de outliers.
-  const inscritosTotalNorm = lastCumData ? Math.round(lastCumData.cumulativeNormalized ?? lastCumData.cumulative) : 0;
-  const displayedCurrentSales = showNormalized ? inscritosTotalNorm : totalInscritosRaw;
+  type _SaleLike = { sales: number };
+  // Inscritos são sempre o número real — nunca substituímos por normalizado.
+  // A normalização agora se aplica somente à curva (meta).
+  const _saleVal = (d: _SaleLike): number => d.sales;
+  const inscritosTotalNorm = totalInscritosRaw;
+  const displayedCurrentSales = totalInscritosRaw;
   const totalInscritos = displayedCurrentSales;
   const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
   const last30Days = completeDailySales.slice(-30).map(d => ({ ...d, sales: _saleVal(d) }));
@@ -914,8 +1008,7 @@ const EventDetail: React.FC = () => {
     ? _kitSumMargem
     : _consRowMargem ?? null;
   const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
-  // Média 14d usada como ritmo base no Simulador. Quando showNormalized está ON,
-  // _saleVal já retorna normalizedSales — assim o ritmo reflete a curva suavizada.
+  // Média 14d usada como ritmo base no Simulador. Sempre baseada nas vendas reais.
   const _last14DaysSim = completeDailySales.slice(-14);
   const dashMediaDiaria14 = _last14DaysSim.length > 0
     ? _last14DaysSim.reduce((sum, d) => sum + _saleVal(d), 0) / _last14DaysSim.length
@@ -1247,17 +1340,17 @@ const EventDetail: React.FC = () => {
                 ? 'bg-orange-500 text-white border-orange-500'
                 : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
             }`}
-            title="Suaviza picos pontuais de campanha em todas as curvas, KPIs e tabelas do detalhe do evento"
+            title="Suaviza picos da curva de meta (vindos do histórico do ano anterior). Os inscritos reais deste ano nunca são alterados."
           >
             <Activity className="w-3.5 h-3.5" />
-            {showNormalized ? 'Normalizado: ON' : 'Normalizar Outliers'}
+            {showNormalized ? 'Meta Normalizada: ON' : 'Normalizar Meta'}
           </button>
         </div>
       </div>
       {showNormalized && (
         <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg px-3 py-2 text-xs text-orange-800 dark:text-orange-300 flex items-center gap-2">
           <Activity className="w-3.5 h-3.5" />
-          Modo normalizado ativo: picos diários acima do limite são suavizados (janela 7d, threshold 2,0×). Curva histórica também é normalizada para comparação justa.
+          Modo meta normalizada ativo: picos da curva esperada (vindos do histórico) são suavizados (janela 7d, threshold 2,0×). Os inscritos reais deste ano permanecem inalterados.
         </div>
       )}
 
@@ -1266,26 +1359,12 @@ const EventDetail: React.FC = () => {
           eventoId={id!}
           ano={anoParam ?? new Date().getFullYear()}
           isDark={isDark}
-          dashTicketMedio={
-            showNormalized
-              ? (inscritosTotalNorm > 0 && _kitTotalReceita > 0
-                  ? Math.round((_kitTotalReceita / inscritosTotalNorm) * 100) / 100
-                  : (ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined))
-              : (ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined)
-          }
-          dashMargem={
-            showNormalized
-              ? undefined
-              : (margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined))
-          }
-          dashTotalVendas={
-            showNormalized
-              ? (inscritosTotalNorm > 0 ? inscritosTotalNorm : undefined)
-              : (event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined)
-          }
+          dashTicketMedio={ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined}
+          dashMargem={margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined)}
+          dashTotalVendas={event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined}
           dashTicketAtual={event?.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : undefined}
-          dashMediaDiaria={showNormalized ? dashMediaDiaria14 : undefined}
-          normalizedBase={showNormalized}
+          dashMediaDiaria={undefined}
+          normalizedBase={false}
         />
       ) : activeTab === 'controle' ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
@@ -1323,7 +1402,7 @@ const EventDetail: React.FC = () => {
           <div className="p-6">
             {controleSubTab === 'tabela' ? (
               <DailySalesTable
-                dailySales={event.dailySales || []}
+                dailySales={dailySalesNormExpected}
                 isDark={isDark}
                 eventName={event.name}
                 salesGoal={event.salesGoal}
@@ -1456,18 +1535,23 @@ const EventDetail: React.FC = () => {
                       content={({ active, payload, label }: any) => {
                         if (!active || !payload || !payload.length) return null;
                         const real = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulative')?.value ?? 0));
-                        const esperado = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpected')?.value ?? 0));
-                        const normalizado = showNormalized ? Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeNormalized')?.value ?? 0)) : null;
+                        const esperadoBruto = Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpected')?.value ?? 0));
+                        const esperadoNorm = showNormalized ? Math.round(Number(payload.find((p: any) => p.dataKey === 'cumulativeExpectedNormalized')?.value ?? 0)) : null;
+                        const esperado = showNormalized && esperadoNorm !== null ? esperadoNorm : esperadoBruto;
                         const diff = real - esperado;
                         const diffColor = diff >= 0 ? '#22C55E' : '#EF4444';
                         return (
                           <div style={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', padding: '12px', color: '#fff' }}>
                             <p style={{ marginBottom: '8px', color: '#9CA3AF' }}>{new Date(label + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
                             <p style={{ color: '#3B82F6' }}>Vendas Reais: {formatNumber(real)}</p>
-                            {normalizado !== null && (
-                              <p style={{ color: '#F97316' }}>Normalizada: {formatNumber(normalizado)}</p>
+                            {showNormalized && esperadoNorm !== null ? (
+                              <>
+                                <p style={{ color: '#F97316' }}>Meta Normalizada: {formatNumber(esperadoNorm)}</p>
+                                <p style={{ color: '#9CA3AF', textDecoration: 'line-through', opacity: 0.7 }}>Meta Bruta: {formatNumber(esperadoBruto)}</p>
+                              </>
+                            ) : (
+                              <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
                             )}
-                            <p style={{ color: '#9CA3AF' }}>Esperado: {formatNumber(esperado)}</p>
                             <p style={{ color: diffColor, marginTop: '6px', borderTop: '1px solid #374151', paddingTop: '6px', fontWeight: 600 }}>
                               Diferença: {diff >= 0 ? '+' : ''}{formatNumber(diff)}
                             </p>
@@ -1484,26 +1568,27 @@ const EventDetail: React.FC = () => {
                       strokeWidth={2}
                       dot={false}
                     />
+                    <Line 
+                      type="monotone" 
+                      dataKey="cumulativeExpected" 
+                      name={showNormalized ? "Meta Bruta" : "Esperado"}
+                      stroke="#9CA3AF" 
+                      strokeWidth={2}
+                      strokeDasharray="5 5"
+                      dot={false}
+                      strokeOpacity={showNormalized ? 0.5 : 1}
+                    />
                     {showNormalized && (
                       <Line 
                         type="monotone" 
-                        dataKey="cumulativeNormalized" 
-                        name="Normalizada"
+                        dataKey="cumulativeExpectedNormalized" 
+                        name="Meta Normalizada"
                         stroke="#F97316" 
                         strokeWidth={2}
                         strokeDasharray="8 4"
                         dot={false}
                       />
                     )}
-                    <Line 
-                      type="monotone" 
-                      dataKey="cumulativeExpected" 
-                      name="Esperado"
-                      stroke="#9CA3AF" 
-                      strokeWidth={2}
-                      strokeDasharray="5 5"
-                      dot={false}
-                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1528,33 +1613,33 @@ const EventDetail: React.FC = () => {
                       <thead>
                         <tr className="border-b border-gray-200 dark:border-gray-700">
                           <th className="text-left py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Data</th>
-                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Vendas Reais</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Meta Bruta</th>
                           <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Mediana Local</th>
                           <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Limite</th>
                           <th className="text-center py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Outlier?</th>
                           <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Excesso Removido</th>
                           <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Excesso Recebido</th>
-                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Vendas Normalizadas</th>
+                          <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Meta Normalizada</th>
                           <th className="text-right py-2 px-2 font-semibold text-gray-600 dark:text-gray-400">Δ</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {event.dailySales.map((day, idx) => {
-                          const delta = (day.normalizedSales ?? day.sales) - day.sales;
+                        {dailySalesNormExpected.map((day, idx) => {
+                          const delta = day.normalizedExpected - day.expected;
                           const deltaColor = delta > 0 ? 'text-green-600 dark:text-green-400' : delta < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400';
                           return (
                             <tr
                               key={idx}
-                              className={`border-b border-gray-100 dark:border-gray-700/50 ${day.isOutlier ? 'bg-red-50 dark:bg-red-900/20' : ''}`}
+                              className={`border-b border-gray-100 dark:border-gray-700/50 ${day.expectedIsOutlier ? 'bg-red-50 dark:bg-red-900/20' : ''}`}
                             >
                               <td className="py-1.5 px-2 text-gray-800 dark:text-gray-200">
                                 {new Date(day.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                               </td>
-                              <td className="py-1.5 px-2 text-right text-gray-800 dark:text-gray-200">{day.sales}</td>
-                              <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-400">{day.localMedian ?? '—'}</td>
-                              <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-400">{day.outlierLimit ?? '—'}</td>
+                              <td className="py-1.5 px-2 text-right text-gray-800 dark:text-gray-200">{day.expected.toFixed(1)}</td>
+                              <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-400">{day.expectedLocalMedian ?? '—'}</td>
+                              <td className="py-1.5 px-2 text-right text-gray-600 dark:text-gray-400">{day.expectedOutlierLimit ?? '—'}</td>
                               <td className="py-1.5 px-2 text-center">
-                                {day.isOutlier ? (
+                                {day.expectedIsOutlier ? (
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400">
                                     OUTLIER
                                   </span>
@@ -1562,9 +1647,9 @@ const EventDetail: React.FC = () => {
                                   <span className="text-gray-400 dark:text-gray-500">—</span>
                                 )}
                               </td>
-                              <td className="py-1.5 px-2 text-right text-red-600 dark:text-red-400">{(day.excessRemoved ?? 0) > 0 ? `-${day.excessRemoved}` : '—'}</td>
-                              <td className="py-1.5 px-2 text-right text-green-600 dark:text-green-400">{(day.excessReceived ?? 0) > 0 ? `+${day.excessReceived}` : '—'}</td>
-                              <td className="py-1.5 px-2 text-right font-medium text-gray-800 dark:text-gray-200">{day.normalizedSales ?? day.sales}</td>
+                              <td className="py-1.5 px-2 text-right text-red-600 dark:text-red-400">{day.expectedExcessRemoved > 0 ? `-${day.expectedExcessRemoved}` : '—'}</td>
+                              <td className="py-1.5 px-2 text-right text-green-600 dark:text-green-400">{day.expectedExcessReceived > 0 ? `+${day.expectedExcessReceived}` : '—'}</td>
+                              <td className="py-1.5 px-2 text-right font-medium text-gray-800 dark:text-gray-200">{day.normalizedExpected.toFixed(1)}</td>
                               <td className={`py-1.5 px-2 text-right font-medium ${deltaColor}`}>
                                 {delta !== 0 ? (delta > 0 ? '+' : '') + delta.toFixed(1) : '—'}
                               </td>
@@ -2564,7 +2649,7 @@ const EventDetail: React.FC = () => {
           </div>
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta{showNormalized ? ' (norm.)' : ''}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Vendas / Meta</p>
             {event.salesGoal > 0 ? (
               <>
                 <p className="text-lg font-bold text-gray-900 dark:text-white mt-2">

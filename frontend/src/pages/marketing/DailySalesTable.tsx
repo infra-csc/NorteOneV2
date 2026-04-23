@@ -14,6 +14,9 @@ interface DailySaleRow {
   atingimentoDiario?: number;
   normalizedSales?: number;
   isOutlier?: boolean;
+  normalizedExpected?: number;
+  cumulativeNormalizedExpected?: number;
+  expectedIsOutlier?: boolean;
 }
 
 interface DailySalesTableProps {
@@ -50,22 +53,21 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
 
   const dailySales = useMemo(() => {
     if (!showNormalized) return dailySalesRaw;
-    const sortedAsc = [...dailySalesRaw].sort((a, b) => a.date.localeCompare(b.date));
-    let cum = 0;
-    const byDate = new Map<string, number>();
-    sortedAsc.forEach(d => {
-      const v = d.normalizedSales ?? d.sales;
-      cum += v;
-      byDate.set(d.date, cum);
-    });
+    // Inscritos (sales) permanecem inalterados. Substituímos a META pela versão normalizada.
     return dailySalesRaw.map(d => {
-      const v = d.normalizedSales ?? d.sales;
-      const cumSales = byDate.get(d.date) ?? d.cumulativeSales;
-      const atingDia = d.expected > 0 ? (v / d.expected) * 100 : d.atingimentoDiario;
-      const atingAcum = (d.cumulativeExpected && d.cumulativeExpected > 0 && cumSales != null)
-        ? (cumSales / d.cumulativeExpected) * 100
+      const exp = d.normalizedExpected != null ? d.normalizedExpected : d.expected;
+      const cumExp = d.cumulativeNormalizedExpected != null ? d.cumulativeNormalizedExpected : d.cumulativeExpected;
+      const atingDia = exp > 0 ? (d.sales / exp) * 100 : d.atingimentoDiario;
+      const atingAcum = (cumExp && cumExp > 0 && d.cumulativeSales != null)
+        ? (d.cumulativeSales / cumExp) * 100
         : d.atingimentoAcumulado;
-      return { ...d, sales: v, cumulativeSales: cumSales, atingimentoDiario: atingDia, atingimentoAcumulado: atingAcum };
+      return {
+        ...d,
+        expected: exp,
+        cumulativeExpected: cumExp,
+        atingimentoDiario: atingDia,
+        atingimentoAcumulado: atingAcum,
+      };
     });
   }, [dailySalesRaw, showNormalized]);
 
