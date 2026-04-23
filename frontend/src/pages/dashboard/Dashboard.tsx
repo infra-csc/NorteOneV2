@@ -171,6 +171,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [periodoFilter, setPeriodoFilter] = useState<string>('all');
+  const [eventoStatusFilter, setEventoStatusFilter] = useState<string>('em_andamento');
   const [sortKey, setSortKey] = useState<SortKey>('data_evento');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -179,6 +180,11 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
     return rows.filter(r => {
       if (s && !(r.evento.toLowerCase().includes(s) || (r.cidade || '').toLowerCase().includes(s))) return false;
       if (statusFilter !== 'all' && r.isc_status !== statusFilter) return false;
+      if (eventoStatusFilter !== 'all') {
+        const d = r.dias_para_evento;
+        if (eventoStatusFilter === 'em_andamento' && d != null && d < 0) return false;
+        if (eventoStatusFilter === 'concluido' && (d == null || d >= 0)) return false;
+      }
       if (periodoFilter !== 'all') {
         const d = r.dias_para_evento;
         if (d == null || d < 0) return false;
@@ -274,6 +280,12 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <option value="accelerating">Acelerando</option>
             <option value="stable">Estável</option>
             <option value="decelerating">Desacelerando</option>
+          </select>
+          <select value={eventoStatusFilter} onChange={e => setEventoStatusFilter(e.target.value)}
+            className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
+            <option value="all">Todos os eventos</option>
+            <option value="em_andamento">Em andamento</option>
+            <option value="concluido">Concluídos</option>
           </select>
           <select value={periodoFilter} onChange={e => setPeriodoFilter(e.target.value)}
             className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
