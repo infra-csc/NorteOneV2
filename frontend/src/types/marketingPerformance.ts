@@ -59,6 +59,8 @@ export interface Event {
   isc: number;
   iscRaw?: number;
   iscComponents: ISCComponents;
+  iscComponentsRaw?: ISCComponents;
+  iscComponentsNormalized?: ISCComponents;
   iscStatus: ISCStatus;
   suggestedAction: PlaybookEntry;
   lastAction?: CommercialAction;

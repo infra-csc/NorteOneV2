@@ -960,10 +960,13 @@ const EventDetail: React.FC = () => {
 
   const dailySalesArr = event.dailySales || [];
   const todayDailySale = dailySalesArr.find(d => d.date === todayStr);
+  const todayDailySaleNorm = dailySalesNormExpected.find(d => d.date === todayStr);
   const lastDailySale = dailySalesArr.length > 0 ? dailySalesArr[dailySalesArr.length - 1] : null;
   const hasTodayData = !!todayDailySale;
   const todaySales = todayDailySale?.sales ?? 0;
-  const todayExpectedRounded = Math.round(todayDailySale?.expected ?? 0);
+  const todayExpectedRaw = todayDailySale?.expected ?? 0;
+  const todayExpectedNorm = todayDailySaleNorm?.normalizedExpected ?? todayExpectedRaw;
+  const todayExpectedRounded = Math.round(showNormalized ? todayExpectedNorm : todayExpectedRaw);
   const todayPct = todayExpectedRounded > 0 ? Math.round((todaySales / todayExpectedRounded) * 100) : (todaySales > 0 ? 100 : 0);
   // Último ponto do cumulativo (pode incluir hoje) — usado para outros fins.
   const lastCumData = cumulativeData.length > 0
@@ -988,7 +991,9 @@ const EventDetail: React.FC = () => {
 
   // Card "Meta Acumulada vs Inscritos Total": usa somente dados até ontem (dias fechados).
   const lastCumDataOntem = cumulativeData.filter(d => d.date < todayStr).at(-1) ?? null;
-  const metaAcumulada = lastCumDataOntem ? Math.round(lastCumDataOntem.cumulativeExpected) : 0;
+  const metaAcumuladaRaw = lastCumDataOntem ? Math.round(lastCumDataOntem.cumulativeExpected) : 0;
+  const metaAcumuladaNorm = lastCumDataOntem ? Math.round(lastCumDataOntem.cumulativeExpectedNormalized || lastCumDataOntem.cumulativeExpected) : 0;
+  const metaAcumulada = showNormalized ? metaAcumuladaNorm : metaAcumuladaRaw;
   const inscritosOntem = totalInscritosConsolidado;
   const acumuladoGap = metaAcumulada > 0 ? Math.round(((inscritosOntem - metaAcumulada) / metaAcumulada) * 100) : (inscritosOntem > 0 ? 100 : 0);
 
@@ -2098,10 +2103,10 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {(event.iscComponents?.ia730 ?? 0).toFixed(2)}
+                {(((showNormalized ? event.iscComponentsNormalized : event.iscComponentsRaw) ?? event.iscComponents)?.ia730 ?? 0).toFixed(2)}
               </p>
               <div className="flex items-center gap-1 mt-1 text-xs">
-                {(event.iscComponents?.ia730 ?? 0) > 1 ? (
+                {(((showNormalized ? event.iscComponentsNormalized : event.iscComponentsRaw) ?? event.iscComponents)?.ia730 ?? 0) > 1 ? (
                   <>
                     <TrendingUp className="w-3.5 h-3.5 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">Acelerando</span>
@@ -2126,10 +2131,10 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {(event.iscComponents?.curvaDPercent ?? 0).toFixed(2)}
+                {(((showNormalized ? event.iscComponentsNormalized : event.iscComponentsRaw) ?? event.iscComponents)?.curvaDPercent ?? 0).toFixed(2)}
               </p>
               <div className="flex items-center gap-1 mt-1 text-xs">
-                {(event.iscComponents?.curvaDPercent ?? 0) > 1 ? (
+                {(((showNormalized ? event.iscComponentsNormalized : event.iscComponentsRaw) ?? event.iscComponents)?.curvaDPercent ?? 0) > 1 ? (
                   <>
                     <TrendingUp className="w-3.5 h-3.5 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">Adiantado</span>
@@ -2188,10 +2193,10 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <p className="text-xl font-bold text-gray-900 dark:text-white">
-                {(event.iscComponents?.rolling14d ?? 0).toFixed(2)}
+                {(((showNormalized ? event.iscComponentsNormalized : event.iscComponentsRaw) ?? event.iscComponents)?.rolling14d ?? 0).toFixed(2)}
               </p>
               <div className="flex items-center gap-1 mt-1 text-xs">
-                {(event.iscComponents?.rolling14d ?? 0) > 1 ? (
+                {(((showNormalized ? event.iscComponentsNormalized : event.iscComponentsRaw) ?? event.iscComponents)?.rolling14d ?? 0) > 1 ? (
                   <>
                     <Activity className="w-3.5 h-3.5 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">Momentum Quente</span>

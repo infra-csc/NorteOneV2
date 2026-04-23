@@ -676,6 +676,8 @@ export interface MarketingEvent {
   isc: number;
   iscRaw?: number;
   iscComponents: MarketingISCComponents;
+  iscComponentsRaw?: MarketingISCComponents;
+  iscComponentsNormalized?: MarketingISCComponents;
   iscStatus: 'accelerating' | 'stable' | 'decelerating';
   suggestedAction: PlaybookEntry;
   isActive: boolean;

@@ -770,6 +770,8 @@ class MarketingEvent(BaseModel):
     isc: float
     iscRaw: Optional[float] = None
     iscComponents: ISCComponents
+    iscComponentsRaw: Optional[ISCComponents] = None
+    iscComponentsNormalized: Optional[ISCComponents] = None
     iscStatus: str
     suggestedAction: PlaybookEntry
     lastAction: Optional[CommercialAction] = None
@@ -8814,24 +8816,37 @@ def get_marketing_event_by_id(
                 use_normalized_curve=False)
         isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
         isc_raw: Optional[float] = None
-        if _use_norm_isc:
+        # Always compute BOTH raw and normalized component sets so the frontend
+        # "Normalizar Meta" toggle can switch between them (Curva D-%, IA, Rolling).
+        # Using daily_sales_dict for both keeps the only difference being the
+        # normalization itself (smoothing + normalized hist_pattern).
+        isc_components_raw_alt: Optional[ISCComponents] = None
+        isc_components_norm_alt: Optional[ISCComponents] = None
+        try:
+            isc_components_raw_alt = calculate_isc_components(
+                current_sales, sales_goal, d_minus_inscricoes,
+                daily_sales_dict=daily_sales_dict,
+                hist_pattern=detail_hist_pattern,
+                registration_close_date=data_fim_inscricoes,
+                curva_info=detail_curva_info,
+                use_normalized_curve=False)
+        except Exception as _e_raw:
+            logger.warning(f"Falha ao calcular iscComponentsRaw (detail group): {_e_raw}")
+        try:
+            isc_components_norm_alt = calculate_isc_components(
+                current_sales, sales_goal, d_minus_inscricoes,
+                daily_sales_dict=daily_sales_dict,
+                hist_pattern=detail_hist_pattern_norm or detail_hist_pattern,
+                registration_close_date=data_fim_inscricoes,
+                curva_info=detail_curva_info,
+                use_normalized_curve=True)
+        except Exception as _e_norm:
+            logger.warning(f"Falha ao calcular iscComponentsNormalized (detail group): {_e_norm}")
+        if _use_norm_isc and isc_components_raw_alt is not None:
             try:
-                # iscRaw must mirror the normalized run's INPUTS so the only difference
-                # between isc and iscRaw is the normalization itself (daily_sales_dict
-                # smoothing + normalized hist_pattern). If we used cache medias here
-                # while the normalized run used daily_sales_dict, the comparison would
-                # mix two unrelated effects (different sources × normalization), and
-                # turning the flag on/off could appear to have no effect on curvaDPercent.
-                raw_components = calculate_isc_components(
-                    current_sales, sales_goal, d_minus_inscricoes,
-                    daily_sales_dict=daily_sales_dict,
-                    hist_pattern=detail_hist_pattern,
-                    registration_close_date=data_fim_inscricoes,
-                    curva_info=detail_curva_info,
-                    use_normalized_curve=False)
-                isc_raw = calculate_isc(raw_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
-            except Exception as _e_raw:
-                logger.warning(f"Falha ao calcular iscRaw para evento (detail group): {_e_raw}")
+                isc_raw = calculate_isc(isc_components_raw_alt, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+            except Exception as _e_raw_isc:
+                logger.warning(f"Falha ao calcular iscRaw para evento (detail group): {_e_raw_isc}")
         isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
         suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
         
@@ -8912,6 +8927,8 @@ def get_marketing_event_by_id(
             isc=isc,
             iscRaw=isc_raw,
             iscComponents=isc_components,
+            iscComponentsRaw=isc_components_raw_alt,
+            iscComponentsNormalized=isc_components_norm_alt,
             iscStatus=isc_status,
             suggestedAction=suggested_action,
             isActive=is_active,
@@ -9290,18 +9307,35 @@ def get_marketing_event_by_id(
                                                use_normalized_curve=_use_norm_isc_sa)
     isc = calculate_isc(isc_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
     isc_raw: Optional[float] = None
-    if isc_cfg.get("useNormalizedCurveForISC", False):
+    # Always compute BOTH raw and normalized component sets so the frontend
+    # "Normalizar Meta" toggle can switch between them.
+    isc_components_raw_alt_sa: Optional[ISCComponents] = None
+    isc_components_norm_alt_sa: Optional[ISCComponents] = None
+    try:
+        isc_components_raw_alt_sa = calculate_isc_components(
+            current_sales, sales_goal, d_minus_inscricoes,
+            daily_sales_dict=daily_sales_dict,
+            hist_pattern=standalone_detail_hist,
+            registration_close_date=data_fim_inscricoes_standalone,
+            curva_info=standalone_detail_curva_info,
+            use_normalized_curve=False)
+    except Exception as _e_raw:
+        logger.warning(f"Falha ao calcular iscComponentsRaw (detail standalone): {_e_raw}")
+    try:
+        isc_components_norm_alt_sa = calculate_isc_components(
+            current_sales, sales_goal, d_minus_inscricoes,
+            daily_sales_dict=daily_sales_dict,
+            hist_pattern=(standalone_detail_hist_norm or standalone_detail_hist),
+            registration_close_date=data_fim_inscricoes_standalone,
+            curva_info=standalone_detail_curva_info,
+            use_normalized_curve=True)
+    except Exception as _e_norm:
+        logger.warning(f"Falha ao calcular iscComponentsNormalized (detail standalone): {_e_norm}")
+    if isc_cfg.get("useNormalizedCurveForISC", False) and isc_components_raw_alt_sa is not None:
         try:
-            raw_components = calculate_isc_components(
-                current_sales, sales_goal, d_minus_inscricoes,
-                daily_sales_dict=daily_sales_dict,
-                hist_pattern=standalone_detail_hist,
-                registration_close_date=data_fim_inscricoes_standalone,
-                curva_info=standalone_detail_curva_info,
-                use_normalized_curve=False)
-            isc_raw = calculate_isc(raw_components, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
-        except Exception as _e_raw:
-            logger.warning(f"Falha ao calcular iscRaw para evento (detail standalone): {_e_raw}")
+            isc_raw = calculate_isc(isc_components_raw_alt_sa, isc_cfg["ia730Weight"], isc_cfg["curvaDWeight"], isc_cfg["rolling14dWeight"])
+        except Exception as _e_raw_isc:
+            logger.warning(f"Falha ao calcular iscRaw para evento (detail standalone): {_e_raw_isc}")
     isc_status = get_isc_status(isc, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"])
     suggested_action = get_suggested_action(isc, d_minus_inscricoes, isc_cfg["greenThreshold"], isc_cfg["yellowThreshold"], isc_cfg["promotionDeadline"])
     
@@ -9368,6 +9402,8 @@ def get_marketing_event_by_id(
         isc=isc,
         iscRaw=isc_raw,
         iscComponents=isc_components,
+        iscComponentsRaw=isc_components_raw_alt_sa,
+        iscComponentsNormalized=isc_components_norm_alt_sa,
         iscStatus=isc_status,
         suggestedAction=suggested_action,
         isActive=is_active,
