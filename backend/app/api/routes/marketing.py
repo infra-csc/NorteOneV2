@@ -4248,10 +4248,13 @@ def get_cutoff_alerts(
     Na sexta-feira, antecipa pontos de corte que cairiam no sábado ou domingo."""
     ano = datetime.now().year
     cache_key = f"{ano}_active_all_"
+    used_cache_key = cache_key
     cached, _ = eventos_list_cache.get_or_revalidate(cache_key, refresh_fn=None)
     if cached is None:
         cache_key2 = f"{ano}_all_all_"
         cached, _ = eventos_list_cache.get_or_revalidate(cache_key2, refresh_fn=None)
+        if cached is not None:
+            used_cache_key = cache_key2
     # Cache miss (e.g., right after a dash refresh invalidated it): compute the
     # eventos list inline so the Nori cutoff alerts don't temporarily disappear.
     if cached is None:
@@ -4270,9 +4273,41 @@ def get_cutoff_alerts(
     elif isinstance(cached, dict) and cached.get("status") == "preparing":
         data_status = "preparing"
     eventos = cached.get("eventos", []) if cached else []
+
+    # O cache de eventos pode ter sido criado em um dia anterior (TTL ~22h, stale até 48h).
+    # Recalculamos D-Inscrição a partir da data do evento sempre que possível, para que
+    # os alertas de ponto de corte e o D- exibido no Nori reflitam o dia de hoje.
+    today_br = today_brazil()
+
+    def _recompute_d_minus(ev) -> Optional[int]:
+        ev_date_str = ev.get("date") if isinstance(ev, dict) else getattr(ev, "date", None)
+        cached_d = ev.get("dMinusInscricoes") if isinstance(ev, dict) else getattr(ev, "dMinusInscricoes", None)
+        if not ev_date_str:
+            return cached_d
+        try:
+            event_date = date.fromisoformat(str(ev_date_str)[:10])
+        except Exception:
+            return cached_d
+        # dias_encerramento é estável dia a dia: derivamos a partir do D- cacheado
+        # comparando a data do evento com a data em que o cache foi gerado.
+        cache_ts = eventos_list_cache.get_all_timestamps().get(used_cache_key)
+        if cache_ts is None or cached_d is None:
+            # Sem timestamp/valor cacheado — assume regra padrão de 2 dias.
+            return calculate_d_minus(event_date, dias_encerramento=2)
+        try:
+            cache_date = datetime.fromtimestamp(cache_ts, tz=_TZ_BRAZIL).date()
+        except Exception:
+            return calculate_d_minus(event_date, dias_encerramento=2)
+        # cached_d == max(0, (event_date - dias_enc) - cache_date)
+        # Se o D- cacheado já estava clampado em 0 (encerrado), mantemos 0.
+        if cached_d <= 0:
+            return 0
+        days_elapsed = max(0, (today_br - cache_date).days)
+        return max(0, cached_d - days_elapsed)
+
     alerts = []
     for ev in eventos:
-        d = ev.get("dMinusInscricoes") if isinstance(ev, dict) else getattr(ev, "dMinusInscricoes", None)
+        d = _recompute_d_minus(ev)
         matched_cutoff = _match_cutoff_with_weekend(d) if d is not None else None
         if matched_cutoff is not None:
             ev_id = ev.get("id") if isinstance(ev, dict) else getattr(ev, "id", None)
