@@ -2908,7 +2908,7 @@ const EventDetail: React.FC = () => {
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Atingimento</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Meta Acum.</th>
                 <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Alvo</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Insight Margem</th>
+                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem Potencial</th>
               </tr>
             </thead>
             <tbody>
