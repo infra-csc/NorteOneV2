@@ -2088,9 +2088,48 @@ _margem_rev_cache: dict = {}  # frozenset(bundle_ids) → (rev_by_bid: dict, tim
 _MARGEM_REV_TTL_SECONDS = 14400  # 4 horas
 
 # Cache de falhas da revenue query: evita re-tentar o Magento repetidamente quando
-# a query já falhou recentemente (ex: timeout). Após o cooldown, tenta novamente.
-_margem_rev_failure_cache: dict = {}  # frozenset(bundle_ids) → timestamp da última falha
-_MARGEM_REV_FAILURE_COOLDOWN_SECONDS = 1800  # 30 minutos
+# a query já falhou recentemente (ex: timeout). O cooldown é adaptativo:
+# falhas isoladas têm cooldown curto (60s); falhas repetidas crescem até 30 min.
+# Estrutura: frozenset(bundle_ids) → (timestamp_ultima_falha, n_falhas_consecutivas)
+_margem_rev_failure_cache: dict = {}
+# Tabela de cooldowns adaptativos (segundos) por número de falhas consecutivas.
+# 1ª falha: 60s (transitório provável). 2ª: 5 min. 3ª+: 15 min. 5ª+: 30 min (cap).
+_MARGEM_REV_FAILURE_COOLDOWNS = [60, 300, 900, 900, 1800]
+
+def _margem_rev_cooldown_for(n_failures: int) -> int:
+    if n_failures <= 0:
+        return 0
+    idx = min(n_failures - 1, len(_MARGEM_REV_FAILURE_COOLDOWNS) - 1)
+    return _MARGEM_REV_FAILURE_COOLDOWNS[idx]
+
+
+def _execute_magento_with_retry(query, params, label: str, max_attempts: int = 2, backoff_s: float = 1.5):
+    """Executa uma query no engine_magento com retry simples.
+
+    Falhas transitórias do túnel SSH ou timeouts curtos costumam se resolver
+    em poucos segundos. Tenta até `max_attempts` vezes com backoff antes de
+    propagar a exceção. Retorna a lista de rows.
+    """
+    import time as __time
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with db_module.engine_magento.connect() as _conn:
+                _t0 = __time.monotonic()
+                _result = _conn.execute(query, params)
+                _rows = _result.fetchall()
+                _elapsed = __time.monotonic() - _t0
+                if attempt > 1:
+                    logger.info(f"[Margem][retry] {label} OK na tentativa {attempt} em {_elapsed:.2f}s")
+                return _rows, _elapsed
+        except Exception as e:
+            last_exc = e
+            if attempt < max_attempts:
+                logger.warning(f"[Margem][retry] {label} falhou na tentativa {attempt}/{max_attempts}: {type(e).__name__}: {e}. Retry em {backoff_s}s")
+                __time.sleep(backoff_s)
+            else:
+                logger.error(f"[Margem][retry] {label} falhou definitivamente após {max_attempts} tentativas: {type(e).__name__}: {e}")
+    raise last_exc  # type: ignore[misc]
 
 
 def _build_consistency_warning(total_isc: Optional[int], margem_por_kit: Optional[list]) -> Optional[dict]:
@@ -2397,13 +2436,14 @@ def get_margem_por_kit(
             rev_by_bid: dict = {}
 
             # --- Query 1: Contagem de inscrições por bundle ---
+            # Retry: 2 tentativas com backoff curto cobrem queda momentânea do túnel SSH.
             try:
-                with db_module.engine_magento.connect() as conn:
-                    _t0 = _time.monotonic()
-                    count_result = conn.execute(magento_count_query, {"bundle_ids": bundle_ids})
-                    for row in count_result.fetchall():
-                        qtd_by_bid[int(row[0])] = int(row[1] or 0)
-                    logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_time.monotonic()-_t0:.2f}s")
+                _rows_cnt, _elapsed_cnt = _execute_magento_with_retry(
+                    magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
+                )
+                for row in _rows_cnt:
+                    qtd_by_bid[int(row[0])] = int(row[1] or 0)
+                logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_elapsed_cnt:.2f}s")
             except Exception as e:
                 logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
                 _log_margem_magento_failed(e, "count")
@@ -2418,61 +2458,120 @@ def get_margem_por_kit(
                 _margem_rev_cache.pop(_rev_cache_key, None)
                 _margem_rev_failure_cache.pop(_rev_cache_key, None)
             _cached = _margem_rev_cache.get(_rev_cache_key)
-            _last_failure = _margem_rev_failure_cache.get(_rev_cache_key)
+            _failure_entry = _margem_rev_failure_cache.get(_rev_cache_key)
+            # Compatibilidade: aceita tanto entrada nova (ts, n) quanto antiga (ts).
+            if isinstance(_failure_entry, tuple):
+                _last_failure_ts, _failure_count = _failure_entry
+            elif _failure_entry is not None:
+                _last_failure_ts, _failure_count = _failure_entry, 1
+            else:
+                _last_failure_ts, _failure_count = None, 0
+
+            def _load_snapshot_revenue(max_age_h: Optional[float] = None):
+                """Tenta carregar receita do snapshot Postgres. Retorna (dict|None, idade_horas|None)."""
+                try:
+                    from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBR
+                    from datetime import timezone as _tz
+                    _snap_rows = db.query(_MBR).filter(
+                        _MBR.bundle_entity_id.in_(bundle_ids)
+                    ).all()
+                    if not _snap_rows:
+                        return None, None
+                    _agora_utc = _time.time()
+                    _oldest = min(
+                        r.calculado_em.replace(tzinfo=_tz.utc).timestamp()
+                        if r.calculado_em.tzinfo is None
+                        else r.calculado_em.timestamp()
+                        for r in _snap_rows
+                    )
+                    _age_h = (_agora_utc - _oldest) / 3600
+                    if max_age_h is not None and _age_h > max_age_h:
+                        return None, _age_h
+                    return {r.bundle_entity_id: float(r.receita_liquida) for r in _snap_rows}, _age_h
+                except Exception as _snap_err:
+                    logger.warning(f"[Margem] Erro ao ler margem_bundle_rev_snapshot: {_snap_err}")
+                    return None, None
+
+            def _format_snapshot_warning(age_h: Optional[float]) -> str:
+                if age_h is None:
+                    return "Dados do Magento indisponíveis — exibindo última receita conhecida do snapshot."
+                if age_h < 1:
+                    _txt_idade = f"{int(age_h * 60)} min"
+                elif age_h < 48:
+                    _txt_idade = f"{age_h:.1f} h"
+                else:
+                    _txt_idade = f"{int(age_h / 24)} dia(s)"
+                return (
+                    f"Magento temporariamente indisponível — receita exibida vem do último snapshot "
+                    f"(há {_txt_idade}); pode haver vendas mais recentes não refletidas."
+                )
+
             if _cached and (_now_mono - _cached[1]) < _MARGEM_REV_TTL_SECONDS:
                 rev_by_bid = dict(_cached[0])
                 logger.info(f"[Margem] revenue_query cache HIT: {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (TTL restante: {int(_MARGEM_REV_TTL_SECONDS - (_now_mono - _cached[1]))}s)")
             else:
-                # --- Tentar snapshot PostgreSQL antes do Magento ao vivo ---
+                # --- Tentar snapshot PostgreSQL recente antes do Magento ao vivo ---
                 _snap_loaded = False
                 if not force_refresh:
-                    try:
-                        from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBR
-                        from datetime import timezone as _tz
-                        _snap_rows = db.query(_MBR).filter(
-                            _MBR.bundle_entity_id.in_(bundle_ids)
-                        ).all()
-                        if _snap_rows:
-                            _SNAP_MAX_AGE_H = 25
-                            _agora_utc = _time.time()
-                            _oldest = min(
-                                r.calculado_em.replace(tzinfo=_tz.utc).timestamp()
-                                if r.calculado_em.tzinfo is None
-                                else r.calculado_em.timestamp()
-                                for r in _snap_rows
-                            )
-                            _snap_age_h = (_agora_utc - _oldest) / 3600
-                            if _snap_age_h <= _SNAP_MAX_AGE_H:
-                                rev_by_bid = {r.bundle_entity_id: float(r.receita_liquida) for r in _snap_rows}
-                                _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _now_mono)
-                                _margem_rev_failure_cache.pop(_rev_cache_key, None)
-                                _snap_loaded = True
-                                logger.info(f"[Margem] revenue_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_snap_age_h:.1f}h)")
-                    except Exception as _snap_err:
-                        logger.warning(f"[Margem] Erro ao ler margem_bundle_rev_snapshot: {_snap_err}")
+                    _snap_data, _snap_age_h = _load_snapshot_revenue(max_age_h=25)
+                    if _snap_data is not None:
+                        rev_by_bid = _snap_data
+                        _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _now_mono)
+                        _margem_rev_failure_cache.pop(_rev_cache_key, None)
+                        _snap_loaded = True
+                        logger.info(f"[Margem] revenue_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_snap_age_h:.1f}h)")
 
                 if not _snap_loaded:
-                    if _last_failure and (_now_mono - _last_failure) < _MARGEM_REV_FAILURE_COOLDOWN_SECONDS:
-                        _cooldown_restante = int(_MARGEM_REV_FAILURE_COOLDOWN_SECONDS - (_now_mono - _last_failure))
-                        logger.info(f"[Margem] revenue_query SKIPPED (cooldown pós-falha ativo, {_cooldown_restante}s restantes): {len(bundle_ids)} bundles")
-                        _aviso_cooldown = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
-                        if avisos_out is not None and _aviso_cooldown not in avisos_out:
-                            avisos_out.append(_aviso_cooldown)
+                    _cooldown_s = _margem_rev_cooldown_for(_failure_count)
+                    _in_cooldown = bool(_last_failure_ts and (_now_mono - _last_failure_ts) < _cooldown_s)
+
+                    _live_failed = False
+                    if _in_cooldown:
+                        _cooldown_restante = int(_cooldown_s - (_now_mono - _last_failure_ts))
+                        logger.info(
+                            f"[Margem] revenue_query SKIPPED (cooldown pós-falha #{_failure_count} ativo, "
+                            f"{_cooldown_restante}s restantes): {len(bundle_ids)} bundles"
+                        )
+                        _live_failed = True
                     else:
                         try:
-                            with db_module.engine_magento.connect() as conn:
-                                _t1 = _time.monotonic()
-                                rev_result = conn.execute(magento_bundle_query, {"bundle_ids": bundle_ids})
-                                for row in rev_result.fetchall():
-                                    rev_by_bid[int(row[0])] = float(row[1] or 0)
-                                _elapsed = _time.monotonic() - _t1
-                                logger.info(f"[Margem] revenue_query LIVE: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
-                                _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
-                                _margem_rev_failure_cache.pop(_rev_cache_key, None)
+                            _rows_rev, _elapsed = _execute_magento_with_retry(
+                                magento_bundle_query, {"bundle_ids": bundle_ids}, label="revenue_query"
+                            )
+                            for row in _rows_rev:
+                                rev_by_bid[int(row[0])] = float(row[1] or 0)
+                            logger.info(f"[Margem] revenue_query LIVE: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
+                            _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
+                            _margem_rev_failure_cache.pop(_rev_cache_key, None)
                         except Exception as e:
                             logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
-                            _margem_rev_failure_cache[_rev_cache_key] = _time.monotonic()
+                            _new_count = _failure_count + 1
+                            _margem_rev_failure_cache[_rev_cache_key] = (_time.monotonic(), _new_count)
+                            _next_cd = _margem_rev_cooldown_for(_new_count)
+                            logger.info(f"[Margem] revenue_query: registrada falha #{_new_count}; próximo cooldown {_next_cd}s")
                             _log_margem_magento_failed(e, "revenue")
+                            _live_failed = True
+
+                    # Fallback final: se a tentativa ao vivo falhou (ou está em cooldown),
+                    # serve o snapshot de qualquer idade em vez de mostrar receita zerada.
+                    # Melhor mostrar dados ligeiramente atrasados do que esconder tudo.
+                    if _live_failed and not rev_by_bid:
+                        _stale_data, _stale_age_h = _load_snapshot_revenue(max_age_h=None)
+                        if _stale_data is not None:
+                            rev_by_bid = _stale_data
+                            # NÃO grava no cache de TTL: queremos voltar a tentar ao vivo
+                            # assim que o cooldown expirar.
+                            _aviso_stale = _format_snapshot_warning(_stale_age_h)
+                            if avisos_out is not None and _aviso_stale not in avisos_out:
+                                avisos_out.append(_aviso_stale)
+                            logger.info(
+                                f"[Margem] revenue_query STALE SNAPSHOT FALLBACK: "
+                                f"{len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_stale_age_h:.1f}h)"
+                            )
+                        else:
+                            _aviso_cooldown = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                            if avisos_out is not None and _aviso_cooldown not in avisos_out:
+                                avisos_out.append(_aviso_cooldown)
 
             # Consolida: usa qtd da query 1 + receita da query 2 (independentes)
             all_bids = set(qtd_by_bid.keys()) | set(rev_by_bid.keys())
