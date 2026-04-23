@@ -545,6 +545,7 @@ def get_kits_with_config(
             status_kit=row_dict.get("status_kit"),
             fonte="magento",
             cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
+            ignorado=cfg.ignorado if cfg else False,
         ))
 
     # --- Ativo-only events ---
@@ -715,6 +716,7 @@ def get_kits_with_config(
                     status_kit=None,
                     fonte="ativo",
                     cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
+                    ignorado=cfg.ignorado if cfg else False,
                 ))
 
     # ── PATH DIRETO (Ativo-only sem cadastro) ─────────────────────────────
@@ -785,6 +787,7 @@ def get_kits_with_config(
                 status_kit=None,
                 fonte="ativo",
                 cenario_ciclismo=cenario_ciclismo_val,
+                ignorado=cfg.ignorado if cfg else False,
             ))
             direct_emitted += 1
 
@@ -1064,6 +1067,7 @@ def upsert_kit_config_bulk(
                 existing.ativo_categoria = item.ativo_categoria or None
                 valid_cenarios = {'participacao', 'sem_bike', 'com_bike', None, ''}
                 existing.cenario_ciclismo = item.cenario_ciclismo if item.cenario_ciclismo in valid_cenarios else None
+                existing.ignorado = item.ignorado
             else:
                 new_config = KitConfig(
                     bundle_entity_id=item.bundle_entity_id,
@@ -1075,6 +1079,7 @@ def upsert_kit_config_bulk(
                     custo_kit=item.custo_kit,
                     ativo_categoria=item.ativo_categoria or None,
                     cenario_ciclismo=item.cenario_ciclismo if item.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None,
+                    ignorado=item.ignorado,
                 )
                 db.add(new_config)
 
@@ -1163,6 +1168,7 @@ def upsert_kit_config(
                 existing.custo_kit = body.custo_kit
             existing.ativo_categoria = body.ativo_categoria or None
             existing.cenario_ciclismo = body.cenario_ciclismo if body.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None
+            existing.ignorado = body.ignorado
             db.commit()
             db.refresh(existing)
             _kits_cache["data"] = None
@@ -1183,6 +1189,7 @@ def upsert_kit_config(
             custo_kit=body.custo_kit,
             ativo_categoria=body.ativo_categoria or None,
             cenario_ciclismo=body.cenario_ciclismo if body.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None,
+            ignorado=body.ignorado,
         )
         db.add(new_config)
         db.commit()

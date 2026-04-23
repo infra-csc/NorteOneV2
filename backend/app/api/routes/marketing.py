@@ -483,7 +483,10 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         _normalize_kit_name,
     )
 
-    all_configs = db.query(KitConfig).filter(KitConfig.id_evento.isnot(None)).all()
+    all_configs = db.query(KitConfig).filter(
+        KitConfig.id_evento.isnot(None),
+        KitConfig.ignorado == False,
+    ).all()
     if not all_configs:
         return {}
 
@@ -2256,7 +2259,8 @@ def get_margem_por_kit(
 
                 bundles = db.query(KitConfig).filter(
                     KitConfig.id_evento == magento_event_int,
-                    KitConfig.tipo_kit.isnot(None)
+                    KitConfig.tipo_kit.isnot(None),
+                    KitConfig.ignorado == False,
                 ).all()
                 for b in bundles:
                     if b.tipo_kit and b.bundle_entity_id not in seen_bundle_ids:

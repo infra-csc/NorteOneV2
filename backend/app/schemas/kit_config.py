@@ -12,6 +12,7 @@ class KitConfigUpsert(BaseModel):
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
     cenario_ciclismo: Optional[str] = None
+    ignorado: bool = False
 
 
 class KitConfigBulkItem(BaseModel):
@@ -24,6 +25,7 @@ class KitConfigBulkItem(BaseModel):
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
     cenario_ciclismo: Optional[str] = None
+    ignorado: bool = False
 
 
 class KitConfigBulkUpsert(BaseModel):
@@ -47,6 +49,7 @@ class KitConfigResponse(BaseModel):
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
     cenario_ciclismo: Optional[str] = None
+    ignorado: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -75,5 +78,6 @@ class KitRow(BaseModel):
     custo_kit: Optional[float] = None
     ativo_categoria: Optional[str] = None
     cenario_ciclismo: Optional[str] = None
+    ignorado: bool = False
     status_kit: Optional[str] = None
     fonte: Optional[str] = None

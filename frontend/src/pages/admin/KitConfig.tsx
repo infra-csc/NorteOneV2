@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star, Zap, Download, Filter, X } from 'lucide-react';
+import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star, Zap, Download, Filter, X, EyeOff } from 'lucide-react';
 
 interface KitRow {
   id_evento: string | null;
@@ -26,6 +26,7 @@ interface KitRow {
   status_kit: string | null;
   fonte?: string | null;
   cenario_ciclismo: string | null;
+  ignorado: boolean;
 }
 
 const fmtBRL = (v: number | null | undefined): string => {
@@ -50,6 +51,7 @@ const KitConfig: React.FC = () => {
   const [custoKitValues, setCustoKitValues] = useState<Record<number, string>>({});
   const [ativoCategValues, setAtivoCategValues] = useState<Record<number, string>>({});
   const [cenarioCicValues, setCenarioCicValues] = useState<Record<number, string>>({});
+  const [ignoradoValues, setIgnoradoValues] = useState<Record<number, boolean>>({});
   const [saving, setSaving] = useState<Record<number, boolean>>({});
   const [savedFeedback, setSavedFeedback] = useState<Record<number, boolean>>({});
   const [search, setSearch] = useState('');
@@ -62,8 +64,9 @@ const KitConfig: React.FC = () => {
   const [filterLote, setFilterLote] = useState('');
   const [filterStatusKit, setFilterStatusKit] = useState('');
   const [filterFonte, setFilterFonte] = useState('');
+  const [filterIgnorado, setFilterIgnorado] = useState<'ocultar' | 'todos' | 'apenas'>('ocultar');
 
-  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '' || filterStatusKit !== '' || filterFonte !== '';
+  const hasActiveFilters = filterTipo !== '' || filterBasico !== '' || filterStatus !== '' || filterLote !== '' || filterStatusKit !== '' || filterFonte !== '' || filterIgnorado !== 'ocultar';
 
   const clearFilters = () => {
     setFilterTipo('');
@@ -72,6 +75,7 @@ const KitConfig: React.FC = () => {
     setFilterLote('');
     setFilterStatusKit('');
     setFilterFonte('');
+    setFilterIgnorado('ocultar');
   };
 
   const tipoOptions = useMemo(() => {
@@ -97,6 +101,7 @@ const KitConfig: React.FC = () => {
       const custoKits: Record<number, string> = {};
       const ativoCats: Record<number, string> = {};
       const cenarioCics: Record<number, string> = {};
+      const ignorados: Record<number, boolean> = {};
 
       res.data.forEach((k: KitRow) => {
         edits[k.bundle_entity_id] = k.multiplicador;
@@ -106,6 +111,7 @@ const KitConfig: React.FC = () => {
         custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
         ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
         cenarioCics[k.bundle_entity_id] = k.cenario_ciclismo || '';
+        ignorados[k.bundle_entity_id] = !!k.ignorado;
       });
 
       // Custo do Kit Básico por evento (para auto-preenchimento)
@@ -134,6 +140,7 @@ const KitConfig: React.FC = () => {
       setCustoKitValues(custoKits);
       setAtivoCategValues(ativoCats);
       setCenarioCicValues(cenarioCics);
+      setIgnoradoValues(ignorados);
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
@@ -157,6 +164,7 @@ const KitConfig: React.FC = () => {
     const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
     const ativoCateg = (ativoCategValues[bundleId] ?? '').trim() || null;
     const cenarioCic = (cenarioCicValues[bundleId] ?? '').trim() || null;
+    const ignorado = ignoradoValues[bundleId] ?? false;
 
     setSaving((s) => ({ ...s, [bundleId]: true }));
     try {
@@ -169,6 +177,7 @@ const KitConfig: React.FC = () => {
         custo_kit: custoKit,
         ativo_categoria: ativoCateg,
         cenario_ciclismo: cenarioCic,
+        ignorado: ignorado,
       });
       setSavedFeedback((s) => ({ ...s, [bundleId]: true }));
       setTimeout(() => setSavedFeedback((s) => ({ ...s, [bundleId]: false })), 2000);
@@ -186,6 +195,7 @@ const KitConfig: React.FC = () => {
               tipo_kit: tipoKit,
               ativo_categoria: ativoCateg,
               cenario_ciclismo: cenarioCic,
+              ignorado: ignorado,
             };
           }
           if (isBasico && k.id_evento === kit?.id_evento && k.is_kit_basico) {
@@ -244,6 +254,7 @@ const KitConfig: React.FC = () => {
       const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : null;
       const ativoCateg = (ativoCategValues[id] ?? '').trim() || null;
       const cenarioCic = (cenarioCicValues[id] ?? '').trim() || null;
+      const ignorado = ignoradoValues[id] ?? false;
       return {
         bundle_entity_id: id,
         multiplicador: mult,
@@ -254,12 +265,14 @@ const KitConfig: React.FC = () => {
         custo_kit: custoKit,
         ativo_categoria: ativoCateg,
         cenario_ciclismo: cenarioCic,
+        ignorado: ignorado,
       };
     });
     try {
       await api.post('/kit-config/bulk', { items });
-    } catch {
-      alert('Erro ao salvar configurações em lote');
+    } catch (err) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      alert(axiosErr?.response?.data?.detail || 'Erro ao salvar configurações em lote');
     }
     setSelectedIds(new Set());
     setSavingMany(false);
@@ -345,8 +358,14 @@ const KitConfig: React.FC = () => {
       result = result.filter((k) => (k.fonte ?? 'magento') === filterFonte);
     }
 
+    if (filterIgnorado === 'ocultar') {
+      result = result.filter((k) => !(ignoradoValues[k.bundle_entity_id] ?? k.ignorado));
+    } else if (filterIgnorado === 'apenas') {
+      result = result.filter((k) => ignoradoValues[k.bundle_entity_id] ?? k.ignorado);
+    }
+
     return result;
-  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, filterStatusKit, filterFonte, basicoValues]);
+  }, [kits, search, filterTipo, filterBasico, filterStatus, filterLote, filterStatusKit, filterFonte, filterIgnorado, basicoValues, ignoradoValues]);
 
   const allSelected = filteredKits.length > 0 && filteredKits.every((k) => selectedIds.has(k.bundle_entity_id));
   const someSelected = !allSelected && filteredKits.some((k) => selectedIds.has(k.bundle_entity_id));
@@ -632,6 +651,12 @@ const KitConfig: React.FC = () => {
           <option value="ativo">Apenas Ativo</option>
         </select>
 
+        <select value={filterIgnorado} onChange={(e) => setFilterIgnorado(e.target.value as 'ocultar' | 'todos' | 'apenas')} className={selectClass}>
+          <option value="ocultar">Ignorados: Ocultos</option>
+          <option value="todos">Ignorados: Mostrar</option>
+          <option value="apenas">Ignorados: Apenas</option>
+        </select>
+
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
@@ -698,6 +723,7 @@ const KitConfig: React.FC = () => {
                     { label: 'Custo (R$)', align: 'text-right' },
                     { label: 'Básico', align: 'text-center' },
                     { label: 'Promo', align: 'text-center' },
+                    { label: 'Ignorar', align: 'text-center' },
                     { label: '', align: 'text-center' },
                   ].map(({ label, align }, i) => (
                     <th
@@ -735,11 +761,12 @@ const KitConfig: React.FC = () => {
                   const editTipoKit = tipoKitValues[kit.bundle_entity_id] ?? (kit.tipo_kit || '');
                   const editAtivoCateg = ativoCategValues[kit.bundle_entity_id] ?? (kit.ativo_categoria || '');
                   const editCenarioCic = cenarioCicValues[kit.bundle_entity_id] ?? (kit.cenario_ciclismo || '');
+                  const isIgnorado = ignoradoValues[kit.bundle_entity_id] ?? kit.ignorado;
                   const custoKitStr = (custoKitValues[kit.bundle_entity_id] ?? '').trim();
                   const computedPrice = kit.price_base != null ? kit.price_base * editMult : null;
                   const computedSpecialPrice = kit.special_price_base != null ? kit.special_price_base * editMult : null;
                   const custoKitChanged = kit.custo_cadastro == null && custoKitStr !== '' && parseFloat(custoKitStr) !== (kit.custo_kit ?? 0);
-                  const hasChanged = isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '') || editCenarioCic !== (kit.cenario_ciclismo || '');
+                  const hasChanged = isBasico !== kit.is_kit_basico || isPromoPrincipal !== kit.is_promo_principal || editTipoKit !== (kit.tipo_kit || '') || custoKitChanged || editAtivoCateg !== (kit.ativo_categoria || '') || editCenarioCic !== (kit.cenario_ciclismo || '') || isIgnorado !== kit.ignorado;
                   const canSave = hasChanged || !kit.is_configured;
                   const isSaving = saving[kit.bundle_entity_id];
                   const showSaved = savedFeedback[kit.bundle_entity_id];
@@ -754,7 +781,7 @@ const KitConfig: React.FC = () => {
                             ? 'border-l-4 border-l-amber-500'
                             : 'border-l-4 border-l-amber-400'
                           : ''
-                      }`}
+                      } ${isIgnorado ? 'opacity-50' : ''}`}
                     >
                       {/* Checkbox */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
@@ -961,6 +988,23 @@ const KitConfig: React.FC = () => {
                         </button>
                       </td>
 
+                      {/* Ignorar */}
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                        <button
+                          onClick={() => setIgnoradoValues((prev) => ({ ...prev, [kit.bundle_entity_id]: !isIgnorado }))}
+                          className={`p-1 rounded transition-colors ${
+                            isIgnorado
+                              ? 'text-rose-500 hover:text-rose-400'
+                              : isDark
+                              ? 'text-gray-600 hover:text-gray-400'
+                              : 'text-gray-300 hover:text-gray-500'
+                          }`}
+                          title={isIgnorado ? 'Kit ignorado em cálculos (margem, ticket, ISC). Clique para reativar.' : 'Marcar como ignorado nos cálculos (margem, ticket, ISC)'}
+                        >
+                          <EyeOff className={`w-5 h-5 ${isIgnorado ? 'fill-current' : ''}`} />
+                        </button>
+                      </td>
+
                       {/* Salvar */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         {showSaved ? (
@@ -991,7 +1035,7 @@ const KitConfig: React.FC = () => {
                 })}
                 {filteredKits.length === 0 && (
                   <tr>
-                    <td colSpan={14} className={`px-3 py-12 text-center ${textSecondary}`}>
+                    <td colSpan={16} className={`px-3 py-12 text-center ${textSecondary}`}>
                       {search || hasActiveFilters ? 'Nenhum kit encontrado para os filtros aplicados.' : 'Nenhum kit encontrado.'}
                     </td>
                   </tr>
