@@ -786,26 +786,23 @@ const Dashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {opData.top_por_velocity?.length > 0 && (
-                <div className={cardClass}>
-                  <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    <TrendingUp className="w-4 h-4 text-amber-400" />
-                    Top Eventos — Velocidade Rolling 14d
-                  </h3>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={opData.top_por_velocity} layout="vertical" margin={{ left: 8, right: 16 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                      <XAxis type="number" tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={v => `${v.toFixed(1)}`} />
-                      <YAxis type="category" dataKey="evento" width={140} tick={{ fontSize: 10, fill: isDark ? '#9ca3af' : '#6b7280' }} />
-                      <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                      <Bar dataKey="rolling14d" name="Vel. 14d (inscrições/dia)" fill="#f59e0b" radius={[0, 6, 6, 0]} barSize={16} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-            </div>
+            {opData.top_por_velocity?.length > 0 && (
+              <div className={cardClass}>
+                <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  <TrendingUp className="w-4 h-4 text-amber-400" />
+                  Top Eventos — Velocidade Rolling 14d
+                </h3>
+                <ResponsiveContainer width="100%" height={Math.max(260, opData.top_por_velocity.length * 32 + 80)}>
+                  <BarChart data={opData.top_por_velocity} layout="vertical" margin={{ left: 8, right: 16 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={v => `${v.toFixed(1)}`} />
+                    <YAxis type="category" dataKey="evento" width={220} tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} />
+                    <Tooltip content={<CustomTooltip isDark={isDark} />} />
+                    <Bar dataKey="rolling14d" name="Vel. 14d (inscrições/dia)" fill="#f59e0b" radius={[0, 6, 6, 0]} barSize={20} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
 
             {canSeeFinancial && finData && (
               <>
