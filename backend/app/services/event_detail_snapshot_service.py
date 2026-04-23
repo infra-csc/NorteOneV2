@@ -126,7 +126,38 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
             evt["averageTicket"] = round(new_rev / new_qty, 2)
         out["evento"] = evt
 
-    # --- timestamps ---
+    # --- dMinus / dMinusInscricoes overlay ---
+    # O snapshot persiste D- calculado no dia em que foi gravado. Sem este
+    # overlay, após 1+ dia(s) o detalhe do evento exibe D- defasado (mesma
+    # classe de bug do Dash ISC/Nori). Recalcula a partir de evento.date.
+    try:
+        evt_cur = out.get("evento")
+        if isinstance(evt_cur, dict):
+            ev_date_raw = evt_cur.get("date")
+            if isinstance(ev_date_raw, str) and ev_date_raw:
+                try:
+                    ev_date_parsed = date.fromisoformat(ev_date_raw[:10])
+                except Exception:
+                    ev_date_parsed = None
+                if ev_date_parsed is not None:
+                    d_ins_old = evt_cur.get("dMinusInscricoes")
+                    d_evt_old = evt_cur.get("dMinus")
+                    if isinstance(d_ins_old, int) and isinstance(d_evt_old, int) and d_evt_old >= d_ins_old:
+                        dias_enc = d_evt_old - d_ins_old
+                    else:
+                        dias_enc = 2
+                    d_evt_raw = (ev_date_parsed - today).days
+                    d_ins_raw = d_evt_raw - dias_enc
+                    d_evt_new = max(0, d_evt_raw)
+                    d_ins_new = max(0, d_ins_raw)
+                    if d_evt_new != d_evt_old or d_ins_new != d_ins_old:
+                        evt_cur = dict(evt_cur)
+                        evt_cur["dMinus"] = d_evt_new
+                        evt_cur["dMinusInscricoes"] = d_ins_new
+                        out["evento"] = evt_cur
+    except Exception as e:
+        logger.debug(f"[Overlay] could not refresh dMinus for '{evento_id}': {e}")
+
     try:
         from ..core.cache import get_last_sync_hoje
         _lsh = get_last_sync_hoje()

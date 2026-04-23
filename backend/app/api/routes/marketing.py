@@ -4330,9 +4330,17 @@ def get_playbook():
 def _refresh_d_minus_in_cached_eventos(cached: dict, cache_key: str) -> dict:
     """
     O cache da lista de eventos pode ter sido gerado em um dia anterior
-    (TTL ~22h, stale até 48h). Para que o D- exibido sempre reflita o dia
-    de hoje (Brasil), reduzimos `dMinus` e `dMinusInscricoes` de cada evento
-    pelos dias decorridos desde a criação do cache.
+    (TTL ~22h, stale até 48h) ou ter sido populado a partir do snapshot
+    persistido (cuja `dMinusInscricoes` foi gravada quando o snapshot foi
+    calculado, dias atrás). Para que o D- exibido sempre reflita o dia
+    de hoje (Brasil), recalculamos `dMinus` e `dMinusInscricoes` de cada
+    evento diretamente a partir de `evt["date"]` (data do evento) — sem
+    depender do timestamp do cache, que pode estar fresco mesmo quando os
+    valores embutidos estão antigos.
+
+    Preservamos `dias_encerramento` deduzindo-o da diferença original
+    (`dMinus - dMinusInscricoes`), assim cada evento mantém sua própria
+    janela de encerramento de inscrições.
 
     Não mexemos em isActive/iscStatus/etc — esses são reciclados no próximo
     refresh do cache; queremos apenas evitar mostrar D- desatualizado nas
@@ -4343,26 +4351,34 @@ def _refresh_d_minus_in_cached_eventos(cached: dict, cache_key: str) -> dict:
     eventos = cached.get("eventos")
     if not isinstance(eventos, list) or not eventos:
         return cached
-    cache_ts = eventos_list_cache.get_all_timestamps().get(cache_key)
-    if cache_ts is None:
-        return cached
-    try:
-        cache_date = datetime.fromtimestamp(cache_ts, tz=_TZ_BRAZIL).date()
-    except Exception:
-        return cached
-    days_elapsed = (today_brazil() - cache_date).days
-    if days_elapsed <= 0:
-        return cached
+    today = today_brazil()
     new_eventos = []
     changed = False
     for ev in eventos:
         if not isinstance(ev, dict):
             new_eventos.append(ev)
             continue
+        ev_date_raw = ev.get("date")
+        if not isinstance(ev_date_raw, str) or not ev_date_raw:
+            new_eventos.append(ev)
+            continue
+        try:
+            ev_date = date.fromisoformat(ev_date_raw[:10])
+        except Exception:
+            new_eventos.append(ev)
+            continue
         d_ins = ev.get("dMinusInscricoes")
         d_evt = ev.get("dMinus")
-        new_d_ins = max(0, d_ins - days_elapsed) if isinstance(d_ins, int) and d_ins > 0 else d_ins
-        new_d_evt = max(0, d_evt - days_elapsed) if isinstance(d_evt, int) and d_evt > 0 else d_evt
+        # Deduz dias_encerramento a partir dos valores armazenados (são
+        # consistentes entre si mesmo quando defasados em relação a hoje).
+        if isinstance(d_ins, int) and isinstance(d_evt, int) and d_evt >= d_ins:
+            dias_enc = d_evt - d_ins
+        else:
+            dias_enc = 2
+        new_d_evt_raw = (ev_date - today).days
+        new_d_ins_raw = new_d_evt_raw - dias_enc
+        new_d_evt = max(0, new_d_evt_raw)
+        new_d_ins = max(0, new_d_ins_raw)
         if new_d_ins != d_ins or new_d_evt != d_evt:
             ev = {**ev, "dMinusInscricoes": new_d_ins, "dMinus": new_d_evt}
             changed = True
