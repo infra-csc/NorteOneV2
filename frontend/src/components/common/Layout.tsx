@@ -179,11 +179,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     navigate('/login');
   };
 
-  const cadastroItems = menuItems.filter(item => item.path.includes('/cadastros/') && canView(item.modulo));
+  const baseCadastroItems = menuItems.filter(item => item.path.includes('/cadastros/') && canView(item.modulo));
   const mainItems = menuItems.filter(item => !item.path.includes('/cadastros/') && canView(item.modulo));
   const filteredCotacaoItems = cotacaoItems.filter(item => canView(item.modulo));
   const filteredMarketingItems = marketingItems.filter(item => canView(item.modulo));
   const showProjecaoInscritos = canView(projecaoInscritosItem.modulo);
+  const cadastroItems = [...baseCadastroItems];
+  if (showProjecaoInscritos) {
+    const eventosIdx = cadastroItems.findIndex(item => item.path === '/cadastros/eventos');
+    const insertAt = eventosIdx >= 0 ? eventosIdx + 1 : cadastroItems.length;
+    cadastroItems.splice(insertAt, 0, projecaoInscritosItem);
+  }
   const filteredAdminItems = adminItems.filter(item => canView(item.modulo));
 
   return (
@@ -290,26 +296,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </div>
           )}
-
-          {showProjecaoInscritos && (() => {
-            const Icon = projecaoInscritosItem.icon;
-            const isActive = location.pathname === projecaoInscritosItem.path;
-            return (
-              <Link
-                to={projecaoInscritosItem.path}
-                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
-                    : isDark
-                    ? 'text-gray-300 hover:bg-gray-700'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                <Icon className="w-5 h-5 mr-3" />
-                {projecaoInscritosItem.label}
-              </Link>
-            );
-          })()}
 
           {cadastroItems.length > 0 && (
           <div>
