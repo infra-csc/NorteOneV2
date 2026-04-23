@@ -1,49 +1,18 @@
 import React from 'react';
-import { Download, RefreshCw, Share, X, Smartphone, PlusSquare } from 'lucide-react';
+import { Download, Share, X, Smartphone, PlusSquare } from 'lucide-react';
 import { usePWA } from './usePWA';
 
 const PWAManager: React.FC = () => {
   const {
-    needRefresh,
     installPromptAvailable,
     showIOSInstallHint,
-    applyUpdate,
-    dismissUpdate,
     triggerInstall,
     dismissInstall,
   } = usePWA();
 
   return (
     <>
-      {needRefresh && (
-        <div
-          role="status"
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] w-[min(92vw,420px)] rounded-xl shadow-2xl border border-indigo-400/40 bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-3 flex items-center gap-3"
-        >
-          <RefreshCw className="w-5 h-5 flex-shrink-0" />
-          <div className="flex-1 text-sm">
-            <p className="font-semibold leading-tight">Nova versão disponível</p>
-            <p className="text-xs text-indigo-100 leading-tight mt-0.5">
-              Atualize para receber as últimas melhorias.
-            </p>
-          </div>
-          <button
-            onClick={applyUpdate}
-            className="text-xs font-semibold bg-white text-indigo-700 hover:bg-indigo-50 rounded-md px-3 py-1.5 transition-colors"
-          >
-            Atualizar
-          </button>
-          <button
-            onClick={dismissUpdate}
-            aria-label="Dispensar"
-            className="p-1 rounded-md hover:bg-white/10 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {!needRefresh && installPromptAvailable && (
+      {installPromptAvailable && (
         <div
           role="dialog"
           aria-label="Instalar Norte One"
@@ -77,7 +46,7 @@ const PWAManager: React.FC = () => {
         </div>
       )}
 
-      {!needRefresh && !installPromptAvailable && showIOSInstallHint && (
+      {!installPromptAvailable && showIOSInstallHint && (
         <div
           role="dialog"
           aria-label="Instalar no iOS"

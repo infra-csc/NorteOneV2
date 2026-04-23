@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { registerSW } from 'virtual:pwa-register';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -59,26 +59,44 @@ function wasRecentlyDismissed(): boolean {
 }
 
 export interface PWAState {
-  needRefresh: boolean;
   installPromptAvailable: boolean;
   showIOSInstallHint: boolean;
-  applyUpdate: () => void;
-  dismissUpdate: () => void;
   triggerInstall: () => Promise<void>;
   dismissInstall: () => void;
 }
 
 export function usePWA(): PWAState {
-  const [needRefresh, setNeedRefresh] = useState(false);
-  const [updateSW, setUpdateSW] = useState<((reload?: boolean) => Promise<void>) | null>(null);
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [showIOSInstallHint, setShowIOSInstallHint] = useState(false);
+  const updateSWRef = useRef<((reload?: boolean) => Promise<void>) | null>(null);
+  const reloadingRef = useRef(false);
 
   useEffect(() => {
+    const triggerAutoReload = () => {
+      if (reloadingRef.current) return;
+      reloadingRef.current = true;
+      const fn = updateSWRef.current;
+      // Aplica a nova versão automaticamente. updateSW(true) ativa o novo SW e
+      // faz o reload. Como fallback (caso o registro ainda não esteja pronto
+      // por algum motivo), recarrega manualmente após um pequeno atraso.
+      try {
+        if (fn) {
+          void fn(true);
+        }
+      } catch (err) {
+        console.warn('[PWA] auto-update falhou, recarregando manualmente', err);
+      }
+      window.setTimeout(() => {
+        if (reloadingRef.current) {
+          window.location.reload();
+        }
+      }, 1500);
+    };
+
     const fn = registerSW({
       immediate: true,
       onNeedRefresh() {
-        setNeedRefresh(true);
+        triggerAutoReload();
       },
       onOfflineReady() {
         // Cache primed: app pode abrir offline
@@ -87,7 +105,7 @@ export function usePWA(): PWAState {
         console.warn('[PWA] Service worker registration failed', err);
       },
     });
-    setUpdateSW(() => fn);
+    updateSWRef.current = fn;
   }, []);
 
   useEffect(() => {
@@ -119,16 +137,6 @@ export function usePWA(): PWAState {
     };
   }, []);
 
-  const applyUpdate = () => {
-    if (updateSW) {
-      void updateSW(true);
-    } else {
-      window.location.reload();
-    }
-  };
-
-  const dismissUpdate = () => setNeedRefresh(false);
-
   const triggerInstall = async () => {
     if (!deferred) return;
     await deferred.prompt();
@@ -154,11 +162,8 @@ export function usePWA(): PWAState {
   };
 
   return {
-    needRefresh,
     installPromptAvailable: deferred !== null,
     showIOSInstallHint,
-    applyUpdate,
-    dismissUpdate,
     triggerInstall,
     dismissInstall,
   };
