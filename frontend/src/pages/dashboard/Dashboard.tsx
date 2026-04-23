@@ -805,27 +805,6 @@ const Dashboard: React.FC = () => {
                 </div>
               )}
 
-              {opData.distribuicao_modalidade?.length > 0 && (
-                <div className={cardClass}>
-                  <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    <Target className="w-4 h-4 text-purple-400" />
-                    Atletas por Modalidade
-                  </h3>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <PieChart>
-                      <Pie data={opData.distribuicao_modalidade} dataKey="atletas" nameKey="modalidade"
-                        cx="50%" cy="50%" outerRadius={95} innerRadius={50} paddingAngle={3}
-                        label={({ modalidade, percent }: any) => `${modalidade} ${(percent * 100).toFixed(0)}%`}
-                        labelLine={{ stroke: isDark ? '#6b7280' : '#9ca3af' }}>
-                        {opData.distribuicao_modalidade.map((_: any, idx: number) => (
-                          <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
             </div>
 
             {canSeeFinancial && finData && (
