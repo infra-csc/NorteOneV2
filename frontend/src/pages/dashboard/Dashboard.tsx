@@ -169,7 +169,6 @@ type SortKey = keyof Pick<EventoInscricoes,
 
 const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boolean }> = ({ rows, isDark }) => {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [periodoFilter, setPeriodoFilter] = useState<string>('all');
   const [eventoStatusFilter, setEventoStatusFilter] = useState<string>('em_andamento');
   const [collapsed, setCollapsed] = useState(false);
@@ -180,7 +179,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
     const s = search.trim().toLowerCase();
     return rows.filter(r => {
       if (s && !(r.evento.toLowerCase().includes(s) || (r.cidade || '').toLowerCase().includes(s))) return false;
-      if (statusFilter !== 'all' && r.isc_status !== statusFilter) return false;
       if (eventoStatusFilter !== 'all') {
         const d = r.dias_para_evento;
         if (eventoStatusFilter === 'em_andamento' && d != null && d < 0) return false;
@@ -195,7 +193,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
       }
       return true;
     });
-  }, [rows, search, statusFilter, periodoFilter]);
+  }, [rows, search, eventoStatusFilter, periodoFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -282,13 +280,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                 isDark ? 'bg-gray-700/60 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-500'
               } focus:ring-2 focus:ring-indigo-500 focus:border-transparent`} />
           </div>
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
-            <option value="all">Todos os status</option>
-            <option value="accelerating">Acelerando</option>
-            <option value="stable">Estável</option>
-            <option value="decelerating">Desacelerando</option>
-          </select>
           <select value={eventoStatusFilter} onChange={e => setEventoStatusFilter(e.target.value)}
             className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
             <option value="all">Todos os eventos</option>
