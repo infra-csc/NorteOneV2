@@ -523,10 +523,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                               </div>
                             )}
                           </div>
-                          <div className={`mt-3 pt-3 border-t flex items-center justify-between ${isDark ? 'border-gray-700/50' : 'border-violet-100'}`}>
-                            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Geral</span>
-                            <span className={`text-base font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totalGeral)}</span>
-                          </div>
                         </div>
                       </td>
                     </tr>
