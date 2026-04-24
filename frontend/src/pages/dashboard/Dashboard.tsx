@@ -338,7 +338,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
         </div>
         )}
       </div>
-      {!collapsed && viewMode === 'site' && (
+      {viewMode === 'site' && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -357,10 +357,10 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
-            {sorted.length === 0 && (
+            {!collapsed && sorted.length === 0 && (
               <tr><td colSpan={11} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
-            {sorted.map(r => {
+            {!collapsed && sorted.map(r => {
               const projSite = r.inscritos_projetados_site || 0;
               const totalSite = (r.inscritos_total || 0) + projSite;
               return (
@@ -428,7 +428,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
       </div>
       )}
 
-      {!collapsed && viewMode === 'projecoes' && (
+      {viewMode === 'projecoes' && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -440,10 +440,10 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
-            {sorted.length === 0 && (
+            {!collapsed && sorted.length === 0 && (
               <tr><td colSpan={4} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
-            {sorted.map(r => {
+            {!collapsed && sorted.map(r => {
               const isExpanded = expandedRows.has(r.id);
               const areas = (r.projecoes_por_area || []).slice().sort((a, b) => b.quantidade - a.quantidade);
               const totalProj = r.inscritos_projetados || 0;
