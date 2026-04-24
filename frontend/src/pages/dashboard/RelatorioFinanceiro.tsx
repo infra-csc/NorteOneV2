@@ -57,7 +57,7 @@ const DeltaBadge: React.FC<{ value: number; small?: boolean }> = ({ value, small
   );
 };
 
-const MargemBadge: React.FC<{ value: number; pct?: number; small?: boolean }> = ({ value, pct, small }) => {
+const MargemBadge: React.FC<{ value: number; small?: boolean }> = ({ value, small }) => {
   const positive = value >= 0;
   const size = small ? 'text-xs' : 'text-sm';
   return (
@@ -90,7 +90,6 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
   const totalMargemOrcada = meses.reduce((s, m) => s + m.margem_orcada_total, 0);
   const totalOrcado = meses.reduce((s, m) => s + m.receita_orcada_total, 0);
   const totalMargemRealizada = meses.reduce((s, m) => s + m.margem_realizada_total, 0);
-  const totalMargemRealizadaPct = totalReceita > 0 ? totalMargemRealizada / totalReceita * 100 : 0;
 
   if (loading) {
     return (
@@ -119,20 +118,6 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
             <BarChart2 className="w-4 h-4 text-emerald-400" />
             Resultado por Mês e Evento
           </h3>
-          <div className="flex items-center gap-6 text-xs flex-wrap">
-            <div className="flex flex-col items-end">
-              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Receita Realizada</span>
-              <span className={`font-bold text-sm ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>{formatCurrency(totalReceita)}</span>
-            </div>
-            <div className="flex flex-col items-end">
-              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Orçada</span>
-              <MargemBadge value={totalMargemOrcada} />
-            </div>
-            <div className="flex flex-col items-end">
-              <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Margem Realizada</span>
-              <MargemBadge value={totalMargemRealizada} pct={totalMargemRealizadaPct} />
-            </div>
-          </div>
         </div>
       </div>
 
@@ -288,7 +273,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
               </td>
               <td className="px-4 py-3 text-right">
                 {totalReceita > 0
-                  ? <MargemBadge value={totalMargemRealizada} pct={totalMargemRealizadaPct} />
+                  ? <MargemBadge value={totalMargemRealizada} />
                   : <span className="text-xs text-gray-400">—</span>}
               </td>
               <td className="px-4 py-3 text-right">
