@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
-  ChevronDown, ChevronRight, TrendingUp, TrendingDown,
+  ChevronDown, ChevronRight,
   BarChart2, Calendar
 } from 'lucide-react';
 
@@ -11,8 +11,6 @@ const formatCurrency = (value: number) =>
 const formatNumber = (value: number) =>
   new Intl.NumberFormat('pt-BR').format(value);
 
-const formatPct = (value: number) =>
-  `${value.toFixed(1)}%`;
 
 interface EventoRow {
   id_evento: number;
@@ -67,14 +65,6 @@ const MargemBadge: React.FC<{ value: number; pct?: number; small?: boolean }> = 
       <span className={`${size} font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
         {formatCurrency(value)}
       </span>
-      {pct !== undefined && (
-        <span className={`text-xs font-medium flex items-center gap-0.5 ${positive ? 'text-emerald-500' : 'text-red-500'}`}>
-          {positive
-            ? <TrendingUp className="w-3 h-3" />
-            : <TrendingDown className="w-3 h-3" />}
-          {formatPct(pct)}
-        </span>
-      )}
     </div>
   );
 };
