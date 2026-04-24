@@ -476,7 +476,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                           ? 'bg-gradient-to-br from-violet-500/30 to-purple-500/20 text-white ring-1 ring-violet-400/40'
                           : 'bg-gradient-to-br from-violet-100 to-purple-100 text-violet-900 ring-1 ring-violet-300/60'
                       }`}>
-                        {fmtNum(totalGeral)}
+                        {fmtNum(totalProj)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
@@ -545,7 +545,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                       ? 'bg-gradient-to-br from-violet-500/40 to-purple-500/30 text-white ring-1 ring-violet-400/50'
                       : 'bg-gradient-to-br from-violet-200 to-purple-200 text-violet-900 ring-1 ring-violet-400/60'
                   }`}>
-                    {fmtNum(totals.geral)}
+                    {fmtNum(totals.projetados)}
                   </span>
                 </td>
                 <td />
