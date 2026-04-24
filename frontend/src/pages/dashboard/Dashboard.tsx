@@ -435,15 +435,13 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <tr className={isDark ? 'bg-gray-700/40' : 'bg-gray-50/80'}>
               <Th k="evento">Evento</Th>
               <Th k="data_evento" align="center">Data</Th>
-              <Th k="inscritos_total" align="center">Inscritos Site</Th>
-              <Th k="inscritos_projetados" align="center">Total Projeções</Th>
               <Th k="total_geral" align="center">Total Inscritos</Th>
               <Th align="center"><span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Expandir detalhes →</span></Th>
             </tr>
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
             {sorted.length === 0 && (
-              <tr><td colSpan={6} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
+              <tr><td colSpan={4} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
             {sorted.map(r => {
               const isExpanded = expandedRows.has(r.id);
@@ -472,8 +470,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                         }`}>D-{r.dias_para_evento}</div>
                       )}
                     </td>
-                    <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
-                    <td className={`px-4 py-3 text-center ${totalProj > 0 ? 'text-violet-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(totalProj)}</td>
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
                         isDark
@@ -496,7 +492,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                   </tr>
                   {isExpanded && (
                     <tr className={isDark ? 'bg-gray-900/30' : 'bg-violet-50/40'}>
-                      <td colSpan={6} className="px-6 py-4">
+                      <td colSpan={4} className="px-6 py-4">
                         <div className={`rounded-xl border p-4 ${isDark ? 'bg-gray-800/60 border-gray-700/50' : 'bg-white border-violet-100'}`}>
                           <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                             Composição de Inscritos
@@ -547,8 +543,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <tfoot>
               <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
                 <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
-                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
-                <td className={`px-4 py-3 text-center font-bold ${totals.projetados > 0 ? 'text-violet-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
                     isDark
