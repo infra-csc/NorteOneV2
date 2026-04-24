@@ -229,6 +229,9 @@ const ProjecaoInscritos: React.FC = () => {
   const [atribuirArea, setAtribuirArea] = useState<AreaDetail | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
 
+  const [showCreateAreaModal, setShowCreateAreaModal] = useState(false);
+  const [newAreaNome, setNewAreaNome] = useState('');
+
   const [expandedConsolidado, setExpandedConsolidado] = useState<Set<number>>(new Set());
 
   const [confirmModal, setConfirmModal] = useState<{
@@ -562,6 +565,25 @@ const ProjecaoInscritos: React.FC = () => {
       loadAreasDetail();
     } catch (error: any) {
       showToast(error.response?.data?.detail || 'Erro ao atribuir usuários');
+    }
+  };
+
+  const handleCreateArea = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const nome = newAreaNome.trim();
+    if (!nome) {
+      showToast('Informe o nome da área.');
+      return;
+    }
+    try {
+      await projecaoService.createArea(nome);
+      setShowCreateAreaModal(false);
+      setNewAreaNome('');
+      loadAreasDetail();
+      loadData();
+      showToast('Área criada com sucesso', 'success');
+    } catch (error: any) {
+      showToast(error.response?.data?.detail || 'Erro ao criar área');
     }
   };
 
@@ -989,9 +1011,18 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'config' && isAdmin && (
           <div className="space-y-4">
-            <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-              Defina quais usuários podem preencher projeções em cada área.
-            </p>
+            <div className="flex items-center justify-between">
+              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                Defina quais usuários podem preencher projeções em cada área.
+              </p>
+              <button
+                onClick={() => { setNewAreaNome(''); setShowCreateAreaModal(true); }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                Nova Área
+              </button>
+            </div>
             {areasDetail.map(area => (
               <div key={area.id} className={cardClass}>
                 <div className="flex items-center justify-between">
@@ -1321,6 +1352,50 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Nova Área Modal */}
+      {showCreateAreaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+            <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
+              <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Nova Área</h2>
+              <button onClick={() => setShowCreateAreaModal(false)} className="p-2 rounded-lg hover:bg-gray-700/50">
+                <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+              </button>
+            </div>
+            <form onSubmit={handleCreateArea} className="p-6 space-y-4">
+              <div>
+                <label className={`block text-sm font-semibold mb-2 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Nome da Área
+                </label>
+                <input
+                  type="text"
+                  value={newAreaNome}
+                  onChange={e => setNewAreaNome(e.target.value)}
+                  placeholder="Ex: Site, Marketing, Operações..."
+                  className={inputClass}
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateAreaModal(false)}
+                  className={`px-4 py-2.5 rounded-xl font-semibold ${isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                >
+                  Criar Área
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

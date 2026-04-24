@@ -1239,6 +1239,10 @@ export const projecaoService = {
     const response = await api.get('/projecao/areas/detail');
     return response.data;
   },
+  createArea: async (nome: string) => {
+    const response = await api.post('/projecao/areas', { nome });
+    return response.data;
+  },
   atribuirUsuarios: async (data: { area_projecao_id: number; usuario_ids: number[] }) => {
     const response = await api.post('/projecao/areas/atribuir', data);
     return response.data;

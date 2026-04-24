@@ -32,6 +32,10 @@ class AreaProjecaoDetailResponse(AreaProjecaoResponse):
         from_attributes = True
 
 
+class AreaProjecaoCreate(BaseModel):
+    nome: str
+
+
 class AreaProjecaoUsuarioCreate(BaseModel):
     area_projecao_id: int
     usuario_id: int

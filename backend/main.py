@@ -1156,6 +1156,7 @@ def _seed_areas_projecao():
             "Cortesia RH",
             "Relações Institucionais - Sem Kit",
             "Company - Sem Kit",
+            "Site",
         ]
         for nome in areas_padrao:
             exists = db.execute(text("SELECT id FROM area_projecao WHERE nome = :nome"), {"nome": nome}).fetchone()

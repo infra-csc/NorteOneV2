@@ -16,7 +16,7 @@ from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
 from ...models.dimensoes import SkuMapping, EventoGrupo
 from ...schemas.projecao import (
-    AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
+    AreaProjecaoCreate, AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
     AreaProjecaoUsuarioBulk,
     ProjecaoInscritosCreate, ProjecaoInscritosUpdate, ProjecaoInscritosResponse,
     HistoricoResponse,
@@ -101,6 +101,27 @@ def list_areas_detail(
             usuarios=usuarios_list,
         ))
     return result
+
+
+@router.post("/areas", response_model=AreaProjecaoResponse)
+def create_area(
+    data: AreaProjecaoCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem criar áreas")
+    nome = data.nome.strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Nome da área não pode ser vazio")
+    existing = db.query(AreaProjecao).filter(AreaProjecao.nome == nome).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe uma área com este nome")
+    area = AreaProjecao(nome=nome)
+    db.add(area)
+    db.commit()
+    db.refresh(area)
+    return area
 
 
 @router.post("/areas/atribuir")
