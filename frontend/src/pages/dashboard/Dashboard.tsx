@@ -143,6 +143,11 @@ const OcupacaoBar: React.FC<{ taxa: number }> = ({ taxa }) => {
   );
 };
 
+interface ProjecaoAreaItem {
+  area: string;
+  quantidade: number;
+}
+
 interface EventoInscricoes {
   id: number;
   evento: string;
@@ -153,6 +158,8 @@ interface EventoInscricoes {
   dias_para_evento: number | null;
   inscritos_total: number;
   inscritos_projetados?: number;
+  inscritos_projetados_site?: number;
+  projecoes_por_area?: ProjecaoAreaItem[];
   total_geral?: number;
   inscritos_hoje: number;
   inscritos_ontem: number;
@@ -174,6 +181,8 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   const [collapsed, setCollapsed] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('data_evento');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [viewMode, setViewMode] = useState<'site' | 'projecoes'>('site');
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -211,15 +220,24 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
     const sum = filtered.reduce((acc, r) => ({
       total: acc.total + (r.inscritos_total || 0),
       projetados: acc.projetados + (r.inscritos_projetados || 0),
+      projetados_site: acc.projetados_site + (r.inscritos_projetados_site || 0),
       geral: acc.geral + (r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0))),
       hoje: acc.hoje + (r.inscritos_hoje || 0),
       ontem: acc.ontem + (r.inscritos_ontem || 0),
       m7: acc.m7 + (r.media_7d || 0),
       m14: acc.m14 + (r.media_14d || 0),
-    }), { total: 0, projetados: 0, geral: 0, hoje: 0, ontem: 0, m7: 0, m14: 0 });
+    }), { total: 0, projetados: 0, projetados_site: 0, geral: 0, hoje: 0, ontem: 0, m7: 0, m14: 0 });
     const n = filtered.length || 1;
     return { ...sum, m7Avg: sum.m7 / n, m14Avg: sum.m14 / n };
   }, [filtered]);
+
+  const toggleRow = (id: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -261,16 +279,40 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   return (
     <div className={`${cardClass} overflow-hidden`}>
       <div className={`p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 ${collapsed ? '' : 'border-b border-gray-200/50 dark:border-gray-700/50'}`}>
-        <button
-          type="button"
-          onClick={() => setCollapsed(c => !c)}
-          title={collapsed ? 'Expandir tabela' : 'Recolher tabela'}
-          className={`text-sm font-bold flex items-center gap-2 ${isDark ? 'text-white hover:text-indigo-300' : 'text-gray-900 hover:text-indigo-600'} transition-colors`}
-        >
-          <ListOrdered className="w-4 h-4 text-indigo-400" />
-          Inscrições por Evento <span className={`text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>· {filtered.length} de {rows.length}</span>
-          <ChevronUp className={`w-4 h-4 ml-1 transition-transform ${collapsed ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-        </button>
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => setCollapsed(c => !c)}
+            title={collapsed ? 'Expandir tabela' : 'Recolher tabela'}
+            className={`text-sm font-bold flex items-center gap-2 shrink-0 ${isDark ? 'text-white hover:text-indigo-300' : 'text-gray-900 hover:text-indigo-600'} transition-colors`}
+          >
+            <ListOrdered className="w-4 h-4 text-indigo-400" />
+            Inscrições por Evento <span className={`text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>· {filtered.length} de {rows.length}</span>
+            <ChevronUp className={`w-4 h-4 ml-1 transition-transform ${collapsed ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+          </button>
+          {!collapsed && (
+            <div className={`flex items-center rounded-lg border p-0.5 ${isDark ? 'bg-gray-700/60 border-gray-600' : 'bg-gray-100 border-gray-200'}`}>
+              <button
+                type="button"
+                onClick={() => setViewMode('site')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${viewMode === 'site'
+                  ? 'bg-indigo-500 text-white shadow-sm'
+                  : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Site
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('projecoes')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${viewMode === 'projecoes'
+                  ? 'bg-violet-500 text-white shadow-sm'
+                  : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Projeções
+              </button>
+            </div>
+          )}
+        </div>
         {!collapsed && (
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -296,7 +338,7 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
         </div>
         )}
       </div>
-      {!collapsed && (
+      {!collapsed && viewMode === 'site' && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -304,8 +346,8 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
               <Th k="evento">Evento</Th>
               <Th k="data_evento" align="center">Data</Th>
               <Th k="inscritos_total" align="center">Inscritos Site</Th>
-              <Th k="inscritos_projetados" align="center">Projeção</Th>
-              <Th k="total_geral" align="center">Total Inscritos</Th>
+              <Th k="inscritos_projetados" align="center">Projeção Site</Th>
+              <Th k="total_geral" align="center">Total Site</Th>
               <Th k="inscritos_ontem" align="center">Ontem</Th>
               <Th k="inscritos_hoje" align="center">Hoje</Th>
               <Th align="center">Δ Hoje</Th>
@@ -318,55 +360,59 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             {sorted.length === 0 && (
               <tr><td colSpan={11} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
-            {sorted.map(r => (
-              <tr key={r.id} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-indigo-50/40'}>
-                <td className="px-4 py-3">
-                  <div className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{r.evento}</div>
-                  <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.cidade} · {r.modalidade}</div>
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <div className={isDark ? 'text-gray-200' : 'text-gray-800'}>{fmtDate(r.data_evento)}</div>
-                  {r.dias_para_evento != null && r.dias_para_evento >= 0 && (
-                    <div className={`text-xs font-bold mt-0.5 inline-block px-2 py-0.5 rounded-full ${
-                      r.dias_para_evento <= 7 ? 'bg-red-500/20 text-red-400' :
-                      r.dias_para_evento <= 30 ? 'bg-amber-500/20 text-amber-400' :
-                      'bg-indigo-500/20 text-indigo-400'
-                    }`}>D-{r.dias_para_evento}</div>
-                  )}
-                </td>
-                <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
-                <td className={`px-4 py-3 text-center ${(r.inscritos_projetados || 0) > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(r.inscritos_projetados || 0)}</td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
-                    isDark
-                      ? 'bg-gradient-to-br from-indigo-500/30 to-purple-500/20 text-white ring-1 ring-indigo-400/40'
-                      : 'bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-900 ring-1 ring-indigo-300/60'
-                  }`}>
-                    {fmtNum(r.total_geral ?? ((r.inscritos_total || 0) + (r.inscritos_projetados || 0)))}
-                  </span>
-                </td>
-                <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
-                <td className={`px-4 py-3 text-center font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
-                <td className="px-4 py-3 text-center">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
-                <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_7d)}</td>
-                <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_14d)}</td>
-                <td className="px-4 py-3 text-center"><div className="inline-flex"><OcupacaoBar taxa={r.taxa_ocupacao} /></div></td>
-              </tr>
-            ))}
+            {sorted.map(r => {
+              const projSite = r.inscritos_projetados_site || 0;
+              const totalSite = (r.inscritos_total || 0) + projSite;
+              return (
+                <tr key={r.id} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-indigo-50/40'}>
+                  <td className="px-4 py-3">
+                    <div className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{r.evento}</div>
+                    <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.cidade} · {r.modalidade}</div>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <div className={isDark ? 'text-gray-200' : 'text-gray-800'}>{fmtDate(r.data_evento)}</div>
+                    {r.dias_para_evento != null && r.dias_para_evento >= 0 && (
+                      <div className={`text-xs font-bold mt-0.5 inline-block px-2 py-0.5 rounded-full ${
+                        r.dias_para_evento <= 7 ? 'bg-red-500/20 text-red-400' :
+                        r.dias_para_evento <= 30 ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-indigo-500/20 text-indigo-400'
+                      }`}>D-{r.dias_para_evento}</div>
+                    )}
+                  </td>
+                  <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
+                  <td className={`px-4 py-3 text-center ${projSite > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(projSite)}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
+                      isDark
+                        ? 'bg-gradient-to-br from-indigo-500/30 to-purple-500/20 text-white ring-1 ring-indigo-400/40'
+                        : 'bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-900 ring-1 ring-indigo-300/60'
+                    }`}>
+                      {fmtNum(totalSite)}
+                    </span>
+                  </td>
+                  <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
+                  <td className={`px-4 py-3 text-center font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
+                  <td className="px-4 py-3 text-center">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
+                  <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_7d)}</td>
+                  <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtAvg(r.media_14d)}</td>
+                  <td className="px-4 py-3 text-center"><div className="inline-flex"><OcupacaoBar taxa={r.taxa_ocupacao} /></div></td>
+                </tr>
+              );
+            })}
           </tbody>
           {sorted.length > 0 && (
             <tfoot>
               <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
                 <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
                 <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
-                <td className={`px-4 py-3 text-center font-bold ${totals.projetados > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${totals.projetados_site > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados_site)}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
                     isDark
                       ? 'bg-gradient-to-br from-indigo-500/40 to-purple-500/30 text-white ring-1 ring-indigo-400/50'
                       : 'bg-gradient-to-br from-indigo-200 to-purple-200 text-indigo-900 ring-1 ring-indigo-400/60'
                   }`}>
-                    {fmtNum(totals.geral)}
+                    {fmtNum(totals.total + totals.projetados_site)}
                   </span>
                 </td>
                 <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
@@ -374,6 +420,144 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                 <td className="px-4 py-3 text-center">{deltaCell(totals.hoje, totals.ontem)}</td>
                 <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 7d">⌀ {fmtAvg(totals.m7Avg)}</td>
                 <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`} title="Média das médias 14d">⌀ {fmtAvg(totals.m14Avg)}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      )}
+
+      {!collapsed && viewMode === 'projecoes' && (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className={isDark ? 'bg-gray-700/40' : 'bg-gray-50/80'}>
+              <Th k="evento">Evento</Th>
+              <Th k="data_evento" align="center">Data</Th>
+              <Th k="inscritos_total" align="center">Inscritos Site</Th>
+              <Th k="inscritos_projetados" align="center">Total Projeções</Th>
+              <Th k="total_geral" align="center">Total Inscritos</Th>
+              <Th align="center"><span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Expandir detalhes →</span></Th>
+            </tr>
+          </thead>
+          <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
+            {sorted.length === 0 && (
+              <tr><td colSpan={6} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
+            )}
+            {sorted.map(r => {
+              const isExpanded = expandedRows.has(r.id);
+              const areas = (r.projecoes_por_area || []).slice().sort((a, b) => b.quantidade - a.quantidade);
+              const totalProj = r.inscritos_projetados || 0;
+              const totalGeral = r.total_geral ?? ((r.inscritos_total || 0) + totalProj);
+              return (
+                <React.Fragment key={r.id}>
+                  <tr
+                    className={`cursor-pointer transition-colors ${isExpanded
+                      ? isDark ? 'bg-violet-500/10' : 'bg-violet-50/60'
+                      : isDark ? 'hover:bg-gray-700/30' : 'hover:bg-violet-50/30'}`}
+                    onClick={() => toggleRow(r.id)}
+                  >
+                    <td className="px-4 py-3">
+                      <div className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{r.evento}</div>
+                      <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.cidade} · {r.modalidade}</div>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className={isDark ? 'text-gray-200' : 'text-gray-800'}>{fmtDate(r.data_evento)}</div>
+                      {r.dias_para_evento != null && r.dias_para_evento >= 0 && (
+                        <div className={`text-xs font-bold mt-0.5 inline-block px-2 py-0.5 rounded-full ${
+                          r.dias_para_evento <= 7 ? 'bg-red-500/20 text-red-400' :
+                          r.dias_para_evento <= 30 ? 'bg-amber-500/20 text-amber-400' :
+                          'bg-indigo-500/20 text-indigo-400'
+                        }`}>D-{r.dias_para_evento}</div>
+                      )}
+                    </td>
+                    <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
+                    <td className={`px-4 py-3 text-center ${totalProj > 0 ? 'text-violet-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(totalProj)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
+                        isDark
+                          ? 'bg-gradient-to-br from-violet-500/30 to-purple-500/20 text-white ring-1 ring-violet-400/40'
+                          : 'bg-gradient-to-br from-violet-100 to-purple-100 text-violet-900 ring-1 ring-violet-300/60'
+                      }`}>
+                        {fmtNum(totalGeral)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <div className={`inline-flex items-center gap-1 text-xs font-semibold transition-colors ${
+                        isExpanded
+                          ? isDark ? 'text-violet-400' : 'text-violet-600'
+                          : isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'
+                      }`}>
+                        {areas.length > 0 ? `${areas.length} área${areas.length > 1 ? 's' : ''}` : 'sem projeções'}
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                      </div>
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className={isDark ? 'bg-gray-900/30' : 'bg-violet-50/40'}>
+                      <td colSpan={6} className="px-6 py-4">
+                        <div className={`rounded-xl border p-4 ${isDark ? 'bg-gray-800/60 border-gray-700/50' : 'bg-white border-violet-100'}`}>
+                          <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            Composição de Inscritos
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${isDark ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-emerald-50 border border-emerald-200/60'}`}>
+                              <span className={`text-xs font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>Site (real)</span>
+                              <span className={`text-sm font-black tabular-nums ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>{fmtNum(r.inscritos_total)}</span>
+                            </div>
+                            {areas.map((a, idx) => {
+                              const areaColors = [
+                                { bg: isDark ? 'bg-violet-500/10 border-violet-500/20' : 'bg-violet-50 border-violet-200/60', text: isDark ? 'text-violet-400' : 'text-violet-700', val: isDark ? 'text-violet-300' : 'text-violet-800' },
+                                { bg: isDark ? 'bg-blue-500/10 border-blue-500/20' : 'bg-blue-50 border-blue-200/60', text: isDark ? 'text-blue-400' : 'text-blue-700', val: isDark ? 'text-blue-300' : 'text-blue-800' },
+                                { bg: isDark ? 'bg-amber-500/10 border-amber-500/20' : 'bg-amber-50 border-amber-200/60', text: isDark ? 'text-amber-400' : 'text-amber-700', val: isDark ? 'text-amber-300' : 'text-amber-800' },
+                                { bg: isDark ? 'bg-rose-500/10 border-rose-500/20' : 'bg-rose-50 border-rose-200/60', text: isDark ? 'text-rose-400' : 'text-rose-700', val: isDark ? 'text-rose-300' : 'text-rose-800' },
+                                { bg: isDark ? 'bg-teal-500/10 border-teal-500/20' : 'bg-teal-50 border-teal-200/60', text: isDark ? 'text-teal-400' : 'text-teal-700', val: isDark ? 'text-teal-300' : 'text-teal-800' },
+                                { bg: isDark ? 'bg-indigo-500/10 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200/60', text: isDark ? 'text-indigo-400' : 'text-indigo-700', val: isDark ? 'text-indigo-300' : 'text-indigo-800' },
+                                { bg: isDark ? 'bg-fuchsia-500/10 border-fuchsia-500/20' : 'bg-fuchsia-50 border-fuchsia-200/60', text: isDark ? 'text-fuchsia-400' : 'text-fuchsia-700', val: isDark ? 'text-fuchsia-300' : 'text-fuchsia-800' },
+                                { bg: isDark ? 'bg-orange-500/10 border-orange-500/20' : 'bg-orange-50 border-orange-200/60', text: isDark ? 'text-orange-400' : 'text-orange-700', val: isDark ? 'text-orange-300' : 'text-orange-800' },
+                              ];
+                              const c = areaColors[idx % areaColors.length];
+                              return (
+                                <div key={a.area} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${c.bg}`}>
+                                  <span className={`text-xs font-semibold ${c.text}`}>{a.area}</span>
+                                  <span className={`text-sm font-black tabular-nums ${c.val}`}>{fmtNum(a.quantidade)}</span>
+                                </div>
+                              );
+                            })}
+                            {areas.length === 0 && (
+                              <div className={`col-span-full text-center text-xs italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                Nenhuma projeção cadastrada para este evento
+                              </div>
+                            )}
+                          </div>
+                          <div className={`mt-3 pt-3 border-t flex items-center justify-between ${isDark ? 'border-gray-700/50' : 'border-violet-100'}`}>
+                            <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total Geral</span>
+                            <span className={`text-base font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totalGeral)}</span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+          {sorted.length > 0 && (
+            <tfoot>
+              <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
+                <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
+                <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
+                <td className={`px-4 py-3 text-center font-bold ${totals.projetados > 0 ? 'text-violet-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados)}</td>
+                <td className="px-4 py-3 text-center">
+                  <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
+                    isDark
+                      ? 'bg-gradient-to-br from-violet-500/40 to-purple-500/30 text-white ring-1 ring-violet-400/50'
+                      : 'bg-gradient-to-br from-violet-200 to-purple-200 text-violet-900 ring-1 ring-violet-400/60'
+                  }`}>
+                    {fmtNum(totals.geral)}
+                  </span>
+                </td>
                 <td />
               </tr>
             </tfoot>

@@ -245,22 +245,37 @@ def get_dashboard_operacional(
     projeto_ids = [p.id for p in projetos]
     cadastros_map = get_all_cadastros_map(db, projeto_ids)
 
-    # --- Sum projected registrations per cadastro_evento.id ---
+    # --- Sum projected registrations per cadastro_evento.id (with per-area breakdown) ---
     projecoes_por_cadastro: dict = {}
+    projecoes_por_area_detail: dict = {}   # {evento_id: [{area: nome, quantidade: int}, ...]}
+    projecoes_site_por_cadastro: dict = {}  # {evento_id: int} — only "Site" area
     cadastro_ids_for_proj = [c.id for c in cadastros_map.values()]
     if cadastro_ids_for_proj:
         try:
-            proj_rows = db.query(
+            from ...models.projecao import AreaProjecao as AreaProjecaoModel
+            proj_area_rows = db.query(
                 ProjecaoInscritos.evento_id,
+                AreaProjecaoModel.nome.label("area_nome"),
                 sa_func.coalesce(sa_func.sum(ProjecaoInscritos.quantidade), 0).label("total"),
+            ).join(
+                AreaProjecaoModel, ProjecaoInscritos.area_projecao_id == AreaProjecaoModel.id
             ).filter(
                 ProjecaoInscritos.evento_id.in_(cadastro_ids_for_proj),
                 ProjecaoInscritos.deleted_at.is_(None),
-            ).group_by(ProjecaoInscritos.evento_id).all()
-            for r in proj_rows:
-                projecoes_por_cadastro[r.evento_id] = int(r.total or 0)
+            ).group_by(ProjecaoInscritos.evento_id, AreaProjecaoModel.nome).all()
+            for r in proj_area_rows:
+                eid = r.evento_id
+                qty = int(r.total or 0)
+                projecoes_por_cadastro[eid] = projecoes_por_cadastro.get(eid, 0) + qty
+                if eid not in projecoes_por_area_detail:
+                    projecoes_por_area_detail[eid] = []
+                projecoes_por_area_detail[eid].append({"area": r.area_nome, "quantidade": qty})
+                if r.area_nome == "Site":
+                    projecoes_site_por_cadastro[eid] = qty
         except Exception:
             projecoes_por_cadastro = {}
+            projecoes_por_area_detail = {}
+            projecoes_site_por_cadastro = {}
 
     isc_cfg = _get_isc_settings(db)
     isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
@@ -467,6 +482,9 @@ def get_dashboard_operacional(
         inscritos_projetados = proj_cadastro
         inscritos_total_int = int(inscritos_total or 0)
         total_geral = inscritos_total_int + inscritos_projetados
+        cadastro_id_for_proj = cadastro.id if cadastro else None
+        inscritos_projetados_site = int(projecoes_site_por_cadastro.get(cadastro_id_for_proj, 0)) if cadastro_id_for_proj else 0
+        projecoes_por_area = projecoes_por_area_detail.get(cadastro_id_for_proj, []) if cadastro_id_for_proj else []
 
         tabela_eventos.append({
             "id": p.id,
@@ -478,6 +496,8 @@ def get_dashboard_operacional(
             "dias_para_evento": (p.data_evento - today).days if p.data_evento else None,
             "inscritos_total": inscritos_total_int,
             "inscritos_projetados": inscritos_projetados,
+            "inscritos_projetados_site": inscritos_projetados_site,
+            "projecoes_por_area": projecoes_por_area,
             "total_geral": total_geral,
             "inscritos_hoje": int(inscritos_hoje or 0),
             "inscritos_ontem": int(inscritos_ontem or 0),
