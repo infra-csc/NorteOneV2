@@ -498,10 +498,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                             Composição de Inscritos
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                            <div className={`flex items-center justify-between px-3 py-2 rounded-lg ${isDark ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-emerald-50 border border-emerald-200/60'}`}>
-                              <span className={`text-xs font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>Site (real)</span>
-                              <span className={`text-sm font-black tabular-nums ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>{fmtNum(r.inscritos_total)}</span>
-                            </div>
                             {areas.map((a, idx) => {
                               const areaColors = [
                                 { bg: isDark ? 'bg-violet-500/10 border-violet-500/20' : 'bg-violet-50 border-violet-200/60', text: isDark ? 'text-violet-400' : 'text-violet-700', val: isDark ? 'text-violet-300' : 'text-violet-800' },
