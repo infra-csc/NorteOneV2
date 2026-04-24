@@ -74,6 +74,7 @@ export interface Event {
   margemOrcadaPct: number;
   margemRealizadaUnit: number;
   margemRealizadaTotal: number;
+  margemRealizadaKitsTotal?: number | null;
   margemRealizadaPct: number;
 }
 

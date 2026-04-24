@@ -786,6 +786,7 @@ class MarketingEvent(BaseModel):
     margemOrcadaPct: float = 0.0
     margemRealizadaUnit: float = 0.0
     margemRealizadaTotal: float = 0.0
+    margemRealizadaKitsTotal: Optional[float] = None
     margemRealizadaPct: float = 0.0
     margemRealizacaoRate: float = 0.0
     ticketAtual: float = 0.0
@@ -1978,6 +1979,191 @@ def get_kit_basico_costs_batch(db: Session, projeto_ids: List[int]) -> dict:
         costs = {pid: 50.0 for pid in projeto_ids}
     
     return costs
+
+
+def _build_kit_cost_batch_data(db: Session, all_projeto_ids: List[int], ano: Optional[int] = None) -> dict:
+    """
+    Pré-computa dados de custo de kit por bundle para todos os projetos em um único batch.
+
+    Retorna um dict com:
+      - 'bundle_custo'    : {bundle_entity_id: custo_kit}  — apenas bundles com custo_kit no KitConfig
+      - 'bundle_qty'      : {bundle_entity_id: qty}        — contagem Magento por bundle
+      - 'proj_to_bundles' : {projeto_id: set(bundle_entity_ids)} — mapeamento projeto → bundles
+      - 'basico_costs'    : {projeto_id: custo}             — custo do Kit Básico (fallback)
+
+    Usado para calcular margemRealizadaKitsTotal = receita - Σ(custo_kit × qty_kit) no list endpoint,
+    de forma que o Dashboard mostre a mesma margem que o Dash ISC (que usa get_margem_por_kit).
+    """
+    from ...models.kit_config import KitConfig
+
+    result = {
+        "bundle_custo": {},
+        "bundle_qty": {},
+        "proj_to_bundles": {},
+        "basico_costs": get_kit_basico_costs_batch(db, all_projeto_ids),
+    }
+
+    if not all_projeto_ids:
+        return result
+
+    try:
+        projetos = db.query(DimProjeto).filter(DimProjeto.id.in_(all_projeto_ids)).all()
+        proj_by_id = {p.id: p for p in projetos}
+
+        proj_to_mev: dict = {}
+        all_mev_ids: set = set()
+
+        for pid in all_projeto_ids:
+            proj = proj_by_id.get(pid)
+            if not proj or not proj.codigo:
+                continue
+            sku = proj.codigo.upper().strip()
+            q = db.query(SkuMapping).filter(
+                SkuMapping.sku == sku,
+                SkuMapping.fonte == 'MAGENTO',
+                SkuMapping.ativo == True,
+            )
+            if ano:
+                q = q.filter(SkuMapping.ano == ano)
+            mev_ids = set()
+            for sm in q.all():
+                if sm.id_externo:
+                    try:
+                        mev_ids.add(int(sm.id_externo))
+                    except (TypeError, ValueError):
+                        pass
+            if mev_ids:
+                proj_to_mev[pid] = mev_ids
+                all_mev_ids.update(mev_ids)
+
+        if not all_mev_ids:
+            return result
+
+        kc_records = db.query(KitConfig).filter(
+            KitConfig.id_evento.in_(list(all_mev_ids)),
+            KitConfig.tipo_kit.isnot(None),
+            KitConfig.custo_kit.isnot(None),
+            KitConfig.ignorado == False,
+        ).all()
+
+        bundle_custo: dict = {}
+        mev_to_bundles: dict = {}
+        seen_bids: set = set()
+        for kc in kc_records:
+            if kc.bundle_entity_id in seen_bids:
+                continue
+            seen_bids.add(kc.bundle_entity_id)
+            bundle_custo[kc.bundle_entity_id] = float(kc.custo_kit)
+            mev_to_bundles.setdefault(kc.id_evento, set()).add(kc.bundle_entity_id)
+
+        proj_to_bundles: dict = {}
+        for pid, mev_ids in proj_to_mev.items():
+            bids: set = set()
+            for mev_id in mev_ids:
+                bids.update(mev_to_bundles.get(mev_id, set()))
+            if bids:
+                proj_to_bundles[pid] = bids
+
+        result["bundle_custo"] = bundle_custo
+        result["proj_to_bundles"] = proj_to_bundles
+
+        if not bundle_custo or db_module.engine_magento is None:
+            return result
+
+        all_bundle_ids = list(bundle_custo.keys())
+        _sql_cnt = (
+            "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
+            "    soi_parent.product_id              AS bundle_entity_id,\n"
+            "    COUNT(DISTINCT soi_parent.item_id) AS qtd\n"
+            "FROM sales_order so\n"
+            "INNER JOIN sales_order_item soi_parent\n"
+            "       ON soi_parent.order_id     = so.entity_id\n"
+            "      AND soi_parent.product_type = 'bundle'\n"
+            "      AND soi_parent.product_id   IN :bundle_ids\n"
+            "WHERE\n"
+            "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+            "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link',\n"
+            "                   'reembolso_parcial', 'closed', 'retirado')\n"
+            "AND so.state != 'canceled'\n"
+            "AND so.base_grand_total > 0\n"
+            "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)\n"
+            "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+            "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+            "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+            "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+            "GROUP BY soi_parent.product_id"
+        )
+        try:
+            with db_module.engine_magento.connect() as conn:
+                rows = conn.execute(
+                    text(_sql_cnt).bindparams(bindparam("bundle_ids", expanding=True)),
+                    {"bundle_ids": all_bundle_ids},
+                ).fetchall()
+            bundle_qty: dict = {int(r[0]): int(r[1] or 0) for r in rows}
+            result["bundle_qty"] = bundle_qty
+            logger.info(
+                f"[kit_cost_batch] Magento count: {len(all_bundle_ids)} bundles → {len(bundle_qty)} resultados"
+            )
+        except Exception as e:
+            logger.warning(f"[kit_cost_batch] Falha na query Magento de contagem: {e}")
+
+    except Exception as e:
+        logger.error(f"Erro em _build_kit_cost_batch_data: {e}")
+
+    return result
+
+
+def _get_group_kit_cost_sum(
+    proj_ids: List[int],
+    batch: dict,
+    current_sales: int,
+) -> Optional[float]:
+    """
+    Calcula Σ(custo_kit × qty_kit) para um grupo de projetos usando dados do batch.
+    Retorna None se não há dados de KitConfig com custo.
+
+    Para bundles sem dados Magento ainda, usa custo × 0 (sem contribuição).
+    Para vendas não mapeadas a nenhum bundle com custo, aplica o custo básico como fallback.
+    """
+    bundle_custo = batch.get("bundle_custo", {})
+    bundle_qty = batch.get("bundle_qty", {})
+    proj_to_bundles = batch.get("proj_to_bundles", {})
+    basico_costs = batch.get("basico_costs", {})
+
+    seen_bids: set = set()
+    total_kit_cost = 0.0
+    qty_mapped = 0
+    has_any_bundle = False
+
+    for pid in proj_ids:
+        bids = proj_to_bundles.get(pid, set())
+        for bid in bids:
+            if bid in seen_bids:
+                continue
+            seen_bids.add(bid)
+            has_any_bundle = True
+            custo = bundle_custo.get(bid, 0.0)
+            qty = bundle_qty.get(bid, 0)
+            total_kit_cost += custo * qty
+            qty_mapped += qty
+
+    if not has_any_bundle:
+        return None
+
+    qty_remaining = max(0, current_sales - qty_mapped)
+    if qty_remaining > 0:
+        basico_avg = 0.0
+        n = 0
+        for pid in proj_ids:
+            bc = basico_costs.get(pid)
+            if bc is not None and bc > 0:
+                basico_avg += bc
+                n += 1
+        if n > 0:
+            basico_avg /= n
+        total_kit_cost += basico_avg * qty_remaining
+
+    return total_kit_cost
 
 
 def get_kit_breakdown_for_projetos(db: Session, projeto_ids: List[int], ano: Optional[int] = None) -> dict:
@@ -4702,6 +4888,7 @@ def get_marketing_events(
     
     active_actions_map = get_active_actions_for_projects(db, all_projeto_ids)
     kit_costs_batch = get_kit_basico_costs_batch(db, all_projeto_ids) if all_projeto_ids else {}
+    _kit_batch_data = _build_kit_cost_batch_data(db, all_projeto_ids, ano) if all_projeto_ids else {}
     ticket_atual_map = _get_ticket_atual_map(db)
 
     all_grupo_names_for_hist = set(grupo_projetos.keys())
@@ -4847,9 +5034,15 @@ def get_marketing_events(
         grupo_kit_cost_avg = (grupo_kit_weighted_num / grupo_kit_weighted_den) if grupo_kit_weighted_den > 0 else 50.0
         grupo_margin = _calc_margin_fields(budget_ticket, grupo_kit_cost_avg, sales_goal,
                                             avg_ticket, current_sales, current_receita)
+
+        _grupo_proj_ids = [p.id for p in proj_list]
+        _grupo_kit_cost_sum = _get_group_kit_cost_sum(_grupo_proj_ids, _kit_batch_data, current_sales)
+        _grupo_margem_kits_total = round(current_receita - _grupo_kit_cost_sum, 2) if (
+            _grupo_kit_cost_sum is not None and current_receita > 0
+        ) else None
         
-        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, [p.id for p in proj_list])
-        grupo_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(ticket_atual_map, [p.id for p in proj_list])
+        grupo_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, _grupo_proj_ids)
+        grupo_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(ticket_atual_map, _grupo_proj_ids)
         
         evento = MarketingEvent(
             id=f"grp_{grupo_nome}",
@@ -4875,6 +5068,7 @@ def get_marketing_events(
             ticketKitNome=grupo_ticket_kit_nome,
             dataRegime=grupo_regime,
             incluirCortesias=bool(getattr(grupo, 'incluir_cortesias', False)),
+            margemRealizadaKitsTotal=_grupo_margem_kits_total,
             **grupo_margin
         )
         eventos.append(evento)
@@ -4968,6 +5162,11 @@ def get_marketing_events(
         standalone_kit_cost = kit_costs_batch.get(projeto.id, 50.0)
         standalone_margin = _calc_margin_fields(standalone_budget_ticket, standalone_kit_cost, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
+
+        _sa_kit_cost_sum = _get_group_kit_cost_sum([projeto.id], _kit_batch_data, current_sales)
+        _sa_margem_kits_total = round(current_receita - _sa_kit_cost_sum, 2) if (
+            _sa_kit_cost_sum is not None and current_receita > 0
+        ) else None
         
         standalone_ticket_atual = _get_ticket_atual_for_event(ticket_atual_map, projeto.id)
         standalone_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(ticket_atual_map, projeto.id)
@@ -4996,6 +5195,7 @@ def get_marketing_events(
             ticketKitNome=standalone_ticket_kit_nome,
             dataRegime=standalone_regime,
             incluirCortesias=bool(getattr(projeto, 'incluir_cortesias', False)),
+            margemRealizadaKitsTotal=_sa_margem_kits_total,
             **standalone_margin
         )
         eventos.append(evento)

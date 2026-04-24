@@ -691,6 +691,7 @@ export interface MarketingEvent {
   margemOrcadaPct?: number;
   margemRealizadaUnit?: number;
   margemRealizadaTotal?: number;
+  margemRealizadaKitsTotal?: number | null;
   margemRealizadaPct?: number;
   ticketAtual?: number;
   ticketKitNome?: string | null;
