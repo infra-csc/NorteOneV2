@@ -15,7 +15,7 @@ from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin, require_permission
 from ...models.projecao import (
     AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos,
-    ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoCutoffRule,
+    ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoInscritosKit, ProjecaoCutoffRule,
 )
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
@@ -24,7 +24,7 @@ from ...schemas.projecao import (
     AreaProjecaoCreate, AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
     AreaProjecaoUsuarioBulk,
     ProjecaoInscritosCreate, ProjecaoInscritosUpdate, ProjecaoInscritosResponse,
-    ClienteProjecaoResponse,
+    ClienteProjecaoResponse, KitProjecaoResponse,
     HistoricoResponse,
     ConsolidadoEventoResponse, ConsolidadoAreaItem,
     CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
@@ -194,6 +194,7 @@ def list_projecoes(
             joinedload(ProjecaoInscritos.editor),
             joinedload(ProjecaoInscritos.travador),
             joinedload(ProjecaoInscritos.clientes),
+            joinedload(ProjecaoInscritos.kits),
         )
     )
 
@@ -238,6 +239,10 @@ def list_projecoes(
                 id=c.id, projecao_id=c.projecao_id, nome_cliente=c.nome_cliente,
                 quantidade=c.quantidade, created_at=c.created_at,
             ) for c in p.clientes],
+            kits=[KitProjecaoResponse(
+                id=k.id, projecao_id=k.projecao_id, nome_kit=k.nome_kit,
+                quantidade=k.quantidade, created_at=k.created_at,
+            ) for k in p.kits],
             created_by=p.created_by,
             created_by_nome=p.criador.nome if p.criador else None,
             updated_by=p.updated_by,
@@ -250,6 +255,24 @@ def list_projecoes(
     return result
 
 
+def _validate_distribuicao_sums(quantidade: int, clientes, kits):
+    """Garante que a soma das distribuições por cliente e/ou kit bate com a quantidade total."""
+    if clientes:
+        soma_c = sum(c.quantidade for c in clientes)
+        if soma_c != quantidade:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A soma das quantidades por cliente ({soma_c}) deve ser igual à quantidade total ({quantidade}).",
+            )
+    if kits:
+        soma_k = sum(k.quantidade for k in kits)
+        if soma_k != quantidade:
+            raise HTTPException(
+                status_code=400,
+                detail=f"A soma das quantidades por Kit ({soma_k}) deve ser igual à quantidade total ({quantidade}).",
+            )
+
+
 @router.post("/", response_model=ProjecaoInscritosResponse)
 def create_projecao(
     data: ProjecaoInscritosCreate,
@@ -257,6 +280,11 @@ def create_projecao(
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_criar")),
 ):
     _check_area_permission(db, current_user, data.area_projecao_id)
+
+    if data.quantidade is None or data.quantidade <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
+
+    _validate_distribuicao_sums(data.quantidade, data.clientes, data.kits)
 
     evento = db.query(CadastroEvento).filter(CadastroEvento.id == data.evento_id, CadastroEvento.deleted_at.is_(None)).first()
     if not evento:
@@ -294,16 +322,33 @@ def create_projecao(
             db.add(cliente)
             clientes_salvos.append(cliente)
 
+    kits_salvos = []
+    if data.kits:
+        for k in data.kits:
+            kit = ProjecaoInscritosKit(
+                projecao_id=projecao.id,
+                nome_kit=k.nome_kit.strip(),
+                quantidade=k.quantidade,
+            )
+            db.add(kit)
+            kits_salvos.append(kit)
+
     _record_history(db, projecao.id, "CRIACAO", current_user.id,
                     campo="quantidade", novo=str(data.quantidade))
     for c in clientes_salvos:
         _record_history(db, projecao.id, "CRIACAO", current_user.id,
                         campo="Cliente adicionado",
                         anterior=None, novo=f"{c.nome_cliente} ({c.quantidade})")
+    for k in kits_salvos:
+        _record_history(db, projecao.id, "CRIACAO", current_user.id,
+                        campo="Kit adicionado",
+                        anterior=None, novo=f"{k.nome_kit} ({k.quantidade})")
     db.commit()
     db.refresh(projecao)
     for c in clientes_salvos:
         db.refresh(c)
+    for k in kits_salvos:
+        db.refresh(k)
 
     return ProjecaoInscritosResponse(
         id=projecao.id,
@@ -319,6 +364,10 @@ def create_projecao(
             id=c.id, projecao_id=c.projecao_id, nome_cliente=c.nome_cliente,
             quantidade=c.quantidade, created_at=c.created_at,
         ) for c in clientes_salvos],
+        kits=[KitProjecaoResponse(
+            id=k.id, projecao_id=k.projecao_id, nome_kit=k.nome_kit,
+            quantidade=k.quantidade, created_at=k.created_at,
+        ) for k in kits_salvos],
         created_by=projecao.created_by,
         created_by_nome=current_user.nome,
         updated_by=projecao.updated_by,
@@ -340,6 +389,7 @@ def update_projecao(
         joinedload(ProjecaoInscritos.area_projecao),
         joinedload(ProjecaoInscritos.criador),
         joinedload(ProjecaoInscritos.clientes),
+        joinedload(ProjecaoInscritos.kits),
     ).filter(
         ProjecaoInscritos.id == projecao_id,
         ProjecaoInscritos.deleted_at.is_(None),
@@ -351,6 +401,11 @@ def update_projecao(
         raise HTTPException(status_code=423, detail="Esta projeção está travada e não pode ser editada")
 
     _check_area_permission(db, current_user, projecao.area_projecao_id)
+
+    if data.quantidade is None or data.quantidade <= 0:
+        raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
+
+    _validate_distribuicao_sums(data.quantidade, data.clientes, data.kits)
 
     old_qtd = projecao.quantidade
     if data.quantidade != old_qtd:
@@ -394,11 +449,49 @@ def update_projecao(
         if not projecao.updated_by:
             projecao.updated_by = current_user.id
 
+    if data.kits is not None:
+        old_kits = {k.nome_kit: k.quantidade for k in projecao.kits}
+        new_kits = {k.nome_kit.strip(): k.quantidade for k in data.kits}
+
+        old_kit_names = set(old_kits.keys())
+        new_kit_names = set(new_kits.keys())
+
+        for nome in old_kit_names - new_kit_names:
+            _record_history(db, projecao.id, "EDICAO", current_user.id,
+                            campo="Kit removido",
+                            anterior=f"{nome} ({old_kits[nome]})", novo=None)
+
+        for nome in new_kit_names - old_kit_names:
+            _record_history(db, projecao.id, "EDICAO", current_user.id,
+                            campo="Kit adicionado",
+                            anterior=None, novo=f"{nome} ({new_kits[nome]})")
+
+        for nome in old_kit_names & new_kit_names:
+            if old_kits[nome] != new_kits[nome]:
+                _record_history(db, projecao.id, "EDICAO", current_user.id,
+                                campo=f"Kit: {nome}",
+                                anterior=str(old_kits[nome]), novo=str(new_kits[nome]))
+
+        db.query(ProjecaoInscritosKit).filter(
+            ProjecaoInscritosKit.projecao_id == projecao.id
+        ).delete()
+        for k in data.kits:
+            db.add(ProjecaoInscritosKit(
+                projecao_id=projecao.id,
+                nome_kit=k.nome_kit.strip(),
+                quantidade=k.quantidade,
+            ))
+        if not projecao.updated_by:
+            projecao.updated_by = current_user.id
+
     db.commit()
     db.refresh(projecao)
 
     clientes_atuais = db.query(ProjecaoInscritosCliente).filter(
         ProjecaoInscritosCliente.projecao_id == projecao.id
+    ).all()
+    kits_atuais = db.query(ProjecaoInscritosKit).filter(
+        ProjecaoInscritosKit.projecao_id == projecao.id
     ).all()
 
     editor = db.query(Usuario).filter(Usuario.id == projecao.updated_by).first() if projecao.updated_by else None
@@ -417,6 +510,10 @@ def update_projecao(
             id=c.id, projecao_id=c.projecao_id, nome_cliente=c.nome_cliente,
             quantidade=c.quantidade, created_at=c.created_at,
         ) for c in clientes_atuais],
+        kits=[KitProjecaoResponse(
+            id=k.id, projecao_id=k.projecao_id, nome_kit=k.nome_kit,
+            quantidade=k.quantidade, created_at=k.created_at,
+        ) for k in kits_atuais],
         created_by=projecao.created_by,
         created_by_nome=projecao.criador.nome if projecao.criador else None,
         updated_by=projecao.updated_by,
@@ -673,6 +770,7 @@ def exportar_projecoes(
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
             joinedload(ProjecaoInscritos.clientes),
+            joinedload(ProjecaoInscritos.kits),
         )
         .filter(
             CadastroEvento.deleted_at.is_(None),
@@ -708,7 +806,7 @@ def exportar_projecoes(
     writer = csv.writer(output, delimiter=';')
     writer.writerow([
         'Evento', 'Data Evento', 'Tipo', 'Modalidade',
-        'Área', 'Quantidade Total', 'Cliente', 'Qtd Cliente',
+        'Área', 'Quantidade Total', 'Kit', 'Qtd Kit', 'Cliente', 'Qtd Cliente',
         'Criado por', 'Data Criação', 'Editado por', 'Data Edição',
     ])
 
@@ -727,11 +825,13 @@ def exportar_projecoes(
             _sanitize_csv(p.editor.nome if p.editor else ''),
             p.updated_at.strftime('%d/%m/%Y %H:%M') if p.updated_at else '',
         ]
-        if p.clientes:
-            for c in p.clientes:
-                writer.writerow(base + [_sanitize_csv(c.nome_cliente), c.quantidade] + tail)
-        else:
-            writer.writerow(base + ['', ''] + tail)
+        kits_pares = [(_sanitize_csv(k.nome_kit), k.quantidade) for k in (p.kits or [])] or [('', '')]
+        clientes_pares = [(_sanitize_csv(c.nome_cliente), c.quantidade) for c in (p.clientes or [])] or [('', '')]
+        max_rows = max(len(kits_pares), len(clientes_pares))
+        for i in range(max_rows):
+            kit_nome, kit_qtd = kits_pares[i] if i < len(kits_pares) else ('', '')
+            cli_nome, cli_qtd = clientes_pares[i] if i < len(clientes_pares) else ('', '')
+            writer.writerow(base + [kit_nome, kit_qtd, cli_nome, cli_qtd] + tail)
 
     output.seek(0)
     bom = '\ufeff'

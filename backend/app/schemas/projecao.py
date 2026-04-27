@@ -62,16 +62,34 @@ class ClienteProjecaoResponse(BaseModel):
         from_attributes = True
 
 
+class KitProjecaoItem(BaseModel):
+    nome_kit: str
+    quantidade: int
+
+
+class KitProjecaoResponse(BaseModel):
+    id: int
+    projecao_id: int
+    nome_kit: str
+    quantidade: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ProjecaoInscritosCreate(BaseModel):
     evento_id: int
     area_projecao_id: int
     quantidade: int
     clientes: Optional[List[ClienteProjecaoItem]] = None
+    kits: Optional[List[KitProjecaoItem]] = None
 
 
 class ProjecaoInscritosUpdate(BaseModel):
     quantidade: int
     clientes: Optional[List[ClienteProjecaoItem]] = None
+    kits: Optional[List[KitProjecaoItem]] = None
 
 
 class ProjecaoInscritosResponse(BaseModel):
@@ -85,6 +103,7 @@ class ProjecaoInscritosResponse(BaseModel):
     area_projecao_nome: Optional[str] = None
     quantidade: int
     clientes: List[ClienteProjecaoResponse] = []
+    kits: List[KitProjecaoResponse] = []
     created_by: int
     created_by_nome: Optional[str] = None
     updated_by: Optional[int] = None

@@ -8,6 +8,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   TrendingUp, Target, UserCheck, Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
+  Package,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -123,6 +124,21 @@ interface ClienteResponse {
   quantidade: number;
 }
 
+interface KitItem {
+  nome_kit: string;
+  quantidade: string;
+}
+
+interface KitResponse {
+  id: number;
+  projecao_id: number;
+  nome_kit: string;
+  quantidade: number;
+}
+
+const KITS_PADRAO = ['Kit Básico', 'Inscrição Participação', 'Kit Vip', 'Kit Plus', 'Kit Super'];
+const buildKitsPadrao = (): KitItem[] => KITS_PADRAO.map(nome => ({ nome_kit: nome, quantidade: '' }));
+
 interface Projecao {
   id: number;
   evento_id: number;
@@ -134,6 +150,7 @@ interface Projecao {
   area_projecao_nome: string;
   quantidade: number;
   clientes: ClienteResponse[];
+  kits: KitResponse[];
   created_by: number;
   created_by_nome: string | null;
   updated_by: number | null;
@@ -233,6 +250,42 @@ const mesesOptions: MultiSelectOption[] = [
   { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
 ];
 
+const KitsTooltip: React.FC<{
+  kits: KitResponse[];
+  isDark: boolean;
+  formatNumber: (n: number) => string;
+}> = ({ kits, isDark, formatNumber }) => {
+  const [visible, setVisible] = useState(false);
+  if (!kits || kits.length === 0) return null;
+  const total = kits.reduce((s, k) => s + k.quantidade, 0);
+  return (
+    <div className="relative inline-block"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md cursor-default ${isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+        <Package className="w-3 h-3" />
+        <span className="text-xs font-semibold">{kits.length}</span>
+      </div>
+      {visible && (
+        <div className={`absolute z-50 left-0 top-full mt-1.5 min-w-[220px] rounded-xl shadow-2xl border p-3 space-y-1.5 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Por kit</p>
+          {kits.map(k => (
+            <div key={k.id} className={`flex items-center justify-between gap-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <span className="truncate">{k.nome_kit}</span>
+              <span className={`font-bold shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>{formatNumber(k.quantidade)}</span>
+            </div>
+          ))}
+          <div className={`pt-1.5 mt-1.5 border-t flex items-center justify-between gap-3 text-xs ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+            <span className="font-semibold uppercase tracking-wider">Total</span>
+            <span className={`font-bold ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>{formatNumber(total)}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ClientesTooltip: React.FC<{
   clientes: ClienteResponse[];
   quantidade: number;
@@ -303,6 +356,8 @@ const ProjecaoInscritos: React.FC = () => {
   const [formQuantidade, setFormQuantidade] = useState<string>('');
   const [formTemCliente, setFormTemCliente] = useState(false);
   const [formClientes, setFormClientes] = useState<ClienteItem[]>([{ nome_cliente: '', quantidade: '' }]);
+  const [formTemKit, setFormTemKit] = useState(false);
+  const [formKits, setFormKits] = useState<KitItem[]>(buildKitsPadrao());
   const [eventoSearchTerm, setEventoSearchTerm] = useState('');
   const [showEventoDropdown, setShowEventoDropdown] = useState(false);
   const eventoDropdownRef = useRef<HTMLDivElement>(null);
@@ -747,17 +802,35 @@ const ProjecaoInscritos: React.FC = () => {
         return;
       }
     }
+    if (formTemKit) {
+      const kitsValidos = formKits.filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0);
+      if (kitsValidos.length === 0) {
+        showToast('Informe a quantidade de pelo menos um Kit.');
+        return;
+      }
+      const somaKits = kitsValidos.reduce((s, k) => s + parseInt(k.quantidade), 0);
+      if (somaKits !== qty) {
+        showToast(`A soma das quantidades por Kit (${somaKits}) deve ser igual à quantidade total (${qty}).`);
+        return;
+      }
+    }
     try {
       const clientes = formTemCliente
         ? formClientes
             .filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0)
             .map(c => ({ nome_cliente: c.nome_cliente.trim(), quantidade: parseInt(c.quantidade) }))
         : undefined;
+      const kits = formTemKit
+        ? formKits
+            .filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0)
+            .map(k => ({ nome_kit: k.nome_kit.trim(), quantidade: parseInt(k.quantidade) }))
+        : undefined;
       await projecaoService.create({
         evento_id: formEventoId as number,
         area_projecao_id: formAreaId as number,
         quantidade: qty,
         clientes,
+        kits,
       });
       setShowCreateModal(false);
       resetForm();
@@ -786,13 +859,30 @@ const ProjecaoInscritos: React.FC = () => {
         return;
       }
     }
+    if (formTemKit) {
+      const kitsValidos = formKits.filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0);
+      if (kitsValidos.length === 0) {
+        showToast('Informe a quantidade de pelo menos um Kit.');
+        return;
+      }
+      const somaKits = kitsValidos.reduce((s, k) => s + parseInt(k.quantidade), 0);
+      if (somaKits !== qty) {
+        showToast(`A soma das quantidades por Kit (${somaKits}) deve ser igual à quantidade total (${qty}).`);
+        return;
+      }
+    }
     try {
       const clientes = formTemCliente
         ? formClientes
             .filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0)
             .map(c => ({ nome_cliente: c.nome_cliente.trim(), quantidade: parseInt(c.quantidade) }))
         : [];
-      await projecaoService.update(editingProjecao.id, { quantidade: qty, clientes });
+      const kits = formTemKit
+        ? formKits
+            .filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0)
+            .map(k => ({ nome_kit: k.nome_kit.trim(), quantidade: parseInt(k.quantidade) }))
+        : [];
+      await projecaoService.update(editingProjecao.id, { quantidade: qty, clientes, kits });
       setEditingProjecao(null);
       resetForm();
       loadData();
@@ -865,6 +955,13 @@ const ProjecaoInscritos: React.FC = () => {
       setFormTemCliente(false);
       setFormClientes([{ nome_cliente: '', quantidade: '' }]);
     }
+    if (p.kits && p.kits.length > 0) {
+      setFormTemKit(true);
+      setFormKits(p.kits.map(k => ({ nome_kit: k.nome_kit, quantidade: String(k.quantidade) })));
+    } else {
+      setFormTemKit(false);
+      setFormKits(buildKitsPadrao());
+    }
   };
 
   const resetForm = () => {
@@ -873,6 +970,8 @@ const ProjecaoInscritos: React.FC = () => {
     setFormQuantidade('');
     setFormTemCliente(false);
     setFormClientes([{ nome_cliente: '', quantidade: '' }]);
+    setFormTemKit(false);
+    setFormKits(buildKitsPadrao());
     setEventoSearchTerm('');
     setShowEventoDropdown(false);
   };
@@ -887,6 +986,18 @@ const ProjecaoInscritos: React.FC = () => {
 
   const updateCliente = (idx: number, field: keyof ClienteItem, value: string) => {
     setFormClientes(prev => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
+  };
+
+  const addKit = () => {
+    setFormKits(prev => [...prev, { nome_kit: '', quantidade: '' }]);
+  };
+
+  const removeKit = (idx: number) => {
+    setFormKits(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateKit = (idx: number, field: keyof KitItem, value: string) => {
+    setFormKits(prev => prev.map((k, i) => i === idx ? { ...k, [field]: value } : k));
   };
 
   useEffect(() => {
@@ -1550,7 +1661,10 @@ const ProjecaoInscritos: React.FC = () => {
                                 </div>
                               </td>
                               <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                <ClientesTooltip clientes={p.clientes} quantidade={p.quantidade} isDark={isDark} formatNumber={formatNumber} />
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <ClientesTooltip clientes={p.clientes} quantidade={p.quantidade} isDark={isDark} formatNumber={formatNumber} />
+                                  <KitsTooltip kits={p.kits} isDark={isDark} formatNumber={formatNumber} />
+                                </div>
                               </td>
                               <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                                 <div>{p.created_by_nome}</div>
@@ -2107,6 +2221,68 @@ const ProjecaoInscritos: React.FC = () => {
                 />
               </div>
 
+              {/* Toggle kits */}
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center gap-2">
+                  <Package className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  <span className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distribuir por Kit</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormTemKit(v => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemKit ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {formTemKit && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Kits</span>
+                    {formQuantidade && (
+                      <span className={`text-xs ${
+                        formKits.filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0).reduce((s, k) => s + parseInt(k.quantidade), 0) === parseInt(formQuantidade)
+                          ? 'text-emerald-400'
+                          : 'text-amber-400'
+                      }`}>
+                        {formKits.filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0).reduce((s, k) => s + parseInt(k.quantidade), 0)} / {formQuantidade}
+                      </span>
+                    )}
+                  </div>
+                  {formKits.map((kit, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={kit.nome_kit}
+                        onChange={e => updateKit(idx, 'nome_kit', e.target.value)}
+                        placeholder="Nome do kit"
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                      />
+                      <input
+                        type="number"
+                        value={kit.quantidade}
+                        onChange={e => updateKit(idx, 'quantidade', e.target.value)}
+                        placeholder="Qtd"
+                        min={0}
+                        className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                      />
+                      <button type="button" onClick={() => removeKit(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addKit}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-amber-400 hover:bg-amber-500/20' : 'text-amber-600 hover:bg-amber-50'}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar kit
+                  </button>
+                </div>
+              )}
+
               {/* Toggle clientes */}
               <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
                 <div className="flex items-center gap-2">
@@ -2219,6 +2395,68 @@ const ProjecaoInscritos: React.FC = () => {
                   required
                 />
               </div>
+
+              {/* Toggle kits */}
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center gap-2">
+                  <Package className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  <span className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distribuir por Kit</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormTemKit(v => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemKit ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {formTemKit && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Kits</span>
+                    {formQuantidade && (
+                      <span className={`text-xs ${
+                        formKits.filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0).reduce((s, k) => s + parseInt(k.quantidade), 0) === parseInt(formQuantidade)
+                          ? 'text-emerald-400'
+                          : 'text-amber-400'
+                      }`}>
+                        {formKits.filter(k => k.nome_kit.trim() && parseInt(k.quantidade) > 0).reduce((s, k) => s + parseInt(k.quantidade), 0)} / {formQuantidade}
+                      </span>
+                    )}
+                  </div>
+                  {formKits.map((kit, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={kit.nome_kit}
+                        onChange={e => updateKit(idx, 'nome_kit', e.target.value)}
+                        placeholder="Nome do kit"
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                      />
+                      <input
+                        type="number"
+                        value={kit.quantidade}
+                        onChange={e => updateKit(idx, 'quantidade', e.target.value)}
+                        placeholder="Qtd"
+                        min={0}
+                        className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                      />
+                      <button type="button" onClick={() => removeKit(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addKit}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-amber-400 hover:bg-amber-500/20' : 'text-amber-600 hover:bg-amber-50'}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar kit
+                  </button>
+                </div>
+              )}
 
               {/* Toggle clientes */}
               <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>

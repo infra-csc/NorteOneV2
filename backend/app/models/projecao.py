@@ -60,6 +60,7 @@ class ProjecaoInscritos(Base):
     travador = relationship("Usuario", foreign_keys=[locked_by])
     historico = relationship("ProjecaoInscritosHistorico", back_populates="projecao")
     clientes = relationship("ProjecaoInscritosCliente", back_populates="projecao", cascade="all, delete-orphan")
+    kits = relationship("ProjecaoInscritosKit", back_populates="projecao", cascade="all, delete-orphan")
 
 
 class ProjecaoInscritosHistorico(Base):
@@ -88,6 +89,18 @@ class ProjecaoInscritosCliente(Base):
     created_at = Column(DateTime, default=_now_brasilia)
 
     projecao = relationship("ProjecaoInscritos", back_populates="clientes")
+
+
+class ProjecaoInscritosKit(Base):
+    __tablename__ = "projecao_inscritos_kit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False)
+    nome_kit = Column(String(200), nullable=False)
+    quantidade = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=_now_brasilia)
+
+    projecao = relationship("ProjecaoInscritos", back_populates="kits")
 
 
 class ProjecaoCutoffRule(Base):
