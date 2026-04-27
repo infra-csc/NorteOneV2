@@ -966,7 +966,7 @@ const ProjecaoInscritos: React.FC = () => {
                             )}
                           </td>
                           <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-                            {formatDate(ev.data_evento)}
+                            {formatDate(ev.info_geral?.data || ev.data_evento || null)}
                           </td>
                           <td className="px-4 py-3">
                             <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{ev.tipo_evento || '-'}</div>
@@ -1036,8 +1036,8 @@ const ProjecaoInscritos: React.FC = () => {
               </button>
               <span className={isDark ? 'text-gray-600' : 'text-gray-300'}>/</span>
               <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedEvento.nome}</span>
-              {selectedEvento.data_evento && (
-                <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{formatDate(selectedEvento.data_evento)}</span>
+              {(selectedEvento.info_geral?.data || selectedEvento.data_evento) && (
+                <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{formatDate(selectedEvento.info_geral?.data || selectedEvento.data_evento || null)}</span>
               )}
             </div>
 
