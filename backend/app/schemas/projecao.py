@@ -46,14 +46,32 @@ class AreaProjecaoUsuarioBulk(BaseModel):
     usuario_ids: List[int]
 
 
+class ClienteProjecaoItem(BaseModel):
+    nome_cliente: str
+    quantidade: int
+
+
+class ClienteProjecaoResponse(BaseModel):
+    id: int
+    projecao_id: int
+    nome_cliente: str
+    quantidade: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ProjecaoInscritosCreate(BaseModel):
     evento_id: int
     area_projecao_id: int
     quantidade: int
+    clientes: Optional[List[ClienteProjecaoItem]] = None
 
 
 class ProjecaoInscritosUpdate(BaseModel):
     quantidade: int
+    clientes: Optional[List[ClienteProjecaoItem]] = None
 
 
 class ProjecaoInscritosResponse(BaseModel):
@@ -66,6 +84,7 @@ class ProjecaoInscritosResponse(BaseModel):
     area_projecao_id: int
     area_projecao_nome: Optional[str] = None
     quantidade: int
+    clientes: List[ClienteProjecaoResponse] = []
     created_by: int
     created_by_nome: Optional[str] = None
     updated_by: Optional[int] = None

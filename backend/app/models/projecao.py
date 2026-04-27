@@ -56,6 +56,7 @@ class ProjecaoInscritos(Base):
     criador = relationship("Usuario", foreign_keys=[created_by])
     editor = relationship("Usuario", foreign_keys=[updated_by])
     historico = relationship("ProjecaoInscritosHistorico", back_populates="projecao")
+    clientes = relationship("ProjecaoInscritosCliente", back_populates="projecao", cascade="all, delete-orphan")
 
 
 class ProjecaoInscritosHistorico(Base):
@@ -72,3 +73,15 @@ class ProjecaoInscritosHistorico(Base):
 
     projecao = relationship("ProjecaoInscritos", back_populates="historico")
     usuario = relationship("Usuario")
+
+
+class ProjecaoInscritosCliente(Base):
+    __tablename__ = "projecao_inscritos_cliente"
+
+    id = Column(Integer, primary_key=True, index=True)
+    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False)
+    nome_cliente = Column(String(200), nullable=False)
+    quantidade = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=_now_brasilia)
+
+    projecao = relationship("ProjecaoInscritos", back_populates="clientes")

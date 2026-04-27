@@ -11,7 +11,7 @@ import io
 
 from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin, require_permission
-from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos, ProjecaoInscritosHistorico
+from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos, ProjecaoInscritosHistorico, ProjecaoInscritosCliente
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
 from ...models.dimensoes import SkuMapping, EventoGrupo
@@ -19,6 +19,7 @@ from ...schemas.projecao import (
     AreaProjecaoCreate, AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
     AreaProjecaoUsuarioBulk,
     ProjecaoInscritosCreate, ProjecaoInscritosUpdate, ProjecaoInscritosResponse,
+    ClienteProjecaoResponse,
     HistoricoResponse,
     ConsolidadoEventoResponse, ConsolidadoAreaItem,
 )
@@ -184,6 +185,7 @@ def list_projecoes(
             joinedload(ProjecaoInscritos.area_projecao),
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
+            joinedload(ProjecaoInscritos.clientes),
         )
     )
 
@@ -224,6 +226,10 @@ def list_projecoes(
             area_projecao_id=p.area_projecao_id,
             area_projecao_nome=p.area_projecao.nome if p.area_projecao else None,
             quantidade=p.quantidade,
+            clientes=[ClienteProjecaoResponse(
+                id=c.id, projecao_id=c.projecao_id, nome_cliente=c.nome_cliente,
+                quantidade=c.quantidade, created_at=c.created_at,
+            ) for c in p.clientes],
             created_by=p.created_by,
             created_by_nome=p.criador.nome if p.criador else None,
             updated_by=p.updated_by,
@@ -267,10 +273,23 @@ def create_projecao(
     db.add(projecao)
     db.flush()
 
+    clientes_salvos = []
+    if data.clientes:
+        for c in data.clientes:
+            cliente = ProjecaoInscritosCliente(
+                projecao_id=projecao.id,
+                nome_cliente=c.nome_cliente.strip(),
+                quantidade=c.quantidade,
+            )
+            db.add(cliente)
+            clientes_salvos.append(cliente)
+
     _record_history(db, projecao.id, "CRIACAO", current_user.id,
                     campo="quantidade", novo=str(data.quantidade))
     db.commit()
     db.refresh(projecao)
+    for c in clientes_salvos:
+        db.refresh(c)
 
     return ProjecaoInscritosResponse(
         id=projecao.id,
@@ -282,6 +301,10 @@ def create_projecao(
         area_projecao_id=projecao.area_projecao_id,
         area_projecao_nome=area.nome,
         quantidade=projecao.quantidade,
+        clientes=[ClienteProjecaoResponse(
+            id=c.id, projecao_id=c.projecao_id, nome_cliente=c.nome_cliente,
+            quantidade=c.quantidade, created_at=c.created_at,
+        ) for c in clientes_salvos],
         created_by=projecao.created_by,
         created_by_nome=current_user.nome,
         updated_by=projecao.updated_by,
@@ -302,6 +325,7 @@ def update_projecao(
         joinedload(ProjecaoInscritos.evento),
         joinedload(ProjecaoInscritos.area_projecao),
         joinedload(ProjecaoInscritos.criador),
+        joinedload(ProjecaoInscritos.clientes),
     ).filter(
         ProjecaoInscritos.id == projecao_id,
         ProjecaoInscritos.deleted_at.is_(None),
@@ -318,8 +342,25 @@ def update_projecao(
         projecao.quantidade = data.quantidade
         projecao.updated_by = current_user.id
 
+    if data.clientes is not None:
+        db.query(ProjecaoInscritosCliente).filter(
+            ProjecaoInscritosCliente.projecao_id == projecao.id
+        ).delete()
+        for c in data.clientes:
+            db.add(ProjecaoInscritosCliente(
+                projecao_id=projecao.id,
+                nome_cliente=c.nome_cliente.strip(),
+                quantidade=c.quantidade,
+            ))
+        if not projecao.updated_by:
+            projecao.updated_by = current_user.id
+
     db.commit()
     db.refresh(projecao)
+
+    clientes_atuais = db.query(ProjecaoInscritosCliente).filter(
+        ProjecaoInscritosCliente.projecao_id == projecao.id
+    ).all()
 
     editor = db.query(Usuario).filter(Usuario.id == projecao.updated_by).first() if projecao.updated_by else None
 
@@ -333,6 +374,10 @@ def update_projecao(
         area_projecao_id=projecao.area_projecao_id,
         area_projecao_nome=projecao.area_projecao.nome if projecao.area_projecao else None,
         quantidade=projecao.quantidade,
+        clientes=[ClienteProjecaoResponse(
+            id=c.id, projecao_id=c.projecao_id, nome_cliente=c.nome_cliente,
+            quantidade=c.quantidade, created_at=c.created_at,
+        ) for c in clientes_atuais],
         created_by=projecao.created_by,
         created_by_nome=projecao.criador.nome if projecao.criador else None,
         updated_by=projecao.updated_by,

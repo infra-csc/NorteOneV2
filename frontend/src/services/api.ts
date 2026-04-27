@@ -1255,11 +1255,11 @@ export const projecaoService = {
     const response = await api.get('/projecao/', { params });
     return response.data;
   },
-  create: async (data: { evento_id: number; area_projecao_id: number; quantidade: number }) => {
+  create: async (data: { evento_id: number; area_projecao_id: number; quantidade: number; clientes?: { nome_cliente: string; quantidade: number }[] }) => {
     const response = await api.post('/projecao/', data);
     return response.data;
   },
-  update: async (id: number, data: { quantidade: number }) => {
+  update: async (id: number, data: { quantidade: number; clientes?: { nome_cliente: string; quantidade: number }[] | null }) => {
     const response = await api.put(`/projecao/${id}`, data);
     return response.data;
   },

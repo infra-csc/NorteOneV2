@@ -111,6 +111,18 @@ interface AreaProjecao {
   nome: string;
 }
 
+interface ClienteItem {
+  nome_cliente: string;
+  quantidade: string;
+}
+
+interface ClienteResponse {
+  id: number;
+  projecao_id: number;
+  nome_cliente: string;
+  quantidade: number;
+}
+
 interface Projecao {
   id: number;
   evento_id: number;
@@ -121,6 +133,7 @@ interface Projecao {
   area_projecao_id: number;
   area_projecao_nome: string;
   quantidade: number;
+  clientes: ClienteResponse[];
   created_by: number;
   created_by_nome: string | null;
   updated_by: number | null;
@@ -217,6 +230,8 @@ const ProjecaoInscritos: React.FC = () => {
   const [formEventoId, setFormEventoId] = useState<number | ''>('');
   const [formAreaId, setFormAreaId] = useState<number | ''>('');
   const [formQuantidade, setFormQuantidade] = useState<string>('');
+  const [formTemCliente, setFormTemCliente] = useState(false);
+  const [formClientes, setFormClientes] = useState<ClienteItem[]>([{ nome_cliente: '', quantidade: '' }]);
   const [eventoSearchTerm, setEventoSearchTerm] = useState('');
   const [showEventoDropdown, setShowEventoDropdown] = useState(false);
   const eventoDropdownRef = useRef<HTMLDivElement>(null);
@@ -433,11 +448,29 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Informe uma quantidade válida (maior que zero).');
       return;
     }
+    if (formTemCliente) {
+      const clientesValidos = formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0);
+      if (clientesValidos.length === 0) {
+        showToast('Adicione ao menos um cliente com nome e quantidade válidos.');
+        return;
+      }
+      const somaClientes = clientesValidos.reduce((s, c) => s + parseInt(c.quantidade), 0);
+      if (somaClientes !== qty) {
+        showToast(`A soma das quantidades por cliente (${somaClientes}) deve ser igual à quantidade total (${qty}).`);
+        return;
+      }
+    }
     try {
+      const clientes = formTemCliente
+        ? formClientes
+            .filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0)
+            .map(c => ({ nome_cliente: c.nome_cliente.trim(), quantidade: parseInt(c.quantidade) }))
+        : undefined;
       await projecaoService.create({
         evento_id: formEventoId as number,
         area_projecao_id: formAreaId as number,
         quantidade: qty,
+        clientes,
       });
       setShowCreateModal(false);
       resetForm();
@@ -454,8 +487,25 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Informe uma quantidade válida (maior que zero).');
       return;
     }
+    if (formTemCliente) {
+      const clientesValidos = formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0);
+      if (clientesValidos.length === 0) {
+        showToast('Adicione ao menos um cliente com nome e quantidade válidos.');
+        return;
+      }
+      const somaClientes = clientesValidos.reduce((s, c) => s + parseInt(c.quantidade), 0);
+      if (somaClientes !== qty) {
+        showToast(`A soma das quantidades por cliente (${somaClientes}) deve ser igual à quantidade total (${qty}).`);
+        return;
+      }
+    }
     try {
-      await projecaoService.update(editingProjecao.id, { quantidade: qty });
+      const clientes = formTemCliente
+        ? formClientes
+            .filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0)
+            .map(c => ({ nome_cliente: c.nome_cliente.trim(), quantidade: parseInt(c.quantidade) }))
+        : [];
+      await projecaoService.update(editingProjecao.id, { quantidade: qty, clientes });
       setEditingProjecao(null);
       resetForm();
       loadData();
@@ -496,14 +546,35 @@ const ProjecaoInscritos: React.FC = () => {
   const openEdit = (p: Projecao) => {
     setEditingProjecao(p);
     setFormQuantidade(String(p.quantidade));
+    if (p.clientes && p.clientes.length > 0) {
+      setFormTemCliente(true);
+      setFormClientes(p.clientes.map(c => ({ nome_cliente: c.nome_cliente, quantidade: String(c.quantidade) })));
+    } else {
+      setFormTemCliente(false);
+      setFormClientes([{ nome_cliente: '', quantidade: '' }]);
+    }
   };
 
   const resetForm = () => {
     setFormEventoId('');
     setFormAreaId('');
     setFormQuantidade('');
+    setFormTemCliente(false);
+    setFormClientes([{ nome_cliente: '', quantidade: '' }]);
     setEventoSearchTerm('');
     setShowEventoDropdown(false);
+  };
+
+  const addCliente = () => {
+    setFormClientes(prev => [...prev, { nome_cliente: '', quantidade: '' }]);
+  };
+
+  const removeCliente = (idx: number) => {
+    setFormClientes(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updateCliente = (idx: number, field: keyof ClienteItem, value: string) => {
+    setFormClientes(prev => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
   };
 
   useEffect(() => {
@@ -777,7 +848,18 @@ const ProjecaoInscritos: React.FC = () => {
                           </span>
                         </td>
                         <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          {formatNumber(p.quantidade)}
+                          <div>{formatNumber(p.quantidade)}</div>
+                          {p.clientes && p.clientes.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              {p.clientes.map(c => (
+                                <div key={c.id} className={`flex items-center gap-1 text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  <Users className="w-3 h-3 shrink-0" />
+                                  <span className="truncate max-w-[120px]">{c.nome_cliente}</span>
+                                  <span className={`font-semibold ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>{formatNumber(c.quantidade)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                           <div>{p.created_by_nome}</div>
@@ -1133,7 +1215,7 @@ const ProjecaoInscritos: React.FC = () => {
       {/* Create Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+          <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
             <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
               <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Nova Projeção</h2>
               <button onClick={() => setShowCreateModal(false)} className="p-2 rounded-lg hover:bg-gray-700/50">
@@ -1223,6 +1305,71 @@ const ProjecaoInscritos: React.FC = () => {
                   required
                 />
               </div>
+
+              {/* Toggle clientes */}
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center gap-2">
+                  <Users className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  <span className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distribuir por cliente</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormTemCliente(v => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemCliente ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {formTemCliente && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Clientes</span>
+                    {formQuantidade && (
+                      <span className={`text-xs ${
+                        formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0).reduce((s, c) => s + parseInt(c.quantidade), 0) === parseInt(formQuantidade)
+                          ? 'text-emerald-400'
+                          : 'text-amber-400'
+                      }`}>
+                        {formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0).reduce((s, c) => s + parseInt(c.quantidade), 0)} / {formQuantidade}
+                      </span>
+                    )}
+                  </div>
+                  {formClientes.map((cliente, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={cliente.nome_cliente}
+                        onChange={e => updateCliente(idx, 'nome_cliente', e.target.value)}
+                        placeholder="Nome do cliente"
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                      />
+                      <input
+                        type="number"
+                        value={cliente.quantidade}
+                        onChange={e => updateCliente(idx, 'quantidade', e.target.value)}
+                        placeholder="Qtd"
+                        min={1}
+                        className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                      />
+                      {formClientes.length > 1 && (
+                        <button type="button" onClick={() => removeCliente(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addCliente}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-violet-400 hover:bg-violet-500/20' : 'text-violet-600 hover:bg-violet-50'}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar cliente
+                  </button>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
@@ -1246,7 +1393,7 @@ const ProjecaoInscritos: React.FC = () => {
       {/* Edit Modal */}
       {editingProjecao && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className={`w-full max-w-lg rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
+          <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
             <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
               <div>
                 <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Editar Projeção</h2>
@@ -1271,6 +1418,71 @@ const ProjecaoInscritos: React.FC = () => {
                   required
                 />
               </div>
+
+              {/* Toggle clientes */}
+              <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center gap-2">
+                  <Users className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  <span className={`text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Distribuir por cliente</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormTemCliente(v => !v)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemCliente ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {formTemCliente && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Clientes</span>
+                    {formQuantidade && (
+                      <span className={`text-xs ${
+                        formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0).reduce((s, c) => s + parseInt(c.quantidade), 0) === parseInt(formQuantidade)
+                          ? 'text-emerald-400'
+                          : 'text-amber-400'
+                      }`}>
+                        {formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0).reduce((s, c) => s + parseInt(c.quantidade), 0)} / {formQuantidade}
+                      </span>
+                    )}
+                  </div>
+                  {formClientes.map((cliente, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={cliente.nome_cliente}
+                        onChange={e => updateCliente(idx, 'nome_cliente', e.target.value)}
+                        placeholder="Nome do cliente"
+                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                      />
+                      <input
+                        type="number"
+                        value={cliente.quantidade}
+                        onChange={e => updateCliente(idx, 'quantidade', e.target.value)}
+                        placeholder="Qtd"
+                        min={1}
+                        className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                      />
+                      {formClientes.length > 1 && (
+                        <button type="button" onClick={() => removeCliente(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={addCliente}
+                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-violet-400 hover:bg-violet-500/20' : 'text-violet-600 hover:bg-violet-50'}`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar cliente
+                  </button>
+                </div>
+              )}
+
               <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
