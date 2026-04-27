@@ -2287,6 +2287,12 @@ _margem_rev_failure_cache: dict = {}
 # 1ª falha: 60s (transitório provável). 2ª: 5 min. 3ª+: 15 min. 5ª+: 30 min (cap).
 _MARGEM_REV_FAILURE_COOLDOWNS = [60, 300, 900, 900, 1800]
 
+# Cache para resultados do count_query (qtd de inscrições por bundle_entity_id).
+# Mesmo TTL de 4h que o _margem_rev_cache — garante que uma contagem bem-sucedida
+# sobreviva a timeouts posteriores do Magento (kit total não cai para 0 no fallback).
+_margem_cnt_cache: dict = {}   # frozenset(bundle_ids) → ({bid: qtd}, monotonic_ts)
+_MARGEM_CNT_TTL_SECONDS = 14400  # 4 horas
+
 def _margem_rev_cooldown_for(n_failures: int) -> int:
     if n_failures <= 0:
         return 0
@@ -2629,16 +2635,31 @@ def get_margem_por_kit(
 
             # --- Query 1: Contagem de inscrições por bundle ---
             # Retry: 2 tentativas com backoff curto cobrem queda momentânea do túnel SSH.
-            try:
-                _rows_cnt, _elapsed_cnt = _execute_magento_with_retry(
-                    magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
-                )
-                for row in _rows_cnt:
-                    qtd_by_bid[int(row[0])] = int(row[1] or 0)
-                logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_elapsed_cnt:.2f}s")
-            except Exception as e:
-                logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
-                _log_margem_magento_failed(e, "count")
+            # O resultado é armazenado em _margem_cnt_cache (TTL 4h) para que timeouts
+            # posteriores não zerarem a contagem e causarem subnotificação do currentSales.
+            _cnt_cache_key = (frozenset(bundle_ids), incluir_cortesias)
+            _cnt_now_mono = _time.monotonic()
+            if force_refresh:
+                _margem_cnt_cache.pop(_cnt_cache_key, None)
+            _cnt_cached = _margem_cnt_cache.get(_cnt_cache_key)
+            if _cnt_cached and (_cnt_now_mono - _cnt_cached[1]) < _MARGEM_CNT_TTL_SECONDS:
+                qtd_by_bid = dict(_cnt_cached[0])
+                logger.info(f"[Margem] count_query cache HIT: {len(bundle_ids)} bundles → {len(qtd_by_bid)} entradas (TTL restante: {int(_MARGEM_CNT_TTL_SECONDS - (_cnt_now_mono - _cnt_cached[1]))}s)")
+            else:
+                try:
+                    _rows_cnt, _elapsed_cnt = _execute_magento_with_retry(
+                        magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
+                    )
+                    for row in _rows_cnt:
+                        qtd_by_bid[int(row[0])] = int(row[1] or 0)
+                    logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_elapsed_cnt:.2f}s")
+                    _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
+                except Exception as e:
+                    logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+                    _log_margem_magento_failed(e, "count")
+                    if _cnt_cached:
+                        qtd_by_bid = dict(_cnt_cached[0])
+                        logger.warning(f"[Margem] count_query falhou — usando cache expirado: {len(qtd_by_bid)} entradas")
 
             # --- Query 2: Receita por bundle (join com itens-filho) ---
             # A join com soi_child por nome (LIKE) é lenta para eventos de alto volume
@@ -9402,6 +9423,33 @@ def get_marketing_event_by_id(
             "avisos": get_isc_warnings(),
             "_cache_version": _DETAIL_CACHE_VERSION
         }
+        # For completed events: preserve the highest currentSales ever computed.
+        # If the Magento count_query failed this recompute (kit total = 0, so
+        # current_sales fell back to the Ativo-only snapshot value), the previously
+        # persisted snapshot may hold the correct kit-aligned figure and must not
+        # be overwritten with a lower stale value.
+        if _event_is_past:
+            try:
+                from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_guard
+                _guard_row = db.query(_EDS_guard).filter(
+                    _EDS_guard.evento_id == evento_id,
+                    _EDS_guard.ano == ano,
+                ).first()
+                if _guard_row and isinstance(_guard_row.payload, dict):
+                    _guard_evt = _guard_row.payload.get("evento")
+                    _prev_cs = int(_guard_evt.get("currentSales", 0) or 0) if isinstance(_guard_evt, dict) else 0
+                    _new_cs = int(getattr(grouped_result.get("evento"), "currentSales", 0) or 0)
+                    if _prev_cs > _new_cs > 0:
+                        logger.info(
+                            f"[Persist] Preservando currentSales anterior '{grupo_nome}': "
+                            f"{_new_cs} → {_prev_cs} (kit count_query falhou no recompute)"
+                        )
+                        grouped_result["evento"] = grouped_result["evento"].model_copy(
+                            update={"currentSales": _prev_cs}
+                        )
+            except Exception as _guard_e:
+                logger.debug(f"[Persist] guard prev_sales '{evento_id}/{ano}': {_guard_e}")
+
         if _event_is_past:
             grouped_result["__is_completed"] = True
             event_detail_cache.set_permanent(detail_cache_key, grouped_result)
