@@ -3830,7 +3830,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "13"  # v13: margem por kit seed só do KitConfig; Cadastro é fallback de custo
+_DETAIL_CACHE_VERSION = "14"  # v14: currentSales consolidado alinhado com detalhe persistido
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
@@ -4316,6 +4316,54 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
             data['tendencia'] = 'Estável'
         else:
             data['tendencia'] = 'Desacelerando'
+
+    # STEP 4b: Override consolidated totals with kit-aligned currentSales from
+    # EventoDetailSnapshot. For completed events the detail view aligns currentSales
+    # with the kit table total (which includes Magento data even when live queries
+    # fail). Without this override the list view shows the raw snapshot value
+    # (Ativo-only when Magento was down during the last sync) while the detail
+    # view shows the higher, correct kit-aligned value — causing a visible mismatch.
+    if db and consolidated_totals:
+        try:
+            from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS
+            _evento_ids = [f"grp_{g}" for g in consolidated_totals.keys()]
+            _detail_rows = db.query(_EDS).filter(
+                _EDS.evento_id.in_(_evento_ids),
+                _EDS.ano == current_year,
+                _EDS.is_completed == True,  # noqa: E712
+            ).all()
+            for _dr in _detail_rows:
+                _grp_n = _dr.evento_id[4:]  # strip "grp_"
+                _pl = _dr.payload if isinstance(_dr.payload, dict) else {}
+                _evt_d = _pl.get("evento") if isinstance(_pl, dict) else None
+                if not isinstance(_evt_d, dict):
+                    continue
+                _cs = _evt_d.get("currentSales", 0)
+                if not _cs or int(_cs) <= 0:
+                    continue
+                _cs = int(_cs)
+                _snap_qty = consolidated_totals.get(_grp_n, {}).get("qtd_site", 0)
+                if _cs > _snap_qty:
+                    logger.info(
+                        f"[ISC] Overriding consolidated qtd_site '{_grp_n}': "
+                        f"{_snap_qty} → {_cs} (from EventoDetailSnapshot)"
+                    )
+                    consolidated_totals[_grp_n] = {
+                        **consolidated_totals.get(_grp_n, {}),
+                        "qtd_site": _cs,
+                    }
+                    # Also update the primary SKU entry in all_data so the ISC
+                    # cache stays consistent with consolidated_totals.
+                    _grp_skus = consolidated_grupo_skus.get(_grp_n, [])
+                    if _grp_skus:
+                        _primary_sku = _grp_skus[0]
+                        if _primary_sku in all_data:
+                            all_data[_primary_sku]["qtd_site"] = _cs
+                            all_data[_primary_sku]["projecao_linear"] = _cs
+                            all_data[_primary_sku]["projecao_ajustada"] = _cs
+                            all_data[_primary_sku]["projecao_final"] = _cs
+        except Exception as _ov_e:
+            logger.warning(f"[ISC] Falha ao ler EventoDetailSnapshot para override consolidados: {_ov_e}")
 
     all_data['_consolidated_totals'] = consolidated_totals
 
@@ -9366,6 +9414,15 @@ def get_marketing_event_by_id(
             _spd(db, evento_id, ano, grouped_result, data_evento=projeto_data_evento, is_completed=_event_is_past)
         except Exception as _spd_e:
             logger.warning(f"[Persist] save grouped '{evento_id}/{ano}' falhou: {_spd_e}")
+        # For completed events, also invalidate ISC and eventos_list caches so the
+        # list view picks up the newly aligned currentSales on the next request.
+        if _event_is_past:
+            try:
+                from ...core.cache import isc_cache as _isc_cache_ref
+                _isc_cache_ref.invalidate()
+                eventos_list_cache.invalidate()
+            except Exception as _ci_e:
+                logger.debug(f"[Persist] cache invalidation após recompute completed '{evento_id}': {_ci_e}")
         # Signal any waiting threads that computation is done
         with _event_computing_lock:
             _done_evt = _event_computing_events.pop(detail_cache_key, None)
