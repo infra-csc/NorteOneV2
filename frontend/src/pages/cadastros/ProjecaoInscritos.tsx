@@ -1573,15 +1573,51 @@ const ProjecaoInscritos: React.FC = () => {
                         <p className={`text-sm mt-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                           por <strong>{h.usuario_nome}</strong>
                         </p>
-                        {h.campo_alterado && (
-                          <div className={`mt-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            <span className="font-medium">{h.campo_alterado}:</span>{' '}
-                            {h.valor_anterior && (
-                              <span className="line-through text-red-400 mr-2">{h.valor_anterior}</span>
-                            )}
-                            <span className="text-emerald-400 font-semibold">{h.valor_novo}</span>
-                          </div>
-                        )}
+                        {h.campo_alterado && (() => {
+                          const campo = h.campo_alterado;
+                          if (campo === 'Cliente adicionado') {
+                            return (
+                              <div className={`mt-2 flex items-center gap-2 text-sm`}>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'}`}>
+                                  <Plus className="w-3 h-3" /> cliente
+                                </span>
+                                <span className={`font-medium ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{h.valor_novo}</span>
+                              </div>
+                            );
+                          }
+                          if (campo === 'Cliente removido') {
+                            return (
+                              <div className={`mt-2 flex items-center gap-2 text-sm`}>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold ${isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700'}`}>
+                                  <X className="w-3 h-3" /> cliente
+                                </span>
+                                <span className={`font-medium line-through ${isDark ? 'text-red-400' : 'text-red-600'}`}>{h.valor_anterior}</span>
+                              </div>
+                            );
+                          }
+                          if (campo.startsWith('Cliente: ')) {
+                            const clienteNome = campo.replace('Cliente: ', '');
+                            return (
+                              <div className={`mt-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold mr-2 ${isDark ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-700'}`}>
+                                  <Users className="w-3 h-3" /> {clienteNome}
+                                </span>
+                                <span className="line-through text-red-400 mr-1">{h.valor_anterior}</span>
+                                <span className={`${isDark ? 'text-gray-500' : 'text-gray-400'} mr-1`}>→</span>
+                                <span className="text-emerald-400 font-semibold">{h.valor_novo}</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className={`mt-2 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              <span className="font-medium">{campo}:</span>{' '}
+                              {h.valor_anterior && (
+                                <span className="line-through text-red-400 mr-2">{h.valor_anterior}</span>
+                              )}
+                              <span className="text-emerald-400 font-semibold">{h.valor_novo}</span>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     );

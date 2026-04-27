@@ -286,6 +286,10 @@ def create_projecao(
 
     _record_history(db, projecao.id, "CRIACAO", current_user.id,
                     campo="quantidade", novo=str(data.quantidade))
+    for c in clientes_salvos:
+        _record_history(db, projecao.id, "CRIACAO", current_user.id,
+                        campo="Cliente adicionado",
+                        anterior=None, novo=f"{c.nome_cliente} ({c.quantidade})")
     db.commit()
     db.refresh(projecao)
     for c in clientes_salvos:
@@ -343,6 +347,28 @@ def update_projecao(
         projecao.updated_by = current_user.id
 
     if data.clientes is not None:
+        old_clientes = {c.nome_cliente: c.quantidade for c in projecao.clientes}
+        new_clientes = {c.nome_cliente.strip(): c.quantidade for c in data.clientes}
+
+        old_names = set(old_clientes.keys())
+        new_names = set(new_clientes.keys())
+
+        for nome in old_names - new_names:
+            _record_history(db, projecao.id, "EDICAO", current_user.id,
+                            campo="Cliente removido",
+                            anterior=f"{nome} ({old_clientes[nome]})", novo=None)
+
+        for nome in new_names - old_names:
+            _record_history(db, projecao.id, "EDICAO", current_user.id,
+                            campo="Cliente adicionado",
+                            anterior=None, novo=f"{nome} ({new_clientes[nome]})")
+
+        for nome in old_names & new_names:
+            if old_clientes[nome] != new_clientes[nome]:
+                _record_history(db, projecao.id, "EDICAO", current_user.id,
+                                campo=f"Cliente: {nome}",
+                                anterior=str(old_clientes[nome]), novo=str(new_clientes[nome]))
+
         db.query(ProjecaoInscritosCliente).filter(
             ProjecaoInscritosCliente.projecao_id == projecao.id
         ).delete()
