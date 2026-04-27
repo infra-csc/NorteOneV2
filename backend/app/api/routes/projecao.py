@@ -575,6 +575,7 @@ def exportar_projecoes(
             joinedload(ProjecaoInscritos.area_projecao),
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
+            joinedload(ProjecaoInscritos.clientes),
         )
         .filter(
             CadastroEvento.deleted_at.is_(None),
@@ -610,23 +611,30 @@ def exportar_projecoes(
     writer = csv.writer(output, delimiter=';')
     writer.writerow([
         'Evento', 'Data Evento', 'Tipo', 'Modalidade',
-        'Área', 'Quantidade', 'Criado por', 'Data Criação',
-        'Editado por', 'Data Edição',
+        'Área', 'Quantidade Total', 'Cliente', 'Qtd Cliente',
+        'Criado por', 'Data Criação', 'Editado por', 'Data Edição',
     ])
 
     for p in projecoes:
-        writer.writerow([
+        base = [
             _sanitize_csv(p.evento.nome if p.evento else ''),
             p.evento.data_evento.strftime('%d/%m/%Y') if p.evento and p.evento.data_evento else '',
             _sanitize_csv(p.evento.tipo_evento if p.evento else ''),
             _sanitize_csv(p.evento.modalidade if p.evento else ''),
             _sanitize_csv(p.area_projecao.nome if p.area_projecao else ''),
             p.quantidade,
+        ]
+        tail = [
             _sanitize_csv(p.criador.nome if p.criador else ''),
             p.created_at.strftime('%d/%m/%Y %H:%M') if p.created_at else '',
             _sanitize_csv(p.editor.nome if p.editor else ''),
             p.updated_at.strftime('%d/%m/%Y %H:%M') if p.updated_at else '',
-        ])
+        ]
+        if p.clientes:
+            for c in p.clientes:
+                writer.writerow(base + [_sanitize_csv(c.nome_cliente), c.quantidade] + tail)
+        else:
+            writer.writerow(base + ['', ''] + tail)
 
     output.seek(0)
     bom = '\ufeff'
