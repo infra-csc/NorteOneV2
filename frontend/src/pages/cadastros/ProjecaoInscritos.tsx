@@ -301,6 +301,10 @@ const ProjecaoInscritos: React.FC = () => {
   const [lockingEventoId, setLockingEventoId] = useState<number | null>(null);
   const [selectedEvento, setSelectedEvento] = useState<Evento | null>(null);
   const [eventoListSearch, setEventoListSearch] = useState('');
+  const [eventoListMes, setEventoListMes] = useState<string>('');
+  const [eventoListModalidade, setEventoListModalidade] = useState<string>('');
+  const [eventoListCidade, setEventoListCidade] = useState<string>('');
+  const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -504,15 +508,29 @@ const ProjecaoInscritos: React.FC = () => {
     return Object.values(grouped);
   }, [filteredProjecoes]);
 
+  const eventoListOpts = useMemo(() => {
+    const modalidades = [...new Set(eventos.map(e => e.modalidade).filter(Boolean))].sort() as string[];
+    const cidades = [...new Set(eventos.map(e => e.cidade).filter(Boolean))].sort() as string[];
+    const statuses = [...new Set(eventos.map(e => e.status || 'Em andamento').filter(Boolean))].sort() as string[];
+    return { modalidades, cidades, statuses };
+  }, [eventos]);
+
   const filteredEventosList = useMemo(() => {
     const term = eventoListSearch.toLowerCase();
-    return eventos.filter(e =>
-      !term ||
-      e.nome?.toLowerCase().includes(term) ||
-      e.cidade?.toLowerCase().includes(term) ||
-      e.tipo_evento?.toLowerCase().includes(term)
-    );
-  }, [eventos, eventoListSearch]);
+    return eventos.filter(e => {
+      if (term && !e.nome?.toLowerCase().includes(term) && !e.cidade?.toLowerCase().includes(term) && !e.tipo_evento?.toLowerCase().includes(term)) return false;
+      if (eventoListModalidade && e.modalidade !== eventoListModalidade) return false;
+      if (eventoListCidade && e.cidade !== eventoListCidade) return false;
+      if (eventoListStatus && (e.status || 'Em andamento') !== eventoListStatus) return false;
+      if (eventoListMes) {
+        const dateStr = e.info_geral?.data || e.data_evento;
+        if (!dateStr) return false;
+        const month = String(new Date(dateStr + (dateStr.length === 10 ? 'T00:00:00' : '')).getMonth() + 1);
+        if (month !== eventoListMes) return false;
+      }
+      return true;
+    });
+  }, [eventos, eventoListSearch, eventoListMes, eventoListModalidade, eventoListCidade, eventoListStatus]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -909,20 +927,76 @@ const ProjecaoInscritos: React.FC = () => {
         {activeTab === 'projecoes' && !selectedEvento && (
           /* ── Events master table ── */
           <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
-            {/* Events search bar */}
-            <div className={`flex items-center gap-3 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
-              <div className="relative flex-1 max-w-sm">
-                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
-                <input
-                  type="text"
-                  placeholder="Buscar evento, cidade, tipo..."
-                  value={eventoListSearch}
-                  onChange={e => setEventoListSearch(e.target.value)}
-                  className={`w-full pl-9 pr-3 py-2 rounded-xl border text-sm ${isDark ? 'bg-gray-900/50 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
-                />
-              </div>
-              <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{filteredEventosList.length} evento(s)</span>
-            </div>
+            {/* Events filter bar */}
+            {(() => {
+              const selClass = `h-9 pl-3 pr-8 rounded-xl border text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`;
+              const hasFilters = eventoListSearch || eventoListMes || eventoListModalidade || eventoListCidade || eventoListStatus !== 'Em andamento';
+              return (
+                <div className={`flex flex-wrap items-center gap-2 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+                  {/* Search */}
+                  <div className="relative">
+                    <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                    <input
+                      type="text"
+                      placeholder="Buscar evento..."
+                      value={eventoListSearch}
+                      onChange={e => setEventoListSearch(e.target.value)}
+                      className={`pl-9 pr-3 h-9 w-48 rounded-xl border text-sm ${isDark ? 'bg-gray-900/50 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                    />
+                  </div>
+
+                  {/* Mês */}
+                  <div className="relative">
+                    <select value={eventoListMes} onChange={e => setEventoListMes(e.target.value)} className={selClass}>
+                      <option value="">Todos os meses</option>
+                      {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((m, i) => (
+                        <option key={i+1} value={String(i+1)}>{m}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </div>
+
+                  {/* Modalidade */}
+                  <div className="relative">
+                    <select value={eventoListModalidade} onChange={e => setEventoListModalidade(e.target.value)} className={selClass}>
+                      <option value="">Todas modalidades</option>
+                      {eventoListOpts.modalidades.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </div>
+
+                  {/* Cidade */}
+                  <div className="relative">
+                    <select value={eventoListCidade} onChange={e => setEventoListCidade(e.target.value)} className={selClass}>
+                      <option value="">Todas cidades</option>
+                      {eventoListOpts.cidades.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </div>
+
+                  {/* Status */}
+                  <div className="relative">
+                    <select value={eventoListStatus} onChange={e => setEventoListStatus(e.target.value)} className={selClass}>
+                      <option value="">Todos status</option>
+                      {eventoListOpts.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                  </div>
+
+                  {/* Clear */}
+                  {hasFilters && (
+                    <button
+                      onClick={() => { setEventoListSearch(''); setEventoListMes(''); setEventoListModalidade(''); setEventoListCidade(''); setEventoListStatus('Em andamento'); }}
+                      className={`flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold transition-all ${isDark ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'}`}
+                    >
+                      <X className="w-3.5 h-3.5" /> Limpar
+                    </button>
+                  )}
+
+                  <span className={`ml-auto text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{filteredEventosList.length} evento(s)</span>
+                </div>
+              );
+            })()}
             {loading ? (
               <div className="flex justify-center py-12">
                 <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" />
