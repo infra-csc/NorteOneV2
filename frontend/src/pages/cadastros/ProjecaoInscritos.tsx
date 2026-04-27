@@ -440,6 +440,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
   const [eventoListOnlyCutoff, setEventoListOnlyCutoff] = useState<boolean>(false);
   const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'asc' });
+  const [projecaoSort, setProjecaoSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'quantidade', dir: 'desc' });
 
   const [pendencias, setPendencias] = useState<PendenciasResponse | null>(null);
   const [pendenciasBannerDismissed, setPendenciasBannerDismissed] = useState(false);
@@ -829,6 +830,35 @@ const ProjecaoInscritos: React.FC = () => {
 
   const toggleEventoSort = (field: string) => {
     setEventoListSort(prev => prev.field === field ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' });
+  };
+
+  const toggleProjecaoSort = (field: string) => {
+    setProjecaoSort(prev => prev.field === field ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: field === 'quantidade' ? 'desc' : 'asc' });
+  };
+
+  const sortProjecaoGroup = (group: Projecao[]): Projecao[] => {
+    const { field, dir } = projecaoSort;
+    const mult = dir === 'asc' ? 1 : -1;
+    const ts = (s?: string | null) => s ? new Date(s).getTime() : 0;
+    return [...group].sort((a, b) => {
+      switch (field) {
+        case 'area':
+          return mult * (a.area_projecao_nome || '').localeCompare(b.area_projecao_nome || '', 'pt-BR');
+        case 'quantidade':
+          return mult * ((a.quantidade || 0) - (b.quantidade || 0));
+        case 'criado': {
+          const cmp = (a.created_by_nome || '').localeCompare(b.created_by_nome || '', 'pt-BR');
+          return mult * (cmp !== 0 ? cmp : ts(a.created_at) - ts(b.created_at));
+        }
+        case 'ultima': {
+          const aT = ts(a.locked_at) || ts(a.updated_at);
+          const bT = ts(b.locked_at) || ts(b.updated_at);
+          return mult * (aT - bT);
+        }
+        default:
+          return 0;
+      }
+    });
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -1621,16 +1651,47 @@ const ProjecaoInscritos: React.FC = () => {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full table-fixed">
+                  <colgroup>
+                    <col />
+                    <col className="w-40" />
+                    <col className="w-48" />
+                    <col className="w-40" />
+                    <col className="w-28" />
+                  </colgroup>
                   <thead>
                     <tr className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
-                      {['Área', 'Quantidade', 'Criado por', 'Última edição / Travamento', 'Ações'].map(h => (
-                        <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
+                      {([
+                        { label: 'Área',                          field: 'area' },
+                        { label: 'Quantidade',                    field: 'quantidade' },
+                        { label: 'Criado por',                    field: 'criado' },
+                        { label: 'Última edição / Travamento',    field: 'ultima' },
+                        { label: 'Ações',                         field: null },
+                      ] as { label: string; field: string | null }[]).map(({ label, field }) => (
+                        <th
+                          key={label}
+                          onClick={field ? () => toggleProjecaoSort(field) : undefined}
+                          className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider select-none ${field ? 'cursor-pointer hover:opacity-80' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {label}
+                            {field && (
+                              projecaoSort.field === field ? (
+                                projecaoSort.dir === 'asc'
+                                  ? <span className={isDark ? 'text-violet-400' : 'text-violet-600'}>↑</span>
+                                  : <span className={isDark ? 'text-violet-400' : 'text-violet-600'}>↓</span>
+                              ) : (
+                                <span className="opacity-25">↕</span>
+                              )
+                            )}
+                          </span>
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-                    {eventGroups.filter(g => selectedEvento ? g[0].evento_id === selectedEvento.id : true).map(group => {
+                    {eventGroups.filter(g => selectedEvento ? g[0].evento_id === selectedEvento.id : true).map(rawGroup => {
+                      const group = sortProjecaoGroup(rawGroup);
                       const firstP = group[0];
                       const allLocked = group.every(p => p.locked_at);
                       const someLocked = group.some(p => p.locked_at);
