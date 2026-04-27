@@ -198,6 +198,42 @@ const mesesOptions: MultiSelectOption[] = [
   { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
 ];
 
+const ClientesTooltip: React.FC<{
+  clientes: ClienteResponse[];
+  quantidade: number;
+  isDark: boolean;
+  formatNumber: (n: number) => string;
+}> = ({ clientes, quantidade, isDark, formatNumber }) => {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span>{formatNumber(quantidade)}</span>
+      {clientes && clientes.length > 0 && (
+        <div className="relative"
+          onMouseEnter={() => setVisible(true)}
+          onMouseLeave={() => setVisible(false)}
+        >
+          <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md cursor-default ${isDark ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-600'}`}>
+            <Users className="w-3 h-3" />
+            <span className="text-xs font-semibold">{clientes.length}</span>
+          </div>
+          {visible && (
+            <div className={`absolute z-50 left-0 top-full mt-1.5 min-w-[200px] rounded-xl shadow-2xl border p-3 space-y-1.5 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+              <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Por cliente</p>
+              {clientes.map(c => (
+                <div key={c.id} className={`flex items-center justify-between gap-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                  <span className="truncate">{c.nome_cliente}</span>
+                  <span className={`font-bold shrink-0 ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>{formatNumber(c.quantidade)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ProjecaoInscritos: React.FC = () => {
   const { isDark } = useTheme();
   const { user } = useAuth();
@@ -848,18 +884,7 @@ const ProjecaoInscritos: React.FC = () => {
                           </span>
                         </td>
                         <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          <div>{formatNumber(p.quantidade)}</div>
-                          {p.clientes && p.clientes.length > 0 && (
-                            <div className="mt-1 space-y-0.5">
-                              {p.clientes.map(c => (
-                                <div key={c.id} className={`flex items-center gap-1 text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                                  <Users className="w-3 h-3 shrink-0" />
-                                  <span className="truncate max-w-[120px]">{c.nome_cliente}</span>
-                                  <span className={`font-semibold ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>{formatNumber(c.quantidade)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          <ClientesTooltip clientes={p.clientes} quantidade={p.quantidade} isDark={isDark} formatNumber={formatNumber} />
                         </td>
                         <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                           <div>{p.created_by_nome}</div>
