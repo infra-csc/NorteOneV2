@@ -7,7 +7,7 @@ import { usePermissions } from '../../context/PermissionContext';
 import {
   BarChart3, Plus, Pencil, Trash2, X, History, Users, Settings,
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
-  TrendingUp, Target, UserCheck, Layers, Download, RotateCcw,
+  Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
   Package,
 } from 'lucide-react';
@@ -1843,55 +1843,6 @@ const ProjecaoInscritos: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* KPI Summary Row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {[
-                    {
-                      label: 'Total Inscritos Reais',
-                      value: filteredConsolidado.reduce((s, c) => s + c.inscritos_reais, 0),
-                      icon: UserCheck,
-                      gradient: 'from-emerald-500 to-teal-600',
-                      shadow: 'shadow-emerald-500/25',
-                      textColor: isDark ? 'text-emerald-400' : 'text-emerald-600',
-                      bgIcon: 'bg-emerald-500/15',
-                    },
-                    {
-                      label: 'Total Projeções',
-                      value: filteredConsolidado.reduce((s, c) => s + c.total_projecoes, 0),
-                      icon: TrendingUp,
-                      gradient: 'from-violet-500 to-purple-600',
-                      shadow: 'shadow-violet-500/25',
-                      textColor: isDark ? 'text-violet-400' : 'text-violet-600',
-                      bgIcon: 'bg-violet-500/15',
-                    },
-                    {
-                      label: 'Total Geral',
-                      value: filteredConsolidado.reduce((s, c) => s + c.total_geral, 0),
-                      icon: Target,
-                      gradient: 'from-blue-500 to-cyan-600',
-                      shadow: 'shadow-blue-500/25',
-                      textColor: isDark ? 'text-blue-400' : 'text-blue-600',
-                      bgIcon: 'bg-blue-500/15',
-                    },
-                  ].map((kpi) => (
-                    <div
-                      key={kpi.label}
-                      className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200 shadow-sm'}`}
-                    >
-                      <div className={`absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-gradient-to-br ${kpi.gradient}`} />
-                      <div className="relative flex items-center gap-4">
-                        <div className={`p-3 rounded-xl ${kpi.bgIcon}`}>
-                          <kpi.icon className={`w-6 h-6 ${kpi.textColor}`} />
-                        </div>
-                        <div>
-                          <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{kpi.label}</p>
-                          <p className={`text-3xl font-black tracking-tight ${kpi.textColor}`}>{formatNumber(kpi.value)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
                 {/* Event Cards */}
                 <div className="space-y-4">
                   {filteredConsolidado.map(c => {
