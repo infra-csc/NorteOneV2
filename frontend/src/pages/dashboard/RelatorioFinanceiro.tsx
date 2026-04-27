@@ -189,7 +189,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                     </td>
                     <td className="px-4 py-3 text-right">
                       {mes.receita_liquida > 0
-                        ? <MargemBadge value={mes.margem_realizada_total} pct={mes.margem_realizada_pct} />
+                        ? <MargemBadge value={mes.margem_realizada_total} />
                         : <span className="text-xs text-gray-400">—</span>
                       }
                     </td>
@@ -238,7 +238,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                       </td>
                       <td className="px-4 py-2 text-right">
                         {ev.receita_realizada > 0
-                          ? <MargemBadge value={ev.margem_realizada} pct={ev.margem_realizada_pct} small />
+                          ? <MargemBadge value={ev.margem_realizada} small />
                           : <span className="text-xs text-gray-400">—</span>
                         }
                       </td>
