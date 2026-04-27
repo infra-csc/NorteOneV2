@@ -335,6 +335,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListModalidade, setEventoListModalidade] = useState<string>('');
   const [eventoListCidade, setEventoListCidade] = useState<string>('');
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
+  const [eventoListOnlyCutoff, setEventoListOnlyCutoff] = useState<boolean>(false);
   const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'asc' });
 
   const [pendencias, setPendencias] = useState<PendenciasResponse | null>(null);
@@ -590,6 +591,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     loadPendencias();
+    loadCutoffRules();
     const interval = setInterval(loadPendencias, 180000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -603,6 +605,34 @@ const ProjecaoInscritos: React.FC = () => {
     }
     return map;
   }, [pendencias]);
+
+  const cutoffByEventoId = useMemo(() => {
+    const map: Record<number, { dias: number; rule: CutoffRule }> = {};
+    const activeRules = cutoffRules.filter(r => r.ativo);
+    if (activeRules.length === 0) return map;
+    const ruleByDias: Record<number, CutoffRule> = {};
+    for (const r of activeRules) ruleByDias[r.dias_antes_evento] = r;
+    // "Hoje" no fuso de São Paulo (alinha com o backend, que também usa America/Sao_Paulo)
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    const todayParts = fmt.format(new Date()).split('-').map(Number);
+    const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]);
+    for (const ev of eventos) {
+      const dateStr = ev.info_geral?.data || ev.data_evento;
+      if (!dateStr) continue;
+      const datePart = dateStr.length >= 10 ? dateStr.slice(0, 10) : null;
+      if (!datePart) continue;
+      const parts = datePart.split('-').map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) continue;
+      const evUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+      const dias = Math.round((evUtc - todayUtc) / 86400000);
+      const rule = ruleByDias[dias];
+      if (rule) map[ev.id] = { dias, rule };
+    }
+    return map;
+  }, [eventos, cutoffRules]);
 
   const tiposEvento = useMemo(() => {
     const tipos = [...new Set(eventos.map(e => e.tipo_evento).filter(Boolean))] as string[];
@@ -667,9 +697,10 @@ const ProjecaoInscritos: React.FC = () => {
         const month = String(new Date(dateStr + (dateStr.length === 10 ? 'T00:00:00' : '')).getMonth() + 1);
         if (month !== eventoListMes) return false;
       }
+      if (eventoListOnlyCutoff && !cutoffByEventoId[e.id]) return false;
       return true;
     });
-  }, [eventos, eventoListSearch, eventoListMes, eventoListModalidade, eventoListCidade, eventoListStatus]);
+  }, [eventos, eventoListSearch, eventoListMes, eventoListModalidade, eventoListCidade, eventoListStatus, eventoListOnlyCutoff, cutoffByEventoId]);
 
   const sortedEventosList = useMemo(() => {
     const { field, dir } = eventoListSort;
@@ -1147,7 +1178,8 @@ const ProjecaoInscritos: React.FC = () => {
             {/* Events filter bar */}
             {(() => {
               const selClass = `h-9 pl-3 pr-8 rounded-xl border text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`;
-              const hasFilters = eventoListSearch || eventoListMes || eventoListModalidade || eventoListCidade || eventoListStatus !== 'Em andamento';
+              const hasFilters = eventoListSearch || eventoListMes || eventoListModalidade || eventoListCidade || eventoListStatus !== 'Em andamento' || eventoListOnlyCutoff;
+              const cutoffCount = Object.keys(cutoffByEventoId).length;
               return (
                 <div className={`flex flex-wrap items-center gap-2 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
                   {/* Search */}
@@ -1200,10 +1232,34 @@ const ProjecaoInscritos: React.FC = () => {
                     <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
                   </div>
 
+                  {/* Apenas em ponto de corte */}
+                  <button
+                    onClick={() => setEventoListOnlyCutoff(v => !v)}
+                    disabled={cutoffCount === 0 && !eventoListOnlyCutoff}
+                    title={cutoffCount === 0 ? 'Nenhum evento está em ponto de corte hoje' : 'Mostrar apenas eventos em ponto de corte hoje'}
+                    className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold transition-all border ${
+                      eventoListOnlyCutoff
+                        ? isDark ? 'bg-rose-500/25 text-rose-200 border-rose-500/50' : 'bg-rose-100 text-rose-700 border-rose-300'
+                        : cutoffCount === 0
+                          ? isDark ? 'bg-gray-800/30 text-gray-600 border-gray-700/40 cursor-not-allowed' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                          : isDark ? 'bg-gray-900/50 text-gray-300 border-gray-600 hover:bg-rose-500/15 hover:text-rose-300 hover:border-rose-500/40' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-300'
+                    }`}
+                  >
+                    <Bell className="w-3.5 h-3.5" />
+                    Em ponto de corte
+                    {cutoffCount > 0 && (
+                      <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        eventoListOnlyCutoff
+                          ? isDark ? 'bg-rose-500/40 text-rose-100' : 'bg-rose-200 text-rose-800'
+                          : isDark ? 'bg-rose-500/30 text-rose-200' : 'bg-rose-100 text-rose-700'
+                      }`}>{cutoffCount}</span>
+                    )}
+                  </button>
+
                   {/* Clear */}
                   {hasFilters && (
                     <button
-                      onClick={() => { setEventoListSearch(''); setEventoListMes(''); setEventoListModalidade(''); setEventoListCidade(''); setEventoListStatus('Em andamento'); }}
+                      onClick={() => { setEventoListSearch(''); setEventoListMes(''); setEventoListModalidade(''); setEventoListCidade(''); setEventoListStatus('Em andamento'); setEventoListOnlyCutoff(false); }}
                       className={`flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold transition-all ${isDark ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'}`}
                     >
                       <X className="w-3.5 h-3.5" /> Limpar
@@ -1264,39 +1320,53 @@ const ProjecaoInscritos: React.FC = () => {
                       const allLocked = evProjecoes.length > 0 && evProjecoes.every(p => p.locked_at);
                       const someLocked = evProjecoes.some(p => p.locked_at);
                       const pend = pendenciasByEventoId[ev.id];
+                      const cutoff = cutoffByEventoId[ev.id];
                       const statusColors: Record<string, string> = {
                         'Em andamento': isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700',
                         'Encerrado': isDark ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-600',
                         'Cancelado': isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700',
                       };
                       const statusColor = statusColors[ev.status || ''] || (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500');
-                      const pendUrgent = pend && pend.dias_ate_evento <= 15;
+                      const cutoffDias = cutoff ? cutoff.dias : (pend ? pend.dias_ate_evento : null);
+                      const cutoffUrgent = cutoffDias !== null && cutoffDias <= 15;
+                      const showCutoffMarker = !!cutoff || !!pend;
+                      const cutoffPending = !!pend;
                       return (
                         <tr
                           key={ev.id}
                           onClick={() => setSelectedEvento(ev)}
                           className={`cursor-pointer transition-colors ${
-                            pend
-                              ? pendUrgent
-                                ? isDark ? 'bg-red-500/[0.07] hover:bg-red-500/15' : 'bg-red-50/60 hover:bg-red-50'
-                                : isDark ? 'bg-amber-500/[0.06] hover:bg-amber-500/15' : 'bg-amber-50/60 hover:bg-amber-50'
+                            showCutoffMarker
+                              ? cutoffPending
+                                ? cutoffUrgent
+                                  ? isDark ? 'bg-red-500/[0.07] hover:bg-red-500/15' : 'bg-red-50/60 hover:bg-red-50'
+                                  : isDark ? 'bg-amber-500/[0.06] hover:bg-amber-500/15' : 'bg-amber-50/60 hover:bg-amber-50'
+                                : isDark ? 'bg-emerald-500/[0.05] hover:bg-emerald-500/10' : 'bg-emerald-50/50 hover:bg-emerald-50'
                               : isDark ? 'hover:bg-violet-500/10' : 'hover:bg-violet-50'
                           }`}
                         >
                           <td className={`px-4 py-3 text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{ev.nome}</span>
-                              {pend && (
+                              {showCutoffMarker && (
                                 <span
-                                  title={`Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`}
+                                  title={
+                                    cutoffPending && pend
+                                      ? `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
+                                      : cutoff
+                                        ? `Ponto de corte ${cutoff.rule.nome} (D-${cutoff.rule.dias_antes_evento}) atingido. Todas as áreas que você pode editar já têm projeção registrada.`
+                                        : ''
+                                  }
                                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                    pendUrgent
-                                      ? isDark ? 'bg-red-500/30 text-red-200 border border-red-500/50' : 'bg-red-100 text-red-700 border border-red-300'
-                                      : isDark ? 'bg-amber-500/30 text-amber-200 border border-amber-500/50' : 'bg-amber-100 text-amber-700 border border-amber-300'
+                                    cutoffPending
+                                      ? cutoffUrgent
+                                        ? isDark ? 'bg-red-500/30 text-red-200 border border-red-500/50' : 'bg-red-100 text-red-700 border border-red-300'
+                                        : isDark ? 'bg-amber-500/30 text-amber-200 border border-amber-500/50' : 'bg-amber-100 text-amber-700 border border-amber-300'
+                                      : isDark ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-500/50' : 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                                   }`}
                                 >
                                   <Bell className="w-2.5 h-2.5" />
-                                  Pendente • D-{pend.dias_ate_evento}
+                                  {cutoffPending ? 'Pendente' : 'Em corte'} • D-{cutoffDias}
                                 </span>
                               )}
                             </div>
