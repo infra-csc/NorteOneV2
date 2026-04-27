@@ -620,6 +620,11 @@ const ProjecaoInscritos: React.FC = () => {
     const todayParts = fmt.format(new Date()).split('-').map(Number);
     const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]);
     for (const ev of eventos) {
+      // Só consideramos eventos "Em andamento" — alinhado com o backend de pendências.
+      // Eventos Concluído/Cancelado não devem disparar ponto de corte.
+      if ((ev.status || 'Em andamento') !== 'Em andamento') continue;
+      // info_geral.data é serializado a partir de cadastro.data_evento no backend
+      // (mesma fonte do filtro de pendências), com data_evento como fallback.
       const dateStr = ev.info_geral?.data || ev.data_evento;
       if (!dateStr) continue;
       const datePart = dateStr.length >= 10 ? dateStr.slice(0, 10) : null;
