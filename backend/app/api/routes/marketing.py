@@ -9462,15 +9462,9 @@ def get_marketing_event_by_id(
             _spd(db, evento_id, ano, grouped_result, data_evento=projeto_data_evento, is_completed=_event_is_past)
         except Exception as _spd_e:
             logger.warning(f"[Persist] save grouped '{evento_id}/{ano}' falhou: {_spd_e}")
-        # For completed events, also invalidate ISC and eventos_list caches so the
-        # list view picks up the newly aligned currentSales on the next request.
-        if _event_is_past:
-            try:
-                from ...core.cache import isc_cache as _isc_cache_ref
-                _isc_cache_ref.invalidate()
-                eventos_list_cache.invalidate()
-            except Exception as _ci_e:
-                logger.debug(f"[Persist] cache invalidation após recompute completed '{evento_id}': {_ci_e}")
+        # ISC e eventos_list NÃO são invalidados aqui: o STEP 4b em fetch_isc_pricing_data
+        # lê EventoDetailSnapshot dinamicamente na próxima reconstrução natural do ISC.
+        # Invalidar a cada evento concluído causa cascata de rebuilds durante warm-up.
         # Signal any waiting threads that computation is done
         with _event_computing_lock:
             _done_evt = _event_computing_events.pop(detail_cache_key, None)
