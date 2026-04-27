@@ -961,8 +961,11 @@ def get_pendencias(
         return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
 
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
-    max_threshold = max(r.dias_antes_evento for r in rules)
-    upper_bound = today + timedelta(days=max_threshold)
+    # Cada regra dispara somente no dia exato (D-N). O conjunto de datas
+    # de evento que nos interessa é exatamente {today + N dias} para cada N.
+    rule_days = sorted({r.dias_antes_evento for r in rules})
+    rule_by_dias = {r.dias_antes_evento: r for r in rules}
+    target_dates = [today + timedelta(days=n) for n in rule_days]
 
     # Áreas em que o usuário pode editar (admin = todas)
     if is_user_admin(current_user):
@@ -980,32 +983,22 @@ def get_pendencias(
     areas_user_ids = {a.id for a in areas_user}
     areas_nome_by_id = {a.id: a.nome for a in areas_user}
 
-    # Eventos candidatos: em andamento, futuros, dentro da maior janela de corte
+    # Eventos candidatos: em andamento e cuja data cai exatamente em
+    # algum dos pontos de corte configurados (today + N dias).
     eventos = (
         db.query(CadastroEvento)
         .filter(
             CadastroEvento.deleted_at.is_(None),
             CadastroEvento.status == 'Em andamento',
             CadastroEvento.data_evento.isnot(None),
-            CadastroEvento.data_evento >= today,
-            CadastroEvento.data_evento <= upper_bound,
+            CadastroEvento.data_evento.in_(target_dates),
         )
         .all()
     )
     eventos_candidatos = []
     for ev in eventos:
         dias = (ev.data_evento - today).days
-        if dias < 0:
-            continue
-        if dias > max_threshold:
-            continue
-        # Pega a regra mais "urgente" cujo limite o evento já cruzou
-        # (menor dias_antes_evento entre as que dias <= rule.dias_antes_evento)
-        regra_aplicavel = None
-        for r in rules:  # rules está ordenado asc por dias_antes_evento
-            if dias <= r.dias_antes_evento:
-                regra_aplicavel = r
-                break
+        regra_aplicavel = rule_by_dias.get(dias)
         if regra_aplicavel:
             eventos_candidatos.append((ev, dias, regra_aplicavel))
 

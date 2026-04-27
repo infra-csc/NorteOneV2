@@ -1101,7 +1101,7 @@ const ProjecaoInscritos: React.FC = () => {
                   </span>
                 </div>
                 <p className={`text-xs mt-1 ${isDark ? 'text-red-200/80' : 'text-red-700'}`}>
-                  Os eventos abaixo cruzaram um ponto de corte e ainda não têm projeção registrada para áreas que você pode editar.
+                  Os eventos abaixo estão exatamente em um ponto de corte hoje e ainda não têm projeção registrada para áreas que você pode editar.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-2.5">
                   {pendencias.pendencias.slice(0, 6).map(p => (
@@ -1729,7 +1729,7 @@ const ProjecaoInscritos: React.FC = () => {
                   <div>
                     <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Pontos de Corte</h2>
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Quando um evento atinge um destes prazos (em dias até a data do evento), os usuários com permissão de editar a área recebem alerta de pendência.
+                      A regra dispara somente no dia exato em que o evento está a esta quantidade de dias da sua data. Os usuários com permissão de editar a área recebem alerta de pendência apenas naquele dia.
                     </p>
                   </div>
                 </div>
@@ -1776,7 +1776,7 @@ const ProjecaoInscritos: React.FC = () => {
                           </div>
                           <h3 className={`text-base font-bold mt-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>{rule.nome}</h3>
                           <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            Aciona quando faltam {rule.dias_antes_evento} dia{rule.dias_antes_evento !== 1 ? 's' : ''} ou menos para o evento.
+                            Aciona apenas no dia exato em que faltam {rule.dias_antes_evento} dia{rule.dias_antes_evento !== 1 ? 's' : ''} para o evento.
                           </p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -2566,7 +2566,7 @@ const ProjecaoInscritos: React.FC = () => {
                   className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
                 />
                 <p className={`text-xs mt-1.5 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                  A regra dispara quando faltam esta quantidade de dias (ou menos) para o evento.
+                  A regra dispara apenas no dia exato em que faltam esta quantidade de dias para o evento.
                 </p>
               </div>
 
