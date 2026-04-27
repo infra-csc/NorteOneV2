@@ -182,6 +182,9 @@ interface Evento {
   info_geral?: { data?: string };
   tipo_evento?: string;
   modalidade?: string;
+  status?: string;
+  cidade?: string;
+  circuito_produto?: string;
 }
 
 interface SimpleUser {
@@ -296,6 +299,8 @@ const ProjecaoInscritos: React.FC = () => {
   } | null>(null);
 
   const [lockingEventoId, setLockingEventoId] = useState<number | null>(null);
+  const [selectedEvento, setSelectedEvento] = useState<Evento | null>(null);
+  const [eventoListSearch, setEventoListSearch] = useState('');
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -481,6 +486,15 @@ const ProjecaoInscritos: React.FC = () => {
     return consolidado.filter(c => c.evento_nome?.toLowerCase().includes(term));
   }, [consolidado, searchTerm]);
 
+  const projecoesPorEventoId = useMemo(() => {
+    const map: Record<number, Projecao[]> = {};
+    for (const p of projecoes) {
+      if (!map[p.evento_id]) map[p.evento_id] = [];
+      map[p.evento_id].push(p);
+    }
+    return map;
+  }, [projecoes]);
+
   const eventGroups = useMemo(() => {
     const grouped: Record<number, Projecao[]> = {};
     for (const p of filteredProjecoes) {
@@ -489,6 +503,16 @@ const ProjecaoInscritos: React.FC = () => {
     }
     return Object.values(grouped);
   }, [filteredProjecoes]);
+
+  const filteredEventosList = useMemo(() => {
+    const term = eventoListSearch.toLowerCase();
+    return eventos.filter(e =>
+      !term ||
+      e.nome?.toLowerCase().includes(term) ||
+      e.cidade?.toLowerCase().includes(term) ||
+      e.tipo_evento?.toLowerCase().includes(term)
+    );
+  }, [eventos, eventoListSearch]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -630,7 +654,7 @@ const ProjecaoInscritos: React.FC = () => {
   };
 
   const resetForm = () => {
-    setFormEventoId('');
+    setFormEventoId(selectedEvento ? selectedEvento.id : '');
     setFormAreaId('');
     setFormQuantidade('');
     setFormTemCliente(false);
@@ -784,9 +808,9 @@ const ProjecaoInscritos: React.FC = () => {
                 Exportar CSV
               </button>
             )}
-            {activeTab === 'projecoes' && canCreateProjecao && (
+            {activeTab === 'projecoes' && canCreateProjecao && selectedEvento && (
               <button
-                onClick={() => { resetForm(); setShowCreateModal(true); }}
+                onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
                 className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
@@ -825,7 +849,7 @@ const ProjecaoInscritos: React.FC = () => {
         </div>
 
         {/* Filters */}
-        {(activeTab === 'projecoes' || activeTab === 'consolidado') && (
+        {(activeTab === 'consolidado' || (activeTab === 'projecoes' && selectedEvento)) && (
           <div className={`flex flex-wrap items-center gap-3 p-4 rounded-2xl ${isDark ? 'bg-gray-800/30 border border-gray-700/50' : 'bg-white/50 border border-gray-200'}`}>
             <Filter className={`w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
             <MultiSelectDropdown
@@ -882,17 +906,151 @@ const ProjecaoInscritos: React.FC = () => {
         )}
 
         {/* Content */}
-        {activeTab === 'projecoes' && (
+        {activeTab === 'projecoes' && !selectedEvento && (
+          /* ── Events master table ── */
+          <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
+            {/* Events search bar */}
+            <div className={`flex items-center gap-3 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+              <div className="relative flex-1 max-w-sm">
+                <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                <input
+                  type="text"
+                  placeholder="Buscar evento, cidade, tipo..."
+                  value={eventoListSearch}
+                  onChange={e => setEventoListSearch(e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2 rounded-xl border text-sm ${isDark ? 'bg-gray-900/50 border-gray-600 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                />
+              </div>
+              <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{filteredEventosList.length} evento(s)</span>
+            </div>
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : filteredEventosList.length === 0 ? (
+              <div className={`text-center py-12 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                <Calendar className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="font-semibold">Nenhum evento encontrado</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
+                      {['Evento', 'Data', 'Tipo / Modalidade', 'Cidade', 'Status', 'Projeções', 'Ações'].map(h => (
+                        <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+                    {filteredEventosList.map(ev => {
+                      const evProjecoes = projecoesPorEventoId[ev.id] || [];
+                      const allLocked = evProjecoes.length > 0 && evProjecoes.every(p => p.locked_at);
+                      const someLocked = evProjecoes.some(p => p.locked_at);
+                      const statusColors: Record<string, string> = {
+                        'Em andamento': isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700',
+                        'Encerrado': isDark ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-600',
+                        'Cancelado': isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700',
+                      };
+                      const statusColor = statusColors[ev.status || ''] || (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500');
+                      return (
+                        <tr
+                          key={ev.id}
+                          onClick={() => setSelectedEvento(ev)}
+                          className={`cursor-pointer transition-colors ${isDark ? 'hover:bg-violet-500/10' : 'hover:bg-violet-50'}`}
+                        >
+                          <td className={`px-4 py-3 text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                            <div>{ev.nome}</div>
+                            {ev.circuito_produto && (
+                              <div className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{ev.circuito_produto}</div>
+                            )}
+                          </td>
+                          <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                            {formatDate(ev.data_evento)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{ev.tipo_evento || '-'}</div>
+                            <div className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{ev.modalidade || '-'}</div>
+                          </td>
+                          <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {ev.cidade || '-'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ev.status && (
+                              <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-semibold ${statusColor}`}>
+                                {ev.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {evProjecoes.length === 0 ? (
+                              <span className={`text-xs ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>Nenhuma</span>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-bold ${isDark ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-700'}`}>
+                                  {evProjecoes.length} área{evProjecoes.length !== 1 ? 's' : ''}
+                                </span>
+                                {allLocked && (
+                                  <span className={`flex items-center gap-0.5 text-xs ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                                    <Lock className="w-3 h-3" /> Travado
+                                  </span>
+                                )}
+                                {!allLocked && someLocked && (
+                                  <span className={`flex items-center gap-0.5 text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+                                    <Lock className="w-3 h-3" /> Parcial
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={e => { e.stopPropagation(); setSelectedEvento(ev); }}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${isDark ? 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30' : 'bg-violet-100 text-violet-700 hover:bg-violet-200'}`}
+                            >
+                              <BarChart3 className="w-3.5 h-3.5" />
+                              Projeções
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'projecoes' && selectedEvento && (
+          /* ── Projections detail view ── */
+          <div className="space-y-3">
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedEvento(null)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${isDark ? 'text-gray-400 hover:text-white hover:bg-gray-700/50' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}
+              >
+                <ChevronDown className="w-4 h-4 rotate-90" />
+                Eventos
+              </button>
+              <span className={isDark ? 'text-gray-600' : 'text-gray-300'}>/</span>
+              <span className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{selectedEvento.nome}</span>
+              {selectedEvento.data_evento && (
+                <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{formatDate(selectedEvento.data_evento)}</span>
+              )}
+            </div>
+
           <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
             {loading ? (
               <div className="flex justify-center py-12">
                 <div className="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" />
               </div>
-            ) : filteredProjecoes.length === 0 ? (
+            ) : (eventGroups.filter(g => g[0].evento_id === selectedEvento.id)).length === 0 ? (
               <div className={`text-center py-12 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="font-semibold">Nenhuma projeção encontrada</p>
-                <p className="text-sm mt-1">Crie uma nova projeção para começar</p>
+                <p className="font-semibold">Nenhuma projeção para este evento</p>
+                {canCreateProjecao && <p className="text-sm mt-1">Clique em "Nova Projeção" para começar</p>}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -905,7 +1063,7 @@ const ProjecaoInscritos: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-                    {eventGroups.map(group => {
+                    {eventGroups.filter(g => selectedEvento ? g[0].evento_id === selectedEvento.id : true).map(group => {
                       const firstP = group[0];
                       const allLocked = group.every(p => p.locked_at);
                       const someLocked = group.some(p => p.locked_at);
@@ -1040,6 +1198,7 @@ const ProjecaoInscritos: React.FC = () => {
                 </table>
               </div>
             )}
+          </div>
           </div>
         )}
 
@@ -1355,6 +1514,13 @@ const ProjecaoInscritos: React.FC = () => {
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Evento</label>
+                {selectedEvento ? (
+                  <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}>
+                    <Calendar className={`w-4 h-4 shrink-0 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                    <span className="text-sm font-medium">{selectedEvento.nome}</span>
+                    <input type="hidden" value={selectedEvento.id} />
+                  </div>
+                ) : (
                 <div ref={eventoDropdownRef} className="relative">
                   <button
                     type="button"
@@ -1408,6 +1574,7 @@ const ProjecaoInscritos: React.FC = () => {
                   )}
                   <input type="hidden" value={formEventoId} required />
                 </div>
+                )}
               </div>
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Área</label>
