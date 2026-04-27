@@ -89,6 +89,8 @@ class ProjecaoInscritosResponse(BaseModel):
     created_by_nome: Optional[str] = None
     updated_by: Optional[int] = None
     updated_by_nome: Optional[str] = None
+    locked_at: Optional[datetime] = None
+    locked_by_nome: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None

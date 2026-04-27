@@ -1112,6 +1112,9 @@ def _run_column_migrations():
             "ALTER TABLE cotacao_fob ADD COLUMN IF NOT EXISTS cotacao_cambio NUMERIC(10,4)",
             "ALTER TABLE cotacao_fob ADD COLUMN IF NOT EXISTS valor_nacionalizado NUMERIC(15,4)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS ignorado BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
+            "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_by INTEGER REFERENCES dim_usuario(id)",
+            "ALTER TABLE projecao_inscritos_historico ALTER COLUMN campo_alterado TYPE VARCHAR(200)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

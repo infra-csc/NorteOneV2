@@ -185,6 +185,7 @@ def list_projecoes(
             joinedload(ProjecaoInscritos.area_projecao),
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
+            joinedload(ProjecaoInscritos.travador),
             joinedload(ProjecaoInscritos.clientes),
         )
     )
@@ -234,6 +235,8 @@ def list_projecoes(
             created_by_nome=p.criador.nome if p.criador else None,
             updated_by=p.updated_by,
             updated_by_nome=p.editor.nome if p.editor else None,
+            locked_at=p.locked_at,
+            locked_by_nome=p.travador.nome if p.travador else None,
             created_at=p.created_at,
             updated_at=p.updated_at,
         ))
@@ -337,6 +340,9 @@ def update_projecao(
     if not projecao:
         raise HTTPException(status_code=404, detail="Projeção não encontrada")
 
+    if projecao.locked_at is not None:
+        raise HTTPException(status_code=423, detail="Esta projeção está travada e não pode ser editada")
+
     _check_area_permission(db, current_user, projecao.area_projecao_id)
 
     old_qtd = projecao.quantidade
@@ -408,6 +414,8 @@ def update_projecao(
         created_by_nome=projecao.criador.nome if projecao.criador else None,
         updated_by=projecao.updated_by,
         updated_by_nome=editor.nome if editor else None,
+        locked_at=projecao.locked_at,
+        locked_by_nome=projecao.travador.nome if projecao.travador else None,
         created_at=projecao.created_at,
         updated_at=projecao.updated_at,
     )
@@ -459,6 +467,9 @@ def delete_projecao(
     if not projecao:
         raise HTTPException(status_code=404, detail="Projeção não encontrada")
 
+    if projecao.locked_at is not None:
+        raise HTTPException(status_code=423, detail="Esta projeção está travada e não pode ser removida")
+
     _check_area_permission(db, current_user, projecao.area_projecao_id)
 
     _record_history(db, projecao.id, "DELECAO", current_user.id,
@@ -468,6 +479,59 @@ def delete_projecao(
     projecao.updated_by = current_user.id
     db.commit()
     return {"message": "Projeção removida"}
+
+
+@router.post("/evento/{evento_id}/toggle-lock")
+def toggle_lock_evento(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    evento = db.query(CadastroEvento).filter(
+        CadastroEvento.id == evento_id,
+        CadastroEvento.deleted_at.is_(None),
+    ).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    projecoes = db.query(ProjecaoInscritos).options(
+        joinedload(ProjecaoInscritos.travador),
+    ).filter(
+        ProjecaoInscritos.evento_id == evento_id,
+        ProjecaoInscritos.deleted_at.is_(None),
+    ).all()
+
+    if not projecoes:
+        raise HTTPException(status_code=404, detail="Nenhuma projeção encontrada para este evento")
+
+    all_locked = all(p.locked_at is not None for p in projecoes)
+
+    if all_locked:
+        if not is_user_admin(current_user):
+            raise HTTPException(status_code=403, detail="Apenas administradores podem destravar projeções")
+        for p in projecoes:
+            p.locked_at = None
+            p.locked_by = None
+            _record_history(db, p.id, "DESTRAVAMENTO", current_user.id,
+                            campo="travamento", anterior="Travado", novo="Destravado")
+        db.commit()
+        return {"action": "unlocked", "count": len(projecoes)}
+    else:
+        now = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+        locked_count = 0
+        for p in projecoes:
+            if p.locked_at is None:
+                if not is_user_admin(current_user):
+                    allowed = _get_user_area_ids(db, current_user.id)
+                    if p.area_projecao_id not in allowed:
+                        continue
+                p.locked_at = now
+                p.locked_by = current_user.id
+                _record_history(db, p.id, "TRAVAMENTO", current_user.id,
+                                campo="travamento", anterior="Editável", novo="Travado")
+                locked_count += 1
+        db.commit()
+        return {"action": "locked", "count": locked_count}
 
 
 @router.get("/lixeira", response_model=List[ProjecaoInscritosResponse])

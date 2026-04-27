@@ -47,14 +47,17 @@ class ProjecaoInscritos(Base):
     quantidade = Column(Integer, nullable=False, default=0)
     created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    locked_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, onupdate=_now_brasilia)
+    locked_at = Column(DateTime, nullable=True)
     deleted_at = Column(DateTime, nullable=True)
 
     evento = relationship("CadastroEvento")
     area_projecao = relationship("AreaProjecao", back_populates="projecoes")
     criador = relationship("Usuario", foreign_keys=[created_by])
     editor = relationship("Usuario", foreign_keys=[updated_by])
+    travador = relationship("Usuario", foreign_keys=[locked_by])
     historico = relationship("ProjecaoInscritosHistorico", back_populates="projecao")
     clientes = relationship("ProjecaoInscritosCliente", back_populates="projecao", cascade="all, delete-orphan")
 

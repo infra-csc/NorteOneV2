@@ -7,7 +7,7 @@ import {
   BarChart3, Plus, Pencil, Trash2, X, History, Users, Settings,
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   TrendingUp, Target, UserCheck, Layers, Download, RotateCcw,
-  AlertTriangle, Trash, Check,
+  AlertTriangle, Trash, Check, Lock, LockOpen,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -138,6 +138,8 @@ interface Projecao {
   created_by_nome: string | null;
   updated_by: number | null;
   updated_by_nome: string | null;
+  locked_at: string | null;
+  locked_by_nome: string | null;
   created_at: string | null;
   updated_at: string | null;
   deleted_at: string | null;
@@ -292,6 +294,8 @@ const ProjecaoInscritos: React.FC = () => {
     variant: 'danger' | 'warning' | 'info';
     onConfirm: () => void;
   } | null>(null);
+
+  const [lockingEventoId, setLockingEventoId] = useState<number | null>(null);
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -477,6 +481,15 @@ const ProjecaoInscritos: React.FC = () => {
     return consolidado.filter(c => c.evento_nome?.toLowerCase().includes(term));
   }, [consolidado, searchTerm]);
 
+  const eventGroups = useMemo(() => {
+    const grouped: Record<number, Projecao[]> = {};
+    for (const p of filteredProjecoes) {
+      if (!grouped[p.evento_id]) grouped[p.evento_id] = [];
+      grouped[p.evento_id].push(p);
+    }
+    return Object.values(grouped);
+  }, [filteredProjecoes]);
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const qty = parseInt(formQuantidade);
@@ -563,6 +576,31 @@ const ProjecaoInscritos: React.FC = () => {
           showToast('Projeção excluída com sucesso', 'success');
         } catch (error: any) {
           showToast(error.response?.data?.detail || 'Erro ao excluir');
+        }
+      },
+    });
+  };
+
+  const handleToggleLock = (eventoId: number, allLocked: boolean) => {
+    const label = allLocked ? 'Destravar' : 'Travar';
+    const msg = allLocked
+      ? 'Deseja destravar todas as projeções deste evento? Edições voltarão a ser permitidas.'
+      : 'Deseja travar todas as projeções deste evento? Não será mais possível editar ou excluir os números.';
+    showConfirm({
+      title: `${label} projeções do evento`,
+      message: msg,
+      confirmLabel: label,
+      variant: allLocked ? 'warning' : 'info',
+      onConfirm: async () => {
+        setLockingEventoId(eventoId);
+        try {
+          await projecaoService.toggleLock(eventoId);
+          await loadData();
+          showToast(allLocked ? 'Projeções destravadas com sucesso' : 'Projeções travadas com sucesso', 'success');
+        } catch (error: any) {
+          showToast(error.response?.data?.detail || 'Erro ao alterar travamento');
+        } finally {
+          setLockingEventoId(null);
         }
       },
     });
@@ -861,76 +899,143 @@ const ProjecaoInscritos: React.FC = () => {
                 <table className="w-full">
                   <thead>
                     <tr className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
-                      {['Evento', 'Data', 'Tipo', 'Área', 'Quantidade', 'Criado por', 'Última edição', 'Ações'].map(h => (
+                      {['Área', 'Quantidade', 'Criado por', 'Última edição / Travamento', 'Ações'].map(h => (
                         <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-                    {filteredProjecoes.map(p => (
-                      <tr key={p.id} className={`transition-colors ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}>
-                        <td className={`px-4 py-3 text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          {p.evento_nome}
-                        </td>
-                        <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {formatDate(p.evento_data)}
-                        </td>
-                        <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {p.evento_tipo || '-'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
-                            {p.area_projecao_nome}
-                          </span>
-                        </td>
-                        <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          <ClientesTooltip clientes={p.clientes} quantidade={p.quantidade} isDark={isDark} formatNumber={formatNumber} />
-                        </td>
-                        <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          <div>{p.created_by_nome}</div>
-                          <div>{formatDateTime(p.created_at)}</div>
-                        </td>
-                        <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                          {p.updated_by_nome ? (
-                            <>
-                              <div>{p.updated_by_nome}</div>
-                              <div>{formatDateTime(p.updated_at)}</div>
-                            </>
-                          ) : '-'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1">
-                            {canEditProjecao && myAreaIds.has(p.area_projecao_id) && (
-                              <button
-                                onClick={() => openEdit(p)}
-                                className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
-                                title="Editar"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                            )}
-                            {myAreaIds.has(p.area_projecao_id) && (
-                              <button
-                                onClick={() => openHistorico(p)}
-                                className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-400 transition-colors"
-                                title="Histórico"
-                              >
-                                <History className="w-4 h-4" />
-                              </button>
-                            )}
-                            {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && (
-                              <button
-                                onClick={() => handleDelete(p.id)}
-                                className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
-                                title="Excluir"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {eventGroups.map(group => {
+                      const firstP = group[0];
+                      const allLocked = group.every(p => p.locked_at);
+                      const someLocked = group.some(p => p.locked_at);
+                      return (
+                        <React.Fragment key={firstP.evento_id}>
+                          {/* Event header row */}
+                          <tr className={isDark ? 'bg-gray-900/70' : 'bg-gray-100/80'}>
+                            <td colSpan={5} className="px-4 py-2.5">
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                    {firstP.evento_nome}
+                                  </span>
+                                  {firstP.evento_data && (
+                                    <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                      {formatDate(firstP.evento_data)}
+                                    </span>
+                                  )}
+                                  {firstP.evento_tipo && (
+                                    <span className={`text-xs px-2 py-0.5 rounded-md ${isDark ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'}`}>
+                                      {firstP.evento_tipo}
+                                    </span>
+                                  )}
+                                  {allLocked && (
+                                    <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-md font-semibold ${isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700'}`}>
+                                      <Lock className="w-3 h-3" /> Travado
+                                    </span>
+                                  )}
+                                  {!allLocked && someLocked && (
+                                    <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-md font-semibold ${isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+                                      <Lock className="w-3 h-3" /> Parcialmente travado
+                                    </span>
+                                  )}
+                                </div>
+                                {canEditProjecao && (
+                                  <button
+                                    onClick={() => {
+                                      if (allLocked && !isAdmin) return;
+                                      handleToggleLock(firstP.evento_id, allLocked);
+                                    }}
+                                    disabled={lockingEventoId === firstP.evento_id || (allLocked && !isAdmin)}
+                                    title={allLocked ? (isAdmin ? 'Destravar projeções (admin)' : 'Apenas administradores podem destravar') : 'Travar todas as projeções deste evento'}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                                      allLocked
+                                        ? isDark ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                                        : isDark ? 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30' : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+                                    }`}
+                                  >
+                                    {lockingEventoId === firstP.evento_id ? (
+                                      <span className="animate-pulse">Aguarde...</span>
+                                    ) : allLocked ? (
+                                      <><LockOpen className="w-3.5 h-3.5" /> Destravar</>
+                                    ) : (
+                                      <><Lock className="w-3.5 h-3.5" /> Travar</>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {/* Sub-rows per area */}
+                          {group.map(p => (
+                            <tr key={p.id} className={`transition-colors ${p.locked_at ? (isDark ? 'opacity-75' : 'opacity-80') : ''} ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}>
+                              <td className="px-4 py-3 pl-6">
+                                <div className="flex items-center gap-2">
+                                  {p.locked_at && <Lock className={`w-3 h-3 flex-shrink-0 ${isDark ? 'text-red-400' : 'text-red-500'}`} />}
+                                  <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
+                                    {p.area_projecao_nome}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                <ClientesTooltip clientes={p.clientes} quantidade={p.quantidade} isDark={isDark} formatNumber={formatNumber} />
+                              </td>
+                              <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                <div>{p.created_by_nome}</div>
+                                <div>{formatDateTime(p.created_at)}</div>
+                              </td>
+                              <td className={`px-4 py-3 text-xs`}>
+                                {p.locked_at ? (
+                                  <div className={`flex items-center gap-1.5 ${isDark ? 'text-red-400' : 'text-red-600'}`}>
+                                    <Lock className="w-3 h-3 flex-shrink-0" />
+                                    <div>
+                                      <div className="font-medium">{p.locked_by_nome}</div>
+                                      <div>{formatDateTime(p.locked_at)}</div>
+                                    </div>
+                                  </div>
+                                ) : p.updated_by_nome ? (
+                                  <div className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+                                    <div>{p.updated_by_nome}</div>
+                                    <div>{formatDateTime(p.updated_at)}</div>
+                                  </div>
+                                ) : <span className={isDark ? 'text-gray-600' : 'text-gray-400'}>-</span>}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1">
+                                  {canEditProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && (
+                                    <button
+                                      onClick={() => openEdit(p)}
+                                      className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
+                                      title="Editar"
+                                    >
+                                      <Pencil className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {(myAreaIds.has(p.area_projecao_id) || isAdmin) && (
+                                    <button
+                                      onClick={() => openHistorico(p)}
+                                      className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-400 transition-colors"
+                                      title="Histórico"
+                                    >
+                                      <History className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && (
+                                    <button
+                                      onClick={() => handleDelete(p.id)}
+                                      className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
+                                      title="Excluir"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1554,6 +1659,8 @@ const ProjecaoInscritos: React.FC = () => {
                       EDICAO: { bg: 'bg-amber-500/20', icon: <Pencil className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />, label: 'Edição' },
                       DELECAO: { bg: 'bg-red-500/20', icon: <Trash2 className={`w-5 h-5 ${isDark ? 'text-red-400' : 'text-red-600'}`} />, label: 'Exclusão' },
                       RESTAURACAO: { bg: 'bg-blue-500/20', icon: <RotateCcw className={`w-5 h-5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />, label: 'Restauração' },
+                      TRAVAMENTO: { bg: 'bg-red-500/20', icon: <Lock className={`w-5 h-5 ${isDark ? 'text-red-400' : 'text-red-600'}`} />, label: 'Travamento' },
+                      DESTRAVAMENTO: { bg: 'bg-orange-500/20', icon: <LockOpen className={`w-5 h-5 ${isDark ? 'text-orange-400' : 'text-orange-600'}`} />, label: 'Destravamento' },
                     };
                     const cfg = acaoConfig[h.acao] || acaoConfig.EDICAO;
                     return (

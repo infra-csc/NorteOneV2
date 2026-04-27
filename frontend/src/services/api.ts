@@ -1267,6 +1267,10 @@ export const projecaoService = {
     const response = await api.delete(`/projecao/${id}`);
     return response.data;
   },
+  toggleLock: async (eventoId: number) => {
+    const response = await api.post(`/projecao/evento/${eventoId}/toggle-lock`);
+    return response.data;
+  },
   getHistorico: async (id: number) => {
     const response = await api.get(`/projecao/${id}/historico`);
     return response.data;
