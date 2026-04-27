@@ -1459,7 +1459,6 @@ const ProjecaoInscritos: React.FC = () => {
                         { label: 'Cidade',           field: 'cidade' },
                         { label: 'Status',           field: 'status' },
                         { label: 'Projeções',        field: 'projecoes' },
-                        { label: 'Ações',            field: null },
                       ] as { label: string; field: string | null }[]).map(({ label, field }) => (
                         <th
                           key={label}
@@ -1579,15 +1578,6 @@ const ProjecaoInscritos: React.FC = () => {
                                 )}
                               </div>
                             )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={e => { e.stopPropagation(); setSelectedEvento(ev); }}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${isDark ? 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30' : 'bg-violet-100 text-violet-700 hover:bg-violet-200'}`}
-                            >
-                              <BarChart3 className="w-3.5 h-3.5" />
-                              Projeções
-                            </button>
                           </td>
                         </tr>
                       );
