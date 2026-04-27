@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { projecaoService, usersService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
@@ -250,77 +251,124 @@ const mesesOptions: MultiSelectOption[] = [
   { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
 ];
 
+type BreakdownItem = { id: number; label: string; quantidade: number };
+
+const BreakdownPopover: React.FC<{
+  items: BreakdownItem[];
+  title: string;
+  color: 'amber' | 'violet';
+  icon: React.ReactNode;
+  isDark: boolean;
+  formatNumber: (n: number) => string;
+  showTotal?: boolean;
+}> = ({ items, title, color, icon, isDark, formatNumber, showTotal = true }) => {
+  const [visible, setVisible] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  const triggerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!visible || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const tooltipWidth = 240;
+    const margin = 8;
+    let left = rect.left;
+    if (left + tooltipWidth + margin > window.innerWidth) {
+      left = Math.max(margin, window.innerWidth - tooltipWidth - margin);
+    }
+    setCoords({ top: rect.bottom + 6, left });
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const close = () => setVisible(false);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [visible]);
+
+  if (!items || items.length === 0) return null;
+
+  const total = items.reduce((s, i) => s + i.quantidade, 0);
+  const trigBg = color === 'amber'
+    ? (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700')
+    : (isDark ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-600');
+  const valColor = color === 'amber'
+    ? (isDark ? 'text-amber-400' : 'text-amber-600')
+    : (isDark ? 'text-violet-400' : 'text-violet-600');
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md cursor-default ${trigBg}`}
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+      >
+        {icon}
+        <span className="text-xs font-semibold">{items.length}</span>
+      </div>
+      {visible && coords && createPortal(
+        <div
+          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 240, zIndex: 9999, pointerEvents: 'none' }}
+          className={`rounded-xl shadow-2xl border p-3 space-y-1.5 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}
+        >
+          <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{title}</p>
+          {items.map(i => (
+            <div key={i.id} className={`flex items-center justify-between gap-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+              <span className="truncate">{i.label}</span>
+              <span className={`font-bold shrink-0 ${valColor}`}>{formatNumber(i.quantidade)}</span>
+            </div>
+          ))}
+          {showTotal && (
+            <div className={`pt-1.5 mt-1.5 border-t flex items-center justify-between gap-3 text-xs ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
+              <span className="font-semibold uppercase tracking-wider">Total</span>
+              <span className={`font-bold ${valColor}`}>{formatNumber(total)}</span>
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
+  );
+};
+
 const KitsTooltip: React.FC<{
   kits: KitResponse[];
   isDark: boolean;
   formatNumber: (n: number) => string;
-}> = ({ kits, isDark, formatNumber }) => {
-  const [visible, setVisible] = useState(false);
-  if (!kits || kits.length === 0) return null;
-  const total = kits.reduce((s, k) => s + k.quantidade, 0);
-  return (
-    <div className="relative inline-block"
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setVisible(false)}
-    >
-      <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md cursor-default ${isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
-        <Package className="w-3 h-3" />
-        <span className="text-xs font-semibold">{kits.length}</span>
-      </div>
-      {visible && (
-        <div className={`absolute z-50 left-0 top-full mt-1.5 min-w-[220px] rounded-xl shadow-2xl border p-3 space-y-1.5 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
-          <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Por kit</p>
-          {kits.map(k => (
-            <div key={k.id} className={`flex items-center justify-between gap-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-              <span className="truncate">{k.nome_kit}</span>
-              <span className={`font-bold shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>{formatNumber(k.quantidade)}</span>
-            </div>
-          ))}
-          <div className={`pt-1.5 mt-1.5 border-t flex items-center justify-between gap-3 text-xs ${isDark ? 'border-gray-700 text-gray-400' : 'border-gray-200 text-gray-500'}`}>
-            <span className="font-semibold uppercase tracking-wider">Total</span>
-            <span className={`font-bold ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>{formatNumber(total)}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+}> = ({ kits, isDark, formatNumber }) => (
+  <BreakdownPopover
+    items={(kits || []).map(k => ({ id: k.id, label: k.nome_kit, quantidade: k.quantidade }))}
+    title="Por kit"
+    color="amber"
+    icon={<Package className="w-3 h-3" />}
+    isDark={isDark}
+    formatNumber={formatNumber}
+  />
+);
 
 const ClientesTooltip: React.FC<{
   clientes: ClienteResponse[];
   quantidade: number;
   isDark: boolean;
   formatNumber: (n: number) => string;
-}> = ({ clientes, quantidade, isDark, formatNumber }) => {
-  const [visible, setVisible] = useState(false);
-  return (
-    <div className="flex items-center gap-1.5">
-      <span>{formatNumber(quantidade)}</span>
-      {clientes && clientes.length > 0 && (
-        <div className="relative"
-          onMouseEnter={() => setVisible(true)}
-          onMouseLeave={() => setVisible(false)}
-        >
-          <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-md cursor-default ${isDark ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-600'}`}>
-            <Users className="w-3 h-3" />
-            <span className="text-xs font-semibold">{clientes.length}</span>
-          </div>
-          {visible && (
-            <div className={`absolute z-50 left-0 top-full mt-1.5 min-w-[200px] rounded-xl shadow-2xl border p-3 space-y-1.5 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
-              <p className={`text-xs font-bold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Por cliente</p>
-              {clientes.map(c => (
-                <div key={c.id} className={`flex items-center justify-between gap-3 text-xs ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                  <span className="truncate">{c.nome_cliente}</span>
-                  <span className={`font-bold shrink-0 ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>{formatNumber(c.quantidade)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
+}> = ({ clientes, quantidade, isDark, formatNumber }) => (
+  <div className="flex items-center gap-1.5">
+    <span>{formatNumber(quantidade)}</span>
+    <BreakdownPopover
+      items={(clientes || []).map(c => ({ id: c.id, label: c.nome_cliente, quantidade: c.quantidade }))}
+      title="Por cliente"
+      color="violet"
+      icon={<Users className="w-3 h-3" />}
+      isDark={isDark}
+      formatNumber={formatNumber}
+      showTotal={false}
+    />
+  </div>
+);
 
 const ProjecaoInscritos: React.FC = () => {
   const { isDark } = useTheme();
