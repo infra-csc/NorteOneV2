@@ -1005,7 +1005,11 @@ const ProjecaoInscritos: React.FC = () => {
     }
     if (p.kits && p.kits.length > 0) {
       setFormTemKit(true);
-      setFormKits(p.kits.map(k => ({ nome_kit: k.nome_kit, quantidade: String(k.quantidade) })));
+      const savedByName = new Map(p.kits.map(k => [k.nome_kit, k.quantidade]));
+      setFormKits(KITS_PADRAO.map(nome => ({
+        nome_kit: nome,
+        quantidade: savedByName.has(nome) ? String(savedByName.get(nome)) : '',
+      })));
     } else {
       setFormTemKit(false);
       setFormKits(buildKitsPadrao());
@@ -2300,13 +2304,9 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                   {formKits.map((kit, idx) => (
                     <div key={idx} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={kit.nome_kit}
-                        onChange={e => updateKit(idx, 'nome_kit', e.target.value)}
-                        placeholder="Nome do kit"
-                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
-                      />
+                      <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                        {kit.nome_kit}
+                      </div>
                       <input
                         type="number"
                         value={kit.quantidade}
@@ -2315,19 +2315,8 @@ const ProjecaoInscritos: React.FC = () => {
                         min={0}
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
                       />
-                      <button type="button" onClick={() => removeKit(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={addKit}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-amber-400 hover:bg-amber-500/20' : 'text-amber-600 hover:bg-amber-50'}`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Adicionar kit
-                  </button>
                 </div>
               )}
 
@@ -2475,13 +2464,9 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                   {formKits.map((kit, idx) => (
                     <div key={idx} className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={kit.nome_kit}
-                        onChange={e => updateKit(idx, 'nome_kit', e.target.value)}
-                        placeholder="Nome do kit"
-                        className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
-                      />
+                      <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                        {kit.nome_kit}
+                      </div>
                       <input
                         type="number"
                         value={kit.quantidade}
@@ -2490,19 +2475,8 @@ const ProjecaoInscritos: React.FC = () => {
                         min={0}
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
                       />
-                      <button type="button" onClick={() => removeKit(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
-                        <X className="w-4 h-4" />
-                      </button>
                     </div>
                   ))}
-                  <button
-                    type="button"
-                    onClick={addKit}
-                    className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isDark ? 'text-amber-400 hover:bg-amber-500/20' : 'text-amber-600 hover:bg-amber-50'}`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Adicionar kit
-                  </button>
                 </div>
               )}
 
