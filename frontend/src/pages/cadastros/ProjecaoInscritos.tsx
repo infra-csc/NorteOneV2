@@ -305,7 +305,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListModalidade, setEventoListModalidade] = useState<string>('');
   const [eventoListCidade, setEventoListCidade] = useState<string>('');
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
-  const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'desc' });
+  const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'asc' });
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
