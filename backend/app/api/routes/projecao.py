@@ -907,13 +907,24 @@ def get_consolidado(
 
         projecoes_items = []
         total_projecoes = 0
+        projecao_site = 0
         for p in projecoes:
+            nome_area = p.area_projecao.nome if p.area_projecao else "N/A"
             projecoes_items.append(ConsolidadoAreaItem(
                 area_projecao_id=p.area_projecao_id,
-                area_projecao_nome=p.area_projecao.nome if p.area_projecao else "N/A",
+                area_projecao_nome=nome_area,
                 quantidade=p.quantidade,
             ))
             total_projecoes += p.quantidade
+            if nome_area.strip().lower() == "site":
+                projecao_site += p.quantidade
+
+        # Inscritos reais (vindos do site) substituem a parte "Site" da projeção:
+        # se ainda não atingiram, a projeção_site cobre o restante;
+        # se ultrapassaram, contam como excedente.
+        site_efetivo = max(inscritos_reais, projecao_site)
+        outras_projecoes = total_projecoes - projecao_site
+        total_geral = site_efetivo + outras_projecoes
 
         result.append(ConsolidadoEventoResponse(
             evento_id=evento.id,
@@ -922,7 +933,8 @@ def get_consolidado(
             inscritos_reais=inscritos_reais,
             projecoes=projecoes_items,
             total_projecoes=total_projecoes,
-            total_geral=inscritos_reais + total_projecoes,
+            projecao_site=projecao_site,
+            total_geral=total_geral,
         ))
 
     return result

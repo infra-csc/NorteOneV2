@@ -183,6 +183,7 @@ interface ConsolidadoEvento {
   inscritos_reais: number;
   projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number }[];
   total_projecoes: number;
+  projecao_site: number;
   total_geral: number;
 }
 
@@ -1847,7 +1848,10 @@ const ProjecaoInscritos: React.FC = () => {
                 <div className="space-y-4">
                   {filteredConsolidado.map(c => {
                     const isExpanded = expandedConsolidado.has(c.evento_id);
-                    const maxAreaQtd = Math.max(...c.projecoes.map(p => p.quantidade), 1);
+                    const isSite = (nome: string) => nome.trim().toLowerCase() === 'site';
+                    const effectiveQtd = (p: { area_projecao_nome: string; quantidade: number }) =>
+                      isSite(p.area_projecao_nome) ? Math.max(p.quantidade, c.inscritos_reais) : p.quantidade;
+                    const maxAreaQtd = Math.max(...c.projecoes.map(effectiveQtd), 1);
 
                     return (
                       <div
@@ -1879,14 +1883,18 @@ const ProjecaoInscritos: React.FC = () => {
                                   <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
                                     {formatNumber(c.inscritos_reais)}
                                   </span>
-                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>reais</span>
+                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>inscritos reais</span>
                                 </div>
-                                <div className={`text-lg ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>+</div>
                                 <div className="flex items-baseline gap-2">
                                   <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>
-                                    {formatNumber(c.total_projecoes)}
+                                    {formatNumber(Math.max(0, c.total_geral - c.inscritos_reais))}
                                   </span>
-                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>projeções</span>
+                                  <span
+                                    className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}
+                                    title="Projeções somadas, descontando a parte do site já realizada (sem dupla contagem)"
+                                  >
+                                    projeções a chegar
+                                  </span>
                                 </div>
                                 <div className={`text-lg ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>=</div>
                                 <div className="flex items-baseline gap-2">
@@ -1917,9 +1925,14 @@ const ProjecaoInscritos: React.FC = () => {
                               <div className="space-y-3">
                                 {c.projecoes
                                   .slice()
-                                  .sort((a, b) => b.quantidade - a.quantidade)
+                                  .sort((a, b) => effectiveQtd(b) - effectiveQtd(a))
                                   .map((p, idx) => {
-                                    const barPct = (p.quantidade / maxAreaQtd) * 100;
+                                    const isSiteArea = isSite(p.area_projecao_nome);
+                                    const realPart = isSiteArea ? Math.min(c.inscritos_reais, p.quantidade) : 0;
+                                    const overflow = isSiteArea ? Math.max(0, c.inscritos_reais - p.quantidade) : 0;
+                                    const totalAreaQtd = isSiteArea ? Math.max(p.quantidade, c.inscritos_reais) : p.quantidade;
+                                    const barPct = (totalAreaQtd / maxAreaQtd) * 100;
+                                    const realPctOfBar = isSiteArea && totalAreaQtd > 0 ? ((realPart + overflow) / totalAreaQtd) * 100 : 0;
                                     const areaColors = [
                                       { bar: 'from-violet-500 to-purple-500', text: isDark ? 'text-violet-300' : 'text-violet-700', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
                                       { bar: 'from-blue-500 to-cyan-500', text: isDark ? 'text-blue-300' : 'text-blue-700', bg: isDark ? 'bg-blue-500/10' : 'bg-blue-50' },
@@ -1934,17 +1947,42 @@ const ProjecaoInscritos: React.FC = () => {
 
                                     return (
                                       <div key={p.area_projecao_id} className={`p-3 rounded-xl ${color.bg}`}>
-                                        <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center justify-between mb-2 gap-3">
                                           <span className={`text-sm font-semibold ${color.text}`}>{p.area_projecao_nome}</span>
-                                          <span className={`text-sm font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                            {formatNumber(p.quantidade)}
-                                          </span>
+                                          {isSiteArea ? (
+                                            <span className={`text-sm font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                              <span className={isDark ? 'text-emerald-400' : 'text-emerald-600'} title="Inscritos reais já realizados">
+                                                {formatNumber(c.inscritos_reais)}
+                                              </span>
+                                              <span className={`mx-1 font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>/</span>
+                                              <span title="Projeção total para a área Site">{formatNumber(p.quantidade)}</span>
+                                              {overflow > 0 && (
+                                                <span
+                                                  className={`ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${isDark ? 'bg-emerald-500/20 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}
+                                                  title={`Inscritos reais ultrapassaram a projeção em ${formatNumber(overflow)}`}
+                                                >
+                                                  +{formatNumber(overflow)}
+                                                </span>
+                                              )}
+                                            </span>
+                                          ) : (
+                                            <span className={`text-sm font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                              {formatNumber(p.quantidade)}
+                                            </span>
+                                          )}
                                         </div>
-                                        <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
+                                        <div className={`relative h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
                                           <div
                                             className={`h-full rounded-full bg-gradient-to-r ${color.bar} transition-all duration-500 ease-out`}
                                             style={{ width: `${barPct}%` }}
                                           />
+                                          {isSiteArea && realPctOfBar > 0 && (
+                                            <div
+                                              className={`absolute top-0 left-0 h-full rounded-full bg-gradient-to-r ${isDark ? 'from-emerald-400 to-emerald-500' : 'from-emerald-500 to-emerald-600'} transition-all duration-500 ease-out`}
+                                              style={{ width: `${(barPct * realPctOfBar) / 100}%` }}
+                                              title={`${formatNumber(c.inscritos_reais)} de ${formatNumber(p.quantidade)} já realizados`}
+                                            />
+                                          )}
                                         </div>
                                       </div>
                                     );

@@ -147,6 +147,7 @@ class ConsolidadoEventoResponse(BaseModel):
     inscritos_reais: int
     projecoes: List[ConsolidadoAreaItem]
     total_projecoes: int
+    projecao_site: int = 0
     total_geral: int
 
 
