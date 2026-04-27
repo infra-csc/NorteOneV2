@@ -1893,15 +1893,8 @@ const ProjecaoInscritos: React.FC = () => {
                                     className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}
                                     title="Projeções somadas, descontando a parte do site já realizada (sem dupla contagem)"
                                   >
-                                    projeções a chegar
+                                    total de projeção
                                   </span>
-                                </div>
-                                <div className={`text-lg ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>=</div>
-                                <div className="flex items-baseline gap-2">
-                                  <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
-                                    {formatNumber(c.total_geral)}
-                                  </span>
-                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>total</span>
                                 </div>
                               </div>
 
