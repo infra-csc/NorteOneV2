@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import extract
+from sqlalchemy.exc import IntegrityError
+from datetime import timedelta
 from typing import List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -11,7 +13,10 @@ import io
 
 from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin, require_permission
-from ...models.projecao import AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos, ProjecaoInscritosHistorico, ProjecaoInscritosCliente
+from ...models.projecao import (
+    AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos,
+    ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoCutoffRule,
+)
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
 from ...models.dimensoes import SkuMapping, EventoGrupo
@@ -22,6 +27,8 @@ from ...schemas.projecao import (
     ClienteProjecaoResponse,
     HistoricoResponse,
     ConsolidadoEventoResponse, ConsolidadoAreaItem,
+    CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
+    PendenciaItem, PendenciasResponse, AreaPendenteItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -819,3 +826,231 @@ def get_consolidado(
         ))
 
     return result
+
+
+# ============================================================
+# REGRAS DE PONTO DE CORTE (cut-off rules)
+# ============================================================
+
+@router.get("/cutoff-rules", response_model=List[CutoffRuleResponse])
+def list_cutoff_rules(
+    incluir_inativas: bool = Query(False),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    query = db.query(ProjecaoCutoffRule)
+    if not incluir_inativas:
+        query = query.filter(ProjecaoCutoffRule.ativo == True)
+    return query.order_by(ProjecaoCutoffRule.dias_antes_evento.desc()).all()
+
+
+@router.post("/cutoff-rules", response_model=CutoffRuleResponse)
+def create_cutoff_rule(
+    data: CutoffRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem criar regras de corte")
+    nome = (data.nome or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Nome da regra não pode ser vazio")
+    if data.dias_antes_evento is None or data.dias_antes_evento < 0:
+        raise HTTPException(status_code=400, detail="Dias antes do evento deve ser >= 0")
+    if data.dias_antes_evento > 365:
+        raise HTTPException(status_code=400, detail="Dias antes do evento deve ser <= 365")
+    existing = db.query(ProjecaoCutoffRule).filter(
+        ProjecaoCutoffRule.dias_antes_evento == data.dias_antes_evento
+    ).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Já existe uma regra com esse valor de dias")
+    rule = ProjecaoCutoffRule(
+        nome=nome,
+        dias_antes_evento=data.dias_antes_evento,
+        ativo=data.ativo if data.ativo is not None else True,
+    )
+    db.add(rule)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Já existe uma regra com esse valor de dias")
+    db.refresh(rule)
+    return rule
+
+
+@router.put("/cutoff-rules/{rule_id}", response_model=CutoffRuleResponse)
+def update_cutoff_rule(
+    rule_id: int,
+    data: CutoffRuleUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem editar regras de corte")
+    rule = db.query(ProjecaoCutoffRule).filter(ProjecaoCutoffRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Regra não encontrada")
+
+    if data.nome is not None:
+        nome = data.nome.strip()
+        if not nome:
+            raise HTTPException(status_code=400, detail="Nome da regra não pode ser vazio")
+        rule.nome = nome
+    if data.dias_antes_evento is not None:
+        if data.dias_antes_evento < 0 or data.dias_antes_evento > 365:
+            raise HTTPException(status_code=400, detail="Dias antes do evento deve estar entre 0 e 365")
+        if data.dias_antes_evento != rule.dias_antes_evento:
+            conflict = db.query(ProjecaoCutoffRule).filter(
+                ProjecaoCutoffRule.dias_antes_evento == data.dias_antes_evento,
+                ProjecaoCutoffRule.id != rule_id,
+            ).first()
+            if conflict:
+                raise HTTPException(status_code=400, detail="Já existe uma regra com esse valor de dias")
+        rule.dias_antes_evento = data.dias_antes_evento
+    if data.ativo is not None:
+        rule.ativo = data.ativo
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Já existe uma regra com esse valor de dias")
+    db.refresh(rule)
+    return rule
+
+
+@router.delete("/cutoff-rules/{rule_id}")
+def delete_cutoff_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem remover regras de corte")
+    rule = db.query(ProjecaoCutoffRule).filter(ProjecaoCutoffRule.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Regra não encontrada")
+    db.delete(rule)
+    db.commit()
+    return {"message": "Regra removida com sucesso"}
+
+
+# ============================================================
+# PENDÊNCIAS — eventos em ponto de corte sem projeção do usuário
+# ============================================================
+
+@router.get("/pendencias", response_model=PendenciasResponse)
+def get_pendencias(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """
+    Retorna eventos em status 'Em andamento' que cruzaram algum ponto de corte
+    e ainda não têm projeção registrada para alguma das áreas que o usuário
+    tem permissão de editar.
+    Admins enxergam pendências de TODAS as áreas.
+    """
+    rules = (
+        db.query(ProjecaoCutoffRule)
+        .filter(ProjecaoCutoffRule.ativo == True)
+        .order_by(ProjecaoCutoffRule.dias_antes_evento.asc())
+        .all()
+    )
+    if not rules:
+        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+
+    today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    max_threshold = max(r.dias_antes_evento for r in rules)
+    upper_bound = today + timedelta(days=max_threshold)
+
+    # Áreas em que o usuário pode editar (admin = todas)
+    if is_user_admin(current_user):
+        areas_user = db.query(AreaProjecao).filter(AreaProjecao.ativo == True).all()
+    else:
+        area_ids = _get_user_area_ids(db, current_user.id)
+        if not area_ids:
+            return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+        areas_user = db.query(AreaProjecao).filter(
+            AreaProjecao.id.in_(area_ids),
+            AreaProjecao.ativo == True,
+        ).all()
+    if not areas_user:
+        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+    areas_user_ids = {a.id for a in areas_user}
+    areas_nome_by_id = {a.id: a.nome for a in areas_user}
+
+    # Eventos candidatos: em andamento, futuros, dentro da maior janela de corte
+    eventos = (
+        db.query(CadastroEvento)
+        .filter(
+            CadastroEvento.deleted_at.is_(None),
+            CadastroEvento.status == 'Em andamento',
+            CadastroEvento.data_evento.isnot(None),
+            CadastroEvento.data_evento >= today,
+            CadastroEvento.data_evento <= upper_bound,
+        )
+        .all()
+    )
+    eventos_candidatos = []
+    for ev in eventos:
+        dias = (ev.data_evento - today).days
+        if dias < 0:
+            continue
+        if dias > max_threshold:
+            continue
+        # Pega a regra mais "urgente" cujo limite o evento já cruzou
+        # (menor dias_antes_evento entre as que dias <= rule.dias_antes_evento)
+        regra_aplicavel = None
+        for r in rules:  # rules está ordenado asc por dias_antes_evento
+            if dias <= r.dias_antes_evento:
+                regra_aplicavel = r
+                break
+        if regra_aplicavel:
+            eventos_candidatos.append((ev, dias, regra_aplicavel))
+
+    if not eventos_candidatos:
+        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
+
+    evento_ids = [ev.id for ev, _, _ in eventos_candidatos]
+    # Projeções existentes (não deletadas) por (evento, area)
+    projs = (
+        db.query(ProjecaoInscritos.evento_id, ProjecaoInscritos.area_projecao_id)
+        .filter(
+            ProjecaoInscritos.evento_id.in_(evento_ids),
+            ProjecaoInscritos.area_projecao_id.in_(areas_user_ids),
+            ProjecaoInscritos.deleted_at.is_(None),
+        )
+        .all()
+    )
+    existentes = {(p.evento_id, p.area_projecao_id) for p in projs}
+
+    pendencias = []
+    total_areas = 0
+    for ev, dias, regra in eventos_candidatos:
+        faltando = []
+        for aid in areas_user_ids:
+            if (ev.id, aid) not in existentes:
+                faltando.append(AreaPendenteItem(
+                    area_projecao_id=aid,
+                    area_projecao_nome=areas_nome_by_id[aid],
+                ))
+        if faltando:
+            faltando.sort(key=lambda x: x.area_projecao_nome)
+            pendencias.append(PendenciaItem(
+                evento_id=ev.id,
+                evento_nome=ev.nome,
+                evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
+                dias_ate_evento=dias,
+                cutoff_dias=regra.dias_antes_evento,
+                cutoff_nome=regra.nome,
+                areas_pendentes=faltando,
+            ))
+            total_areas += len(faltando)
+
+    pendencias.sort(key=lambda p: (p.dias_ate_evento, p.evento_nome))
+    return PendenciasResponse(
+        total_eventos=len(pendencias),
+        total_areas=total_areas,
+        pendencias=pendencias,
+    )

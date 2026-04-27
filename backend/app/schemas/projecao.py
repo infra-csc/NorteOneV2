@@ -129,3 +129,48 @@ class ConsolidadoEventoResponse(BaseModel):
     projecoes: List[ConsolidadoAreaItem]
     total_projecoes: int
     total_geral: int
+
+
+class CutoffRuleCreate(BaseModel):
+    nome: str
+    dias_antes_evento: int
+    ativo: Optional[bool] = True
+
+
+class CutoffRuleUpdate(BaseModel):
+    nome: Optional[str] = None
+    dias_antes_evento: Optional[int] = None
+    ativo: Optional[bool] = None
+
+
+class CutoffRuleResponse(BaseModel):
+    id: int
+    nome: str
+    dias_antes_evento: int
+    ativo: bool
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AreaPendenteItem(BaseModel):
+    area_projecao_id: int
+    area_projecao_nome: str
+
+
+class PendenciaItem(BaseModel):
+    evento_id: int
+    evento_nome: str
+    evento_data: Optional[str] = None
+    dias_ate_evento: int
+    cutoff_dias: int
+    cutoff_nome: str
+    areas_pendentes: List[AreaPendenteItem]
+
+
+class PendenciasResponse(BaseModel):
+    total_eventos: int
+    total_areas: int
+    pendencias: List[PendenciaItem]

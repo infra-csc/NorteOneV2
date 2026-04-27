@@ -135,8 +135,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     events: Array<{ nome_evento: string; count: number }>;
   } | null>(null);
   const [kitsBannerDismissed, setKitsBannerDismissed] = useState(false);
+  const [projecaoPendencias, setProjecaoPendencias] = useState<{
+    total_eventos: number;
+    total_areas: number;
+    pendencias: Array<{
+      evento_id: number;
+      evento_nome: string;
+      dias_ate_evento: number;
+      cutoff_dias: number;
+    }>;
+  } | null>(null);
 
   const isAdmin = canView('admin_monitoramento');
+  const canViewProjecao = canView('projecao_inscritos');
 
   const fetchHealthStatus = useCallback(async () => {
     if (!isAdmin) return;
@@ -162,6 +173,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     }
   }, [isAdmin]);
 
+  const fetchProjecaoPendencias = useCallback(async () => {
+    if (!canViewProjecao) return;
+    try {
+      const { projecaoService } = await import('../../services/api');
+      const data = await projecaoService.getPendencias();
+      setProjecaoPendencias(data);
+    } catch {
+    }
+  }, [canViewProjecao]);
+
   useEffect(() => {
     fetchHealthStatus();
     const interval = setInterval(fetchHealthStatus, 60000);
@@ -173,6 +194,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     const interval = setInterval(fetchUnconfiguredKits, 300000);
     return () => clearInterval(interval);
   }, [fetchUnconfiguredKits]);
+
+  useEffect(() => {
+    fetchProjecaoPendencias();
+    const interval = setInterval(fetchProjecaoPendencias, 180000);
+    return () => clearInterval(interval);
+  }, [fetchProjecaoPendencias]);
 
   const handleLogout = () => {
     logout();
@@ -317,11 +344,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 {cadastroItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
+                  const isProjecao = item.path === '/projecao-inscritos';
+                  const pendCount = isProjecao && projecaoPendencias ? projecaoPendencias.total_eventos : 0;
                   return (
                     <Link
                       key={item.path}
                       to={item.path}
-                      className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                      className={`flex items-center justify-between px-4 py-2 rounded-lg transition-colors ${
                         isActive
                           ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
                           : isDark
@@ -329,8 +358,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                           : 'text-gray-600 hover:bg-gray-100'
                       }`}
                     >
-                      <Icon className="w-4 h-4 mr-3" />
-                      {item.label.replace('Categorias ', '')}
+                      <span className="flex items-center min-w-0">
+                        <Icon className="w-4 h-4 mr-3 flex-shrink-0" />
+                        <span className="truncate">{item.label.replace('Categorias ', '')}</span>
+                      </span>
+                      {pendCount > 0 && (
+                        <span
+                          title={`${pendCount} evento(s) com projeção pendente`}
+                          className={`ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
+                            isActive
+                              ? 'bg-white text-red-600'
+                              : 'bg-red-500 text-white animate-pulse'
+                          }`}
+                        >
+                          {pendCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -408,6 +451,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </button>
           
           <div className="flex items-center gap-2 sm:gap-3">
+            {canViewProjecao && projecaoPendencias && projecaoPendencias.total_eventos > 0 && (
+              <Link
+                to="/projecao-inscritos"
+                title={`${projecaoPendencias.total_eventos} evento(s) em ponto de corte sem projeção registrada`}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border bg-red-500/10 text-red-500 border-red-500/40 hover:bg-red-500/20"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {projecaoPendencias.total_eventos} projeç{projecaoPendencias.total_eventos !== 1 ? 'ões' : 'ão'} pendente{projecaoPendencias.total_eventos !== 1 ? 's' : ''}
+              </Link>
+            )}
             {isAdmin && unconfiguredKits && unconfiguredKits.total > 0 && (
               <Link
                 to="/admin/kit-config"

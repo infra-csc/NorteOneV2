@@ -1115,6 +1115,17 @@ def _run_column_migrations():
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_by INTEGER REFERENCES dim_usuario(id)",
             "ALTER TABLE projecao_inscritos_historico ALTER COLUMN campo_alterado TYPE VARCHAR(200)",
+            """
+            CREATE TABLE IF NOT EXISTS projecao_cutoff_rule (
+                id SERIAL PRIMARY KEY,
+                nome VARCHAR(100) NOT NULL,
+                dias_antes_evento INTEGER NOT NULL,
+                ativo BOOLEAN DEFAULT TRUE NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_cutoff_dias ON projecao_cutoff_rule (dias_antes_evento)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
@@ -1172,6 +1183,31 @@ def _seed_areas_projecao():
         logger.error(f"Seed áreas de projeção failed: {e}")
 
 
+def _seed_cutoff_rules():
+    from app.core.database import SessionLocal
+    try:
+        db = SessionLocal()
+        regras_padrao = [
+            {"nome": "Primeiro alerta", "dias_antes_evento": 45},
+            {"nome": "Alerta final", "dias_antes_evento": 15},
+        ]
+        for r in regras_padrao:
+            exists = db.execute(
+                text("SELECT id FROM projecao_cutoff_rule WHERE dias_antes_evento = :d"),
+                {"d": r["dias_antes_evento"]},
+            ).fetchone()
+            if not exists:
+                db.execute(
+                    text("INSERT INTO projecao_cutoff_rule (nome, dias_antes_evento, ativo) VALUES (:n, :d, TRUE)"),
+                    {"n": r["nome"], "d": r["dias_antes_evento"]},
+                )
+        db.commit()
+        db.close()
+        logger.info(f"Seed regras de corte: {len(regras_padrao)} regras verificadas/criadas")
+    except Exception as e:
+        logger.error(f"Seed regras de corte failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     register_full_warmup_fn(_full_cache_warmup)
@@ -1221,6 +1257,7 @@ async def lifespan(app: FastAPI):
             seed_admin_user()
             _seed_kit_config()
             _seed_areas_projecao()
+            _seed_cutoff_rules()
         except Exception as e:
             logger.error(f"Schema/seed setup failed: {e}")
 

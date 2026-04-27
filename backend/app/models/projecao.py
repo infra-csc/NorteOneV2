@@ -88,3 +88,18 @@ class ProjecaoInscritosCliente(Base):
     created_at = Column(DateTime, default=_now_brasilia)
 
     projecao = relationship("ProjecaoInscritos", back_populates="clientes")
+
+
+class ProjecaoCutoffRule(Base):
+    __tablename__ = "projecao_cutoff_rule"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nome = Column(String(100), nullable=False)
+    dias_antes_evento = Column(Integer, nullable=False)
+    ativo = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=_now_brasilia)
+    updated_at = Column(DateTime, onupdate=_now_brasilia)
+
+    __table_args__ = (
+        UniqueConstraint("dias_antes_evento", name="uq_cutoff_dias"),
+    )

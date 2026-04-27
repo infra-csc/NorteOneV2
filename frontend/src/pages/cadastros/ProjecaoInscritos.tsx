@@ -7,7 +7,7 @@ import {
   BarChart3, Plus, Pencil, Trash2, X, History, Users, Settings,
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   TrendingUp, Target, UserCheck, Layers, Download, RotateCcw,
-  AlertTriangle, Trash, Check, Lock, LockOpen,
+  AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -194,6 +194,36 @@ interface SimpleUser {
   ativo?: boolean;
 }
 
+interface CutoffRule {
+  id: number;
+  nome: string;
+  dias_antes_evento: number;
+  ativo: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+interface AreaPendente {
+  area_projecao_id: number;
+  area_projecao_nome: string;
+}
+
+interface PendenciaItem {
+  evento_id: number;
+  evento_nome: string;
+  evento_data: string | null;
+  dias_ate_evento: number;
+  cutoff_dias: number;
+  cutoff_nome: string;
+  areas_pendentes: AreaPendente[];
+}
+
+interface PendenciasResponse {
+  total_eventos: number;
+  total_areas: number;
+  pendencias: PendenciaItem[];
+}
+
 const mesesOptions: MultiSelectOption[] = [
   { value: '1', label: 'Janeiro' }, { value: '2', label: 'Fevereiro' },
   { value: '3', label: 'Março' }, { value: '4', label: 'Abril' },
@@ -307,6 +337,14 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
   const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'asc' });
 
+  const [pendencias, setPendencias] = useState<PendenciasResponse | null>(null);
+  const [pendenciasBannerDismissed, setPendenciasBannerDismissed] = useState(false);
+  const [cutoffRules, setCutoffRules] = useState<CutoffRule[]>([]);
+  const [cutoffModal, setCutoffModal] = useState<{ mode: 'create' | 'edit'; rule: CutoffRule | null } | null>(null);
+  const [cutoffForm, setCutoffForm] = useState<{ nome: string; dias_antes_evento: string; ativo: boolean }>({
+    nome: '', dias_antes_evento: '', ativo: true,
+  });
+
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -347,6 +385,8 @@ const ProjecaoInscritos: React.FC = () => {
       setAreas(areasData);
       setMyAreaIds(new Set(myAreasData.map((a: AreaProjecao) => a.id)));
       setProjecoes(projecoesData);
+      // Pendências can change any time projections are mutated; refresh in background.
+      loadPendencias();
     } catch (error) {
       console.error('Erro ao carregar projeções:', error);
     } finally {
@@ -393,6 +433,88 @@ const ProjecaoInscritos: React.FC = () => {
     if (filterModalidade.length > 0) params.modalidade = filterModalidade.join(',');
     if (filterArea.length > 0) params.area_projecao_id = filterArea.join(',');
     return params;
+  };
+
+  const loadPendencias = async () => {
+    try {
+      const data = await projecaoService.getPendencias();
+      // Reset banner dismissal whenever the pendência set actually changes
+      // (count or which events are pending), so a new alert breaks through.
+      setPendencias(prev => {
+        const prevSig = prev
+          ? `${prev.total_eventos}|${prev.total_areas}|${prev.pendencias.map(p => `${p.evento_id}:${p.dias_ate_evento}:${p.areas_pendentes.length}`).join(',')}`
+          : '';
+        const nextSig = `${data.total_eventos}|${data.total_areas}|${data.pendencias.map(p => `${p.evento_id}:${p.dias_ate_evento}:${p.areas_pendentes.length}`).join(',')}`;
+        if (prevSig !== nextSig) {
+          setPendenciasBannerDismissed(false);
+        }
+        return data;
+      });
+    } catch {
+    }
+  };
+
+  const loadCutoffRules = async () => {
+    try {
+      const data = await projecaoService.listCutoffRules(true);
+      setCutoffRules(data);
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao carregar regras de corte');
+    }
+  };
+
+  const openCreateCutoff = () => {
+    setCutoffForm({ nome: '', dias_antes_evento: '', ativo: true });
+    setCutoffModal({ mode: 'create', rule: null });
+  };
+
+  const openEditCutoff = (rule: CutoffRule) => {
+    setCutoffForm({ nome: rule.nome, dias_antes_evento: String(rule.dias_antes_evento), ativo: rule.ativo });
+    setCutoffModal({ mode: 'edit', rule });
+  };
+
+  const submitCutoff = async () => {
+    const nome = cutoffForm.nome.trim();
+    const dias = parseInt(cutoffForm.dias_antes_evento, 10);
+    if (!nome) { showToast('Nome é obrigatório'); return; }
+    if (isNaN(dias) || dias < 0 || dias > 365) {
+      showToast('Dias deve ser um número entre 0 e 365');
+      return;
+    }
+    try {
+      if (cutoffModal?.mode === 'create') {
+        await projecaoService.createCutoffRule({ nome, dias_antes_evento: dias, ativo: cutoffForm.ativo });
+        showToast('Regra criada com sucesso', 'success');
+      } else if (cutoffModal?.rule) {
+        await projecaoService.updateCutoffRule(cutoffModal.rule.id, { nome, dias_antes_evento: dias, ativo: cutoffForm.ativo });
+        showToast('Regra atualizada', 'success');
+      }
+      setCutoffModal(null);
+      loadCutoffRules();
+      loadPendencias();
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar regra');
+    }
+  };
+
+  const handleDeleteCutoff = (rule: CutoffRule) => {
+    showConfirm({
+      title: 'Excluir regra de corte',
+      message: `Deseja realmente excluir a regra "${rule.nome}" (D-${rule.dias_antes_evento})?`,
+      confirmLabel: 'Excluir',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await projecaoService.deleteCutoffRule(rule.id);
+          showToast('Regra excluída', 'success');
+          loadCutoffRules();
+          loadPendencias();
+          setConfirmModal(null);
+        } catch (err: any) {
+          showToast(err?.response?.data?.detail || 'Erro ao excluir regra');
+        }
+      },
+    });
   };
 
   const loadLixeira = async () => {
@@ -462,9 +584,25 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
-    if (activeTab === 'config' && isAdmin) loadAreasDetail();
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
+
+  useEffect(() => {
+    loadPendencias();
+    const interval = setInterval(loadPendencias, 180000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const pendenciasByEventoId = useMemo(() => {
+    const map: Record<number, PendenciaItem> = {};
+    if (!pendencias) return map;
+    for (const p of pendencias.pendencias) {
+      map[p.evento_id] = p;
+    }
+    return map;
+  }, [pendencias]);
 
   const tiposEvento = useMemo(() => {
     const tipos = [...new Set(eventos.map(e => e.tipo_evento).filter(Boolean))] as string[];
@@ -946,6 +1084,63 @@ const ProjecaoInscritos: React.FC = () => {
         )}
 
         {/* Content */}
+        {activeTab === 'projecoes' && !selectedEvento && pendencias && pendencias.total_eventos > 0 && !pendenciasBannerDismissed && (
+          /* ── Pendências banner ── */
+          <div className={`relative overflow-hidden rounded-2xl border ${isDark ? 'bg-gradient-to-r from-red-500/10 via-orange-500/10 to-red-500/5 border-red-500/40' : 'bg-gradient-to-r from-red-50 via-orange-50 to-red-50/50 border-red-200'}`}>
+            <div className="flex items-start gap-3 p-4">
+              <div className={`flex items-center justify-center w-10 h-10 rounded-xl flex-shrink-0 ${isDark ? 'bg-red-500/20' : 'bg-red-100'}`}>
+                <Bell className={`w-5 h-5 ${isDark ? 'text-red-400' : 'text-red-600'} animate-pulse`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className={`text-sm font-bold ${isDark ? 'text-red-300' : 'text-red-800'}`}>
+                    {pendencias.total_eventos} evento{pendencias.total_eventos !== 1 ? 's' : ''} em ponto de corte sem projeção
+                  </h3>
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${isDark ? 'bg-red-500/30 text-red-200' : 'bg-red-200 text-red-800'}`}>
+                    {pendencias.total_areas} pendência{pendencias.total_areas !== 1 ? 's' : ''} de área
+                  </span>
+                </div>
+                <p className={`text-xs mt-1 ${isDark ? 'text-red-200/80' : 'text-red-700'}`}>
+                  Os eventos abaixo cruzaram um ponto de corte e ainda não têm projeção registrada para áreas que você pode editar.
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2.5">
+                  {pendencias.pendencias.slice(0, 6).map(p => (
+                    <button
+                      key={p.evento_id}
+                      onClick={() => {
+                        const ev = eventos.find(e => e.id === p.evento_id);
+                        if (ev) setSelectedEvento(ev);
+                      }}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                        p.dias_ate_evento <= 15
+                          ? isDark ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40' : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
+                          : isDark ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40' : 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300'
+                      }`}
+                      title={`${p.evento_nome} — D-${p.dias_ate_evento} • ${p.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`}
+                    >
+                      <Zap className="w-3 h-3" />
+                      <span className="truncate max-w-[180px]">{p.evento_nome}</span>
+                      <span className="font-mono opacity-80">D-{p.dias_ate_evento}</span>
+                    </button>
+                  ))}
+                  {pendencias.pendencias.length > 6 && (
+                    <span className={`px-2.5 py-1 text-xs font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}>
+                      +{pendencias.pendencias.length - 6} evento{pendencias.pendencias.length - 6 !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setPendenciasBannerDismissed(true)}
+                title="Dispensar até a próxima atualização"
+                className={`p-1.5 rounded-lg flex-shrink-0 transition-colors ${isDark ? 'text-red-300 hover:bg-red-500/20' : 'text-red-600 hover:bg-red-100'}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'projecoes' && !selectedEvento && (
           /* ── Events master table ── */
           <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
@@ -1068,20 +1263,43 @@ const ProjecaoInscritos: React.FC = () => {
                       const evProjecoes = projecoesPorEventoId[ev.id] || [];
                       const allLocked = evProjecoes.length > 0 && evProjecoes.every(p => p.locked_at);
                       const someLocked = evProjecoes.some(p => p.locked_at);
+                      const pend = pendenciasByEventoId[ev.id];
                       const statusColors: Record<string, string> = {
                         'Em andamento': isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700',
                         'Encerrado': isDark ? 'bg-gray-500/20 text-gray-400' : 'bg-gray-100 text-gray-600',
                         'Cancelado': isDark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700',
                       };
                       const statusColor = statusColors[ev.status || ''] || (isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500');
+                      const pendUrgent = pend && pend.dias_ate_evento <= 15;
                       return (
                         <tr
                           key={ev.id}
                           onClick={() => setSelectedEvento(ev)}
-                          className={`cursor-pointer transition-colors ${isDark ? 'hover:bg-violet-500/10' : 'hover:bg-violet-50'}`}
+                          className={`cursor-pointer transition-colors ${
+                            pend
+                              ? pendUrgent
+                                ? isDark ? 'bg-red-500/[0.07] hover:bg-red-500/15' : 'bg-red-50/60 hover:bg-red-50'
+                                : isDark ? 'bg-amber-500/[0.06] hover:bg-amber-500/15' : 'bg-amber-50/60 hover:bg-amber-50'
+                              : isDark ? 'hover:bg-violet-500/10' : 'hover:bg-violet-50'
+                          }`}
                         >
                           <td className={`px-4 py-3 text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                            <div>{ev.nome}</div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{ev.nome}</span>
+                              {pend && (
+                                <span
+                                  title={`Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`}
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    pendUrgent
+                                      ? isDark ? 'bg-red-500/30 text-red-200 border border-red-500/50' : 'bg-red-100 text-red-700 border border-red-300'
+                                      : isDark ? 'bg-amber-500/30 text-amber-200 border border-amber-500/50' : 'bg-amber-100 text-amber-700 border border-amber-300'
+                                  }`}
+                                >
+                                  <Bell className="w-2.5 h-2.5" />
+                                  Pendente • D-{pend.dias_ate_evento}
+                                </span>
+                              )}
+                            </div>
                             {ev.circuito_produto && (
                               <div className={`text-xs mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{ev.circuito_produto}</div>
                             )}
@@ -1502,46 +1720,136 @@ const ProjecaoInscritos: React.FC = () => {
         )}
 
         {activeTab === 'config' && isAdmin && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                Defina quais usuários podem preencher projeções em cada área.
-              </p>
-              <button
-                onClick={() => { setNewAreaNome(''); setShowCreateAreaModal(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                Nova Área
-              </button>
-            </div>
-            {areasDetail.map(area => (
-              <div key={area.id} className={cardClass}>
-                <div className="flex items-center justify-between">
+          <div className="space-y-6">
+            {/* ── Pontos de corte (regras de notificação) ── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <Clock className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
                   <div>
-                    <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</h3>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {area.usuarios.length === 0 ? (
-                        <span className={`text-sm italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum usuário atribuído</span>
-                      ) : (
-                        area.usuarios.map(u => (
-                          <span key={u.usuario_id} className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
-                            {u.usuario_nome}
-                          </span>
-                        ))
-                      )}
-                    </div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Pontos de Corte</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Quando um evento atinge um destes prazos (em dias até a data do evento), os usuários com permissão de editar a área recebem alerta de pendência.
+                    </p>
                   </div>
-                  <button
-                    onClick={() => openAtribuir(area)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
-                  >
-                    <Users className="w-4 h-4" />
-                    Gerenciar
-                  </button>
                 </div>
+                <button
+                  onClick={openCreateCutoff}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Regra
+                </button>
               </div>
-            ))}
+
+              {cutoffRules.length === 0 ? (
+                <div className={`text-center py-8 rounded-2xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50 text-gray-400' : 'bg-white/70 border border-gray-200 text-gray-500'}`}>
+                  <Clock className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm font-medium">Nenhuma regra de corte configurada</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {cutoffRules.map(rule => (
+                    <div
+                      key={rule.id}
+                      className={`relative overflow-hidden rounded-2xl p-4 border ${
+                        rule.ativo
+                          ? isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'
+                          : isDark ? 'bg-gray-900/40 border-gray-800 opacity-60' : 'bg-gray-50 border-gray-200 opacity-70'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-bold font-mono ${
+                              rule.dias_antes_evento <= 15
+                                ? isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-700'
+                                : rule.dias_antes_evento <= 30
+                                ? isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'
+                                : isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'
+                            }`}>
+                              D-{rule.dias_antes_evento}
+                            </span>
+                            {!rule.ativo && (
+                              <span className={`text-[10px] font-bold uppercase ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Inativa</span>
+                            )}
+                          </div>
+                          <h3 className={`text-base font-bold mt-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>{rule.nome}</h3>
+                          <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                            Aciona quando faltam {rule.dias_antes_evento} dia{rule.dias_antes_evento !== 1 ? 's' : ''} ou menos para o evento.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => openEditCutoff(rule)}
+                            title="Editar"
+                            className={`p-1.5 rounded-lg ${isDark ? 'text-gray-400 hover:bg-gray-700/60' : 'text-gray-500 hover:bg-gray-100'}`}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCutoff(rule)}
+                            title="Excluir"
+                            className={`p-1.5 rounded-lg ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-500 hover:bg-red-50'}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Áreas e usuários ── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <Users className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                  <div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Áreas e Usuários</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Defina quais usuários podem preencher projeções em cada área.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setNewAreaNome(''); setShowCreateAreaModal(true); }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  Nova Área
+                </button>
+              </div>
+              {areasDetail.map(area => (
+                <div key={area.id} className={cardClass}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</h3>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {area.usuarios.length === 0 ? (
+                          <span className={`text-sm italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum usuário atribuído</span>
+                        ) : (
+                          area.usuarios.map(u => (
+                            <span key={u.usuario_id} className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
+                              {u.usuario_nome}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => openAtribuir(area)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
+                    >
+                      <Users className="w-4 h-4" />
+                      Gerenciar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -2215,6 +2523,78 @@ const ProjecaoInscritos: React.FC = () => {
             >
               <X className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Cutoff Rule create/edit modal ── */}
+      {cutoffModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setCutoffModal(null)}>
+          <div
+            onClick={e => e.stopPropagation()}
+            className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ${isDark ? 'bg-gray-900 border border-gray-700' : 'bg-white border border-gray-200'}`}
+          >
+            <div className={`flex items-center gap-3 px-5 py-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <div className={`flex items-center justify-center w-9 h-9 rounded-xl ${isDark ? 'bg-rose-500/20' : 'bg-rose-100'}`}>
+                <Clock className={`w-4 h-4 ${isDark ? 'text-rose-300' : 'text-rose-600'}`} />
+              </div>
+              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                {cutoffModal.mode === 'create' ? 'Nova regra de corte' : 'Editar regra de corte'}
+              </h3>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Nome</label>
+                <input
+                  type="text"
+                  value={cutoffForm.nome}
+                  onChange={e => setCutoffForm(f => ({ ...f, nome: e.target.value }))}
+                  placeholder="Ex.: Primeiro alerta"
+                  className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'}`}
+                />
+              </div>
+
+              <div>
+                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Dias antes do evento</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={cutoffForm.dias_antes_evento}
+                  onChange={e => setCutoffForm(f => ({ ...f, dias_antes_evento: e.target.value }))}
+                  className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
+                />
+                <p className={`text-xs mt-1.5 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                  A regra dispara quando faltam esta quantidade de dias (ou menos) para o evento.
+                </p>
+              </div>
+
+              <label className={`flex items-center gap-2 cursor-pointer select-none ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                <input
+                  type="checkbox"
+                  checked={cutoffForm.ativo}
+                  onChange={e => setCutoffForm(f => ({ ...f, ativo: e.target.checked }))}
+                  className="w-4 h-4 rounded accent-rose-600"
+                />
+                <span className="text-sm font-medium">Regra ativa</span>
+              </label>
+            </div>
+
+            <div className={`flex items-center justify-end gap-2 px-5 py-3 border-t ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
+              <button
+                onClick={() => setCutoffModal(null)}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold ${isDark ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:bg-gray-100'}`}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={submitCutoff}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
+              >
+                {cutoffModal?.mode === 'create' ? 'Criar regra' : 'Salvar alterações'}
+              </button>
+            </div>
           </div>
         </div>
       )}

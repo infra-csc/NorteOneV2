@@ -1302,6 +1302,26 @@ export const projecaoService = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
+  listCutoffRules: async (incluirInativas = false) => {
+    const response = await api.get('/projecao/cutoff-rules', { params: { incluir_inativas: incluirInativas } });
+    return response.data;
+  },
+  createCutoffRule: async (data: { nome: string; dias_antes_evento: number; ativo?: boolean }) => {
+    const response = await api.post('/projecao/cutoff-rules', data);
+    return response.data;
+  },
+  updateCutoffRule: async (id: number, data: { nome?: string; dias_antes_evento?: number; ativo?: boolean }) => {
+    const response = await api.put(`/projecao/cutoff-rules/${id}`, data);
+    return response.data;
+  },
+  deleteCutoffRule: async (id: number) => {
+    const response = await api.delete(`/projecao/cutoff-rules/${id}`);
+    return response.data;
+  },
+  getPendencias: async () => {
+    const response = await api.get('/projecao/pendencias');
+    return response.data;
+  },
 };
 
 export default api;
