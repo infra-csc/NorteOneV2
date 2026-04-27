@@ -305,6 +305,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListModalidade, setEventoListModalidade] = useState<string>('');
   const [eventoListCidade, setEventoListCidade] = useState<string>('');
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
+  const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'desc' });
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -531,6 +532,27 @@ const ProjecaoInscritos: React.FC = () => {
       return true;
     });
   }, [eventos, eventoListSearch, eventoListMes, eventoListModalidade, eventoListCidade, eventoListStatus]);
+
+  const sortedEventosList = useMemo(() => {
+    const { field, dir } = eventoListSort;
+    const mul = dir === 'asc' ? 1 : -1;
+    return [...filteredEventosList].sort((a, b) => {
+      let av = '', bv = '';
+      if (field === 'nome') { av = a.nome || ''; bv = b.nome || ''; }
+      else if (field === 'data') { av = a.info_geral?.data || a.data_evento || ''; bv = b.info_geral?.data || b.data_evento || ''; }
+      else if (field === 'modalidade') { av = a.modalidade || ''; bv = b.modalidade || ''; }
+      else if (field === 'cidade') { av = a.cidade || ''; bv = b.cidade || ''; }
+      else if (field === 'status') { av = a.status || ''; bv = b.status || ''; }
+      else if (field === 'projecoes') {
+        return mul * ((projecoesPorEventoId[a.id]?.length || 0) - (projecoesPorEventoId[b.id]?.length || 0));
+      }
+      return mul * av.localeCompare(bv, 'pt-BR');
+    });
+  }, [filteredEventosList, eventoListSort, projecoesPorEventoId]);
+
+  const toggleEventoSort = (field: string) => {
+    setEventoListSort(prev => prev.field === field ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' });
+  };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1011,13 +1033,38 @@ const ProjecaoInscritos: React.FC = () => {
                 <table className="w-full">
                   <thead>
                     <tr className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
-                      {['Evento', 'Data', 'Tipo / Modalidade', 'Cidade', 'Status', 'Projeções', 'Ações'].map(h => (
-                        <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
+                      {([
+                        { label: 'Evento',           field: 'nome' },
+                        { label: 'Data',             field: 'data' },
+                        { label: 'Tipo / Modalidade',field: 'modalidade' },
+                        { label: 'Cidade',           field: 'cidade' },
+                        { label: 'Status',           field: 'status' },
+                        { label: 'Projeções',        field: 'projecoes' },
+                        { label: 'Ações',            field: null },
+                      ] as { label: string; field: string | null }[]).map(({ label, field }) => (
+                        <th
+                          key={label}
+                          onClick={field ? () => toggleEventoSort(field) : undefined}
+                          className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider select-none ${field ? 'cursor-pointer hover:opacity-80' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {label}
+                            {field && (
+                              eventoListSort.field === field ? (
+                                eventoListSort.dir === 'asc'
+                                  ? <span className={isDark ? 'text-violet-400' : 'text-violet-600'}>↑</span>
+                                  : <span className={isDark ? 'text-violet-400' : 'text-violet-600'}>↓</span>
+                              ) : (
+                                <span className="opacity-25">↕</span>
+                              )
+                            )}
+                          </span>
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-                    {filteredEventosList.map(ev => {
+                    {sortedEventosList.map(ev => {
                       const evProjecoes = projecoesPorEventoId[ev.id] || [];
                       const allLocked = evProjecoes.length > 0 && evProjecoes.every(p => p.locked_at);
                       const someLocked = evProjecoes.some(p => p.locked_at);
