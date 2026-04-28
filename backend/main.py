@@ -1185,14 +1185,24 @@ def _seed_areas_projecao():
             "Company",
             "Comercial",
             "Cortesia RH",
-            "Relações Institucionais - Sem Kit",
-            "Company - Sem Kit",
             "Site",
         ]
         for nome in areas_padrao:
             exists = db.execute(text("SELECT id FROM area_projecao WHERE nome = :nome"), {"nome": nome}).fetchone()
             if not exists:
                 db.execute(text("INSERT INTO area_projecao (nome, ativo) VALUES (:nome, TRUE)"), {"nome": nome})
+
+        # Áreas descontinuadas: marcar como inativas para que sumam da UI
+        areas_descontinuadas = [
+            "Relações Institucionais - Sem Kit",
+            "Company - Sem Kit",
+        ]
+        for nome in areas_descontinuadas:
+            db.execute(
+                text("UPDATE area_projecao SET ativo = FALSE WHERE nome = :nome"),
+                {"nome": nome},
+            )
+
         db.commit()
         db.close()
         logger.info(f"Seed áreas de projeção: {len(areas_padrao)} áreas verificadas/criadas")
