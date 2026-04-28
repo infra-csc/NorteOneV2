@@ -875,6 +875,11 @@ def get_consolidado(
 
     eventos = query.order_by(CadastroEvento.data_evento.desc()).all()
 
+    if not eventos:
+        return []
+
+    evento_ids = [e.id for e in eventos]
+
     sku_to_grupo = {}
     all_mappings = db.query(SkuMapping).filter(SkuMapping.ativo == True).all()
     for m in all_mappings:
@@ -885,20 +890,27 @@ def get_consolidado(
     current_year = datetime.now().year
     isc_totals = get_isc_totals_from_snapshot(db, current_year)
 
+    # Fetch all projections for all events in a single query (avoids N+1)
+    proj_query = db.query(ProjecaoInscritos).options(
+        joinedload(ProjecaoInscritos.area_projecao)
+    ).filter(
+        ProjecaoInscritos.evento_id.in_(evento_ids),
+        ProjecaoInscritos.deleted_at.is_(None),
+    )
+    if area_projecao_id:
+        area_ids = [int(a) for a in area_projecao_id.split(',') if a.strip().isdigit()]
+        if area_ids:
+            proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(area_ids))
+    all_projecoes = proj_query.all()
+
+    # Group projections by evento_id
+    projecoes_by_evento: dict[int, list] = {}
+    for p in all_projecoes:
+        projecoes_by_evento.setdefault(p.evento_id, []).append(p)
+
     result = []
     for evento in eventos:
-        proj_query = db.query(ProjecaoInscritos).options(
-            joinedload(ProjecaoInscritos.area_projecao)
-        ).filter(
-            ProjecaoInscritos.evento_id == evento.id,
-            ProjecaoInscritos.deleted_at.is_(None),
-        )
-        if area_projecao_id:
-            area_ids = [int(a) for a in area_projecao_id.split(',') if a.strip().isdigit()]
-            if area_ids:
-                proj_query = proj_query.filter(ProjecaoInscritos.area_projecao_id.in_(area_ids))
-        projecoes = proj_query.all()
-
+        projecoes = projecoes_by_evento.get(evento.id)
         if not projecoes:
             continue
 
