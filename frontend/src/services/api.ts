@@ -1322,6 +1322,18 @@ export const projecaoService = {
     const response = await api.get('/projecao/pendencias');
     return response.data;
   },
+  setAreaCutoffCustomizado: async (areaId: number, ativo: boolean) => {
+    const response = await api.put(`/projecao/areas/${areaId}/cutoff-customizado`, { ativo });
+    return response.data;
+  },
+  listCutoffsEvento: async (eventoId: number) => {
+    const response = await api.get('/projecao/cutoff-evento-area', { params: { evento_id: eventoId } });
+    return response.data;
+  },
+  upsertCutoffEventoArea: async (data: { evento_id: number; area_projecao_id: number; data_corte_1: string | null; data_corte_2: string | null }) => {
+    const response = await api.put('/projecao/cutoff-evento-area', data);
+    return response.data;
+  },
 };
 
 export default api;

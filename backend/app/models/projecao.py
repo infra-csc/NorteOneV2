@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -15,6 +15,7 @@ class AreaProjecao(Base):
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), unique=True, nullable=False)
     ativo = Column(Boolean, default=True)
+    usa_cutoff_customizado = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, onupdate=_now_brasilia)
 
@@ -116,3 +117,27 @@ class ProjecaoCutoffRule(Base):
     __table_args__ = (
         UniqueConstraint("dias_antes_evento", name="uq_cutoff_dias"),
     )
+
+
+class ProjecaoCutoffEventoArea(Base):
+    __tablename__ = "projecao_cutoff_evento_area"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False)
+    data_corte_1 = Column(Date, nullable=True)
+    data_corte_2 = Column(Date, nullable=True)
+    created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    created_at = Column(DateTime, default=_now_brasilia)
+    updated_at = Column(DateTime, onupdate=_now_brasilia)
+
+    evento = relationship("CadastroEvento")
+    area = relationship("AreaProjecao")
+    editor = relationship("Usuario", foreign_keys=[updated_by])
+    criador = relationship("Usuario", foreign_keys=[created_by])
+
+    __table_args__ = (
+        UniqueConstraint("evento_id", "area_projecao_id", name="uq_cutoff_evento_area"),
+    )
+

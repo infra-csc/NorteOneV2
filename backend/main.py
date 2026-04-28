@@ -1126,6 +1126,23 @@ def _run_column_migrations():
             )
             """,
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_cutoff_dias ON projecao_cutoff_rule (dias_antes_evento)",
+            "ALTER TABLE area_projecao ADD COLUMN IF NOT EXISTS usa_cutoff_customizado BOOLEAN DEFAULT FALSE NOT NULL",
+            """
+            CREATE TABLE IF NOT EXISTS projecao_cutoff_evento_area (
+                id SERIAL PRIMARY KEY,
+                evento_id INTEGER NOT NULL REFERENCES cadastro_evento(id) ON DELETE CASCADE,
+                area_projecao_id INTEGER NOT NULL REFERENCES area_projecao(id) ON DELETE CASCADE,
+                data_corte_1 DATE,
+                data_corte_2 DATE,
+                created_by INTEGER REFERENCES dim_usuario(id),
+                updated_by INTEGER REFERENCES dim_usuario(id),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP,
+                CONSTRAINT uq_cutoff_evento_area UNIQUE (evento_id, area_projecao_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_evento ON projecao_cutoff_evento_area (evento_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_area ON projecao_cutoff_evento_area (area_projecao_id)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

@@ -7,6 +7,7 @@ class AreaProjecaoResponse(BaseModel):
     id: int
     nome: str
     ativo: bool
+    usa_cutoff_customizado: bool = False
     created_at: Optional[datetime] = None
 
     class Config:
@@ -187,6 +188,8 @@ class PendenciaItem(BaseModel):
     dias_ate_evento: int
     cutoff_dias: int
     cutoff_nome: str
+    cutoff_customizado: bool = False
+    cutoff_data: Optional[str] = None
     areas_pendentes: List[AreaPendenteItem]
 
 
@@ -194,3 +197,30 @@ class PendenciasResponse(BaseModel):
     total_eventos: int
     total_areas: int
     pendencias: List[PendenciaItem]
+
+
+class AreaCutoffCustomizadoToggle(BaseModel):
+    ativo: bool
+
+
+class CutoffEventoAreaUpsert(BaseModel):
+    evento_id: int
+    area_projecao_id: int
+    data_corte_1: Optional[str] = None  # ISO date YYYY-MM-DD
+    data_corte_2: Optional[str] = None
+
+
+class CutoffEventoAreaResponse(BaseModel):
+    id: int
+    evento_id: int
+    area_projecao_id: int
+    area_projecao_nome: Optional[str] = None
+    data_corte_1: Optional[str] = None
+    data_corte_2: Optional[str] = None
+    updated_by: Optional[int] = None
+    updated_by_nome: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+

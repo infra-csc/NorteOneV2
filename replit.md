@@ -53,6 +53,7 @@ The frontend utilizes React, TypeScript, and Tailwind CSS for a modern and consi
 - **Manual do Sistema:** Built-in documentation/knowledge base page accessible to all authenticated users.
 - **Projeção de Inscritos por Eventos e Áreas:** Allows users to input projected subscriber counts per event across predefined areas, with admin assignment, audit history, and consolidated views. Supports breakdowns by Kit and Client.
 - **Pontos de Corte (Cutoff Rules) para Projeção:** Configurable D-day thresholds that trigger in-app pendency indicators for Projeção Inscritos.
+- **Cortes customizados por (evento, área):** Áreas marcadas com `usa_cutoff_customizado` (toggle administrativo na aba Configurações) deixam de seguir as regras globais D-N e passam a usar duas datas de corte específicas por evento, definidas pelos usuários da área no detalhe do evento. As pendências combinam ambas as fontes em um único item por evento (rota `GET /projecao/pendencias`), com gravação atômica via `PUT /projecao/cutoff-evento-area` e leitura via `GET /projecao/cutoff-evento-area`. Schema: coluna `area_projecao.usa_cutoff_customizado` + tabela `projecao_cutoff_evento_area` (criadas em `_run_column_migrations`).
 
 ## External Dependencies
 - **PostgreSQL:** Primary application database.

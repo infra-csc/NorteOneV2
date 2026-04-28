@@ -111,6 +111,19 @@ const MultiSelectDropdown: React.FC<{
 interface AreaProjecao {
   id: number;
   nome: string;
+  usa_cutoff_customizado?: boolean;
+}
+
+interface CutoffEventoArea {
+  id: number;
+  evento_id: number;
+  area_projecao_id: number;
+  area_projecao_nome: string | null;
+  data_corte_1: string | null;
+  data_corte_2: string | null;
+  updated_by: number | null;
+  updated_by_nome: string | null;
+  updated_at: string | null;
 }
 
 interface ClienteItem {
@@ -191,6 +204,7 @@ interface AreaDetail {
   id: number;
   nome: string;
   ativo: boolean;
+  usa_cutoff_customizado?: boolean;
   usuarios: { id: number; usuario_id: number; usuario_nome: string; usuario_email: string }[];
 }
 
@@ -234,6 +248,8 @@ interface PendenciaItem {
   dias_ate_evento: number;
   cutoff_dias: number;
   cutoff_nome: string;
+  cutoff_customizado?: boolean;
+  cutoff_data?: string | null;
   areas_pendentes: AreaPendente[];
 }
 
@@ -451,6 +467,12 @@ const ProjecaoInscritos: React.FC = () => {
     nome: '', dias_antes_evento: '', ativo: true,
   });
 
+  const [eventoCutoffs, setEventoCutoffs] = useState<CutoffEventoArea[]>([]);
+  const [eventoCutoffsLoading, setEventoCutoffsLoading] = useState(false);
+  const [savingCutoffAreaId, setSavingCutoffAreaId] = useState<number | null>(null);
+  const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string }>>({});
+  const cutoffsLoadTokenRef = useRef(0);
+
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -623,6 +645,67 @@ const ProjecaoInscritos: React.FC = () => {
     });
   };
 
+  const toggleAreaCutoffCustomizado = async (area: AreaDetail) => {
+    const next = !area.usa_cutoff_customizado;
+    try {
+      await projecaoService.setAreaCutoffCustomizado(area.id, next);
+      showToast(next ? 'Cortes por evento ativados' : 'Cortes por evento desativados', 'success');
+      await loadAreasDetail();
+      await loadData();
+      loadPendencias();
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao atualizar área');
+    }
+  };
+
+  const loadEventoCutoffs = async (eventoId: number) => {
+    const token = ++cutoffsLoadTokenRef.current;
+    setEventoCutoffsLoading(true);
+    try {
+      const data = await projecaoService.listCutoffsEvento(eventoId);
+      // Descarta a resposta se outro evento foi selecionado durante a requisição
+      if (token !== cutoffsLoadTokenRef.current) return;
+      setEventoCutoffs(data);
+      const draft: Record<number, { d1: string; d2: string }> = {};
+      data.forEach((c: CutoffEventoArea) => {
+        draft[c.area_projecao_id] = {
+          d1: c.data_corte_1 || '',
+          d2: c.data_corte_2 || '',
+        };
+      });
+      setCutoffDraft(draft);
+    } catch (err) {
+      if (token !== cutoffsLoadTokenRef.current) return;
+      console.error('Erro ao carregar cortes do evento:', err);
+      setEventoCutoffs([]);
+      setCutoffDraft({});
+    } finally {
+      if (token === cutoffsLoadTokenRef.current) {
+        setEventoCutoffsLoading(false);
+      }
+    }
+  };
+
+  const saveEventoCutoff = async (eventoId: number, areaId: number) => {
+    const draft = cutoffDraft[areaId] || { d1: '', d2: '' };
+    setSavingCutoffAreaId(areaId);
+    try {
+      await projecaoService.upsertCutoffEventoArea({
+        evento_id: eventoId,
+        area_projecao_id: areaId,
+        data_corte_1: draft.d1 || null,
+        data_corte_2: draft.d2 || null,
+      });
+      showToast('Datas de corte salvas', 'success');
+      await loadEventoCutoffs(eventoId);
+      loadPendencias();
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar datas');
+    } finally {
+      setSavingCutoffAreaId(null);
+    }
+  };
+
   const loadLixeira = async () => {
     try {
       const data = await projecaoService.getLixeira();
@@ -693,6 +776,16 @@ const ProjecaoInscritos: React.FC = () => {
     if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'projecoes' && selectedEvento) {
+      loadEventoCutoffs(selectedEvento.id);
+    } else {
+      cutoffsLoadTokenRef.current += 1;
+      setEventoCutoffs([]);
+      setCutoffDraft({});
+    }
+  }, [activeTab, selectedEvento?.id]);
 
   useEffect(() => {
     loadPendencias();
@@ -1346,11 +1439,15 @@ const ProjecaoInscritos: React.FC = () => {
                           ? isDark ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40' : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
                           : isDark ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40' : 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300'
                       }`}
-                      title={`${p.evento_nome} — D-${p.dias_ate_evento} • ${p.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`}
+                      title={`${p.evento_nome} — ${p.cutoff_customizado ? `Corte ${formatDate(p.cutoff_data || null)}` : `D-${p.dias_ate_evento}`} • ${p.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`}
                     >
-                      <Zap className="w-3 h-3" />
+                      {p.cutoff_customizado ? <Clock className="w-3 h-3" /> : <Zap className="w-3 h-3" />}
                       <span className="truncate max-w-[180px]">{p.evento_nome}</span>
-                      <span className="font-mono opacity-80">D-{p.dias_ate_evento}</span>
+                      {p.cutoff_customizado ? (
+                        <span className="font-mono opacity-80">{formatDate(p.cutoff_data || null)}</span>
+                      ) : (
+                        <span className="font-mono opacity-80">D-{p.dias_ate_evento}</span>
+                      )}
                     </button>
                   ))}
                   {pendencias.pendencias.length > 6 && (
@@ -1550,7 +1647,9 @@ const ProjecaoInscritos: React.FC = () => {
                                 <span
                                   title={
                                     cutoffPending && pend
-                                      ? `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
+                                      ? pend.cutoff_customizado
+                                        ? `Data de corte personalizada (${formatDate(pend.cutoff_data || null)}) atingida. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
+                                        : `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
                                       : cutoff
                                         ? `Ponto de corte ${cutoff.rule.nome} (D-${cutoff.rule.dias_antes_evento}) atingido. Todas as áreas que você pode editar já têm projeção registrada.`
                                         : ''
@@ -1563,8 +1662,12 @@ const ProjecaoInscritos: React.FC = () => {
                                       : isDark ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-500/50' : 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                                   }`}
                                 >
-                                  <Bell className="w-2.5 h-2.5" />
-                                  {cutoffPending ? 'Pendente' : 'Em corte'} • D-{cutoffDias}
+                                  {cutoffPending && pend?.cutoff_customizado ? <Clock className="w-2.5 h-2.5" /> : <Bell className="w-2.5 h-2.5" />}
+                                  {cutoffPending ? 'Pendente' : 'Em corte'}
+                                  {' • '}
+                                  {cutoffPending && pend?.cutoff_customizado
+                                    ? formatDate(pend.cutoff_data || null)
+                                    : `D-${cutoffDias}`}
                                 </span>
                               )}
                             </div>
@@ -1638,6 +1741,81 @@ const ProjecaoInscritos: React.FC = () => {
                 <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{formatDate(selectedEvento.info_geral?.data || selectedEvento.data_evento || null)}</span>
               )}
             </div>
+
+            {(() => {
+              const myCustomAreas = areas.filter(a => a.usa_cutoff_customizado && (isAdmin || myAreaIds.has(a.id)));
+              if (myCustomAreas.length === 0) return null;
+              return (
+                <div className={`rounded-2xl p-4 ${isDark ? 'bg-orange-500/5 border border-orange-500/20' : 'bg-orange-50/60 border border-orange-200'}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Clock className={`w-4 h-4 ${isDark ? 'text-orange-300' : 'text-orange-600'}`} />
+                    <h3 className={`text-sm font-bold ${isDark ? 'text-orange-200' : 'text-orange-800'}`}>
+                      Datas de corte por evento
+                    </h3>
+                    <span className={`text-xs ${isDark ? 'text-orange-300/70' : 'text-orange-700/80'}`}>
+                      Defina as duas datas em que sua área deve atualizar a projeção deste evento
+                    </span>
+                  </div>
+                  {eventoCutoffsLoading ? (
+                    <div className="flex justify-center py-4">
+                      <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {myCustomAreas.map(area => {
+                        const draft = cutoffDraft[area.id] || { d1: '', d2: '' };
+                        const existing = eventoCutoffs.find(c => c.area_projecao_id === area.id);
+                        return (
+                          <div
+                            key={area.id}
+                            className={`flex flex-wrap items-end gap-3 p-3 rounded-xl ${isDark ? 'bg-gray-800/40 border border-gray-700/40' : 'bg-white border border-gray-200'}`}
+                          >
+                            <div className="flex-1 min-w-[140px]">
+                              <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Área</div>
+                              <div className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</div>
+                              {existing?.updated_at && (
+                                <div className={`text-[11px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                  Atualizado por {existing.updated_by_nome || 'usuário'} em {formatDateTime(existing.updated_at)}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data de corte 1</div>
+                              <input
+                                type="date"
+                                value={draft.d1}
+                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '' }), d1: e.target.value } }))}
+                                className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
+                              />
+                            </div>
+                            <div>
+                              <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Data de corte 2</div>
+                              <input
+                                type="date"
+                                value={draft.d2}
+                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '' }), d2: e.target.value } }))}
+                                className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
+                              />
+                            </div>
+                            <button
+                              onClick={() => saveEventoCutoff(selectedEvento.id, area.id)}
+                              disabled={savingCutoffAreaId === area.id}
+                              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                                savingCutoffAreaId === area.id
+                                  ? 'opacity-60 cursor-wait bg-orange-500/40 text-white'
+                                  : 'bg-gradient-to-r from-orange-500 to-amber-500 text-white hover:shadow-lg'
+                              }`}
+                            >
+                              {savingCutoffAreaId === area.id ? 'Salvando...' : 'Salvar'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
           <div className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800/50 backdrop-blur-xl border border-gray-700/50' : 'bg-white/70 backdrop-blur-xl border border-gray-200'}`}>
             {loading ? (
@@ -2098,9 +2276,17 @@ const ProjecaoInscritos: React.FC = () => {
               </div>
               {areasDetail.map(area => (
                 <div key={area.id} className={cardClass}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</h3>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{area.nome}</h3>
+                        {area.usa_cutoff_customizado && (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${isDark ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' : 'bg-orange-100 text-orange-700 border border-orange-200'}`}>
+                            <Clock className="w-2.5 h-2.5" />
+                            Cortes por evento
+                          </span>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-2 mt-2">
                         {area.usuarios.length === 0 ? (
                           <span className={`text-sm italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum usuário atribuído</span>
@@ -2113,13 +2299,33 @@ const ProjecaoInscritos: React.FC = () => {
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={() => openAtribuir(area)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
-                    >
-                      <Users className="w-4 h-4" />
-                      Gerenciar
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => toggleAreaCutoffCustomizado(area)}
+                        title={area.usa_cutoff_customizado
+                          ? 'Desativar datas de corte por evento para esta área'
+                          : 'Permitir que esta área defina duas datas de corte por evento'}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition-all border ${
+                          area.usa_cutoff_customizado
+                            ? isDark
+                              ? 'bg-orange-500/20 text-orange-300 border-orange-500/40 hover:bg-orange-500/30'
+                              : 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200'
+                            : isDark
+                              ? 'bg-gray-700/40 text-gray-300 border-gray-600/50 hover:bg-gray-700/60'
+                              : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                        }`}
+                      >
+                        <Clock className="w-4 h-4" />
+                        {area.usa_cutoff_customizado ? 'Cortes ON' : 'Cortes OFF'}
+                      </button>
+                      <button
+                        onClick={() => openAtribuir(area)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
+                      >
+                        <Users className="w-4 h-4" />
+                        Gerenciar
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

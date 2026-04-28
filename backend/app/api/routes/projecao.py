@@ -16,6 +16,7 @@ from ...core.security import get_current_user, is_user_admin, require_permission
 from ...models.projecao import (
     AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos,
     ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoInscritosKit, ProjecaoCutoffRule,
+    ProjecaoCutoffEventoArea,
 )
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
@@ -29,6 +30,7 @@ from ...schemas.projecao import (
     ConsolidadoEventoResponse, ConsolidadoAreaItem,
     CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
     PendenciaItem, PendenciasResponse, AreaPendenteItem,
+    AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +107,7 @@ def list_areas_detail(
             id=area.id,
             nome=area.nome,
             ativo=area.ativo,
+            usa_cutoff_customizado=area.usa_cutoff_customizado,
             created_at=area.created_at,
             usuarios=usuarios_list,
         ))
@@ -163,14 +166,14 @@ def minhas_areas(
 ):
     if is_user_admin(current_user):
         areas = db.query(AreaProjecao).filter(AreaProjecao.ativo == True).all()
-        return [{"id": a.id, "nome": a.nome} for a in areas]
+        return [{"id": a.id, "nome": a.nome, "usa_cutoff_customizado": a.usa_cutoff_customizado} for a in areas]
 
     area_ids = _get_user_area_ids(db, current_user.id)
     areas = db.query(AreaProjecao).filter(
         AreaProjecao.id.in_(area_ids),
         AreaProjecao.ativo == True
     ).all()
-    return [{"id": a.id, "nome": a.nome} for a in areas]
+    return [{"id": a.id, "nome": a.nome, "usa_cutoff_customizado": a.usa_cutoff_customizado} for a in areas]
 
 
 @router.get("/", response_model=List[ProjecaoInscritosResponse])
@@ -1061,23 +1064,16 @@ def get_pendencias(
     Retorna eventos em status 'Em andamento' que cruzaram algum ponto de corte
     e ainda não têm projeção registrada para alguma das áreas que o usuário
     tem permissão de editar.
+
+    - Áreas com `usa_cutoff_customizado=False` usam as regras globais D-N
+      (`projecao_cutoff_rule`). Trigger no dia exato em que faltam N dias.
+    - Áreas com `usa_cutoff_customizado=True` usam datas específicas por
+      evento (`projecao_cutoff_evento_area`). Trigger no dia exato em que
+      `today == data_corte_1` ou `today == data_corte_2`.
+
     Admins enxergam pendências de TODAS as áreas.
     """
-    rules = (
-        db.query(ProjecaoCutoffRule)
-        .filter(ProjecaoCutoffRule.ativo == True)
-        .order_by(ProjecaoCutoffRule.dias_antes_evento.asc())
-        .all()
-    )
-    if not rules:
-        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
-
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
-    # Cada regra dispara somente no dia exato (D-N). O conjunto de datas
-    # de evento que nos interessa é exatamente {today + N dias} para cada N.
-    rule_days = sorted({r.dias_antes_evento for r in rules})
-    rule_by_dias = {r.dias_antes_evento: r for r in rules}
-    target_dates = [today + timedelta(days=n) for n in rule_days]
 
     # Áreas em que o usuário pode editar (admin = todas)
     if is_user_admin(current_user):
@@ -1092,70 +1088,333 @@ def get_pendencias(
         ).all()
     if not areas_user:
         return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
-    areas_user_ids = {a.id for a in areas_user}
+
+    areas_global_ids = {a.id for a in areas_user if not a.usa_cutoff_customizado}
+    areas_custom_ids = {a.id for a in areas_user if a.usa_cutoff_customizado}
     areas_nome_by_id = {a.id: a.nome for a in areas_user}
 
-    # Eventos candidatos: em andamento e cuja data cai exatamente em
-    # algum dos pontos de corte configurados (today + N dias).
-    eventos = (
-        db.query(CadastroEvento)
-        .filter(
-            CadastroEvento.deleted_at.is_(None),
-            CadastroEvento.status == 'Em andamento',
-            CadastroEvento.data_evento.isnot(None),
-            CadastroEvento.data_evento.in_(target_dates),
+    # === Bloco 1: regras globais D-N para áreas SEM cutoff customizado ===
+    eventos_global = []  # (evento, dias_ate, regra)
+    if areas_global_ids:
+        rules = (
+            db.query(ProjecaoCutoffRule)
+            .filter(ProjecaoCutoffRule.ativo == True)
+            .order_by(ProjecaoCutoffRule.dias_antes_evento.asc())
+            .all()
         )
-        .all()
-    )
-    eventos_candidatos = []
-    for ev in eventos:
-        dias = (ev.data_evento - today).days
-        regra_aplicavel = rule_by_dias.get(dias)
-        if regra_aplicavel:
-            eventos_candidatos.append((ev, dias, regra_aplicavel))
+        if rules:
+            rule_by_dias = {r.dias_antes_evento: r for r in rules}
+            target_dates = [today + timedelta(days=n) for n in rule_by_dias.keys()]
+            evs = (
+                db.query(CadastroEvento)
+                .filter(
+                    CadastroEvento.deleted_at.is_(None),
+                    CadastroEvento.status == 'Em andamento',
+                    CadastroEvento.data_evento.isnot(None),
+                    CadastroEvento.data_evento.in_(target_dates),
+                )
+                .all()
+            )
+            for ev in evs:
+                dias = (ev.data_evento - today).days
+                regra = rule_by_dias.get(dias)
+                if regra:
+                    eventos_global.append((ev, dias, regra))
 
-    if not eventos_candidatos:
+    # === Bloco 2: cortes customizados por (evento, area) ===
+    cortes_custom = []  # (evento, area_id, data_corte_idx, cutoff_data)
+    if areas_custom_ids:
+        custom_rows = (
+            db.query(ProjecaoCutoffEventoArea)
+            .options(joinedload(ProjecaoCutoffEventoArea.evento))
+            .filter(
+                ProjecaoCutoffEventoArea.area_projecao_id.in_(areas_custom_ids),
+            )
+            .all()
+        )
+        for row in custom_rows:
+            ev = row.evento
+            if not ev or ev.deleted_at is not None or ev.status != 'Em andamento':
+                continue
+            for idx, dt in enumerate([row.data_corte_1, row.data_corte_2], start=1):
+                if dt and dt == today:
+                    cortes_custom.append((ev, row.area_projecao_id, idx, dt))
+
+    if not eventos_global and not cortes_custom:
         return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
 
-    evento_ids = [ev.id for ev, _, _ in eventos_candidatos]
-    # Projeções existentes (não deletadas) por (evento, area)
+    # Buscar projeções existentes para todos os eventos candidatos
+    evento_ids = {ev.id for ev, _, _ in eventos_global} | {ev.id for ev, _, _, _ in cortes_custom}
+    all_areas_ids = areas_global_ids | areas_custom_ids
     projs = (
         db.query(ProjecaoInscritos.evento_id, ProjecaoInscritos.area_projecao_id)
         .filter(
             ProjecaoInscritos.evento_id.in_(evento_ids),
-            ProjecaoInscritos.area_projecao_id.in_(areas_user_ids),
+            ProjecaoInscritos.area_projecao_id.in_(all_areas_ids),
             ProjecaoInscritos.deleted_at.is_(None),
         )
         .all()
     )
     existentes = {(p.evento_id, p.area_projecao_id) for p in projs}
 
-    pendencias = []
-    total_areas = 0
-    for ev, dias, regra in eventos_candidatos:
-        faltando = []
-        for aid in areas_user_ids:
-            if (ev.id, aid) not in existentes:
-                faltando.append(AreaPendenteItem(
-                    area_projecao_id=aid,
-                    area_projecao_nome=areas_nome_by_id[aid],
-                ))
-        if faltando:
-            faltando.sort(key=lambda x: x.area_projecao_nome)
-            pendencias.append(PendenciaItem(
-                evento_id=ev.id,
-                evento_nome=ev.nome,
-                evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
-                dias_ate_evento=dias,
-                cutoff_dias=regra.dias_antes_evento,
-                cutoff_nome=regra.nome,
-                areas_pendentes=faltando,
+    # Agrupa por evento (UM PendenciaItem por evento).
+    # Quando o evento tem áreas pendentes tanto globais quanto customizadas,
+    # combinamos a lista, marcamos cutoff_customizado=True apenas se TODAS as
+    # áreas pendentes forem customizadas (sinaliza UI sem regra D-N).
+    # Caso misto, prevalece a metadata global (D-N) e cutoff_data carrega a
+    # data customizada para tooltip.
+    accum: dict = {}  # evento_id -> {evento, dias, regra, custom_areas, global_areas, custom_data, custom_indices, global_triggered}
+    # eventos em que uma regra global D-N disparou hoje, mesmo se todas as áreas
+    # globais já tiverem projeção registrada — usado para sinalizar que o evento
+    # NÃO é "apenas customizado" (cutoff_customizado=False).
+    eventos_com_trigger_global = {ev.id for ev, _, _ in eventos_global}
+
+    for ev, dias, regra in eventos_global:
+        faltando_global = [
+            AreaPendenteItem(
+                area_projecao_id=aid,
+                area_projecao_nome=areas_nome_by_id[aid],
+            )
+            for aid in areas_global_ids
+            if (ev.id, aid) not in existentes
+        ]
+        if not faltando_global:
+            continue
+        accum.setdefault(ev.id, {
+            "evento": ev,
+            "dias": dias,
+            "regra": regra,
+            "global_areas": [],
+            "custom_areas": [],
+            "custom_data": None,
+            "custom_indices": set(),
+        })
+        accum[ev.id]["global_areas"].extend(faltando_global)
+
+    for ev, aid, idx, dt in cortes_custom:
+        if (ev.id, aid) in existentes:
+            continue
+        info = accum.setdefault(ev.id, {
+            "evento": ev,
+            "dias": (ev.data_evento - today).days if ev.data_evento else 0,
+            "regra": None,
+            "global_areas": [],
+            "custom_areas": [],
+            "custom_data": None,
+            "custom_indices": set(),
+        })
+        if aid not in {a.area_projecao_id for a in info["custom_areas"]}:
+            info["custom_areas"].append(AreaPendenteItem(
+                area_projecao_id=aid,
+                area_projecao_nome=areas_nome_by_id[aid],
             ))
-            total_areas += len(faltando)
+        info["custom_indices"].add(idx)
+        if info["custom_data"] is None:
+            info["custom_data"] = dt
+
+    pendencias = []
+    for eid, info in accum.items():
+        ev = info["evento"]
+        regra = info["regra"]
+        global_areas = info["global_areas"]
+        custom_areas = info["custom_areas"]
+        all_areas = global_areas + custom_areas
+        if not all_areas:
+            continue
+        # ordenar e deduplicar por id
+        seen = set()
+        deduped = []
+        for a in sorted(all_areas, key=lambda x: x.area_projecao_nome):
+            if a.area_projecao_id in seen:
+                continue
+            seen.add(a.area_projecao_id)
+            deduped.append(a)
+        only_custom = (
+            bool(custom_areas)
+            and not global_areas
+            and eid not in eventos_com_trigger_global
+        )
+        if regra is not None:
+            cutoff_dias = regra.dias_antes_evento
+            cutoff_nome = regra.nome
+        elif custom_areas:
+            idx_label = "/".join(str(i) for i in sorted(info["custom_indices"]))
+            cutoff_dias = info["dias"]
+            cutoff_nome = f"Corte personalizado {idx_label}"
+        else:
+            cutoff_dias = info["dias"]
+            cutoff_nome = ""
+        pendencias.append(PendenciaItem(
+            evento_id=ev.id,
+            evento_nome=ev.nome,
+            evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
+            dias_ate_evento=info["dias"],
+            cutoff_dias=cutoff_dias,
+            cutoff_nome=cutoff_nome,
+            cutoff_customizado=only_custom,
+            cutoff_data=info["custom_data"].isoformat() if info["custom_data"] else None,
+            areas_pendentes=deduped,
+        ))
 
     pendencias.sort(key=lambda p: (p.dias_ate_evento, p.evento_nome))
+    total_areas = sum(len(p.areas_pendentes) for p in pendencias)
+
     return PendenciasResponse(
         total_eventos=len(pendencias),
         total_areas=total_areas,
         pendencias=pendencias,
     )
+
+# ============================================================
+# CUTOFF CUSTOMIZADO POR EVENTO + ÁREA
+# ============================================================
+
+@router.put("/areas/{area_id}/cutoff-customizado", response_model=AreaProjecaoResponse)
+def toggle_area_cutoff_customizado(
+    area_id: int,
+    data: AreaCutoffCustomizadoToggle,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar essa configuração")
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == area_id).first()
+    if not area:
+        raise HTTPException(status_code=404, detail="Área não encontrada")
+    area.usa_cutoff_customizado = bool(data.ativo)
+    db.commit()
+    db.refresh(area)
+    return area
+
+
+@router.get("/cutoff-evento-area", response_model=List[CutoffEventoAreaResponse])
+def list_cutoffs_por_evento(
+    evento_id: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """Retorna os cortes customizados de um evento, restritos às áreas que
+    o usuário tem permissão de visualizar (admin vê todas)."""
+    evento = db.query(CadastroEvento).filter(
+        CadastroEvento.id == evento_id,
+        CadastroEvento.deleted_at.is_(None),
+    ).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    if is_user_admin(current_user):
+        area_ids = None
+    else:
+        area_ids = _get_user_area_ids(db, current_user.id)
+        if not area_ids:
+            return []
+
+    q = (
+        db.query(ProjecaoCutoffEventoArea)
+        .options(
+            joinedload(ProjecaoCutoffEventoArea.area),
+            joinedload(ProjecaoCutoffEventoArea.editor),
+        )
+        .filter(ProjecaoCutoffEventoArea.evento_id == evento_id)
+    )
+    if area_ids is not None:
+        q = q.filter(ProjecaoCutoffEventoArea.area_projecao_id.in_(area_ids))
+    rows = q.all()
+    result = []
+    for r in rows:
+        result.append(CutoffEventoAreaResponse(
+            id=r.id,
+            evento_id=r.evento_id,
+            area_projecao_id=r.area_projecao_id,
+            area_projecao_nome=r.area.nome if r.area else None,
+            data_corte_1=r.data_corte_1.isoformat() if r.data_corte_1 else None,
+            data_corte_2=r.data_corte_2.isoformat() if r.data_corte_2 else None,
+            updated_by=r.updated_by,
+            updated_by_nome=r.editor.nome if r.editor else None,
+            updated_at=r.updated_at,
+        ))
+    return result
+
+
+def _parse_iso_date(value: Optional[str]):
+    if value is None or value == "":
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Data inválida: {value} (use YYYY-MM-DD)")
+
+
+@router.put("/cutoff-evento-area", response_model=CutoffEventoAreaResponse)
+def upsert_cutoff_evento_area(
+    data: CutoffEventoAreaUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Cria ou atualiza as duas datas de corte para um (evento, area)."""
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True).first()
+    if not area:
+        raise HTTPException(status_code=404, detail="Área de projeção não encontrada")
+    if not area.usa_cutoff_customizado:
+        raise HTTPException(status_code=400, detail="Esta área não está habilitada para cortes customizados por evento")
+
+    _check_area_permission(db, current_user, area.id)
+
+    evento = db.query(CadastroEvento).filter(
+        CadastroEvento.id == data.evento_id,
+        CadastroEvento.deleted_at.is_(None),
+    ).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    d1 = _parse_iso_date(data.data_corte_1)
+    d2 = _parse_iso_date(data.data_corte_2)
+
+    def _filter_row():
+        return db.query(ProjecaoCutoffEventoArea).filter(
+            ProjecaoCutoffEventoArea.evento_id == data.evento_id,
+            ProjecaoCutoffEventoArea.area_projecao_id == data.area_projecao_id,
+        )
+
+    row = _filter_row().first()
+    if row is None:
+        row = ProjecaoCutoffEventoArea(
+            evento_id=data.evento_id,
+            area_projecao_id=data.area_projecao_id,
+            data_corte_1=d1,
+            data_corte_2=d2,
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Outra requisição criou a linha simultaneamente — recarrega e atualiza
+            db.rollback()
+            row = _filter_row().first()
+            if row is None:
+                raise HTTPException(status_code=500, detail="Falha ao salvar datas de corte")
+            row.data_corte_1 = d1
+            row.data_corte_2 = d2
+            row.updated_by = current_user.id
+            db.commit()
+    else:
+        row.data_corte_1 = d1
+        row.data_corte_2 = d2
+        row.updated_by = current_user.id
+        db.commit()
+    db.refresh(row)
+    editor = db.query(Usuario).filter(Usuario.id == row.updated_by).first() if row.updated_by else None
+    return CutoffEventoAreaResponse(
+        id=row.id,
+        evento_id=row.evento_id,
+        area_projecao_id=row.area_projecao_id,
+        area_projecao_nome=area.nome,
+        data_corte_1=row.data_corte_1.isoformat() if row.data_corte_1 else None,
+        data_corte_2=row.data_corte_2.isoformat() if row.data_corte_2 else None,
+        updated_by=row.updated_by,
+        updated_by_nome=editor.nome if editor else None,
+        updated_at=row.updated_at,
+    )
+
