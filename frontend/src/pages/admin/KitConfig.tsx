@@ -311,6 +311,47 @@ const KitConfig: React.FC = () => {
     });
   };
 
+  const handleToggleIgnorado = async (bundleId: number) => {
+    const kit = kits.find((k) => k.bundle_entity_id === bundleId);
+    if (!kit) return;
+    const currentIgnorado = ignoradoValues[bundleId] ?? kit.ignorado ?? false;
+    const newIgnorado = !currentIgnorado;
+
+    setIgnoradoValues((prev) => ({ ...prev, [bundleId]: newIgnorado }));
+    setSaving((s) => ({ ...s, [bundleId]: true }));
+
+    try {
+      const idEvento = kit.id_evento ? parseInt(kit.id_evento, 10) : null;
+      const custoKitStr = (custoKitValues[bundleId] ?? '').trim();
+      const custoKit = custoKitStr !== '' ? parseFloat(custoKitStr) : (kit.custo_kit ?? null);
+
+      await api.post(`/kit-config/${bundleId}`, {
+        multiplicador: editValues[bundleId] ?? kit.multiplicador,
+        is_kit_basico: basicoValues[bundleId] ?? kit.is_kit_basico,
+        is_promo_principal: promoValues[bundleId] ?? kit.is_promo_principal,
+        id_evento: idEvento,
+        tipo_kit: (tipoKitValues[bundleId] ?? kit.tipo_kit ?? '').trim() || null,
+        custo_kit: custoKit,
+        ativo_categoria: (ativoCategValues[bundleId] ?? kit.ativo_categoria ?? '').trim() || null,
+        cenario_ciclismo: (cenarioCicValues[bundleId] ?? kit.cenario_ciclismo ?? '').trim() || null,
+        ignorado: newIgnorado,
+      });
+
+      setKits((prev) =>
+        prev.map((k) =>
+          k.bundle_entity_id === bundleId
+            ? { ...k, ignorado: newIgnorado, is_configured: true }
+            : k,
+        ),
+      );
+    } catch {
+      setIgnoradoValues((prev) => ({ ...prev, [bundleId]: currentIgnorado }));
+      alert('Erro ao salvar configuração');
+    } finally {
+      setSaving((s) => ({ ...s, [bundleId]: false }));
+    }
+  };
+
   const filteredKits = useMemo(() => {
     let result = kits;
 
@@ -359,9 +400,9 @@ const KitConfig: React.FC = () => {
     }
 
     if (filterIgnorado === 'ocultar') {
-      result = result.filter((k) => !k.ignorado);
+      result = result.filter((k) => !(ignoradoValues[k.bundle_entity_id] ?? k.ignorado));
     } else if (filterIgnorado === 'apenas') {
-      result = result.filter((k) => k.ignorado);
+      result = result.filter((k) => ignoradoValues[k.bundle_entity_id] ?? k.ignorado);
     }
 
     return result;
@@ -991,14 +1032,15 @@ const KitConfig: React.FC = () => {
                       {/* Ignorar */}
                       <td className="px-3 py-2.5 text-center whitespace-nowrap">
                         <button
-                          onClick={() => setIgnoradoValues((prev) => ({ ...prev, [kit.bundle_entity_id]: !isIgnorado }))}
+                          onClick={() => handleToggleIgnorado(kit.bundle_entity_id)}
+                          disabled={isSaving}
                           className={`p-1 rounded transition-colors ${
                             isIgnorado
                               ? 'text-rose-500 hover:text-rose-400'
                               : isDark
                               ? 'text-gray-600 hover:text-gray-400'
                               : 'text-gray-300 hover:text-gray-500'
-                          }`}
+                          } ${isSaving ? 'opacity-50 cursor-wait' : ''}`}
                           title={isIgnorado ? 'Kit ignorado em cálculos (margem, ticket, ISC). Clique para reativar.' : 'Marcar como ignorado nos cálculos (margem, ticket, ISC)'}
                         >
                           <EyeOff className={`w-5 h-5 ${isIgnorado ? 'fill-current' : ''}`} />
