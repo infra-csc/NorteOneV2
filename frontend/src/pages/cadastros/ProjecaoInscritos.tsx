@@ -565,14 +565,14 @@ const ProjecaoInscritos: React.FC = () => {
 
   const loadPendencias = async () => {
     try {
-      const data = await projecaoService.getPendencias();
+      const data: PendenciasResponse = await projecaoService.getPendencias();
       // Reset banner dismissal whenever the pendência set actually changes
       // (count or which events are pending), so a new alert breaks through.
       setPendencias(prev => {
         const prevSig = prev
-          ? `${prev.total_eventos}|${prev.total_areas}|${prev.pendencias.map(p => `${p.evento_id}:${p.dias_ate_evento}:${p.areas_pendentes.length}`).join(',')}`
+          ? `${prev.total_eventos}|${prev.total_areas}|${prev.pendencias.map((p: PendenciaItem) => `${p.evento_id}:${p.dias_ate_evento}:${p.areas_pendentes.length}`).join(',')}`
           : '';
-        const nextSig = `${data.total_eventos}|${data.total_areas}|${data.pendencias.map(p => `${p.evento_id}:${p.dias_ate_evento}:${p.areas_pendentes.length}`).join(',')}`;
+        const nextSig = `${data.total_eventos}|${data.total_areas}|${data.pendencias.map((p: PendenciaItem) => `${p.evento_id}:${p.dias_ate_evento}:${p.areas_pendentes.length}`).join(',')}`;
         if (prevSig !== nextSig) {
           setPendenciasBannerDismissed(false);
         }
