@@ -438,10 +438,12 @@ def init_mysql_connections():
                 # via wait_timeout (commonly 600–1800s on managed servers)
                 # and reduces "MySQL server has gone away" incidents.
                 pool_recycle=600,
-                # Smaller pool keeps fewer idle connections that could go stale.
-                pool_size=3,
-                max_overflow=5,
-                pool_timeout=30,
+                # Pool sized to absorb concurrent Marketing/ISC/snapshot work
+                # without exhausting under load. With pool_pre_ping + recycle=600s
+                # idle staleness is already handled, so we can afford more slots.
+                pool_size=8,
+                max_overflow=12,
+                pool_timeout=20,
                 pool_use_lifo=True,
                 connect_args={'connect_timeout': 15, 'read_timeout': 300, 'write_timeout': 30}
             )

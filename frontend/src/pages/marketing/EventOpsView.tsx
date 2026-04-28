@@ -179,6 +179,16 @@ const EventOpsView: React.FC = () => {
     setRefreshOk(false);
     try {
       const result = await marketingService.atualizarHoje(id, anoParam);
+      // If the backend reports a partial sync (e.g. Magento timeout), don't
+      // overwrite today's number with whatever 0/partial value we got — show
+      // a warning instead so the user knows the totals may be incomplete.
+      const partial = result.status === 'partial' || result.ativo_ok === false || result.magento_ok === false;
+      if (partial) {
+        const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte de dados';
+        setError(`Não foi possível buscar as vendas de hoje agora (${fontes} indisponível). Tente novamente em alguns instantes.`);
+        setTimeout(() => setError(null), 6000);
+        return;
+      }
       setHojeTotal(result.hoje_total);
       setUltimaAtualizacao(result.ultima_atualizacao || new Date().toISOString());
       setEvent(prev => prev ? {

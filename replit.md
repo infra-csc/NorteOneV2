@@ -55,6 +55,10 @@ The frontend utilizes React, TypeScript, and Tailwind CSS for a modern and consi
 - **Pontos de Corte (Cutoff Rules) para Projeção:** Configurable D-day thresholds that trigger in-app pendency indicators for Projeção Inscritos.
 - **Cortes customizados por (evento, área):** Áreas marcadas com `usa_cutoff_customizado` (toggle administrativo na aba Configurações) deixam de seguir as regras globais D-N e passam a usar duas datas de corte específicas por evento, definidas pelos usuários da área no detalhe do evento. As pendências combinam ambas as fontes em um único item por evento (rota `GET /projecao/pendencias`), com gravação atômica via `PUT /projecao/cutoff-evento-area` e leitura via `GET /projecao/cutoff-evento-area`. Schema: coluna `area_projecao.usa_cutoff_customizado` + tabela `projecao_cutoff_evento_area` (criadas em `_run_column_migrations`).
 
+## Resilience Notes
+- **Today's sales sync (Atualizar/Sincronizar Hoje):** Inner helpers `_fetch_today_sales_ativo_grouped` and `_fetch_today_sales_magento_grouped` accept `raise_on_error` so callers (`sincronizar_hoje_batch`, `atualizar_vendas_hoje`) can detect upstream DB failures and skip the snapshot UPSERT, preserving the previously stored row instead of overwriting today with 0. Endpoint returns `status: "partial"` with `ativo_ok`/`magento_ok`/`fontes_indisponiveis`; frontend shows an amber warning banner instead of zeroing today's value.
+- **Magento DB pool:** `pool_size=8`, `max_overflow=12`, `pool_timeout=20` (was 3/5), tuned to handle bursty refreshes without exhausting the pool.
+
 ## External Dependencies
 - **PostgreSQL:** Primary application database.
 - **MySQL:** External athlete data storage.

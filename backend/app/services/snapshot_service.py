@@ -497,7 +497,7 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     if all_ativo_ids:
         try:
-            ativo_today = _fetch_today_sales_ativo_grouped(list(set(all_ativo_ids)))
+            ativo_today = _fetch_today_sales_ativo_grouped(list(set(all_ativo_ids)), raise_on_error=True)
             logger.info(f"sincronizar_hoje_batch: Ativo retornou {len(ativo_today)} IDs com vendas hoje")
         except Exception as e:
             ativo_ok = False
@@ -519,7 +519,11 @@ def sincronizar_hoje_batch(db: Session) -> int:
     if all_magento_ids:
         try:
             _cort_ids = _get_cortesia_magento_ids(db)
-            magento_today = _fetch_today_sales_magento_grouped(list(set(all_magento_ids)), cortesia_magento_ids=_cort_ids if _cort_ids else None)
+            magento_today = _fetch_today_sales_magento_grouped(
+                list(set(all_magento_ids)),
+                cortesia_magento_ids=_cort_ids if _cort_ids else None,
+                raise_on_error=True,
+            )
             logger.info(f"sincronizar_hoje_batch: Magento retornou {len(magento_today)} IDs com vendas hoje")
         except Exception as e:
             magento_ok = False

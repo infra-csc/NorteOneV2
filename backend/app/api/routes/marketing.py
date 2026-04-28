@@ -6559,12 +6559,19 @@ GROUP BY DATE(so.created_at)
         return {}
 
 
-def _fetch_today_sales_ativo_grouped(id_eventos: list) -> dict:
+def _fetch_today_sales_ativo_grouped(id_eventos: list, raise_on_error: bool = False) -> dict:
     """
     Single-query batch for today's Ativo sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
+    When ``raise_on_error`` is True, the caller will see exceptions instead of
+    a silent empty dict — this lets sync paths preserve previous snapshots
+    instead of overwriting today with 0 when Ativo is unavailable.
     """
-    if not id_eventos or db_module.engine_ssh is None:
+    if not id_eventos:
+        return {}
+    if db_module.engine_ssh is None:
+        if raise_on_error:
+            raise RuntimeError("engine_ssh indisponível para Ativo")
         return {}
     try:
         safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
@@ -6631,17 +6638,26 @@ GROUP BY sub.id_evento
             return grouped
     except Exception as e:
         logger.error(f"Erro today sales Ativo grouped: {e}")
+        if raise_on_error:
+            raise
         return {}
 
 
-def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> dict:
+def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False) -> dict:
     """
     Single-query batch for today's Magento sales grouped by id_evento.
     Returns {str(id_evento): {"qtd": int, "receita": float}}.
     Uses the same revenue formula as _fetch_daily_sales_magento_by_ids
     (kit-type adjustments + persona discount + group filter) for consistency.
+    When ``raise_on_error`` is True, the caller will see exceptions instead of
+    a silent empty dict — this lets sync paths preserve previous snapshots
+    instead of overwriting today with 0 when Magento is unavailable.
     """
-    if not magento_event_ids or db_module.engine_magento is None:
+    if not magento_event_ids:
+        return {}
+    if db_module.engine_magento is None:
+        if raise_on_error:
+            raise RuntimeError("engine_magento indisponível")
         return {}
     try:
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
@@ -6724,6 +6740,8 @@ GROUP BY cpev1.value
         return grouped
     except Exception as e:
         logger.error(f"Erro today sales Magento grouped: {e}")
+        if raise_on_error:
+            raise
         return {}
 
 
@@ -9949,33 +9967,50 @@ def atualizar_vendas_hoje(
         )
 
     # --- Fetch today's data from both sources (fast — date-filtered queries) ---
+    # Track per-source health so we never overwrite a healthy snapshot row with
+    # 0 when one of the upstream DBs (Ativo / Magento) is timing out or down.
     hoje_ativo = 0
     hoje_magento = 0
     hoje_receita = 0.0
+    ativo_ok = True
+    magento_ok = True
+    sources_failed: list = []
 
     if ativo_ids:
         try:
-            ativo_today = _fetch_today_sales_ativo_grouped(ativo_ids)
+            ativo_today = _fetch_today_sales_ativo_grouped(ativo_ids, raise_on_error=True)
             for _entry in ativo_today.values():
                 hoje_ativo += _entry["qtd"]
                 hoje_receita += _entry["receita"]
         except Exception as _e:
+            ativo_ok = False
+            sources_failed.append("ativo")
             logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
 
     if magento_ids:
         try:
-            magento_today = _fetch_today_sales_magento_grouped(magento_ids)
+            magento_today = _fetch_today_sales_magento_grouped(magento_ids, raise_on_error=True)
             for _entry in magento_today.values():
                 hoje_magento += _entry["qtd"]
                 hoje_receita += _entry["receita"]
         except Exception as _e:
+            magento_ok = False
+            sources_failed.append("magento")
             logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
 
     hoje_total = hoje_ativo + hoje_magento
 
-    # --- Update snapshot for today ---
+    # If any required source failed, DO NOT overwrite today's snapshot — keep
+    # the previously saved row so we don't zero out real sales just because
+    # the upstream DB was momentarily unavailable. Return what we already had
+    # in the DB plus a status flag the frontend can use to show a warning.
+    grupo_needs_ativo = bool(ativo_ids)
+    grupo_needs_magento = bool(magento_ids)
+    sync_failed = (grupo_needs_ativo and not ativo_ok) or (grupo_needs_magento and not magento_ok)
+
+    # --- Update snapshot for today (only when every required source succeeded) ---
     _HOJE_FONTE = 'CONSOLIDADO'
-    if grupo_nome:
+    if grupo_nome and not sync_failed:
         try:
             existing = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
@@ -10003,6 +10038,23 @@ def atualizar_vendas_hoje(
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro ao salvar snapshot para {grupo_nome}: {_e}")
             db.rollback()
+    elif sync_failed and grupo_nome:
+        # Fall back to the previously stored snapshot for today so the response
+        # reflects the data we still have on disk instead of "0".
+        try:
+            existing = db.query(_VDS).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == _HOJE_FONTE,
+                _VDS.data_venda == hoje,
+            ).first()
+            if existing:
+                hoje_total = int(existing.quantidade or 0)
+                hoje_receita = float(existing.receita or 0.0)
+        except Exception:
+            pass
+        logger.warning(
+            f"atualizar-hoje: pulando UPSERT para '{grupo_nome}' — fontes indisponíveis: {sources_failed}"
+        )
 
     # --- Recalculate rolling averages from snapshot (no external DB) ---
     media_7d = 0.0
@@ -10049,7 +10101,7 @@ def atualizar_vendas_hoje(
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
     return {
-        "status": "ok",
+        "status": "partial" if sync_failed else "ok",
         "evento_id": evento_id,
         "data": hoje.isoformat(),
         "hoje_ativo": hoje_ativo,
@@ -10059,7 +10111,10 @@ def atualizar_vendas_hoje(
         "media_14d": media_14d,
         "media_30d": media_30d,
         "total_acumulado": total_acumulado,
-        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat()
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        "ativo_ok": ativo_ok,
+        "magento_ok": magento_ok,
+        "fontes_indisponiveis": sources_failed,
     }
 
 

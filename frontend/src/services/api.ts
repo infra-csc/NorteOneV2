@@ -1001,6 +1001,9 @@ export const marketingService = {
     media_30d: number;
     total_acumulado: number;
     ultima_atualizacao: string;
+    ativo_ok?: boolean;
+    magento_ok?: boolean;
+    fontes_indisponiveis?: string[];
   }> => {
     const queryParams = new URLSearchParams();
     if (ano) queryParams.append('ano', ano.toString());

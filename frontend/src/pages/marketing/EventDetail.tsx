@@ -264,6 +264,7 @@ const EventDetail: React.FC = () => {
   const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
@@ -521,40 +522,55 @@ const EventDetail: React.FC = () => {
   const handleForceRefresh = async () => {
     if (!id || refreshing) return;
     setRefreshing(true);
+    setRefreshError(null);
     try {
       const result = await marketingService.atualizarHoje(id, anoParam);
-      const todayStr = new Date().toISOString().split('T')[0];
-      setEvent(prev => {
-        if (!prev) return prev;
-        const updatedDailySales = prev.dailySales ? prev.dailySales.map(d => {
-          if (d.date === todayStr) {
-            return { ...d, sales: result.hoje_total };
-          }
-          return d;
-        }) : prev.dailySales;
-        const todayExists = prev.dailySales?.some(d => d.date === todayStr);
-        const finalDailySales = (!todayExists && result.hoje_total > 0 && prev.dailySales)
-          ? [...prev.dailySales, { date: todayStr, sales: result.hoje_total, expected: 0, cumulativeSales: result.hoje_total, cumulativeExpected: 0 }]
-          : updatedDailySales;
-        return {
-          ...prev,
-          currentSales: (result.total_acumulado > 0 && result.total_acumulado >= (prev.currentSales || 0))
-            ? result.total_acumulado
-            : prev.currentSales,
-          dailySales: finalDailySales
-        };
-      });
-      // Don't clear dashboard cache here — let the next dashboard visit serve the
-      // cached snapshot instantly while it revalidates in the background.
-      setIsStaleData(false);
-      setRefreshSuccess(true);
-      setTimeout(() => setRefreshSuccess(false), 4000);
-      if (staleRetryTimerRef.current) {
-        clearTimeout(staleRetryTimerRef.current);
-        staleRetryTimerRef.current = null;
+      // If the backend reports a partial/failed sync (e.g. Magento timing out),
+      // do NOT overwrite today's daily sales with whatever 0/partial number we
+      // got back — show a warning so the user knows to retry in a bit.
+      const partial = result.status === 'partial' || result.ativo_ok === false || result.magento_ok === false;
+      if (partial) {
+        const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte de dados';
+        setRefreshError(
+          `Não foi possível buscar as vendas de hoje agora (${fontes} indisponível). Os números mostrados podem estar incompletos. Tente novamente em alguns instantes.`
+        );
+        setTimeout(() => setRefreshError(null), 8000);
+      } else {
+        const todayStr = new Date().toISOString().split('T')[0];
+        setEvent(prev => {
+          if (!prev) return prev;
+          const updatedDailySales = prev.dailySales ? prev.dailySales.map(d => {
+            if (d.date === todayStr) {
+              return { ...d, sales: result.hoje_total };
+            }
+            return d;
+          }) : prev.dailySales;
+          const todayExists = prev.dailySales?.some(d => d.date === todayStr);
+          const finalDailySales = (!todayExists && result.hoje_total > 0 && prev.dailySales)
+            ? [...prev.dailySales, { date: todayStr, sales: result.hoje_total, expected: 0, cumulativeSales: result.hoje_total, cumulativeExpected: 0 }]
+            : updatedDailySales;
+          return {
+            ...prev,
+            currentSales: (result.total_acumulado > 0 && result.total_acumulado >= (prev.currentSales || 0))
+              ? result.total_acumulado
+              : prev.currentSales,
+            dailySales: finalDailySales
+          };
+        });
+        // Don't clear dashboard cache here — let the next dashboard visit serve the
+        // cached snapshot instantly while it revalidates in the background.
+        setIsStaleData(false);
+        setRefreshSuccess(true);
+        setTimeout(() => setRefreshSuccess(false), 4000);
+        if (staleRetryTimerRef.current) {
+          clearTimeout(staleRetryTimerRef.current);
+          staleRetryTimerRef.current = null;
+        }
       }
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
+      setRefreshError('Não foi possível atualizar as vendas de hoje agora. Tente novamente em alguns instantes.');
+      setTimeout(() => setRefreshError(null), 8000);
     } finally {
       setRefreshing(false);
     }
@@ -1204,6 +1220,12 @@ const EventDetail: React.FC = () => {
       {refreshSuccess && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 flex items-center gap-3">
           <span className="text-sm text-green-700 dark:text-green-300 font-medium">Vendas de hoje atualizadas com sucesso.</span>
+        </div>
+      )}
+
+      {refreshError && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3 flex items-center gap-3">
+          <span className="text-sm text-amber-700 dark:text-amber-300 font-medium">{refreshError}</span>
         </div>
       )}
 
