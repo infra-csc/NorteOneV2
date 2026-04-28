@@ -1642,6 +1642,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DW Financeiro - Eventos", version="1.0.0", lifespan=lifespan)
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def _log_validation_error(request, exc):
+    try:
+        body = await request.body()
+        body_text = body.decode('utf-8', errors='replace')[:2000]
+    except Exception:
+        body_text = '<unavailable>'
+    logger.warning(
+        "[ValidationError] %s %s — errors=%s body=%s",
+        request.method, request.url.path, exc.errors(), body_text,
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
 from app.core.config import settings as app_settings
 
 cors_origins = [origin.strip() for origin in app_settings.CORS_ORIGINS.split(",") if origin.strip()]
