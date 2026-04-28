@@ -41,6 +41,11 @@ SessionLocalSSH = None
 
 _watchdog_running = False
 _watchdog_lock = threading.Lock()
+# Single lock guarding ALL transitions of ssh_tunnel/engine_ssh
+# (watchdog, on-demand ensure, manual init/close). This prevents the
+# watchdog and ensure_ssh_engine_ready from racing each other
+# (e.g. one closing what the other just rebuilt).
+_ssh_lifecycle_lock = threading.RLock()
 
 
 def _is_tunnel_alive() -> bool:
@@ -56,7 +61,9 @@ def _is_tunnel_alive() -> bool:
 
 
 def _ssh_watchdog():
-    """Daemon thread: checks tunnel health every 15 s and reconnects if dead."""
+    """Daemon thread: checks tunnel health every 15 s and reconnects if dead.
+    All tunnel transitions go through `_ssh_lifecycle_lock` so we don't race
+    `ensure_ssh_engine_ready()` callers."""
     import time as _time
     CHECK_INTERVAL = 15
     RECONNECT_DELAY = 5
@@ -76,29 +83,33 @@ def _ssh_watchdog():
             _health_alert("SSH_TUNNEL_DOWN", "CRITICAL", "Túnel SSH para o banco de dados caiu", "O watchdog detectou que o túnel SSH está inativo e tentará reconexão.")
         except Exception:
             pass
-        try:
-            close_ssh_tunnel()
-        except Exception as _ce:
-            _db_logger.error(f"SSH watchdog: error closing old tunnel: {_ce}")
-        _time.sleep(RECONNECT_DELAY)
-        try:
-            ok = _reconnect_ssh_tunnel()
-            if ok:
-                _db_logger.info("SSH tunnel reconnected")
-                try:
-                    from app.services.health_alert_service import log_event as _log_ev
-                    _log_ev("SSH_TUNNEL_RECONNECTED", "INFO", "Túnel SSH reconectado com sucesso", None)
-                except Exception:
-                    pass
-            else:
-                _db_logger.warning("SSH tunnel watchdog: reconnect failed, will retry next cycle")
-                try:
-                    from app.services.health_alert_service import log_and_alert as _health_alert
-                    _health_alert("SSH_TUNNEL_RECONNECT_FAILED", "CRITICAL", "Falha ao reconectar o túnel SSH", "O watchdog tentou reconectar mas falhou. Nova tentativa no próximo ciclo (15s).")
-                except Exception:
-                    pass
-        except Exception as _re:
-            _db_logger.error(f"SSH watchdog: reconnect error: {_re}")
+        with _ssh_lifecycle_lock:
+            # Re-check inside the lock — another thread may have rebuilt it.
+            if _is_tunnel_alive():
+                continue
+            try:
+                close_ssh_tunnel()
+            except Exception as _ce:
+                _db_logger.error(f"SSH watchdog: error closing old tunnel: {_ce}")
+            _time.sleep(RECONNECT_DELAY)
+            try:
+                ok = _reconnect_ssh_tunnel()
+                if ok:
+                    _db_logger.info("SSH tunnel reconnected")
+                    try:
+                        from app.services.health_alert_service import log_event as _log_ev
+                        _log_ev("SSH_TUNNEL_RECONNECTED", "INFO", "Túnel SSH reconectado com sucesso", None)
+                    except Exception:
+                        pass
+                else:
+                    _db_logger.warning("SSH tunnel watchdog: reconnect failed, will retry next cycle")
+                    try:
+                        from app.services.health_alert_service import log_and_alert as _health_alert
+                        _health_alert("SSH_TUNNEL_RECONNECT_FAILED", "CRITICAL", "Falha ao reconectar o túnel SSH", "O watchdog tentou reconectar mas falhou. Nova tentativa no próximo ciclo (15s).")
+                    except Exception:
+                        pass
+            except Exception as _re:
+                _db_logger.error(f"SSH watchdog: reconnect error: {_re}")
     _db_logger.info("SSH tunnel watchdog stopped")
 
 
@@ -122,6 +133,61 @@ def stop_ssh_watchdog():
 def _reconnect_ssh_tunnel():
     """Re-run the SSH tunnel setup without starting a new watchdog."""
     return init_ssh_tunnel(_start_watchdog=False)
+
+
+_ensure_magento_lock = threading.Lock()
+
+
+def ensure_ssh_engine_ready(timeout_s: int = 20) -> bool:
+    """Best-effort: make sure engine_ssh is alive. If it's missing or the tunnel
+    is dead, try to (re)establish it synchronously. Returns True if engine_ssh
+    is usable, False otherwise. Used by background snapshot rebuilds so they
+    don't silently abort just because the tunnel went idle between cycles.
+    Uses the shared `_ssh_lifecycle_lock` so it can't race the watchdog."""
+    global engine_ssh
+    if engine_ssh is not None and _is_tunnel_alive():
+        return True
+    if not all([settings.SSH_HOST, settings.SSH_USER, settings.SSH_PRIVATE_KEY,
+                settings.DB_HOST, settings.DB_USER, settings.DB_PASSWORD, settings.DB_NAME]):
+        return False
+    with _ssh_lifecycle_lock:
+        # Re-check inside the lock — watchdog may have rebuilt it meanwhile.
+        if engine_ssh is not None and _is_tunnel_alive():
+            return True
+        try:
+            close_ssh_tunnel()
+        except Exception as _ce:
+            _db_logger.warning(f"ensure_ssh_engine_ready: error closing stale tunnel: {_ce}")
+        try:
+            ok = init_ssh_tunnel(_start_watchdog=False)
+            if ok:
+                _db_logger.info("ensure_ssh_engine_ready: SSH tunnel re-established on demand")
+                return engine_ssh is not None
+        except Exception as _re:
+            _db_logger.error(f"ensure_ssh_engine_ready: reinit failed: {_re}")
+        return False
+
+
+def ensure_magento_engine_ready() -> bool:
+    """Best-effort: make sure engine_magento exists. (Re)create it synchronously
+    if it was never configured or got disposed. Returns True if engine_magento
+    is usable, False otherwise."""
+    global engine_magento
+    if engine_magento is not None:
+        return True
+    if not (settings.MYSQL_MAGENTO_HOST and settings.MYSQL_MAGENTO_PASSWORD and settings.MYSQL_MAGENTO_DATABASE):
+        return False
+    with _ensure_magento_lock:
+        if engine_magento is not None:
+            return True
+        try:
+            init_mysql_connections()
+            if engine_magento is not None:
+                _db_logger.info("ensure_magento_engine_ready: engine_magento re-created on demand")
+                return True
+        except Exception as _re:
+            _db_logger.error(f"ensure_magento_engine_ready: reinit failed: {_re}")
+        return False
 
 
 def init_ssh_tunnel(_start_watchdog: bool = True):

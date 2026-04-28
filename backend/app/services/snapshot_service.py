@@ -137,6 +137,25 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     cortesia_ids = _get_cortesia_magento_ids(db)
 
+    # Best-effort: if upstream engines went idle / disposed (common in autoscale
+    # deployments after the SSH tunnel times out), try to re-establish them
+    # synchronously here. Without this, the abort below would just preserve a
+    # stale snapshot and the daily-sales chart would silently miss recent days.
+    try:
+        from ..core import database as db_module
+        if ativo_ids:
+            try:
+                db_module.ensure_ssh_engine_ready()
+            except Exception as _ee:
+                logger.warning(f"[Snapshot] ensure_ssh_engine_ready falhou: {_ee}")
+        if magento_ids:
+            try:
+                db_module.ensure_magento_engine_ready()
+            except Exception as _ee:
+                logger.warning(f"[Snapshot] ensure_magento_engine_ready falhou: {_ee}")
+    except Exception as _imp_e:
+        logger.warning(f"[Snapshot] não foi possível garantir engines antes do fetch: {_imp_e}")
+
     # CRITICAL: Fetch BOTH sources BEFORE any delete. If a required source fails
     # (SSH tunnel down, MySQL timeout, Magento connection lost), we must abort
     # without deleting — otherwise the snapshot ends up with only the surviving
@@ -437,6 +456,24 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     logger.info(f"sincronizar_hoje_batch: {len(grupos)} grupos live/hybrid para sincronizar")
 
+    # Best-effort: ensure upstream engines are alive before we even try the
+    # batched queries. In autoscale deployments the SSH tunnel and the Magento
+    # engine may have gone idle since the previous cycle.
+    try:
+        from ..core import database as db_module
+        if all_ativo_ids:
+            try:
+                db_module.ensure_ssh_engine_ready()
+            except Exception as _ee:
+                logger.warning(f"sincronizar_hoje_batch: ensure_ssh_engine_ready falhou: {_ee}")
+        if all_magento_ids:
+            try:
+                db_module.ensure_magento_engine_ready()
+            except Exception as _ee:
+                logger.warning(f"sincronizar_hoje_batch: ensure_magento_engine_ready falhou: {_ee}")
+    except Exception as _imp_e:
+        logger.warning(f"sincronizar_hoje_batch: ensure engines pré-fetch falhou: {_imp_e}")
+
     # --- Step 1: Backfill historical data for groups with no snapshot rows ---
     backfilled = 0
     for grupo in list(grupos.keys()):
@@ -450,15 +487,34 @@ def sincronizar_hoje_batch(db: Session) -> int:
                 logger.warning(f"sincronizar_hoje_batch: backfill falhou para '{grupo}': {e}")
 
     # --- Step 2: Fetch today's data in batch (2 MySQL queries total) ---
+    # Track *health* of each source separately so we can skip the UPSERT for
+    # grupos whose required source failed — otherwise we'd overwrite a healthy
+    # snapshot row for "today" with quantity=0 just because a source went down.
     ativo_today: dict = {}
     magento_today: dict = {}
+    ativo_ok = True
+    magento_ok = True
 
     if all_ativo_ids:
         try:
             ativo_today = _fetch_today_sales_ativo_grouped(list(set(all_ativo_ids)))
             logger.info(f"sincronizar_hoje_batch: Ativo retornou {len(ativo_today)} IDs com vendas hoje")
         except Exception as e:
+            ativo_ok = False
             logger.error(f"sincronizar_hoje_batch: erro Ativo grouped: {e}")
+        else:
+            # An empty result with engine_ssh down is indistinguishable from
+            # "no sales today" at this layer; treat missing engine explicitly.
+            try:
+                from ..core import database as db_module
+                if db_module.engine_ssh is None:
+                    ativo_ok = False
+                    logger.warning(
+                        "sincronizar_hoje_batch: engine_ssh indisponível no momento do fetch — "
+                        "ATIVO marcado como não saudável (não vamos UPSERT zerado)"
+                    )
+            except Exception:
+                pass
 
     if all_magento_ids:
         try:
@@ -466,12 +522,37 @@ def sincronizar_hoje_batch(db: Session) -> int:
             magento_today = _fetch_today_sales_magento_grouped(list(set(all_magento_ids)), cortesia_magento_ids=_cort_ids if _cort_ids else None)
             logger.info(f"sincronizar_hoje_batch: Magento retornou {len(magento_today)} IDs com vendas hoje")
         except Exception as e:
+            magento_ok = False
             logger.error(f"sincronizar_hoje_batch: erro Magento grouped: {e}")
+        else:
+            try:
+                from ..core import database as db_module
+                if db_module.engine_magento is None:
+                    magento_ok = False
+                    logger.warning(
+                        "sincronizar_hoje_batch: engine_magento indisponível no momento do fetch — "
+                        "MAGENTO marcado como não saudável (não vamos UPSERT zerado)"
+                    )
+            except Exception:
+                pass
 
     # --- Step 3: Aggregate by grupo and UPSERT today's row ---
     synced = 0
     failed = 0
+    skipped_unhealthy = 0
     for grupo, ids in grupos.items():
+        # Skip UPSERT if any required source for this grupo failed —
+        # preserves the previously-stored row for today instead of zeroing it.
+        grupo_needs_ativo = bool(ids["ativo_ids"])
+        grupo_needs_magento = bool(ids["magento_ids"])
+        if (grupo_needs_ativo and not ativo_ok) or (grupo_needs_magento and not magento_ok):
+            skipped_unhealthy += 1
+            logger.warning(
+                f"sincronizar_hoje_batch: pulando UPSERT de hoje para '{grupo}' — "
+                f"fonte indisponível (ativo_ok={ativo_ok}, magento_ok={magento_ok}); "
+                f"snapshot existente preservado"
+            )
+            continue
         try:
             qtd_total = 0
             receita_total = 0.0
