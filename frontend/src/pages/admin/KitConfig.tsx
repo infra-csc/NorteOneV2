@@ -360,15 +360,26 @@ const KitConfig: React.FC = () => {
       const isNumericQuery = /^\d+$/.test(q);
       const before = result.length;
       result = result.filter((k) => {
-        const textMatch =
-          (k.nome_evento || '').toLowerCase().includes(q) ||
-          (k.id_evento || '').toString().toLowerCase().includes(q);
+        const nomeEv = (k.nome_evento || '').toLowerCase();
+        const idEv = (k.id_evento || '').toString().toLowerCase();
+        const textMatch = nomeEv.includes(q) || idEv.includes(q);
         const idMatch = isNumericQuery && String(k.bundle_entity_id) === q;
         return textMatch || idMatch;
       });
       // eslint-disable-next-line no-console
-      console.log(`[KitConfig FILTER v3] q="${q}" total=${before} match=${result.length} sample=`,
-        result.slice(0, 5).map(k => ({ev: k.nome_evento, kit: k.nome_kit, id: k.id_evento, bid: k.bundle_entity_id})));
+      console.log(`[KitConfig FILTER v4] q="${q}" total=${before} match=${result.length} ALL_MATCHES=`,
+        result.map(k => ({
+          ev: k.nome_evento,
+          kit: k.nome_kit,
+          id_ev: k.id_evento,
+          bid: k.bundle_entity_id,
+          fonte: k.fonte,
+          why_match: [
+            (k.nome_evento || '').toLowerCase().includes(q) ? 'nome_evento' : null,
+            (k.id_evento || '').toString().toLowerCase().includes(q) ? 'id_evento' : null,
+            (isNumericQuery && String(k.bundle_entity_id) === q) ? 'bundle_id' : null,
+          ].filter(Boolean).join(',')
+        })));
     }
 
     if (filterTipo) {
