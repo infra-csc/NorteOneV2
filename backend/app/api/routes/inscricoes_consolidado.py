@@ -423,39 +423,41 @@ def fetch_magento_data(ano: int = 2026):
     if db_module.engine_magento is None:
         return None, "Conexão Magento não configurada"
     try:
+        from app.core.db_retry import magento_run
         query = build_query_magento(ano)
         logger.info(f"Buscando dados do banco Magento (ano={ano})...")
-        
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            logger.info(f"Banco Magento: {len(rows)} registros para {ano}")
-            return [
-                {
-                    "id_evento": str(row[0]) if row[0] else None,
-                    "sku": None,
-                    "evento": normalize_evento_name(row[1]) if row[1] else None,
-                    "data_evento": str(row[6]) if row[6] else None,
-                    "qtd_vendida": int(row[2]) if row[2] else 0,
-                    "cortesia": 0,
-                    "inscricao_liquida": float(row[4]) if row[4] else 0.0,
-                    "ticket_medio": float(row[5]) if row[5] else 0.0,
-                    "taxa_liquida": 0.0,
-                    "kit_produto": 0.0,
-                    "receita_bruta": float(row[3]) if row[3] else 0.0,
-                    "total_desconto": 0.0,
-                    "qtd_grupos": 0,
-                    "inscricao_liquida_grupos": 0.0,
-                    "ticket_medio_grupos": 0.0,
-                    "qtd_site": int(row[2]) if row[2] else 0,
-                    "inscricao_liquida_site": float(row[4]) if row[4] else 0.0,
-                    "ticket_medio_site": float(row[5]) if row[5] else 0.0,
-                    "categoria_evento": classify_event_category(row[1]) if row[1] else None,
-                    "cidade": None,
-                    "valor_total": float(row[3]) if row[3] else 0.0,
-                }
-                for row in rows
-            ], None
+
+        def _fetch_work(conn):
+            return conn.execute(text(query)).fetchall()
+
+        rows = magento_run(_fetch_work, label=f"inscricoes-consolidado:fetch-magento:{ano}", profile="request")
+        logger.info(f"Banco Magento: {len(rows)} registros para {ano}")
+        return [
+            {
+                "id_evento": str(row[0]) if row[0] else None,
+                "sku": None,
+                "evento": normalize_evento_name(row[1]) if row[1] else None,
+                "data_evento": str(row[6]) if row[6] else None,
+                "qtd_vendida": int(row[2]) if row[2] else 0,
+                "cortesia": 0,
+                "inscricao_liquida": float(row[4]) if row[4] else 0.0,
+                "ticket_medio": float(row[5]) if row[5] else 0.0,
+                "taxa_liquida": 0.0,
+                "kit_produto": 0.0,
+                "receita_bruta": float(row[3]) if row[3] else 0.0,
+                "total_desconto": 0.0,
+                "qtd_grupos": 0,
+                "inscricao_liquida_grupos": 0.0,
+                "ticket_medio_grupos": 0.0,
+                "qtd_site": int(row[2]) if row[2] else 0,
+                "inscricao_liquida_site": float(row[4]) if row[4] else 0.0,
+                "ticket_medio_site": float(row[5]) if row[5] else 0.0,
+                "categoria_evento": classify_event_category(row[1]) if row[1] else None,
+                "cidade": None,
+                "valor_total": float(row[3]) if row[3] else 0.0,
+            }
+            for row in rows
+        ], None
     except Exception as e:
         logger.error(f"Erro banco Magento: {e}")
         return None, f"Query timeout ou erro: {str(e)[:100]}"
@@ -741,32 +743,35 @@ def test_magento_query(ano: int = 2026):
         return {"status": "error", "message": "Conexão Magento não configurada"}
     
     try:
+        from app.core.db_retry import magento_run
         query = build_query_magento(ano)
         logger.info(f"Iniciando query Magento (ano={ano})...")
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query))
-            rows = result.fetchall()
-            logger.info(f"Query Magento retornou {len(rows)} linhas")
-            return {
-                "status": "success",
-                "ano": ano,
-                "total_rows": len(rows),
-                "sample": [
-                    {
-                        "id_evento": str(row[0]) if row[0] else None,
-                        "evento": row[1],
-                        "qtd_site": int(row[2]) if row[2] else 0,
-                        "receita_bruta": float(row[3]) if row[3] else 0.0,
-                        "total_taxa": float(row[4]) if row[4] else 0.0,
-                        "total_produtos": float(row[5]) if row[5] else 0.0,
-                        "total_desconto": float(row[6]) if row[6] else 0.0,
-                        "receita_liquida": float(row[7]) if row[7] else 0.0,
-                        "ticket_medio": float(row[8]) if row[8] else 0.0,
-                        "data_evento": str(row[9]) if row[9] else None,
-                    }
-                    for row in rows[:5]
-                ]
-            }
+
+        def _debug_query_work(conn):
+            return conn.execute(text(query)).fetchall()
+
+        rows = magento_run(_debug_query_work, label=f"inscricoes-consolidado:debug-magento:{ano}", profile="request")
+        logger.info(f"Query Magento retornou {len(rows)} linhas")
+        return {
+            "status": "success",
+            "ano": ano,
+            "total_rows": len(rows),
+            "sample": [
+                {
+                    "id_evento": str(row[0]) if row[0] else None,
+                    "evento": row[1],
+                    "qtd_site": int(row[2]) if row[2] else 0,
+                    "receita_bruta": float(row[3]) if row[3] else 0.0,
+                    "total_taxa": float(row[4]) if row[4] else 0.0,
+                    "total_produtos": float(row[5]) if row[5] else 0.0,
+                    "total_desconto": float(row[6]) if row[6] else 0.0,
+                    "receita_liquida": float(row[7]) if row[7] else 0.0,
+                    "ticket_medio": float(row[8]) if row[8] else 0.0,
+                    "data_evento": str(row[9]) if row[9] else None,
+                }
+                for row in rows[:5]
+            ]
+        }
     except Exception as e:
         logger.error(f"Erro query Magento: {e}")
         return {"status": "error", "message": "Erro interno ao consultar banco Magento"}

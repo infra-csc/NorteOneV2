@@ -718,21 +718,30 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     rev_by_bid: dict = {}
     BATCH_SIZE = 80
 
+    from app.core.db_retry import magento_run
+
     for i in range(0, len(bundle_ids_all), BATCH_SIZE):
         batch = bundle_ids_all[i:i + BATCH_SIZE]
         normal_batch = [b for b in batch if b not in cortesia_bundle_set]
         cortesia_batch = [b for b in batch if b in cortesia_bundle_set]
+
+        def _sync_batch_work(conn):
+            collected = 0
+            if normal_batch:
+                _rows_n = conn.execute(rev_query_normal, {"bundle_ids": normal_batch}).fetchall()
+                for row in _rows_n:
+                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+                collected += len(_rows_n)
+            if cortesia_batch and rev_query_cortesia:
+                _rows_c = conn.execute(rev_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
+                for row in _rows_c:
+                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+                collected += len(_rows_c)
+            return collected
+
         try:
-            with engine_magento.connect() as conn:
-                if normal_batch:
-                    rows = conn.execute(rev_query_normal, {"bundle_ids": normal_batch}).fetchall()
-                    for row in rows:
-                        rev_by_bid[int(row[0])] = float(row[1] or 0)
-                if cortesia_batch and rev_query_cortesia:
-                    rows = conn.execute(rev_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
-                    for row in rows:
-                        rev_by_bid[int(row[0])] = float(row[1] or 0)
-            logger.info(f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → {len(rows)} com receita")
+            collected = magento_run(_sync_batch_work, label=f"margem-rev-sync:batch{i // BATCH_SIZE + 1}", profile="background")
+            logger.info(f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → {collected} com receita")
         except Exception as e:
             logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
 

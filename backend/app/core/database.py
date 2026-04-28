@@ -368,10 +368,15 @@ def init_mysql_connections():
             engine_magento = create_engine(
                 magento_url,
                 pool_pre_ping=True,
-                pool_recycle=1800,
-                pool_size=5,
-                max_overflow=10,
+                # Recycle conns aggressively — avoids MySQL killing them
+                # via wait_timeout (commonly 600–1800s on managed servers)
+                # and reduces "MySQL server has gone away" incidents.
+                pool_recycle=600,
+                # Smaller pool keeps fewer idle connections that could go stale.
+                pool_size=3,
+                max_overflow=5,
                 pool_timeout=30,
+                pool_use_lifo=True,
                 connect_args={'connect_timeout': 15, 'read_timeout': 300, 'write_timeout': 30}
             )
             SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)

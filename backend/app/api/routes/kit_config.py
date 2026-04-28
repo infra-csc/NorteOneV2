@@ -438,11 +438,16 @@ def get_kits_with_config(
             detail="Conexão Magento não configurada. Verifique as credenciais MAGENTO_DB_*",
         )
 
+    from app.core.db_retry import magento_run, MagentoEngineUnavailable
+
+    def _kits_work(conn):
+        result = conn.execute(text(MAGENTO_KITS_QUERY))
+        return result.fetchall(), list(result.keys())
+
     try:
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(MAGENTO_KITS_QUERY))
-            magento_rows = result.fetchall()
-            columns = result.keys()
+        magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
+    except MagentoEngineUnavailable:
+        raise HTTPException(status_code=503, detail="Conexão Magento indisponível")
     except Exception as e:
         logger.error(f"Erro ao buscar kits do Magento: {e}")
         raise HTTPException(status_code=500, detail="Erro ao consultar dados do Magento")
@@ -867,10 +872,14 @@ def get_unconfigured_summary(
               AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
               AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
         """
+        from app.core.db_retry import magento_run as _magento_run
+
+        def _light_work(conn):
+            res = conn.execute(text(_LIGHT_QUERY))
+            return [dict(zip(res.keys(), r)) for r in res.fetchall()]
+
         try:
-            with db_module.engine_magento.connect() as conn:
-                res = conn.execute(text(_LIGHT_QUERY))
-                rows = [dict(zip(res.keys(), r)) for r in res.fetchall()]
+            rows = _magento_run(_light_work, label="kit_config:unconfigured-summary", profile="request")
         except Exception as exc:
             logger.error(f"[UnconfiguredSummary] Magento query error: {exc}")
             result = {"total_unconfigured": 0, "events": [], "magento_available": False}

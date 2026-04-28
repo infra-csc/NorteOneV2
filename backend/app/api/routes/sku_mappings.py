@@ -224,19 +224,22 @@ def fetch_eventos_magento(ano: int = None) -> List[Dict]:
     ORDER BY wl.final_date
     """
     
+    from app.core.db_retry import magento_run
+
+    def _eventos_magento_work(conn):
+        return conn.execute(text(query)).fetchall()
+
     try:
-        with db_module.engine_magento.connect() as connection:
-            result = connection.execute(text(query))
-            rows = result.fetchall()
-            return [
-                {
-                    "id_evento": str(row[0]),
-                    "nome_evento": row[1] or "",
-                    "data_evento": str(row[2]) if row[2] else None,
-                    "sku_original": ""
-                }
-                for row in rows
-            ]
+        rows = magento_run(_eventos_magento_work, label="sku_mappings:eventos-magento", profile="request")
+        return [
+            {
+                "id_evento": str(row[0]),
+                "nome_evento": row[1] or "",
+                "data_evento": str(row[2]) if row[2] else None,
+                "sku_original": ""
+            }
+            for row in rows
+        ]
     except Exception as e:
         logger.error(f"Erro ao buscar eventos Magento: {e}")
         return []

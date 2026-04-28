@@ -9,6 +9,7 @@ from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from ...core.database import get_db
 from ...core import database as db_module
+from ...core.db_retry import magento_run, MagentoEngineUnavailable
 from ...core.security import get_current_user, require_admin
 from ...models.dimensoes import DimProjeto, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
 from ...models.user import Usuario
@@ -497,11 +498,11 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     # ───────────────────────── MAGENTO ─────────────────────────
     magento_projeto_tickets: dict = {}
     if magento_configs and db_module.engine_magento is not None:
+        def _ticket_atual_work(conn):
+            result = conn.execute(text(MAGENTO_KITS_QUERY))
+            return result.fetchall(), list(result.keys())
         try:
-            with db_module.engine_magento.connect() as conn:
-                result = conn.execute(text(MAGENTO_KITS_QUERY))
-                rows = result.fetchall()
-                columns = list(result.keys())
+            rows, columns = magento_run(_ticket_atual_work, label="ticket_atual", profile="request")
         except Exception as e:
             logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
             rows, columns = [], []
@@ -2093,12 +2094,13 @@ def _build_kit_cost_batch_data(db: Session, all_projeto_ids: List[int], ano: Opt
             "AND so.increment_id NOT REGEXP '-[0-9]'\n"
             "GROUP BY soi_parent.product_id"
         )
+        def _kit_cost_count_work(conn):
+            return conn.execute(
+                text(_sql_cnt).bindparams(bindparam("bundle_ids", expanding=True)),
+                {"bundle_ids": all_bundle_ids},
+            ).fetchall()
         try:
-            with db_module.engine_magento.connect() as conn:
-                rows = conn.execute(
-                    text(_sql_cnt).bindparams(bindparam("bundle_ids", expanding=True)),
-                    {"bundle_ids": all_bundle_ids},
-                ).fetchall()
+            rows = magento_run(_kit_cost_count_work, label="kit_cost_count", profile="background")
             bundle_qty: dict = {int(r[0]): int(r[1] or 0) for r in rows}
             result["bundle_qty"] = bundle_qty
             logger.info(
@@ -2301,32 +2303,22 @@ def _margem_rev_cooldown_for(n_failures: int) -> int:
 
 
 def _execute_magento_with_retry(query, params, label: str, max_attempts: int = 2, backoff_s: float = 1.5):
-    """Executa uma query no engine_magento com retry simples.
+    """Executa uma query no engine_magento com retry — wrapper legado.
 
-    Falhas transitórias do túnel SSH ou timeouts curtos costumam se resolver
-    em poucos segundos. Tenta até `max_attempts` vezes com backoff antes de
-    propagar a exceção. Retorna a lista de rows.
+    Mantido por compatibilidade com chamadores que esperam ``(rows, elapsed)``.
+    Internamente delega para :func:`magento_run` (helper centralizado em
+    ``app.core.db_retry``), que já traz política unificada de retry,
+    backoff exponencial e classificação de erros transitórios.
     """
     import time as __time
-    last_exc = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            with db_module.engine_magento.connect() as _conn:
-                _t0 = __time.monotonic()
-                _result = _conn.execute(query, params)
-                _rows = _result.fetchall()
-                _elapsed = __time.monotonic() - _t0
-                if attempt > 1:
-                    logger.info(f"[Margem][retry] {label} OK na tentativa {attempt} em {_elapsed:.2f}s")
-                return _rows, _elapsed
-        except Exception as e:
-            last_exc = e
-            if attempt < max_attempts:
-                logger.warning(f"[Margem][retry] {label} falhou na tentativa {attempt}/{max_attempts}: {type(e).__name__}: {e}. Retry em {backoff_s}s")
-                __time.sleep(backoff_s)
-            else:
-                logger.error(f"[Margem][retry] {label} falhou definitivamente após {max_attempts} tentativas: {type(e).__name__}: {e}")
-    raise last_exc  # type: ignore[misc]
+    profile = "background" if max_attempts >= 3 else "request"
+
+    def _work(conn):
+        _t0 = __time.monotonic()
+        _rows = conn.execute(query, params).fetchall()
+        return _rows, __time.monotonic() - _t0
+
+    return magento_run(_work, label=f"margem:{label}", profile=profile)
 
 
 def _build_consistency_warning(total_isc: Optional[int], margem_por_kit: Optional[list]) -> Optional[dict]:
@@ -2498,11 +2490,11 @@ def get_margem_por_kit(
                 KitConfig.bundle_entity_id.in_(list(_bid_set))
             ).all()
             _kc_mult_by_bid = {k.bundle_entity_id: (k.multiplicador or 1) for k in _kcs_sp}
+            def _ticket_sp_work(conn):
+                _mq_res = conn.execute(text(MAGENTO_KITS_QUERY))
+                return _mq_res.fetchall(), list(_mq_res.keys())
             try:
-                with db_module.engine_magento.connect() as _conn_sp:
-                    _mq_res = _conn_sp.execute(text(MAGENTO_KITS_QUERY))
-                    _mq_rows = _mq_res.fetchall()
-                    _mq_cols = list(_mq_res.keys())
+                _mq_rows, _mq_cols = magento_run(_ticket_sp_work, label="margem:ticket_atual_sp", profile="request")
                 _sp_by_bid: dict = {}
                 for _r in _mq_rows:
                     _d = dict(zip(_mq_cols, _r))
@@ -2860,8 +2852,9 @@ WHERE  attribute_id = 321
 AND    store_id     = 0
 AND    value        IN :ev_ids_fb
 """).bindparams(bindparam("ev_ids_fb", expanding=True))
-                with db_module.engine_magento.connect() as _pid_conn:
-                    _pid_rows = _pid_conn.execute(_cpev1_q, {"ev_ids_fb": ev_ids_fb}).fetchall()
+                def _fb_pid_work(conn):
+                    return conn.execute(_cpev1_q, {"ev_ids_fb": ev_ids_fb}).fetchall()
+                _pid_rows = magento_run(_fb_pid_work, label="margem:fallback-cpev1", profile="background")
                 fb_bundle_ids = [int(r[0]) for r in _pid_rows]
                 logger.info(f"[Margem] fallback cpev1 prefetch: {len(ev_ids_fb)} ev_ids → {len(fb_bundle_ids)} bundle_ids")
 
@@ -2950,12 +2943,13 @@ AND    value        IN :ev_ids_fb
                 fb_rev_by_name: dict = {}
 
                 # Fallback count — bloco independente
+                def _fb_count_work(conn):
+                    return conn.execute(fb_count_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall()
                 try:
-                    with db_module.engine_magento.connect() as conn:
-                        _t_fb0 = _time.monotonic()
-                        for fb_row in conn.execute(fb_count_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall():
-                            fb_qtd_by_name[(fb_row[0] or "").strip()] = int(fb_row[1] or 0)
-                        logger.info(f"[Margem] fallback count_query: {len(fb_bundle_ids)} bundles → {len(fb_qtd_by_name)} em {_time.monotonic()-_t_fb0:.2f}s")
+                    _t_fb0 = _time.monotonic()
+                    for fb_row in magento_run(_fb_count_work, label="margem:fallback-count", profile="background"):
+                        fb_qtd_by_name[(fb_row[0] or "").strip()] = int(fb_row[1] or 0)
+                    logger.info(f"[Margem] fallback count_query: {len(fb_bundle_ids)} bundles → {len(fb_qtd_by_name)} em {_time.monotonic()-_t_fb0:.2f}s")
                 except Exception as e:
                     logger.error(f"Erro no fallback count Magento para margem: {e}")
                     _log_margem_magento_failed(e, "fallback-count")
@@ -2968,14 +2962,15 @@ AND    value        IN :ev_ids_fb
                     fb_rev_by_name = dict(_cached_fb[0])
                     logger.info(f"[Margem] fallback revenue_query cache HIT: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} entradas")
                 else:
+                    def _fb_rev_work(conn):
+                        return conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall()
                     try:
-                        with db_module.engine_magento.connect() as conn:
-                            _t_fb1 = _time.monotonic()
-                            for fb_row in conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall():
-                                fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
-                            _elapsed_fb = _time.monotonic() - _t_fb1
-                            logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_elapsed_fb:.2f}s")
-                            _margem_rev_cache[_fb_rev_cache_key] = (dict(fb_rev_by_name), _time.monotonic())
+                        _t_fb1 = _time.monotonic()
+                        for fb_row in magento_run(_fb_rev_work, label="margem:fallback-revenue", profile="background"):
+                            fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
+                        _elapsed_fb = _time.monotonic() - _t_fb1
+                        logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_elapsed_fb:.2f}s")
+                        _margem_rev_cache[_fb_rev_cache_key] = (dict(fb_rev_by_name), _time.monotonic())
                     except Exception as e:
                         logger.error(f"Erro no fallback receita Magento para margem: {e}")
                         _log_margem_magento_failed(e, "fallback-revenue")
@@ -3039,12 +3034,13 @@ WHERE  attribute_id = 321
 AND    store_id     = 0
 AND    value        IN :ev_ids
 """).bindparams(bindparam("ev_ids", expanding=True))
-                with db_module.engine_magento.connect() as _csupp:
-                    _supp_extra_bids = [
-                        int(r[0]) for r in
-                        _csupp.execute(_cpev1_supp, {"ev_ids": list(seen_magento_events)}).fetchall()
-                        if int(r[0]) not in _kc_bid_set and int(r[0]) not in _deflagged_bid_set
-                    ]
+                def _supp_pid_work(conn):
+                    return conn.execute(_cpev1_supp, {"ev_ids": list(seen_magento_events)}).fetchall()
+                _supp_pid_rows = magento_run(_supp_pid_work, label="margem:supplementary-cpev1", profile="background")
+                _supp_extra_bids = [
+                    int(r[0]) for r in _supp_pid_rows
+                    if int(r[0]) not in _kc_bid_set and int(r[0]) not in _deflagged_bid_set
+                ]
                 if _supp_extra_bids:
                     logger.info(f"[Margem] supplementary: {len(seen_magento_events)} ev_ids → {len(_supp_extra_bids)} bundles extras fora do KitConfig")
             except Exception as _e_supp0:
@@ -3115,11 +3111,12 @@ AND    value        IN :ev_ids
                 _supp_qtd_by_name: dict = {}
                 _supp_rev_by_name: dict = {}
 
+                def _supp_cnt_work(conn):
+                    return conn.execute(_supp_cnt_q, {"supp_bids": _supp_extra_bids}).fetchall()
                 try:
                     _supp_t0 = _time_supp.monotonic()
-                    with db_module.engine_magento.connect() as _csupp2:
-                        for _sr in _csupp2.execute(_supp_cnt_q, {"supp_bids": _supp_extra_bids}).fetchall():
-                            _supp_qtd_by_name[(_sr[0] or "").strip()] = int(_sr[1] or 0)
+                    for _sr in magento_run(_supp_cnt_work, label="margem:supplementary-count", profile="background"):
+                        _supp_qtd_by_name[(_sr[0] or "").strip()] = int(_sr[1] or 0)
                     logger.info(f"[Margem] supplementary count: {len(_supp_extra_bids)} bundles extras → {sum(_supp_qtd_by_name.values())} inscrições em {_time_supp.monotonic()-_supp_t0:.2f}s")
                 except Exception as _e_supp1:
                     logger.warning(f"[Margem] supplementary count query falhou: {_e_supp1}")
@@ -3129,11 +3126,12 @@ AND    value        IN :ev_ids
                 if _cached_supp and (_time_supp.monotonic() - _cached_supp[1]) < _MARGEM_REV_TTL_SECONDS:
                     _supp_rev_by_name = dict(_cached_supp[0])
                 else:
+                    def _supp_rev_work(conn):
+                        return conn.execute(_supp_rev_q, {"supp_bids": _supp_extra_bids}).fetchall()
                     try:
                         _supp_t1 = _time_supp.monotonic()
-                        with db_module.engine_magento.connect() as _csupp3:
-                            for _sr2 in _csupp3.execute(_supp_rev_q, {"supp_bids": _supp_extra_bids}).fetchall():
-                                _supp_rev_by_name[(_sr2[0] or "").strip()] = float(_sr2[1] or 0)
+                        for _sr2 in magento_run(_supp_rev_work, label="margem:supplementary-revenue", profile="background"):
+                            _supp_rev_by_name[(_sr2[0] or "").strip()] = float(_sr2[1] or 0)
                         _margem_rev_cache[_supp_rev_cache_key] = (dict(_supp_rev_by_name), _time_supp.monotonic())
                         logger.info(f"[Margem] supplementary revenue: {len(_supp_extra_bids)} bundles extras → {len(_supp_rev_by_name)} em {_time_supp.monotonic()-_supp_t1:.2f}s")
                     except Exception as _e_supp2:
@@ -3412,25 +3410,26 @@ def get_detalhe_vendas_por_kit(
     _cort_ids = _get_cortesia_magento_ids(db) if incluir_cortesias else None
     detalhe_query = text(build_query_isc_magento_detalhe(magento_event_ids, _ano, cortesia_magento_ids=_cort_ids))
 
+    def _detalhe_work(conn):
+        return conn.execute(detalhe_query).fetchall()
     try:
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(detalhe_query)
-            rows = []
-            for row in result.fetchall():
-                rows.append({
-                    "kit":            row[2],
-                    "tipoCategoria":  row[3],
-                    "distancia":      row[4],
-                    "canal":          row[5],
-                    "loteAtual":      row[6],
-                    "price":          float(row[7]) if row[7] is not None else None,
-                    "specialPrice":   float(row[8]) if row[8] is not None else None,
-                    "inscritos":      int(row[9] or 0),
-                    "receitaBruta":   round(float(row[10] or 0), 2),
-                    "receitaLiquida": round(float(row[11] or 0), 2),
-                    "ticketMedio":    round(float(row[12]), 2) if row[12] else None,
-                })
-            return rows if rows else []
+        result_rows = magento_run(_detalhe_work, label="vendas-kit-detalhe", profile="request")
+        rows = []
+        for row in result_rows:
+            rows.append({
+                "kit":            row[2],
+                "tipoCategoria":  row[3],
+                "distancia":      row[4],
+                "canal":          row[5],
+                "loteAtual":      row[6],
+                "price":          float(row[7]) if row[7] is not None else None,
+                "specialPrice":   float(row[8]) if row[8] is not None else None,
+                "inscritos":      int(row[9] or 0),
+                "receitaBruta":   round(float(row[10] or 0), 2),
+                "receitaLiquida": round(float(row[11] or 0), 2),
+                "ticketMedio":    round(float(row[12]), 2) if row[12] else None,
+            })
+        return rows if rows else []
     except Exception as e:
         logger.error(f"Erro ao buscar detalhe de vendas por kit: {e}")
         return None
@@ -5987,9 +5986,10 @@ WHERE
 GROUP BY YEAR(so.created_at), MONTH(so.created_at)
 ORDER BY ano, mes
 """
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(text(query), {"ano_atual": ano_atual, "ano_anterior": ano_anterior})
-            return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in result.fetchall()]
+        def _curva_monthly_work(conn):
+            return conn.execute(text(query), {"ano_atual": ano_atual, "ano_anterior": ano_anterior}).fetchall()
+        rows = magento_run(_curva_monthly_work, label="curva:monthly-sales", profile="background")
+        return [{"ano": int(r[0]), "mes": int(r[1]), "qtd": int(r[2] or 0), "receita": float(r[3] or 0)} for r in rows]
     except Exception as e:
         logger.error(f"Erro monthly sales Magento: {e}")
         return []
@@ -6176,9 +6176,10 @@ WHERE
 GROUP BY MONTH(so.created_at)
 ORDER BY mes
 """).bindparams(bindparam("magento_event_ids", expanding=True))
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
-            return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
+        def _monthly_by_ids_work(conn):
+            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+        rows = magento_run(_monthly_by_ids_work, label="curva:monthly-by-ids", profile="background")
+        return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in rows]
     except Exception as e:
         logger.error(f"Erro monthly sales Magento by IDs: {e}")
         return []
@@ -6335,18 +6336,19 @@ ORDER BY cpev1.value, dia
         else:
             query = query.bindparams(bindparam("magento_event_ids", expanding=True))
             exec_params = {"magento_event_ids": safe_ids}
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, exec_params)
-            grouped = {}
-            for r in result.fetchall():
-                lid = str(r[0])
-                d_str = str(r[1])
-                qtd = int(r[2] or 0)
-                if lid not in grouped:
-                    grouped[lid] = {}
-                d = date.fromisoformat(d_str)
-                grouped[lid][d] = grouped[lid].get(d, 0) + qtd
-            return grouped
+        def _daily_grouped_work(conn):
+            return conn.execute(query, exec_params).fetchall()
+        rows = magento_run(_daily_grouped_work, label="daily-sales-grouped", profile="background")
+        grouped = {}
+        for r in rows:
+            lid = str(r[0])
+            d_str = str(r[1])
+            qtd = int(r[2] or 0)
+            if lid not in grouped:
+                grouped[lid] = {}
+            d = date.fromisoformat(d_str)
+            grouped[lid][d] = grouped[lid].get(d, 0) + qtd
+        return grouped
     except Exception as e:
         logger.error(f"Erro daily sales Magento grouped: {e}")
         return {}
@@ -6544,14 +6546,14 @@ WHERE
     AND DATE(so.created_at) = CURDATE()
 GROUP BY DATE(so.created_at)
 """).bindparams(bindparam("magento_event_ids", expanding=True))
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
-            rows = result.fetchall()
-            daily = {}
-            for r in rows:
-                d = date.fromisoformat(str(r[0])) if isinstance(r[0], str) else r[0]
-                daily[d] = daily.get(d, 0) + int(r[1] or 0)
-            return daily
+        def _today_by_ids_work(conn):
+            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+        rows = magento_run(_today_by_ids_work, label="today-sales-by-ids", profile="request")
+        daily = {}
+        for r in rows:
+            d = date.fromisoformat(str(r[0])) if isinstance(r[0], str) else r[0]
+            daily[d] = daily.get(d, 0) + int(r[1] or 0)
+        return daily
     except Exception as e:
         logger.error(f"Erro today sales Magento by IDs: {e}")
         return {}
@@ -6713,12 +6715,13 @@ WHERE
     AND DATE(so.created_at) = CURDATE()
 GROUP BY cpev1.value
 """).bindparams(bindparam("magento_event_ids", expanding=True))
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
-            grouped = {}
-            for r in result.fetchall():
-                grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
-            return grouped
+        def _today_grouped_work(conn):
+            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+        rows = magento_run(_today_grouped_work, label="today-sales-grouped", profile="request")
+        grouped = {}
+        for r in rows:
+            grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
+        return grouped
     except Exception as e:
         logger.error(f"Erro today sales Magento grouped: {e}")
         return {}
@@ -6821,9 +6824,11 @@ ORDER BY dia
             bp.append(bindparam("cort_ids", expanding=True))
             params["cort_ids"] = safe_cort_ids
         query = query.bindparams(*bp)
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, params)
-            return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
+        def _daily_by_ids_work(conn):
+            return conn.execute(query, params).fetchall()
+        profile = "background" if raise_on_error else "request"
+        rows = magento_run(_daily_by_ids_work, label="daily-sales-by-ids", profile=profile)
+        return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in rows]
     except Exception as e:
         logger.error(f"Erro daily sales Magento by IDs: {e}")
         if raise_on_error:
@@ -6954,17 +6959,18 @@ WHERE
 GROUP BY cpev1.value, soi.name
 ORDER BY cpev1.value, qtd DESC
 """).bindparams(bindparam("magento_event_ids", expanding=True))
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
-            grouped = {}
-            for r in result.fetchall():
-                lid = str(r[0])
-                cat = str(r[1] or "Sem categoria")
-                qtd = int(r[2] or 0)
-                if lid not in grouped:
-                    grouped[lid] = {}
-                grouped[lid][cat] = grouped[lid].get(cat, 0) + qtd
-            return grouped
+        def _cat_grouped_work(conn):
+            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+        rows = magento_run(_cat_grouped_work, label="category-sales-grouped", profile="background")
+        grouped = {}
+        for r in rows:
+            lid = str(r[0])
+            cat = str(r[1] or "Sem categoria")
+            qtd = int(r[2] or 0)
+            if lid not in grouped:
+                grouped[lid] = {}
+            grouped[lid][cat] = grouped[lid].get(cat, 0) + qtd
+        return grouped
     except Exception as e:
         logger.error(f"Erro category sales Magento grouped: {e}")
         return {}
@@ -7012,9 +7018,10 @@ WHERE
 GROUP BY soi.name
 ORDER BY qtd DESC
 """).bindparams(bindparam("magento_event_ids", expanding=True))
-        with db_module.engine_magento.connect() as conn:
-            result = conn.execute(query, {"magento_event_ids": safe_ids})
-            return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in result.fetchall()]
+        def _cat_by_ids_work(conn):
+            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+        rows = magento_run(_cat_by_ids_work, label="category-sales-by-ids", profile="background")
+        return [{"categoria": str(r[0] or "Sem categoria"), "qtd": int(r[1] or 0)} for r in rows]
     except Exception as e:
         logger.error(f"Erro category sales Magento by IDs: {e}")
         return []
@@ -8486,9 +8493,10 @@ def _populate_cenarios_from_bundles(
         skip_cortesia_filter=_skip_cortesia_filter,
     )
 
+    def _cic_count_work(conn):
+        return conn.execute(_cic_count_q, {"bundle_ids": bundle_ids_int}).mappings().all()
     try:
-        with db_module.engine_magento.connect() as conn:
-            count_rows = conn.execute(_cic_count_q, {"bundle_ids": bundle_ids_int}).mappings().all()
+        count_rows = magento_run(_cic_count_work, label="cenarios-ciclismo:count", profile="background")
         for row in count_rows:
             bid = row['bundle_id']
             cen = bundle_to_cenario.get(bid) or bundle_to_cenario.get(str(bid))
@@ -8499,9 +8507,10 @@ def _populate_cenarios_from_bundles(
         logger.warning(f"[CenariosCiclismo] Magento count failed: {e}")
         return False
 
+    def _cic_rev_work(conn):
+        return conn.execute(_cic_rev_q, {"bundle_ids": bundle_ids_int}).mappings().all()
     try:
-        with db_module.engine_magento.connect() as conn:
-            rev_rows = conn.execute(_cic_rev_q, {"bundle_ids": bundle_ids_int}).mappings().all()
+        rev_rows = magento_run(_cic_rev_work, label="cenarios-ciclismo:revenue", profile="background")
         for row in rev_rows:
             bid = row['bundle_id']
             cen = bundle_to_cenario.get(bid) or bundle_to_cenario.get(str(bid))
@@ -11260,7 +11269,7 @@ def diagnostico_inscricoes(
     else:
         try:
             safe_mid = str(int(magento_id))
-            with db_module.engine_magento.connect() as conn:
+            def _debug_magento_work(conn):
                 # M1 - query atual (com todos os filtros)
                 q_m1 = text("""
 SELECT
@@ -11685,7 +11694,7 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
                     "total": int(r_m14[3] or 0),
                 }
 
-
+            magento_run(_debug_magento_work, label="debug-vendas-bundle", profile="request")
         except Exception as e:
             result["magento"]["error"] = str(e)
 
