@@ -137,26 +137,62 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     cortesia_ids = _get_cortesia_magento_ids(db)
 
+    # CRITICAL: Fetch BOTH sources BEFORE any delete. If a required source fails
+    # (SSH tunnel down, MySQL timeout, Magento connection lost), we must abort
+    # without deleting — otherwise the snapshot ends up with only the surviving
+    # source's data and the chart "loses" the other source's days.
+    # Using raise_on_error=True so silently-swallowed exceptions surface here.
     all_daily = {}
+    ativo_ok = True
+    magento_ok = True
 
     if ativo_ids:
-        rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
-        for row in rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            if d not in all_daily:
-                all_daily[d] = {"qtd": 0, "receita": 0.0}
-            all_daily[d]["qtd"] += row['qtd']
-            all_daily[d]["receita"] += row.get('receita', 0.0)
+        try:
+            rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)), raise_on_error=True)
+            for row in rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                if d not in all_daily:
+                    all_daily[d] = {"qtd": 0, "receita": 0.0}
+                all_daily[d]["qtd"] += row['qtd']
+                all_daily[d]["receita"] += row.get('receita', 0.0)
+        except Exception as _e:
+            ativo_ok = False
+            logger.error(
+                f"[Snapshot] Ativo fetch falhou para grupo='{evento_grupo}', ano={ano}: {_e}"
+            )
 
     if magento_ids:
-        mag_cortesia = set(magento_ids) & cortesia_ids if cortesia_ids else None
-        rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=mag_cortesia if mag_cortesia else None)
-        for row in rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            if d not in all_daily:
-                all_daily[d] = {"qtd": 0, "receita": 0.0}
-            all_daily[d]["qtd"] += row['qtd']
-            all_daily[d]["receita"] += row.get('receita', 0.0)
+        try:
+            mag_cortesia = set(magento_ids) & cortesia_ids if cortesia_ids else None
+            rows = _fetch_daily_sales_magento_by_ids(
+                list(set(magento_ids)),
+                cortesia_magento_ids=mag_cortesia if mag_cortesia else None,
+                raise_on_error=True,
+            )
+            for row in rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                if d not in all_daily:
+                    all_daily[d] = {"qtd": 0, "receita": 0.0}
+                all_daily[d]["qtd"] += row['qtd']
+                all_daily[d]["receita"] += row.get('receita', 0.0)
+        except Exception as _e:
+            magento_ok = False
+            logger.error(
+                f"[Snapshot] Magento fetch falhou para grupo='{evento_grupo}', ano={ano}: {_e}"
+            )
+
+    # Abort if any required source failed — preserves existing snapshot intact.
+    # Next scheduled rebuild will retry once the source is healthy again.
+    if (ativo_ids and not ativo_ok) or (magento_ids and not magento_ok):
+        logger.warning(
+            f"[Snapshot] Abortando consolidação para grupo='{evento_grupo}', ano={ano} "
+            f"(ativo_ok={ativo_ok}, magento_ok={magento_ok}) — snapshot existente preservado"
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
 
     yesterday = date.today() - timedelta(days=1)
 

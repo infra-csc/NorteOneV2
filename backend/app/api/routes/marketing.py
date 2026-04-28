@@ -6352,7 +6352,7 @@ ORDER BY cpev1.value, dia
         return {}
 
 
-def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
+def _fetch_daily_sales_ativo_by_ids(id_eventos: list, raise_on_error: bool = False) -> list:
     if not id_eventos:
         return []
     if _is_warmup_thread():
@@ -6368,6 +6368,8 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list) -> list:
             if combined:
                 return [{"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": qtd, "receita": 0} for d, qtd in sorted(combined.items())]
     if db_module.engine_ssh is None:
+        if raise_on_error:
+            raise RuntimeError("engine_ssh indisponível para Ativo")
         return []
     try:
         safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
@@ -6430,6 +6432,8 @@ ORDER BY sub.dia
             return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro daily sales Ativo by IDs: {e}")
+        if raise_on_error:
+            raise
         return []
 
 
@@ -6720,7 +6724,7 @@ GROUP BY cpev1.value
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> list:
+def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False) -> list:
     if not magento_event_ids:
         return []
     cort_ids = cortesia_magento_ids or set()
@@ -6737,6 +6741,8 @@ def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_
             if combined:
                 return [{"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": qtd, "receita": 0} for d, qtd in sorted(combined.items())]
     if db_module.engine_magento is None:
+        if raise_on_error:
+            raise RuntimeError("engine_magento indisponível")
         return []
     try:
         safe_ids = [str(int(i)) for i in magento_event_ids if str(i).isdigit()]
@@ -6820,6 +6826,8 @@ ORDER BY dia
             return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro daily sales Magento by IDs: {e}")
+        if raise_on_error:
+            raise
         return []
 
 
