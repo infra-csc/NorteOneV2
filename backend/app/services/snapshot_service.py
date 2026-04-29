@@ -776,20 +776,20 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 if sm.sku:
                     cortesia_skus.add(sm.sku.upper().strip())
         if cortesia_skus:
-            from ..models.cadastro_evento import CadastroEvento, CadastroKitProduto
+            from ..models.cadastro_evento import CadastroEvento
             for cs in cortesia_skus:
                 proj = db.query(DimProjeto).filter(DimProjeto.codigo == cs).first()
                 if not proj:
                     continue
                 cadastro = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == proj.id).first()
-                if not cadastro:
+                if not cadastro or not cadastro.id_evento_magento:
                     continue
-                kit_prods = db.query(CadastroKitProduto).filter(
-                    CadastroKitProduto.cadastro_id == cadastro.id,
-                    CadastroKitProduto.bundle_entity_id.isnot(None),
+                bundle_rows = db.query(KitConfig.bundle_entity_id).filter(
+                    KitConfig.id_evento == cadastro.id_evento_magento,
+                    KitConfig.bundle_entity_id.isnot(None),
                 ).all()
-                for kp in kit_prods:
-                    cortesia_bundle_set.add(kp.bundle_entity_id)
+                for (bid,) in bundle_rows:
+                    cortesia_bundle_set.add(bid)
     except Exception as _e_cort:
         logger.warning(f"[MargemRevSync] Erro ao buscar cortesia bundles: {_e_cort}")
 
@@ -840,25 +840,65 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
 
     rev_by_bid: dict = {}
     BATCH_SIZE = 80
+    upserted_total = 0
+    persist_failures = 0
 
     from app.core.db_retry import magento_run
+    from app.core.database import SessionLocal as _PgSession
+
+    def _persist_batch(rows: dict) -> int:
+        """Grava um lote no Postgres usando session NOVA por chamada.
+
+        Sessão nova evita o problema de SSL fechado por inatividade enquanto as
+        queries pesadas no Magento rodavam. Em caso de falha de persistência,
+        loga e segue (próximo batch tenta de novo, sem perder os já gravados).
+        """
+        if not rows:
+            return 0
+        agora_utc = datetime.now(timezone.utc)
+        _s = _PgSession()
+        try:
+            count = 0
+            for bid, receita in rows.items():
+                stmt = pg_insert(MargemBundleRevSnapshot).values(
+                    bundle_entity_id=bid,
+                    receita_liquida=receita,
+                    calculado_em=agora_utc,
+                ).on_conflict_do_update(
+                    index_elements=["bundle_entity_id"],
+                    set_={"receita_liquida": receita, "calculado_em": agora_utc},
+                )
+                _s.execute(stmt)
+                count += 1
+            _s.commit()
+            return count
+        except Exception as _e_pg:
+            _s.rollback()
+            raise _e_pg
+        finally:
+            _s.close()
 
     for i in range(0, len(bundle_ids_all), BATCH_SIZE):
         batch = bundle_ids_all[i:i + BATCH_SIZE]
         normal_batch = [b for b in batch if b not in cortesia_bundle_set]
         cortesia_batch = [b for b in batch if b in cortesia_bundle_set]
+        batch_rows: dict = {}
 
         def _sync_batch_work(conn):
             collected = 0
             if normal_batch:
                 _rows_n = conn.execute(rev_query_normal, {"bundle_ids": normal_batch}).fetchall()
                 for row in _rows_n:
-                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+                    val = float(row[1] or 0)
+                    batch_rows[int(row[0])] = val
+                    rev_by_bid[int(row[0])] = val
                 collected += len(_rows_n)
             if cortesia_batch and rev_query_cortesia:
                 _rows_c = conn.execute(rev_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
                 for row in _rows_c:
-                    rev_by_bid[int(row[0])] = float(row[1] or 0)
+                    val = float(row[1] or 0)
+                    batch_rows[int(row[0])] = val
+                    rev_by_bid[int(row[0])] = val
                 collected += len(_rows_c)
             return collected
 
@@ -867,28 +907,42 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
             logger.info(f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → {collected} com receita")
         except Exception as e:
             logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
+            continue
 
-    if not rev_by_bid:
-        logger.warning("[MargemRevSync] Nenhuma receita retornada do Magento — snapshot não atualizado")
-        return {"status": "sem_dados", "bundles_processados": len(bundle_ids_all)}
+        # Persiste imediatamente (session nova) para que parcial sempre fique.
+        try:
+            persisted = _persist_batch(batch_rows)
+            upserted_total += persisted
+        except Exception as _e_persist:
+            persist_failures += 1
+            logger.error(
+                f"[MargemRevSync] Falha ao gravar batch {i // BATCH_SIZE + 1} no Postgres: {_e_persist}"
+            )
 
-    agora = datetime.now(timezone.utc)
-    upserted = 0
-    for bid, receita in rev_by_bid.items():
-        stmt = pg_insert(MargemBundleRevSnapshot).values(
-            bundle_entity_id=bid,
-            receita_liquida=receita,
-            calculado_em=agora,
-        ).on_conflict_do_update(
-            index_elements=["bundle_entity_id"],
-            set_={"receita_liquida": receita, "calculado_em": agora},
+    if upserted_total == 0:
+        if not rev_by_bid:
+            logger.warning("[MargemRevSync] Nenhuma receita retornada do Magento — snapshot não atualizado")
+            return {"status": "sem_dados", "bundles_processados": len(bundle_ids_all)}
+        logger.error(
+            f"[MargemRevSync] Magento retornou {len(rev_by_bid)} bundles, mas TODAS as gravações falharam"
         )
-        db.execute(stmt)
-        upserted += 1
+        return {
+            "status": "falha_persistencia",
+            "bundles_processados": len(bundle_ids_all),
+            "bundles_com_receita": len(rev_by_bid),
+            "persist_failures": persist_failures,
+        }
 
-    db.commit()
-    logger.info(f"[MargemRevSync] Snapshot atualizado: {upserted} bundles gravados em margem_bundle_rev_snapshot")
-    return {"status": "ok", "bundles_processados": len(bundle_ids_all), "bundles_com_receita": upserted}
+    logger.info(
+        f"[MargemRevSync] Snapshot atualizado: {upserted_total} bundles gravados "
+        f"em margem_bundle_rev_snapshot ({persist_failures} batches com falha de persistência)"
+    )
+    return {
+        "status": "ok",
+        "bundles_processados": len(bundle_ids_all),
+        "bundles_com_receita": upserted_total,
+        "persist_failures": persist_failures,
+    }
 
 
 def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None):

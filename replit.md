@@ -62,6 +62,7 @@ The frontend utilizes React, TypeScript, and Tailwind CSS for a modern and consi
 - **Single-flight on Atualizar Hoje:** `CoalescingCache` (TTL 20s) coalesces concurrent `POST /eventos/{id}/atualizar-hoje` calls keyed by `(evento_id, ano, hoje)`. Only the first request executes the fetch + UPSERT; the rest wait briefly and reuse the same response. Caps upstream load no matter how many users click simultaneously.
 - **Snapshot-first dashboard list:** When `last_sync_hoje` is within `TODAY_SNAPSHOT_FRESHNESS_S` (≈50 min), the dashboard list endpoint serves "today" entirely from the persisted snapshot — no live MySQL query per render.
 - **Background batch interval:** `cache_scheduler` runs `sincronizar_hoje_batch` every **45 min** (was 30 min), reducing daytime load on Magento via SSH tunnel.
+- **Margem snapshot incremental persistence:** `sincronizar_margem_bundle_rev_batch` agora grava no Postgres **ao final de cada batch** usando uma `SessionLocal` nova, ao invés de manter uma única transação aberta por todo o run. Isso evita o problema de SSL ser dropado por inatividade enquanto as queries pesadas no Magento (~6 min) rodavam, que vinha causando perda total de gravação a cada execução. Também corrigido o bug do `CadastroKitProduto.bundle_entity_id` (campo não existe) — agora usa `CadastroEvento.id_evento_magento → KitConfig.id_evento → bundle_entity_id`.
 
 ## External Dependencies
 - **PostgreSQL:** Primary application database.
