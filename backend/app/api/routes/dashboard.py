@@ -813,6 +813,57 @@ def get_relatorio_financeiro(
             except (TypeError, ValueError):
                 pass
 
+    # Pré-carrega margem realizada por evento a partir do EventoDetailSnapshot,
+    # usando a MESMA fórmula do Dash ISC (EventDetail): Σ(margemTotal por linha
+    # de kit não-CONSOLIDADO em margemPorKit). Isso garante que a coluna
+    # "Margem Realizada" da tabela 'Resultado por Mês e Evento' bata exatamente
+    # com o card "Margem Realizada" do detalhe de cada evento.
+    # Sem essa leitura, o backend cai no caminho margemRealizadaKitsTotal do
+    # endpoint da lista, que usa receita do snapshot diário (não a receita por
+    # bundle do Magento) e aplica fallback de custo básico para vendas não
+    # mapeadas — divergindo dos números do Dash ISC.
+    margem_kits_by_eid: dict[str, float] = {}
+    try:
+        from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_dash
+        _eds_rows = (
+            db.query(_EDS_dash.evento_id, _EDS_dash.payload)
+            .filter(_EDS_dash.ano == ano)
+            .all()
+        )
+        for _eid, _payload in _eds_rows:
+            # Isolamos o parsing de cada snapshot para que um payload malformado
+            # de um evento não desabilite o override de todos os outros.
+            try:
+                if not isinstance(_payload, dict):
+                    continue
+                _evt = _payload.get("evento")
+                if not isinstance(_evt, dict):
+                    continue
+                _mpk = _evt.get("margemPorKit")
+                if not isinstance(_mpk, list) or not _mpk:
+                    continue
+                _rows_real = [
+                    r for r in _mpk
+                    if isinstance(r, dict) and r.get("tipoKit") != "CONSOLIDADO"
+                ]
+                if not _rows_real:
+                    continue
+                # Mesmo gate do EventDetail.tsx (linha ~1057):
+                #   _kitRowsRealizado.length > 0 && _kitTotalQtd > 0
+                _qtd_total = sum(int(r.get("qtd") or 0) for r in _rows_real)
+                if _qtd_total <= 0:
+                    continue
+                # Soma sem arredondamento intermediário — o frontend formata
+                # no momento da renderização (Σ margemTotal por linha não-CONSOLIDADO).
+                _margem_sum = sum(float(r.get("margemTotal") or 0) for r in _rows_real)
+                margem_kits_by_eid[str(_eid)] = _margem_sum
+            except Exception:
+                continue
+    except Exception:
+        # Fallback silencioso para o caminho original em caso de falha global
+        # (ex.: tabela ainda não existe em ambientes recém-migrados).
+        margem_kits_by_eid = {}
+
     sku_to_grupo: dict = {}
     try:
         sku_to_grupo = _isc_build_sku_to_grupo_map(db, ano)
@@ -834,13 +885,27 @@ def get_relatorio_financeiro(
 
     rows_data: list = []  # (data_evento, evento_row, receita_orcada)
 
-    def _row_from_isc(ev: dict, data_ev, fallback_id: int, fallback_nome: str | None) -> tuple:
+    def _row_from_isc(ev: dict, data_ev, fallback_id: int, fallback_nome: str | None,
+                       eds_eid: str | None = None) -> tuple:
         atletas = int(ev.get("currentSales") or 0)
         current_receita = float(ev.get("currentReceita") or 0)
         receita_orcada = float(ev.get("receitaOrcadaTotal") or 0)
         margem_orcada = float(ev.get("margemOrcadaTotal") or 0)
+        # Prioridade da margem realizada (mesma fórmula do Dash ISC):
+        # 1) Σ(margemTotal por linha de kit não-CONSOLIDADO) lido do
+        #    EventoDetailSnapshot — fonte idêntica à do card "Margem Realizada"
+        #    no detalhe do evento. Garante paridade visual exata.
+        # 2) margemRealizadaKitsTotal do endpoint da lista (cálculo do backend
+        #    com receita do snapshot diário e fallback de custo básico).
+        # 3) margemRealizadaTotal (custo médio × inscritos), última opção.
+        _margem_eds = margem_kits_by_eid.get(eds_eid) if eds_eid else None
         _margem_kits = ev.get("margemRealizadaKitsTotal")
-        margem_realizada = float(_margem_kits) if _margem_kits is not None else float(ev.get("margemRealizadaTotal") or 0)
+        if _margem_eds is not None:
+            margem_realizada = float(_margem_eds)
+        elif _margem_kits is not None:
+            margem_realizada = float(_margem_kits)
+        else:
+            margem_realizada = float(ev.get("margemRealizadaTotal") or 0)
         margem_orcada_pct = float(ev.get("margemOrcadaPct") or 0)
         margem_realizada_pct = float(ev.get("margemRealizadaPct") or 0)
         ticket_medio = float(ev.get("averageTicket") or 0)
@@ -930,7 +995,9 @@ def get_relatorio_financeiro(
             if cadastros_map.get(first_pid) and cadastros_map.get(first_pid).nome
             else (first_p.evento if first_p else None)
         )
-        row, receita_orcada = _row_from_isc(ev, data_ev, first_pid, fallback_nome)
+        row, receita_orcada = _row_from_isc(
+            ev, data_ev, first_pid, fallback_nome, eds_eid=f"grp_{grupo_nome}"
+        )
         rows_data.append((data_ev, row, receita_orcada))
 
     # Linhas de projetos standalone (1 projeto = 1 linha)
@@ -945,7 +1012,9 @@ def get_relatorio_financeiro(
             fallback_nome = (
                 str(cadastro.nome) if cadastro and cadastro.nome else p.evento
             )
-            row, receita_orcada = _row_from_isc(ev, data_ev, pid, fallback_nome)
+            row, receita_orcada = _row_from_isc(
+                ev, data_ev, pid, fallback_nome, eds_eid=str(pid)
+            )
         else:
             # Sem dado ISC: usa fallback orçado (atletas/receita realizada = 0)
             row, receita_orcada = _row_from_cadastro(p, cadastro, data_ev)
