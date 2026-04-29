@@ -495,50 +495,88 @@ def sincronizar_hoje_batch(db: Session) -> int:
     ativo_ok = True
     magento_ok = True
 
+    # Lazy-import the breakers to avoid a circular import at module load.
+    try:
+        from ..api.routes.marketing import ativo_breaker, magento_breaker, CircuitOpenError as _CircuitOpenError
+    except Exception as _br_imp_e:
+        ativo_breaker = None
+        magento_breaker = None
+        _CircuitOpenError = Exception
+        logger.warning(f"sincronizar_hoje_batch: breakers indisponíveis: {_br_imp_e}")
+
     if all_ativo_ids:
-        try:
-            ativo_today = _fetch_today_sales_ativo_grouped(list(set(all_ativo_ids)), raise_on_error=True)
-            logger.info(f"sincronizar_hoje_batch: Ativo retornou {len(ativo_today)} IDs com vendas hoje")
-        except Exception as e:
+        if ativo_breaker is not None and ativo_breaker.is_open():
             ativo_ok = False
-            logger.error(f"sincronizar_hoje_batch: erro Ativo grouped: {e}")
+            logger.warning("sincronizar_hoje_batch: Ativo circuit aberto — pulando fetch para preservar pool")
         else:
-            # An empty result with engine_ssh down is indistinguishable from
-            # "no sales today" at this layer; treat missing engine explicitly.
+            ativo_fetch_ok = False
             try:
-                from ..core import database as db_module
-                if db_module.engine_ssh is None:
-                    ativo_ok = False
-                    logger.warning(
-                        "sincronizar_hoje_batch: engine_ssh indisponível no momento do fetch — "
-                        "ATIVO marcado como não saudável (não vamos UPSERT zerado)"
+                if ativo_breaker is not None:
+                    ativo_today = ativo_breaker.call(
+                        _fetch_today_sales_ativo_grouped, list(set(all_ativo_ids)), raise_on_error=True
                     )
-            except Exception:
-                pass
+                else:
+                    ativo_today = _fetch_today_sales_ativo_grouped(list(set(all_ativo_ids)), raise_on_error=True)
+                logger.info(f"sincronizar_hoje_batch: Ativo retornou {len(ativo_today)} IDs com vendas hoje")
+                ativo_fetch_ok = True
+            except _CircuitOpenError:
+                ativo_ok = False
+            except Exception as e:
+                ativo_ok = False
+                logger.error(f"sincronizar_hoje_batch: erro Ativo grouped: {e}")
+            if ativo_fetch_ok:
+                # An empty result with engine_ssh down is indistinguishable from
+                # "no sales today" at this layer; treat missing engine explicitly.
+                try:
+                    from ..core import database as db_module
+                    if db_module.engine_ssh is None:
+                        ativo_ok = False
+                        logger.warning(
+                            "sincronizar_hoje_batch: engine_ssh indisponível no momento do fetch — "
+                            "ATIVO marcado como não saudável (não vamos UPSERT zerado)"
+                        )
+                except Exception:
+                    pass
 
     if all_magento_ids:
-        try:
-            _cort_ids = _get_cortesia_magento_ids(db)
-            magento_today = _fetch_today_sales_magento_grouped(
-                list(set(all_magento_ids)),
-                cortesia_magento_ids=_cort_ids if _cort_ids else None,
-                raise_on_error=True,
-            )
-            logger.info(f"sincronizar_hoje_batch: Magento retornou {len(magento_today)} IDs com vendas hoje")
-        except Exception as e:
+        if magento_breaker is not None and magento_breaker.is_open():
             magento_ok = False
-            logger.error(f"sincronizar_hoje_batch: erro Magento grouped: {e}")
+            logger.warning("sincronizar_hoje_batch: Magento circuit aberto — pulando fetch para preservar pool")
         else:
+            magento_fetch_ok = False
             try:
-                from ..core import database as db_module
-                if db_module.engine_magento is None:
-                    magento_ok = False
-                    logger.warning(
-                        "sincronizar_hoje_batch: engine_magento indisponível no momento do fetch — "
-                        "MAGENTO marcado como não saudável (não vamos UPSERT zerado)"
+                _cort_ids = _get_cortesia_magento_ids(db)
+                if magento_breaker is not None:
+                    magento_today = magento_breaker.call(
+                        _fetch_today_sales_magento_grouped,
+                        list(set(all_magento_ids)),
+                        cortesia_magento_ids=_cort_ids if _cort_ids else None,
+                        raise_on_error=True,
                     )
-            except Exception:
-                pass
+                else:
+                    magento_today = _fetch_today_sales_magento_grouped(
+                        list(set(all_magento_ids)),
+                        cortesia_magento_ids=_cort_ids if _cort_ids else None,
+                        raise_on_error=True,
+                    )
+                logger.info(f"sincronizar_hoje_batch: Magento retornou {len(magento_today)} IDs com vendas hoje")
+                magento_fetch_ok = True
+            except _CircuitOpenError:
+                magento_ok = False
+            except Exception as e:
+                magento_ok = False
+                logger.error(f"sincronizar_hoje_batch: erro Magento grouped: {e}")
+            if magento_fetch_ok:
+                try:
+                    from ..core import database as db_module
+                    if db_module.engine_magento is None:
+                        magento_ok = False
+                        logger.warning(
+                            "sincronizar_hoje_batch: engine_magento indisponível no momento do fetch — "
+                            "MAGENTO marcado como não saudável (não vamos UPSERT zerado)"
+                        )
+                except Exception:
+                    pass
 
     # --- Step 3: Aggregate by grupo and UPSERT today's row ---
     synced = 0

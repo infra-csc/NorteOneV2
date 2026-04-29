@@ -1654,27 +1654,58 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
                 all_daily[d] = all_daily.get(d, 0) + row['qtd']
     else:
         event_already_happened = data_evento_real and data_evento_real < today
+        # Trust the snapshot for "today" if the background sync ran recently
+        # enough — avoids a live MySQL query on every dashboard render. The
+        # batch runs every ~45 min and writes today's row, so within that
+        # window the snapshot is the freshest source we have.
+        _last_sync = get_last_sync_hoje()
+        snapshot_is_fresh = bool(
+            today_in_snapshot
+            and _last_sync
+            and (_time.time() - _last_sync) < TODAY_SNAPSHOT_FRESHNESS_S
+        )
         if event_already_happened:
             logger.debug(f"Event '{evento_grupo}' already happened ({data_evento_real}), skipping today's live sales query")
+        elif snapshot_is_fresh:
+            logger.debug(
+                f"Snapshot fresh for '{evento_grupo}' (synced {int(_time.time() - _last_sync)}s ago), "
+                f"skipping live query (qty hoje={all_daily.get(today, 0)})"
+            )
         elif today_in_snapshot and all_daily.get(today, 0) > 0:
             logger.debug(f"Today's data already in snapshot for '{evento_grupo}' (qty={all_daily.get(today, 0)}), skipping live query")
         else:
             if ativo_ids:
-                try:
-                    today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
-                    for d, qty in today_sales.items():
-                        all_daily[d] = all_daily.get(d, 0) + qty
-                except Exception as e:
-                    logger.warning(f"Failed to fetch today's Ativo sales: {e}")
+                if ativo_breaker.is_open():
+                    logger.warning(f"Ativo circuit aberto — pulando overlay de hoje para '{evento_grupo}'")
+                else:
+                    try:
+                        today_sales = ativo_breaker.call(
+                            _fetch_today_sales_ativo_by_ids, list(set(ativo_ids))
+                        )
+                        for d, qty in today_sales.items():
+                            all_daily[d] = all_daily.get(d, 0) + qty
+                    except CircuitOpenError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch today's Ativo sales: {e}")
             if magento_ids:
-                try:
-                    _cort = _get_cortesia_magento_ids(db)
-                    _mag_cort = set(magento_ids) & _cort if _cort else None
-                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
-                    for d, qty in today_sales.items():
-                        all_daily[d] = all_daily.get(d, 0) + qty
-                except Exception as e:
-                    logger.warning(f"Failed to fetch today's Magento sales: {e}")
+                if magento_breaker.is_open():
+                    logger.warning(f"Magento circuit aberto — pulando overlay de hoje para '{evento_grupo}'")
+                else:
+                    try:
+                        _cort = _get_cortesia_magento_ids(db)
+                        _mag_cort = set(magento_ids) & _cort if _cort else None
+                        today_sales = magento_breaker.call(
+                            _fetch_today_sales_magento_by_ids,
+                            list(set(magento_ids)),
+                            cortesia_magento_ids=_mag_cort if _mag_cort else None,
+                        )
+                        for d, qty in today_sales.items():
+                            all_daily[d] = all_daily.get(d, 0) + qty
+                    except CircuitOpenError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch today's Magento sales: {e}")
     
     if not all_daily:
         if days_history:
@@ -3835,7 +3866,27 @@ def get_detalhe_vendas_ativo(
 _isc_cache = {}
 _isc_cache_timestamp = None
 
-from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL, get_last_sync_hoje
+from ...core.resilience import CircuitBreaker, CircuitOpenError, CoalescingCache
+
+# Circuit breakers protect the upstream MySQL pools from being hammered when
+# they are already saturated. After 3 failures within 2 min, the breaker opens
+# and rejects calls for 60s — letting the upstream DB recover instead of
+# piling on more requests that will only timeout and exhaust connections.
+magento_breaker = CircuitBreaker("magento", failure_threshold=3, cooldown_s=60.0, window_s=120.0)
+ativo_breaker = CircuitBreaker("ativo", failure_threshold=3, cooldown_s=60.0, window_s=120.0)
+
+# Single-flight TTL cache for "Atualizar Hoje". When many users click the same
+# event's button within a short window, only the first executes the actual
+# Magento/Ativo fetch; the rest wait and get the cached result. This caps the
+# upstream load no matter how many concurrent users we have.
+_atualizar_hoje_cache = CoalescingCache(ttl_s=20.0, name="atualizar_hoje")
+
+# Trust the persisted snapshot for "today" if the background batch ran within
+# this many seconds. Slightly larger than the batch interval so we always
+# have one batch's worth of overlap. Avoids redundant live MySQL queries on
+# every dashboard list render.
+TODAY_SNAPSHOT_FRESHNESS_S = 3000  # ~50 min (batch runs every ~45 min)
 
 # Global set to track cache keys currently being refreshed in a SWR background thread.
 # Prevents multiple concurrent threads for the same event when the recompute takes >16s
@@ -5699,23 +5750,39 @@ def get_event_simulation(
 
             today_live_qty = 0
             if ativo_ids:
-                try:
-                    today_sales = _fetch_today_sales_ativo_by_ids(list(set(ativo_ids)))
-                    for d, qty in today_sales.items():
-                        all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
-                        today_live_qty += qty
-                except Exception as e:
-                    logger.warning(f"[Simulacao] Failed to fetch today's Ativo sales: {e}")
+                if ativo_breaker.is_open():
+                    logger.warning("[Simulacao] Ativo circuit aberto — pulando overlay de hoje")
+                else:
+                    try:
+                        today_sales = ativo_breaker.call(
+                            _fetch_today_sales_ativo_by_ids, list(set(ativo_ids))
+                        )
+                        for d, qty in today_sales.items():
+                            all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
+                            today_live_qty += qty
+                    except CircuitOpenError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"[Simulacao] Failed to fetch today's Ativo sales: {e}")
             if magento_ids:
-                try:
-                    _cort = _get_cortesia_magento_ids(db)
-                    _mag_cort = set(magento_ids) & _cort if _cort else None
-                    today_sales = _fetch_today_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
-                    for d, qty in today_sales.items():
-                        all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
-                        today_live_qty += qty
-                except Exception as e:
-                    logger.warning(f"[Simulacao] Failed to fetch today's Magento sales: {e}")
+                if magento_breaker.is_open():
+                    logger.warning("[Simulacao] Magento circuit aberto — pulando overlay de hoje")
+                else:
+                    try:
+                        _cort = _get_cortesia_magento_ids(db)
+                        _mag_cort = set(magento_ids) & _cort if _cort else None
+                        today_sales = magento_breaker.call(
+                            _fetch_today_sales_magento_by_ids,
+                            list(set(magento_ids)),
+                            cortesia_magento_ids=_mag_cort if _mag_cort else None,
+                        )
+                        for d, qty in today_sales.items():
+                            all_raw_sales[d] = all_raw_sales.get(d, 0) + qty
+                            today_live_qty += qty
+                    except CircuitOpenError:
+                        pass
+                    except Exception as e:
+                        logger.warning(f"[Simulacao] Failed to fetch today's Magento sales: {e}")
 
             # Estimate today's revenue using the snapshot ticket_medio so the ticket
             # and margem remain consistent with the Dashboard (no artificial dilution)
@@ -9909,9 +9976,6 @@ def atualizar_vendas_hoje(
     para este evento, atualiza o snapshot e recalcula médias móveis.
     Não toca no ISC global nem em dados históricos.
     """
-    from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
-    from sqlalchemy import func as _sa_func
-
     if ano is None:
         ano = today_brazil().year
 
@@ -9966,9 +10030,51 @@ def atualizar_vendas_hoje(
             detail="Este evento não possui grupo mapeado. A atualização de hoje requer um grupo para persistir o snapshot."
         )
 
+    # Single-flight: if many users click "Atualizar Hoje" for the same event
+    # within a short window, only the first request actually runs the fetch +
+    # snapshot UPSERT. All other concurrent requests wait briefly and reuse
+    # the same response. Caps upstream DB load regardless of concurrent users.
+    _sf_key = (evento_id, ano, hoje.isoformat())
+
+    def _do_atualizar_hoje():
+        # All the expensive work (Magento/Ativo fetch + snapshot UPSERT) lives
+        # inside this closure so the single-flight cache can coalesce it.
+        return _atualizar_hoje_inner(
+            db=db,
+            evento_id=evento_id,
+            ano=ano,
+            hoje=hoje,
+            grupo_nome=grupo_nome,
+            ativo_ids=ativo_ids,
+            magento_ids=magento_ids,
+        )
+
+    return _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
+
+
+def _atualizar_hoje_inner(
+    *,
+    db: Session,
+    evento_id: str,
+    ano: int,
+    hoje,
+    grupo_nome: str,
+    ativo_ids: list,
+    magento_ids: list,
+):
+    """Fetch today's sales + UPSERT snapshot + return refreshed totals.
+
+    Extracted from atualizar_vendas_hoje() so the logic can be invoked under
+    the single-flight CoalescingCache wrapper.
+    """
+    from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
+    from sqlalchemy import func as _sa_func
+
     # --- Fetch today's data from both sources (fast — date-filtered queries) ---
     # Track per-source health so we never overwrite a healthy snapshot row with
     # 0 when one of the upstream DBs (Ativo / Magento) is timing out or down.
+    # Wrapped through circuit breakers so a sick upstream DB doesn't get
+    # hammered by retries while it is already saturated.
     hoje_ativo = 0
     hoje_magento = 0
     hoje_receita = 0.0
@@ -9977,26 +10083,46 @@ def atualizar_vendas_hoje(
     sources_failed: list = []
 
     if ativo_ids:
-        try:
-            ativo_today = _fetch_today_sales_ativo_grouped(ativo_ids, raise_on_error=True)
-            for _entry in ativo_today.values():
-                hoje_ativo += _entry["qtd"]
-                hoje_receita += _entry["receita"]
-        except Exception as _e:
+        if ativo_breaker.is_open():
             ativo_ok = False
             sources_failed.append("ativo")
-            logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
+            logger.warning(f"atualizar-hoje: Ativo circuit aberto — pulando fetch para {evento_id}")
+        else:
+            try:
+                ativo_today = ativo_breaker.call(
+                    _fetch_today_sales_ativo_grouped, ativo_ids, raise_on_error=True
+                )
+                for _entry in ativo_today.values():
+                    hoje_ativo += _entry["qtd"]
+                    hoje_receita += _entry["receita"]
+            except CircuitOpenError:
+                ativo_ok = False
+                sources_failed.append("ativo")
+            except Exception as _e:
+                ativo_ok = False
+                sources_failed.append("ativo")
+                logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
 
     if magento_ids:
-        try:
-            magento_today = _fetch_today_sales_magento_grouped(magento_ids, raise_on_error=True)
-            for _entry in magento_today.values():
-                hoje_magento += _entry["qtd"]
-                hoje_receita += _entry["receita"]
-        except Exception as _e:
+        if magento_breaker.is_open():
             magento_ok = False
             sources_failed.append("magento")
-            logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
+            logger.warning(f"atualizar-hoje: Magento circuit aberto — pulando fetch para {evento_id}")
+        else:
+            try:
+                magento_today = magento_breaker.call(
+                    _fetch_today_sales_magento_grouped, magento_ids, raise_on_error=True
+                )
+                for _entry in magento_today.values():
+                    hoje_magento += _entry["qtd"]
+                    hoje_receita += _entry["receita"]
+            except CircuitOpenError:
+                magento_ok = False
+                sources_failed.append("magento")
+            except Exception as _e:
+                magento_ok = False
+                sources_failed.append("magento")
+                logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
 
     hoje_total = hoje_ativo + hoje_magento
 
@@ -10385,7 +10511,7 @@ def get_cache_status(
         "config": {
             "historical_ttl": "permanent",
             "current_year_ttl_seconds": CURRENT_YEAR_TTL,
-            "auto_refresh_interval_seconds": 1800,
+            "auto_refresh_interval_seconds": 2700,
             "daily_refresh_time": "05:00 BRT"
         }
     }

@@ -58,6 +58,10 @@ The frontend utilizes React, TypeScript, and Tailwind CSS for a modern and consi
 ## Resilience Notes
 - **Today's sales sync (Atualizar/Sincronizar Hoje):** Inner helpers `_fetch_today_sales_ativo_grouped` and `_fetch_today_sales_magento_grouped` accept `raise_on_error` so callers (`sincronizar_hoje_batch`, `atualizar_vendas_hoje`) can detect upstream DB failures and skip the snapshot UPSERT, preserving the previously stored row instead of overwriting today with 0. Endpoint returns `status: "partial"` with `ativo_ok`/`magento_ok`/`fontes_indisponiveis`; frontend shows an amber warning banner instead of zeroing today's value.
 - **Magento DB pool:** `pool_size=8`, `max_overflow=12`, `pool_timeout=20` (was 3/5), tuned to handle bursty refreshes without exhausting the pool.
+- **Circuit breakers (`backend/app/core/resilience.py`):** `magento_breaker` and `ativo_breaker` (3 failures within 2 min → open for 60s) wrap every today-sales fetch site (`atualizar_vendas_hoje`, dashboard list overlay, simulation overlay, `sincronizar_hoje_batch`). When open, calls short-circuit and the snapshot is used instead. Lets the upstream MySQL recover without being hammered.
+- **Single-flight on Atualizar Hoje:** `CoalescingCache` (TTL 20s) coalesces concurrent `POST /eventos/{id}/atualizar-hoje` calls keyed by `(evento_id, ano, hoje)`. Only the first request executes the fetch + UPSERT; the rest wait briefly and reuse the same response. Caps upstream load no matter how many users click simultaneously.
+- **Snapshot-first dashboard list:** When `last_sync_hoje` is within `TODAY_SNAPSHOT_FRESHNESS_S` (≈50 min), the dashboard list endpoint serves "today" entirely from the persisted snapshot — no live MySQL query per render.
+- **Background batch interval:** `cache_scheduler` runs `sincronizar_hoje_batch` every **45 min** (was 30 min), reducing daytime load on Magento via SSH tunnel.
 
 ## External Dependencies
 - **PostgreSQL:** Primary application database.

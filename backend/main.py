@@ -1369,8 +1369,12 @@ async def lifespan(app: FastAPI):
             _gap_count_post = len(_gap_result_post.get("missing_tier1_events", [])) + len(_gap_result_post.get("stale_tier1_events", []))
 
         # Phase 4: scheduler, then snapshot + warmup in parallel
-        cache_scheduler.start(interval=1800)
-        logger.info("Cache auto-refresh scheduler started (30 min interval + daily 05:00 BRT)")
+        # Interval bumped from 30min → 45min to reduce daytime pressure on the
+        # upstream MySQL pools (Magento via SSH tunnel). The dashboard list
+        # also trusts the snapshot as fresh within 50min, so today's row stays
+        # visibly up-to-date between batches.
+        cache_scheduler.start(interval=2700)
+        logger.info("Cache auto-refresh scheduler started (45 min interval + daily 05:00 BRT)")
 
         # Check if snapshots are fresh enough to skip consolidation at startup.
         # If snapshots were updated within the last 2 hours (e.g. after "Atualizar Tudo" or
