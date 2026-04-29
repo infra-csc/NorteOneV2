@@ -262,6 +262,7 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
 def snapshot_diario_batch(db: Session):
     from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
+    from ..models.cadastro_evento import CadastroEvento
 
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -272,20 +273,76 @@ def snapshot_diario_batch(db: Session):
         logger.warning("Nenhum sku_to_grupo encontrado para consolidação diária")
         return
 
-    grupos_processados = set()
-    projetos = db.query(DimProjeto).all()
+    # Build the set of candidate grupos using BOTH dim_projeto AND
+    # cadastro_evento (union), to avoid silently dropping grupos that exist
+    # in cadastro_evento but are missing from dim_projeto. See
+    # `sincronizar_hoje_batch` for the same rationale.
+    grupos_candidatos: set = set()
 
+    # Source 1: DimProjeto
+    projetos = db.query(DimProjeto).all()
     for p in projetos:
         if not p.data_evento or not p.codigo:
             continue
         if p.data_evento.year != ano:
             continue
+        grupo = sku_to_grupo.get(normalize_sku(str(p.codigo)))
+        if grupo:
+            grupos_candidatos.add(grupo)
 
-        sku_norm = normalize_sku(str(p.codigo))
-        grupo = sku_to_grupo.get(sku_norm)
-        if not grupo or grupo in grupos_processados:
+    # Source 2: CadastroEvento (with magento id fallback)
+    magento_id_to_grupo: dict = {}
+    try:
+        for mm in db.query(SkuMapping).filter(
+            SkuMapping.ano == ano,
+            SkuMapping.ativo == True,
+            SkuMapping.fonte == "MAGENTO",
+            SkuMapping.id_externo.isnot(None),
+            SkuMapping.evento_grupo.isnot(None),
+        ).all():
+            magento_id_to_grupo[str(mm.id_externo)] = mm.evento_grupo
+    except Exception:
+        pass
+
+    cadastros = db.query(CadastroEvento).filter(
+        CadastroEvento.deleted_at.is_(None),
+    ).all()
+    projeto_ids = {c.projeto_id for c in cadastros if getattr(c, "projeto_id", None)}
+    projeto_codigo_by_id: dict = {}
+    if projeto_ids:
+        try:
+            for pj in db.query(DimProjeto.id, DimProjeto.codigo).filter(DimProjeto.id.in_(projeto_ids)).all():
+                if pj.codigo:
+                    projeto_codigo_by_id[pj.id] = str(pj.codigo)
+        except Exception:
+            pass
+
+    cadastro_added = 0
+    for c in cadastros:
+        if not c.data_evento or c.data_evento.year != ano:
             continue
+        grupo = None
+        if getattr(c, "sku", None):
+            grupo = sku_to_grupo.get(normalize_sku(str(c.sku)))
+        if not grupo and getattr(c, "projeto_id", None):
+            cod = projeto_codigo_by_id.get(c.projeto_id)
+            if cod:
+                grupo = sku_to_grupo.get(normalize_sku(cod))
+        if not grupo and getattr(c, "id_evento_magento", None):
+            grupo = magento_id_to_grupo.get(str(c.id_evento_magento))
+        if grupo and grupo not in grupos_candidatos:
+            grupos_candidatos.add(grupo)
+            cadastro_added += 1
 
+    if cadastro_added:
+        logger.info(
+            f"snapshot_diario_batch: +{cadastro_added} grupos recuperados de cadastro_evento"
+        )
+
+    grupos_processados = set()
+    for grupo in grupos_candidatos:
+        if grupo in grupos_processados:
+            continue
         grupos_processados.add(grupo)
 
         latest = get_latest_snapshot_date(db, grupo)
@@ -397,12 +454,22 @@ def sincronizar_hoje_batch(db: Session) -> int:
     min_live_date = today + timedelta(days=1)
 
     # --- Build map of live/hybrid grupos ---
-    # A grupo is live/hybrid if it has at least one DimProjeto with
+    # A grupo is live/hybrid if it has at least one event with
     # data_evento >= min_live_date in the current year.
+    #
+    # IMPORTANT: We use BOTH `dim_projeto` AND `cadastro_evento` as sources of
+    # truth, taking the union. Either table can be incomplete in production
+    # (e.g. dim_projeto missing freshly-created events, or cadastro_evento
+    # entries with id_evento_magento=NULL). Falling back to the union ensures
+    # a grupo is never silently excluded from today's sync — which would cause
+    # the dashboard to show 0 sales today even though sales exist.
+    from ..models.cadastro_evento import CadastroEvento
+
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
     live_grupos: set = set()
-    # Only consider events in the current year that are live/hybrid (not consolidated).
     max_date = date(ano + 1, 1, 1)
+
+    # Source 1: DimProjeto (codigo → SKU mapping)
     projetos = db.query(DimProjeto).filter(
         DimProjeto.data_evento >= min_live_date,
         DimProjeto.data_evento < max_date,
@@ -414,6 +481,70 @@ def sincronizar_hoje_batch(db: Session) -> int:
         grupo = sku_to_grupo.get(sku_norm)
         if grupo:
             live_grupos.add(grupo)
+
+    # Source 2: CadastroEvento — covers events that exist in the operational
+    # cadastro but haven't been propagated to dim_projeto yet. We resolve the
+    # grupo via either: (a) the cadastro's own SKU, (b) the related projeto's
+    # codigo, or (c) by joining its id_evento_magento to a SkuMapping row.
+    #
+    # Build helper lookups once.
+    magento_id_to_grupo: dict = {}
+    try:
+        mag_mappings = db.query(SkuMapping).filter(
+            SkuMapping.ano == ano,
+            SkuMapping.ativo == True,
+            SkuMapping.fonte == "MAGENTO",
+            SkuMapping.id_externo.isnot(None),
+            SkuMapping.evento_grupo.isnot(None),
+        ).all()
+        for mm in mag_mappings:
+            magento_id_to_grupo[str(mm.id_externo)] = mm.evento_grupo
+    except Exception as _mml:
+        logger.warning(f"sincronizar_hoje_batch: falha ao construir magento_id_to_grupo: {_mml}")
+
+    cadastros = db.query(CadastroEvento).filter(
+        CadastroEvento.deleted_at.is_(None),
+        CadastroEvento.data_evento >= min_live_date,
+        CadastroEvento.data_evento < max_date,
+    ).all()
+
+    # Pre-load all DimProjeto rows referenced by these cadastros in a single
+    # query to avoid an N+1 lookup inside the loop below.
+    projeto_ids = {c.projeto_id for c in cadastros if getattr(c, "projeto_id", None)}
+    projeto_codigo_by_id: dict = {}
+    if projeto_ids:
+        try:
+            for pj in db.query(DimProjeto.id, DimProjeto.codigo).filter(DimProjeto.id.in_(projeto_ids)).all():
+                if pj.codigo:
+                    projeto_codigo_by_id[pj.id] = str(pj.codigo)
+        except Exception as _pl_e:
+            logger.warning(f"sincronizar_hoje_batch: pré-carga de projetos falhou: {_pl_e}")
+
+    cadastro_added = 0
+    for c in cadastros:
+        if not c.data_evento:
+            continue
+        grupo = None
+        # (a) cadastro.sku
+        if getattr(c, "sku", None):
+            grupo = sku_to_grupo.get(normalize_sku(str(c.sku)))
+        # (b) related projeto codigo (lookup via pre-loaded map)
+        if not grupo and getattr(c, "projeto_id", None):
+            cod = projeto_codigo_by_id.get(c.projeto_id)
+            if cod:
+                grupo = sku_to_grupo.get(normalize_sku(cod))
+        # (c) magento id
+        if not grupo and getattr(c, "id_evento_magento", None):
+            grupo = magento_id_to_grupo.get(str(c.id_evento_magento))
+        if grupo and grupo not in live_grupos:
+            live_grupos.add(grupo)
+            cadastro_added += 1
+
+    if cadastro_added:
+        logger.info(
+            f"sincronizar_hoje_batch: +{cadastro_added} grupos live recuperados de "
+            f"cadastro_evento (não estavam em dim_projeto)"
+        )
 
     if not live_grupos:
         logger.info("sincronizar_hoje_batch: nenhum grupo live/hybrid encontrado")
