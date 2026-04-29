@@ -2352,6 +2352,33 @@ def _execute_magento_with_retry(query, params, label: str, max_attempts: int = 2
     return magento_run(_work, label=f"margem:{label}", profile=profile)
 
 
+def _margem_por_kit_is_degraded(rows: Optional[list]) -> bool:
+    """Detecta se a tabela margemPorKit está degradada por dados parciais do Magento.
+
+    Retorna True quando alguma linha não-CONSOLIDADO tem qtd > 0 mas
+    receita = 0. Esse cenário ocorre quando a revenue_query do Magento
+    "responde" (sem exceção) mas devolve 0 para um ou mais bundles —
+    o que faz `margem = receita - custo*qtd` virar negativa e exibe número
+    errado para o usuário. Usado como salvaguarda antes de sobrescrever o
+    EventoDetailSnapshot persistido.
+    """
+    if not rows:
+        return False
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get('tipoKit') == 'CONSOLIDADO':
+            continue
+        try:
+            _qtd_d = int(r.get('qtd') or 0)
+            _rec_d = float(r.get('receitaLiquida') or 0)
+        except (TypeError, ValueError):
+            continue
+        if _qtd_d > 0 and _rec_d <= 0:
+            return True
+    return False
+
+
 def _build_consistency_warning(total_isc: Optional[int], margem_por_kit: Optional[list]) -> Optional[dict]:
     """
     Compara total de inscrições do card ISC com a soma da tabela Margem por Tipo de Kit.
@@ -2787,6 +2814,67 @@ def get_margem_por_kit(
                             logger.info(f"[Margem] revenue_query: registrada falha #{_new_count}; próximo cooldown {_next_cd}s")
                             _log_margem_magento_failed(e, "revenue")
                             _live_failed = True
+
+                    # Backfill por bundle: quando a revenue_query LIVE "respondeu"
+                    # mas devolveu 0 (ou nada) para bundles que têm qtd > 0, o
+                    # Magento entregou dados parciais sem lançar exceção. Sem
+                    # esta correção o cálculo `margem = receita - custo * qtd`
+                    # fica negativo e o usuário vê número errado.
+                    # Preenchemos esses bundles a partir do snapshot persistido
+                    # (qualquer idade) e sinalizamos que o número exibido é
+                    # do último snapshot conhecido.
+                    if not _live_failed and qtd_by_bid:
+                        _missing_bids_bf = [
+                            _bid_bf for _bid_bf in bundle_ids
+                            if qtd_by_bid.get(_bid_bf, 0) > 0
+                            and float(rev_by_bid.get(_bid_bf, 0) or 0) <= 0
+                        ]
+                        if _missing_bids_bf:
+                            try:
+                                from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBR_bf
+                                from datetime import timezone as _tz_bf
+                                _bf_rows = db.query(_MBR_bf).filter(
+                                    _MBR_bf.bundle_entity_id.in_(_missing_bids_bf)
+                                ).all()
+                                _bf_filled = 0
+                                _bf_oldest_ts = None
+                                for _r_bf in _bf_rows:
+                                    _v_bf = float(_r_bf.receita_liquida or 0)
+                                    if _v_bf <= 0:
+                                        continue
+                                    rev_by_bid[int(_r_bf.bundle_entity_id)] = _v_bf
+                                    _bf_filled += 1
+                                    _ts_bf = (
+                                        _r_bf.calculado_em.replace(tzinfo=_tz_bf.utc).timestamp()
+                                        if _r_bf.calculado_em.tzinfo is None
+                                        else _r_bf.calculado_em.timestamp()
+                                    )
+                                    if _bf_oldest_ts is None or _ts_bf < _bf_oldest_ts:
+                                        _bf_oldest_ts = _ts_bf
+                                if _bf_filled > 0:
+                                    _margem_rev_cache[_rev_cache_key] = (
+                                        dict(rev_by_bid), _time.monotonic()
+                                    )
+                                    _bf_age_h = None
+                                    if _bf_oldest_ts is not None:
+                                        _bf_age_h = (_time.time() - _bf_oldest_ts) / 3600
+                                    _aviso_bf = _format_snapshot_warning(_bf_age_h)
+                                    if avisos_out is not None and _aviso_bf not in avisos_out:
+                                        avisos_out.append(_aviso_bf)
+                                    _bf_age_msg = (
+                                        f" (idade {_bf_age_h:.1f}h)"
+                                        if _bf_age_h is not None else ""
+                                    )
+                                    logger.info(
+                                        f"[Margem] revenue_query BACKFILL PARCIAL: "
+                                        f"{_bf_filled}/{len(_missing_bids_bf)} bundles "
+                                        f"sem receita LIVE preenchidos do snapshot"
+                                        f"{_bf_age_msg}"
+                                    )
+                            except Exception as _bf_err:
+                                logger.warning(
+                                    f"[Margem] backfill de receita parcial falhou: {_bf_err}"
+                                )
 
                     # Fallback final: se a tentativa ao vivo falhou (ou está em cooldown),
                     # serve o snapshot de qualquer idade em vez de mostrar receita zerada.
@@ -9552,6 +9640,45 @@ def get_marketing_event_by_id(
             except Exception as _guard_e:
                 logger.debug(f"[Persist] guard prev_sales '{evento_id}/{ano}': {_guard_e}")
 
+        # Salvaguarda margemPorKit: se o cálculo recém-feito ficou degradado
+        # (qtd > 0 e receita = 0 — Magento devolveu dados parciais sem erro),
+        # preserva a margemPorKit do snapshot anterior em vez de exibir margem
+        # negativa para o usuário. Espelha o padrão da guarda de currentSales.
+        try:
+            _new_evt_mpk = grouped_result.get("evento")
+            _new_mpk_rows = getattr(_new_evt_mpk, "margemPorKit", None) if _new_evt_mpk is not None else None
+            if _margem_por_kit_is_degraded(_new_mpk_rows):
+                from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_mpk
+                _mpk_prev_row = db.query(_EDS_mpk).filter(
+                    _EDS_mpk.evento_id == evento_id,
+                    _EDS_mpk.ano == ano,
+                ).first()
+                _prev_mpk_rows = None
+                if _mpk_prev_row and isinstance(_mpk_prev_row.payload, dict):
+                    _prev_evt_mpk = _mpk_prev_row.payload.get("evento")
+                    if isinstance(_prev_evt_mpk, dict):
+                        _prev_mpk_rows = _prev_evt_mpk.get("margemPorKit")
+                if _prev_mpk_rows and not _margem_por_kit_is_degraded(_prev_mpk_rows):
+                    logger.info(
+                        f"[Persist] Preservando margemPorKit anterior '{grupo_nome}': "
+                        f"nova tabela degradada (qtd>0 com receita=0)"
+                    )
+                    _existing_avisos = list(getattr(_new_evt_mpk, "margemAvisos", None) or [])
+                    _aviso_mpk_pres = (
+                        "Receita por kit indisponível no Magento — exibindo última "
+                        "margem conhecida do snapshot."
+                    )
+                    if _aviso_mpk_pres not in _existing_avisos:
+                        _existing_avisos.append(_aviso_mpk_pres)
+                    grouped_result["evento"] = grouped_result["evento"].model_copy(
+                        update={
+                            "margemPorKit": _prev_mpk_rows,
+                            "margemAvisos": _existing_avisos,
+                        }
+                    )
+        except Exception as _mpk_g_e:
+            logger.debug(f"[Persist] guard margemPorKit '{evento_id}/{ano}': {_mpk_g_e}")
+
         if _event_is_past:
             grouped_result["__is_completed"] = True
             event_detail_cache.set_permanent(detail_cache_key, grouped_result)
@@ -9947,6 +10074,51 @@ def get_marketing_event_by_id(
     }
     _sa_today = today_brazil()
     _sa_event_is_past = bool(projeto_data_evento and projeto_data_evento < _sa_today)
+
+    # Salvaguarda margemPorKit (espelho da guarda no caminho consolidado).
+    # Se o cálculo recém-feito ficou degradado (qtd > 0 e receita = 0),
+    # preserva a margemPorKit do snapshot anterior em vez de exibir margem
+    # negativa para o usuário.
+    try:
+        _sa_new_evt_mpk = standalone_result.get("evento")
+        _sa_new_mpk_rows = (
+            getattr(_sa_new_evt_mpk, "margemPorKit", None)
+            if _sa_new_evt_mpk is not None else None
+        )
+        if _margem_por_kit_is_degraded(_sa_new_mpk_rows):
+            from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_mpk_sa
+            _sa_mpk_prev_row = db.query(_EDS_mpk_sa).filter(
+                _EDS_mpk_sa.evento_id == evento_id,
+                _EDS_mpk_sa.ano == ano,
+            ).first()
+            _sa_prev_mpk_rows = None
+            if _sa_mpk_prev_row and isinstance(_sa_mpk_prev_row.payload, dict):
+                _sa_prev_evt_mpk = _sa_mpk_prev_row.payload.get("evento")
+                if isinstance(_sa_prev_evt_mpk, dict):
+                    _sa_prev_mpk_rows = _sa_prev_evt_mpk.get("margemPorKit")
+            if _sa_prev_mpk_rows and not _margem_por_kit_is_degraded(_sa_prev_mpk_rows):
+                logger.info(
+                    f"[Persist] Preservando margemPorKit anterior '{evento_id}': "
+                    f"nova tabela degradada (qtd>0 com receita=0)"
+                )
+                _sa_existing_avisos = list(
+                    getattr(_sa_new_evt_mpk, "margemAvisos", None) or []
+                )
+                _sa_aviso_mpk_pres = (
+                    "Receita por kit indisponível no Magento — exibindo última "
+                    "margem conhecida do snapshot."
+                )
+                if _sa_aviso_mpk_pres not in _sa_existing_avisos:
+                    _sa_existing_avisos.append(_sa_aviso_mpk_pres)
+                standalone_result["evento"] = standalone_result["evento"].model_copy(
+                    update={
+                        "margemPorKit": _sa_prev_mpk_rows,
+                        "margemAvisos": _sa_existing_avisos,
+                    }
+                )
+    except Exception as _sa_mpk_g_e:
+        logger.debug(f"[Persist] guard margemPorKit standalone '{evento_id}/{ano}': {_sa_mpk_g_e}")
+
     if _sa_event_is_past:
         standalone_result["__is_completed"] = True
         event_detail_cache.set_permanent(standalone_cache_key, standalone_result)
