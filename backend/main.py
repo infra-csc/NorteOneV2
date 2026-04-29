@@ -78,6 +78,63 @@ def _scheduled_sincronizar_hoje():
             db.close()
 
 
+def _scheduled_margem_rev_safety_check():
+    """Rede de segurança: a cada tick do scheduler, verifica a idade do snapshot
+    margem_bundle_rev_snapshot. Se passou de 25h (mesmo critério usado pelo
+    consumidor em routes/marketing.py), dispara o sync.
+
+    Garantia: mesmo se o startup hook não tiver disparado e o job das 4h falhar,
+    o snapshot é refrescado dentro de no máximo o intervalo do scheduler (45min).
+    A checagem em si é barata: um único SELECT MAX(calculado_em).
+    """
+    from app.core.database import SessionLocal
+    from app.models.vendas_snapshot import MargemBundleRevSnapshot
+    from app.services.snapshot_service import sincronizar_margem_bundle_rev_batch
+    from sqlalchemy import func as _sfunc
+    from datetime import datetime as _dt, timezone as _tz
+    db = None
+    try:
+        db = SessionLocal()
+        _MAX_AGE_H = 25
+        _newest_ts = db.query(_sfunc.max(MargemBundleRevSnapshot.calculado_em)).scalar()
+        _needs_sync = False
+        _motivo = ""
+        if _newest_ts is None:
+            _needs_sync = True
+            _motivo = "tabela vazia"
+        else:
+            if _newest_ts.tzinfo is None:
+                _newest_ts = _newest_ts.replace(tzinfo=_tz.utc)
+            _age_h = (_dt.now(_tz.utc) - _newest_ts).total_seconds() / 3600
+            if _age_h > _MAX_AGE_H:
+                _needs_sync = True
+                _motivo = f"desatualizado ({_age_h:.1f}h > {_MAX_AGE_H}h)"
+            else:
+                logger.debug(f"[SafetyCheck] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h) — nada a fazer")
+        if _needs_sync:
+            logger.warning(f"[SafetyCheck] margem_bundle_rev_snapshot {_motivo} — disparando sync de emergência")
+            try:
+                result = sincronizar_margem_bundle_rev_batch(db)
+                logger.info(f"[SafetyCheck] sync de emergência concluído: {result}")
+            except Exception as _e_sync:
+                logger.error(f"[SafetyCheck] sync de emergência falhou: {_e_sync}")
+                try:
+                    from app.services.health_alert_service import log_and_alert
+                    log_and_alert(
+                        "MARGEM_SNAPSHOT_STALE",
+                        "HIGH",
+                        "Snapshot de margem está desatualizado e o sync automático falhou",
+                        f"motivo={_motivo}; erro={_e_sync}",
+                    )
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"[SafetyCheck] Erro ao verificar idade do margem snapshot: {e}")
+    finally:
+        if db:
+            db.close()
+
+
 def _scheduled_nori_insights():
     from app.core.database import SessionLocal
     import asyncio as _aio
@@ -1241,6 +1298,7 @@ async def lifespan(app: FastAPI):
     cache_scheduler.register_full_refresh(_full_cache_warmup)
     cache_scheduler.register(_scheduled_isc_refresh)
     cache_scheduler.register(_scheduled_sincronizar_hoje)
+    cache_scheduler.register(_scheduled_margem_rev_safety_check)
     # NOTE: _scheduled_nori_insights is also registered with cache_scheduler for
     # periodic execution, but since the daily 05:00 BRT path uses _full_refresh_callback
     # and skips _refresh_callbacks, we add a dedicated daily timer at 05:30 BRT.
