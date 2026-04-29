@@ -634,9 +634,14 @@ const EventDetail: React.FC = () => {
     setSavingOverride(true);
     try {
       const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: grupoNome } });
-      const matchedGrupo = gruposRes.data.find((g: any) => g.nome === grupoNome);
+      const norm = (s: string) => (s || '').normalize('NFKC').trim().toLowerCase();
+      const target = norm(grupoNome);
+      const matchedGrupo =
+        gruposRes.data.find((g: any) => g.nome === grupoNome) ||
+        gruposRes.data.find((g: any) => norm(g.nome) === target);
       if (!matchedGrupo) {
-        console.error('Grupo não encontrado:', grupoNome);
+        console.error('Grupo não encontrado:', grupoNome, 'opções:', gruposRes.data?.map((g: any) => g.nome));
+        alert(`Não foi possível salvar: o grupo "${grupoNome}" não foi encontrado no cadastro.`);
         setSavingOverride(false);
         return;
       }
@@ -645,10 +650,11 @@ const EventDetail: React.FC = () => {
       });
       setShowOverrideModal(false);
       if (fetchEventRef.current) {
-        fetchEventRef.current(true);
+        await fetchEventRef.current(true);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar override:', err);
+      alert(`Erro ao salvar curva de referência: ${err?.response?.data?.detail || err?.message || 'erro desconhecido'}`);
     } finally {
       setSavingOverride(false);
     }

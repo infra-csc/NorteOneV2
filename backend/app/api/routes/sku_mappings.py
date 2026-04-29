@@ -682,6 +682,40 @@ def set_curva_override(
     db.commit()
     db.refresh(db_grupo)
     _invalidate_all_marketing_caches()
+
+    # Invalida o snapshot persistido do detalhe do evento e o curva_cache
+    # para esse grupo, garantindo que o próximo GET (mesmo com snapshot-first
+    # read) recompute a curva com o novo override em vez de servir o snapshot
+    # antigo (que ainda contém a curva anterior).
+    grupo_evento_id = f"grp_{db_grupo.nome}"
+    try:
+        from app.models.evento_detail_snapshot import EventoDetailSnapshot
+        deleted = db.query(EventoDetailSnapshot).filter(
+            EventoDetailSnapshot.evento_id == grupo_evento_id
+        ).delete(synchronize_session=False)
+        if deleted:
+            db.commit()
+            logger.info(
+                f"[CurvaOverride] EventoDetailSnapshot invalidado para '{grupo_evento_id}' "
+                f"({deleted} linha(s)) após mudança de curva_override"
+            )
+    except Exception as e:
+        logger.warning(
+            f"[CurvaOverride] Falha ao invalidar EventoDetailSnapshot de '{grupo_evento_id}': {e}"
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+    try:
+        ano_atual = datetime.now().year
+        _invalidate_curva_cache(db_grupo.nome, ano_atual, db=db)
+    except Exception as e:
+        logger.warning(
+            f"[CurvaOverride] Falha ao invalidar curva_cache de '{db_grupo.nome}': {e}"
+        )
+
     return {"message": "Override atualizado", "curva_override": db_grupo.curva_override}
 
 
