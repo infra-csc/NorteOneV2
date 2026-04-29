@@ -212,7 +212,13 @@ const EventDetail: React.FC = () => {
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
   const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
   const [loading, setLoading] = useState(!previewEvent);
-  const [detailsLoading, setDetailsLoading] = useState(!!previewEvent);
+  // Banner "Atualizando dados em tempo real..." aparece somente se a requisição
+  // demorar mais que DETAILS_LOADING_DELAY_MS (caminho lento). Para respostas
+  // rápidas (snapshot fresco em ~100ms), o banner nunca chega a aparecer e a
+  // experiência fica perceptivelmente "instantânea".
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const detailsLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const DETAILS_LOADING_DELAY_MS = 600;
   const [error, setError] = useState<string | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [viewOnlyAction, setViewOnlyAction] = useState(false);
@@ -309,7 +315,14 @@ const EventDetail: React.FC = () => {
         if (!forceRefresh) {
           if (!event) setLoading(true);
         }
-        if (!silent && (forceRefresh || previewEvent)) setDetailsLoading(true);
+        // Banner com delay: só mostra se o request demorar mais que o threshold.
+        // Para o caminho do snapshot (200ms típico), nunca chega a aparecer.
+        if (!silent && (forceRefresh || previewEvent)) {
+          if (detailsLoadingTimerRef.current) clearTimeout(detailsLoadingTimerRef.current);
+          detailsLoadingTimerRef.current = setTimeout(() => {
+            if (!controller.signal.aborted) setDetailsLoading(true);
+          }, DETAILS_LOADING_DELAY_MS);
+        }
         const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
         if (controller.signal.aborted) return;
 
@@ -415,6 +428,12 @@ const EventDetail: React.FC = () => {
         console.error('Erro ao carregar evento:', err);
         if (!event) setError('Erro ao carregar dados do evento');
       } finally {
+        // Cancela timer pendente antes do delay disparar — evita o banner
+        // piscar logo após a resposta chegar.
+        if (detailsLoadingTimerRef.current) {
+          clearTimeout(detailsLoadingTimerRef.current);
+          detailsLoadingTimerRef.current = null;
+        }
         if (!controller.signal.aborted) {
           setLoading(false);
           setDetailsLoading(false);
@@ -429,6 +448,10 @@ const EventDetail: React.FC = () => {
       if (staleRetryTimerRef.current) {
         clearTimeout(staleRetryTimerRef.current);
         staleRetryTimerRef.current = null;
+      }
+      if (detailsLoadingTimerRef.current) {
+        clearTimeout(detailsLoadingTimerRef.current);
+        detailsLoadingTimerRef.current = null;
       }
     };
   }, [id, anoParam]);
