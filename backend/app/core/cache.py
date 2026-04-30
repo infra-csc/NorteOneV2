@@ -927,7 +927,14 @@ class CacheRefreshScheduler:
             try:
                 snapshot_diario_batch(db)
                 consolidar_curvas_historicas_batch(db)
-                sincronizar_hoje_batch(db)
+                _hoje_count = sincronizar_hoje_batch(db)
+                # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do
+                # evento. Sem isso, mesmo após o sync das 04:00 ter rodado, o
+                # badge continua mostrando o último horário do agendador da noite
+                # anterior — o que dá a falsa impressão de dado velho ao abrir
+                # o sistema de manhã.
+                set_last_sync_hoje(time.time())
+                logger.info(f"[Daily 04:00] sincronizar_hoje_batch: {_hoje_count} grupos — last_sync_hoje atualizado")
                 try:
                     result_margem = sincronizar_margem_bundle_rev_batch(db)
                     logger.info(f"[Daily] sincronizar_margem_bundle_rev_batch: {result_margem}")
@@ -969,6 +976,25 @@ class CacheRefreshScheduler:
                     callback()
                 except Exception as e:
                     logger.error(f"Daily cache refresh callback error: {e}")
+
+        # Rede de segurança: depois do warmup completo, força um sync_hoje
+        # adicional. O warmup das 05:00 não chama sincronizar_hoje_batch e o
+        # job das 04:00 frequentemente falha para grupos cujo Magento via SSH
+        # tunnel está instável nesse horário. Rodar o sync de novo às 05:00
+        # garante que, ao usuário abrir o sistema de manhã, a tabela já mostre
+        # o número correto de hoje (ex.: 6 vendas no lugar do valor de ontem).
+        try:
+            from app.core.database import SessionLocal as _SL_morning
+            from app.services.snapshot_service import sincronizar_hoje_batch as _shb_morning
+            _db_morning = _SL_morning()
+            try:
+                _morning_count = _shb_morning(_db_morning)
+                set_last_sync_hoje(time.time())
+                logger.info(f"[Daily 05:00] sincronizar_hoje_batch (rede de segurança): {_morning_count} grupos — last_sync_hoje atualizado")
+            finally:
+                _db_morning.close()
+        except Exception as _e_morning:
+            logger.error(f"[Daily 05:00] sincronizar_hoje_batch (rede de segurança) falhou: {_e_morning}")
 
         self._schedule_daily_refresh()
 

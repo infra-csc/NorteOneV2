@@ -10398,6 +10398,18 @@ def _atualizar_hoje_inner(
     except Exception as _ci:
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
+    # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do evento
+    # para refletir a hora do clique. Só faz isso quando o sync foi bem-sucedido
+    # (sync_failed=False) — caso contrário, manteríamos a impressão de dado
+    # fresco quando na verdade voltamos a usar o snapshot anterior.
+    if not sync_failed:
+        try:
+            from app.core.cache import set_last_sync_hoje as _set_lsh_a
+            import time as _t_lsh_a
+            _set_lsh_a(_t_lsh_a.time())
+        except Exception as _e_lsh_a:
+            logger.warning(f"atualizar-hoje: erro ao atualizar last_sync_hoje: {_e_lsh_a}")
+
     return {
         "status": "partial" if sync_failed else "ok",
         "evento_id": evento_id,
@@ -10455,12 +10467,18 @@ def sync_hoje_todos(
     """Sincroniza apenas os dados de HOJE do MySQL para o snapshot PostgreSQL de todos os
     eventos ativos, depois reconstrói o ISC cache. Muito mais rápido que o refresh completo."""
     from app.services.snapshot_service import sincronizar_hoje_batch
+    from app.core.cache import set_last_sync_hoje as _set_lsh
+    import time as _time_lsh
 
     try:
         synced = sincronizar_hoje_batch(db)
     except Exception as e:
         logger.error(f"sync-hoje: erro em sincronizar_hoje_batch: {e}")
         return {"status": "error", "message": str(e), "synced": 0}
+
+    # Atualiza o carimbo "Inscrições às HH:MM" para refletir o horário do clique
+    # — caso contrário o badge fica preso no último tick automático do agendador.
+    _set_lsh(_time_lsh.time())
 
     _smart_isc_cache.invalidate()
     eventos_list_cache.invalidate()
