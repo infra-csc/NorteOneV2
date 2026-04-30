@@ -924,42 +924,123 @@ def get_unconfigured_summary(
     return result
 
 
+def _resolve_affected_grupo_anos(
+    db: Session,
+    bundle_entity_id: int,
+    id_evento: Optional[int],
+) -> list[tuple[str, int]]:
+    """Resolve (evento_grupo, ano) pairs affected by a kit_config change.
+
+    Looks up SkuMapping rows by both ``id_externo == bundle_entity_id`` (raro:
+    poucos kits têm SKU mapping próprio) e ``id_externo == id_evento`` (caso
+    comum: o evento pai do kit no Magento ou no Ativo está mapeado). Cobre as
+    duas fontes (MAGENTO e ATIVO) sem assumir caixa, já que dados antigos
+    podem ter sido gravados em minúsculas.
+    """
+    from sqlalchemy import func as _sa_func
+
+    candidate_ids: list[int] = []
+    try:
+        if bundle_entity_id is not None:
+            candidate_ids.append(int(bundle_entity_id))
+    except (TypeError, ValueError):
+        pass
+    try:
+        if id_evento is not None:
+            candidate_ids.append(int(id_evento))
+    except (TypeError, ValueError):
+        pass
+    if not candidate_ids:
+        return []
+
+    rows = (
+        db.query(SkuMapping)
+        .filter(
+            _sa_func.upper(SkuMapping.fonte).in_(("MAGENTO", "ATIVO")),
+            SkuMapping.id_externo.in_(candidate_ids),
+            SkuMapping.ativo == True,
+        )
+        .all()
+    )
+    pairs: set[tuple[str, int]] = set()
+    for row in rows:
+        if row.evento_grupo and row.ano:
+            pairs.add((row.evento_grupo, row.ano))
+    return sorted(pairs)
+
+
+def _invalidate_persisted_snapshot_for_grupos(
+    db: Session,
+    grupo_anos: list[tuple[str, int]],
+) -> int:
+    """Apaga EventoDetailSnapshot persistido dos grupos afetados.
+
+    O endpoint `/marketing/eventos/{id}` serve do snapshot persistido como
+    fast path, mesmo quando o cache em memória foi invalidado. Sem apagar
+    o snapshot, mudanças em kit_config (renomeação, marcação de promo/básico,
+    custo, multiplicador) só aparecem no próximo refresh agendado (30 min).
+    """
+    if not grupo_anos:
+        return 0
+    from ...models.evento_detail_snapshot import EventoDetailSnapshot
+
+    total = 0
+    try:
+        for grupo, ano in grupo_anos:
+            evt_id = f"grp_{grupo}"
+            deleted = (
+                db.query(EventoDetailSnapshot)
+                .filter(
+                    EventoDetailSnapshot.evento_id == evt_id,
+                    EventoDetailSnapshot.ano == ano,
+                )
+                .delete(synchronize_session=False)
+            )
+            total += deleted or 0
+        if total:
+            db.commit()
+            logger.info(
+                f"[KitConfig] EventoDetailSnapshot persistido removido para "
+                f"{[f'grp_{g}|{a}' for g, a in grupo_anos]} ({total} linha(s))"
+            )
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[KitConfig] Falha ao apagar EventoDetailSnapshot persistido: {e}")
+    return total
+
+
 def _invalidate_event_detail_for_bundle(
     db: Session,
     bundle_entity_id: int,
     id_evento: Optional[int] = None,
 ) -> bool:
-    """Invalidate only the event_detail cache entries affected by this bundle change.
+    """Invalida cache em memória + snapshot persistido afetados pelo bundle.
 
-    Strategy:
-    1. Look up SkuMapping (fonte=magento) for this bundle → find grupo + ano → targeted key.
-    2. If not found via Magento mapping, fall back to id_evento → DimProjeto.data_evento.year.
-    3. If still unresolvable, fall back to full cache invalidation.
+    Estratégia:
+    1. Resolve (evento_grupo, ano) via SkuMapping (cobre por bundle e por id_evento).
+    2. Invalida event_detail_cache em memória para cada chave.
+    3. Apaga EventoDetailSnapshot persistido dos mesmos grupos (snapshot é o
+       fast path do endpoint, sem isso o usuário continua vendo dados antigos).
+    4. Fallback por DimProjeto quando id_evento bate com um projeto (cobre
+       eventos standalone numéricos).
+    5. Último recurso: invalidação total do cache em memória (snapshots
+       persistidos são deixados intactos para o scheduler atualizar; evita
+       apagar tudo por uma operação isolada).
 
-    Returns True when targeted invalidation succeeded, False when fell back to full invalidation.
+    Retorna True quando a invalidação direcionada (passos 1–3 ou 4) ocorreu.
     """
     from ...core.cache import event_detail_cache
     from datetime import datetime
 
+    grupo_anos = _resolve_affected_grupo_anos(db, bundle_entity_id, id_evento)
     invalidated_keys: list[str] = []
-
-    sku_rows = (
-        db.query(SkuMapping)
-        .filter(
-            SkuMapping.fonte == "magento",
-            SkuMapping.id_externo == bundle_entity_id,
-            SkuMapping.ativo == True,
-        )
-        .all()
-    )
-
-    for row in sku_rows:
-        if row.evento_grupo and row.ano:
-            key = f"{row.ano}_grp_{row.evento_grupo}_detail"
-            event_detail_cache.invalidate(key)
-            invalidated_keys.append(key)
+    for grupo, ano in grupo_anos:
+        key = f"{ano}_grp_{grupo}_detail"
+        event_detail_cache.invalidate(key)
+        invalidated_keys.append(key)
 
     if invalidated_keys:
+        _invalidate_persisted_snapshot_for_grupos(db, grupo_anos)
         logger.info(
             f"[KitConfig] Targeted event_detail invalidation for bundle {bundle_entity_id}: {invalidated_keys}"
         )
@@ -971,6 +1052,27 @@ def _invalidate_event_detail_for_bundle(
             year = projeto.data_evento.year if projeto.data_evento else datetime.now().year
             key = f"{year}_{id_evento}_detail"
             event_detail_cache.invalidate(key)
+            try:
+                from ...models.evento_detail_snapshot import EventoDetailSnapshot
+                deleted = (
+                    db.query(EventoDetailSnapshot)
+                    .filter(
+                        EventoDetailSnapshot.evento_id == str(id_evento),
+                        EventoDetailSnapshot.ano == year,
+                    )
+                    .delete(synchronize_session=False)
+                )
+                if deleted:
+                    db.commit()
+                    logger.info(
+                        f"[KitConfig] EventoDetailSnapshot persistido removido para "
+                        f"projeto {id_evento} ano={year}"
+                    )
+            except Exception as e:
+                db.rollback()
+                logger.warning(
+                    f"[KitConfig] Falha ao apagar snapshot persistido (projeto {id_evento}): {e}"
+                )
             logger.info(
                 f"[KitConfig] Fallback targeted event_detail invalidation for bundle {bundle_entity_id} "
                 f"via id_evento={id_evento}: {key}"
@@ -1023,12 +1125,15 @@ def upsert_kit_config_bulk(
         for row in db.query(KitConfig).filter(KitConfig.bundle_entity_id.in_(bundle_ids)).all()
     }
 
+    from sqlalchemy import func as _sa_func
+    id_evento_set = {item.id_evento for item in body.items if item.id_evento is not None}
+    lookup_ids = list({*bundle_ids, *id_evento_set})
     sku_map: dict[int, list[SkuMapping]] = {}
     for row in (
         db.query(SkuMapping)
         .filter(
-            SkuMapping.fonte == "magento",
-            SkuMapping.id_externo.in_(bundle_ids),
+            _sa_func.upper(SkuMapping.fonte).in_(("MAGENTO", "ATIVO")),
+            SkuMapping.id_externo.in_(lookup_ids),
             SkuMapping.ativo == True,
         )
         .all()
@@ -1059,6 +1164,7 @@ def upsert_kit_config_bulk(
     saved = 0
     errors = 0
     invalidated_keys: set[str] = set()
+    affected_grupo_anos: set[tuple[str, int]] = set()
     full_invalidation_needed = False
 
     for item in body.items:
@@ -1092,11 +1198,14 @@ def upsert_kit_config_bulk(
                 )
                 db.add(new_config)
 
-            sku_rows = sku_map.get(item.bundle_entity_id, [])
+            sku_rows = list(sku_map.get(item.bundle_entity_id, []))
+            if item.id_evento is not None:
+                sku_rows.extend(sku_map.get(item.id_evento, []))
             if sku_rows:
                 for row in sku_rows:
                     if row.evento_grupo and row.ano:
                         invalidated_keys.add(f"{row.ano}_grp_{row.evento_grupo}_detail")
+                        affected_grupo_anos.add((row.evento_grupo, row.ano))
             else:
                 full_invalidation_needed = True
 
@@ -1136,6 +1245,9 @@ def upsert_kit_config_bulk(
         for key in invalidated_keys:
             event_detail_cache.invalidate(key)
         logger.info(f"[KitConfig] Bulk save: targeted invalidation of {len(invalidated_keys)} keys")
+
+    if affected_grupo_anos:
+        _invalidate_persisted_snapshot_for_grupos(db, sorted(affected_grupo_anos))
 
     logger.info(f"[KitConfig] Bulk upsert complete: {saved} saved, {errors} errors out of {len(body.items)} items")
     return KitConfigBulkResult(saved=saved, errors=errors)
