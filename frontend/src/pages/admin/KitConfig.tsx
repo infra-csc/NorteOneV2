@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { RefreshCw, Save, Search, AlertCircle, Package, Check, Star, Zap, Download, Filter, X, EyeOff } from 'lucide-react';
+import { RefreshCw, Save, Search, AlertCircle, AlertTriangle, Package, Check, Star, Zap, Download, Filter, X, EyeOff } from 'lucide-react';
 
 interface KitRow {
   id_evento: string | null;
@@ -57,6 +57,21 @@ const KitConfig: React.FC = () => {
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [savingMany, setSavingMany] = useState(false);
+
+  const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string, type: 'error' | 'success' = 'error') => {
+    if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    setToast({ message, type });
+    toastTimeout.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeout.current) clearTimeout(toastTimeout.current);
+    };
+  }, []);
 
   const [filterTipo, setFilterTipo] = useState('');
   const [filterBasico, setFilterBasico] = useState('');
@@ -233,8 +248,9 @@ const KitConfig: React.FC = () => {
           return updated;
         });
       }
-    } catch {
-      alert('Erro ao salvar configuração');
+    } catch (err) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      showToast(axiosErr?.response?.data?.detail || 'Erro ao salvar configuração');
     } finally {
       setSaving((s) => ({ ...s, [bundleId]: false }));
     }
@@ -270,9 +286,10 @@ const KitConfig: React.FC = () => {
     });
     try {
       await api.post('/kit-config/bulk', { items });
+      showToast(`${ids.length} kit(s) salvos com sucesso`, 'success');
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
-      alert(axiosErr?.response?.data?.detail || 'Erro ao salvar configurações em lote');
+      showToast(axiosErr?.response?.data?.detail || 'Erro ao salvar configurações em lote');
     }
     setSelectedIds(new Set());
     setSavingMany(false);
@@ -344,9 +361,17 @@ const KitConfig: React.FC = () => {
             : k,
         ),
       );
-    } catch {
+      const nomeKit = kit.nome_kit || `Kit #${bundleId}`;
+      showToast(
+        newIgnorado
+          ? `"${nomeKit}" agora está ignorado nos cálculos`
+          : `"${nomeKit}" voltou a entrar nos cálculos`,
+        'success',
+      );
+    } catch (err) {
       setIgnoradoValues((prev) => ({ ...prev, [bundleId]: currentIgnorado }));
-      alert('Erro ao salvar configuração');
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      showToast(axiosErr?.response?.data?.detail || 'Erro ao salvar configuração');
     } finally {
       setSaving((s) => ({ ...s, [bundleId]: false }));
     }
@@ -1095,6 +1120,32 @@ const KitConfig: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[70] animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border ${
+            toast.type === 'error'
+              ? isDark ? 'bg-red-950/90 border-red-800/60 text-red-200' : 'bg-red-50 border-red-200 text-red-800'
+              : isDark ? 'bg-emerald-950/90 border-emerald-800/60 text-emerald-200' : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+          }`}>
+            {toast.type === 'error'
+              ? <AlertTriangle className="w-5 h-5 shrink-0" />
+              : <Check className="w-5 h-5 shrink-0" />
+            }
+            <span className="text-sm font-medium max-w-md">{toast.message}</span>
+            <button
+              onClick={() => setToast(null)}
+              className={`p-1 rounded-lg transition-colors ${
+                toast.type === 'error'
+                  ? isDark ? 'hover:bg-red-800/50' : 'hover:bg-red-100'
+                  : isDark ? 'hover:bg-emerald-800/50' : 'hover:bg-emerald-100'
+              }`}
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
