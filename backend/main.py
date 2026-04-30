@@ -1169,6 +1169,21 @@ def _run_column_migrations():
             "ALTER TABLE cotacao_fob ADD COLUMN IF NOT EXISTS cotacao_cambio NUMERIC(10,4)",
             "ALTER TABLE cotacao_fob ADD COLUMN IF NOT EXISTS valor_nacionalizado NUMERIC(15,4)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS ignorado BOOLEAN DEFAULT FALSE NOT NULL",
+            # Ativo-only kits use 48-bit synthetic ids (até ~2.8e14), exceeding INTEGER range.
+            # Conditional: só executa o ALTER se ainda for INTEGER (evita locks redundantes a cada startup).
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'kit_config'
+                      AND column_name = 'bundle_entity_id'
+                      AND data_type = 'integer'
+                ) THEN
+                    ALTER TABLE kit_config ALTER COLUMN bundle_entity_id TYPE BIGINT;
+                END IF;
+            END $$
+            """,
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_by INTEGER REFERENCES dim_usuario(id)",
             "ALTER TABLE projecao_inscritos_historico ALTER COLUMN campo_alterado TYPE VARCHAR(200)",
