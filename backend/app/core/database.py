@@ -13,20 +13,80 @@ engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600,
-    pool_size=15,
-    max_overflow=35,
+    pool_size=25,
+    max_overflow=50,
     pool_timeout=30
 ) if settings.DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 Base = declarative_base()
 
+# Thread-local registry of local PG sessions opened via get_db() for the
+# current request thread. Lets long, slow external calls (notably Magento)
+# release their idle local PG connection back to the pool before sleeping
+# on a remote query, preventing pool exhaustion when many requests are
+# blocked simultaneously on Magento timeouts.
+#
+# Safety: SQLAlchemy 2.x sessions lazily reacquire a connection on the
+# next ORM operation, so calling .close() on idle sessions is transparent
+# to the caller. Sessions with pending uncommitted writes are skipped to
+# avoid losing in-flight transactions.
+_active_local_sessions = threading.local()
+
+
+def _register_local_session(session) -> None:
+    bucket = getattr(_active_local_sessions, "sessions", None)
+    if bucket is None:
+        bucket = []
+        _active_local_sessions.sessions = bucket
+    bucket.append(session)
+
+
+def _unregister_local_session(session) -> None:
+    bucket = getattr(_active_local_sessions, "sessions", None)
+    if not bucket:
+        return
+    try:
+        bucket.remove(session)
+    except ValueError:
+        pass
+
+
+def release_local_db_connections() -> int:
+    """Release the underlying connection of any idle local PG session
+    registered for the current thread, returning the count released.
+
+    Called before long external DB calls (e.g. Magento) to avoid holding
+    pool slots while waiting on remote I/O. Sessions with pending writes
+    (in_transaction with non-empty `dirty`/`new`/`deleted`) are skipped.
+    """
+    bucket = getattr(_active_local_sessions, "sessions", None)
+    if not bucket:
+        return 0
+    released = 0
+    for session in list(bucket):
+        try:
+            # Skip sessions with pending uncommitted changes
+            if session.in_transaction() and (
+                session.dirty or session.new or session.deleted
+            ):
+                continue
+            session.close()
+            released += 1
+        except Exception:
+            # Never let cleanup error break the caller
+            pass
+    return released
+
+
 def get_db():
     if SessionLocal is None:
         raise Exception("DATABASE_URL not configured")
     db = SessionLocal()
+    _register_local_session(db)
     try:
         yield db
     finally:
+        _unregister_local_session(db)
         db.close()
 
 engine_ativo = None

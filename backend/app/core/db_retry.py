@@ -153,6 +153,20 @@ def magento_run(
     if engine is None:
         raise MagentoEngineUnavailable("engine_magento não configurado")
 
+    # Release any idle local PG connections held by this request thread
+    # before we start waiting on Magento. Magento queries can block for
+    # tens of seconds on slow plans / timeouts; holding a local pool slot
+    # the whole time has caused QueuePool exhaustion under load and made
+    # unrelated endpoints (e.g. /api/admin/sku-mappings/grupos) return 500.
+    try:
+        released = db_module.release_local_db_connections()
+        if released:
+            logger.debug(
+                f"[Magento][{label}] liberou {released} conexão(ões) PG local(is) antes da chamada"
+            )
+    except Exception as _re:
+        logger.debug(f"[Magento][{label}] release_local_db_connections falhou: {_re}")
+
     max_attempts = int(cfg["max_attempts"])
     backoff_base = float(cfg["backoff_base"])
     max_backoff = float(cfg["max_backoff"])
