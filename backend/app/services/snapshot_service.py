@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
+import os
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot, MargemBundleRevSnapshot
@@ -7,6 +8,122 @@ from ..models.dimensoes import SkuMapping, DimProjeto
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Congelamento de eventos finalizados
+# ---------------------------------------------------------------------------
+# Eventos cuja data_evento + EVENTO_FREEZE_AFTER_DAYS < hoje são considerados
+# "finalizados" e ficam fora dos jobs de sincronização incremental que vão ao
+# Magento (job de margem por bundle das 04h e snapshot_diario_batch). O snapshot
+# já gravado segue sendo lido normalmente — apenas paramos de regravar dados
+# que não mudam mais.
+#
+# 30 dias é a janela típica de refunds/ajustes pós-evento; depois disso o
+# upside de re-sincronizar não compensa o custo Magento e o risco de partial
+# response. Configurável via env var para emergências.
+def _freeze_after_days() -> int:
+    try:
+        return max(0, int(os.getenv("EVENTO_FREEZE_AFTER_DAYS", "30")))
+    except (TypeError, ValueError):
+        return 30
+
+
+def _load_active_event_magento_ids(db: Session, freeze_days: int) -> tuple:
+    """Retorna (active_ids: set, all_ids: set) de id_evento_magento.
+
+    'active' = data_evento >= hoje - freeze_days OU data_evento NULL.
+    'all_ids' inclui todos os ids cadastrados (para sabermos o que é
+    realmente "frozen" vs "sem cadastro"). Bundles com id_evento ausente do
+    cadastro permanecem sendo sincronizados (conservador — não dá pra
+    classificar como frozen sem data).
+    """
+    from ..models.cadastro_evento import CadastroEvento
+    cutoff = date.today() - timedelta(days=freeze_days)
+    active: set = set()
+    all_ids: set = set()
+    rows = db.query(
+        CadastroEvento.id_evento_magento,
+        CadastroEvento.data_evento,
+    ).filter(
+        CadastroEvento.deleted_at.is_(None),
+        CadastroEvento.id_evento_magento.isnot(None),
+    ).all()
+    for mag_id, dt in rows:
+        if mag_id is None:
+            continue
+        all_ids.add(mag_id)
+        if dt is None or dt >= cutoff:
+            active.add(mag_id)
+    return active, all_ids
+
+
+def _load_active_grupos(db: Session, freeze_days: int) -> set:
+    """Retorna conjunto de evento_grupo com pelo menos um evento ativo.
+
+    Junta DimProjeto e CadastroEvento (mesma união do snapshot_diario_batch).
+    Grupo entra como ativo se ALGUM evento dele tem data_evento >= hoje -
+    freeze_days OU data_evento nulo.
+    """
+    from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
+    from ..models.cadastro_evento import CadastroEvento
+
+    cutoff = date.today() - timedelta(days=freeze_days)
+    sku_to_grupo = _build_sku_to_grupo_map(db, date.today().year)
+    active: set = set()
+
+    for p in db.query(DimProjeto).all():
+        if not p.codigo:
+            continue
+        if p.data_evento is not None and p.data_evento < cutoff:
+            continue
+        grupo = sku_to_grupo.get(normalize_sku(str(p.codigo)))
+        if grupo:
+            active.add(grupo)
+
+    magento_id_to_grupo: dict = {}
+    try:
+        for mm in db.query(SkuMapping).filter(
+            SkuMapping.ativo == True,
+            SkuMapping.fonte == "MAGENTO",
+            SkuMapping.id_externo.isnot(None),
+            SkuMapping.evento_grupo.isnot(None),
+        ).all():
+            magento_id_to_grupo[str(mm.id_externo)] = mm.evento_grupo
+    except Exception:
+        pass
+
+    cadastros = db.query(CadastroEvento).filter(
+        CadastroEvento.deleted_at.is_(None),
+    ).all()
+    projeto_ids = {c.projeto_id for c in cadastros if getattr(c, "projeto_id", None)}
+    projeto_codigo_by_id: dict = {}
+    if projeto_ids:
+        try:
+            for pj in db.query(DimProjeto.id, DimProjeto.codigo).filter(
+                DimProjeto.id.in_(projeto_ids)
+            ).all():
+                if pj.codigo:
+                    projeto_codigo_by_id[pj.id] = str(pj.codigo)
+        except Exception:
+            pass
+
+    for c in cadastros:
+        if c.data_evento is not None and c.data_evento < cutoff:
+            continue
+        grupo = None
+        if getattr(c, "sku", None):
+            grupo = sku_to_grupo.get(normalize_sku(str(c.sku)))
+        if not grupo and getattr(c, "projeto_id", None):
+            cod = projeto_codigo_by_id.get(c.projeto_id)
+            if cod:
+                grupo = sku_to_grupo.get(normalize_sku(cod))
+        if not grupo and getattr(c, "id_evento_magento", None):
+            grupo = magento_id_to_grupo.get(str(c.id_evento_magento))
+        if grupo:
+            active.add(grupo)
+
+    return active
 
 
 def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None) -> dict:
@@ -338,6 +455,18 @@ def snapshot_diario_batch(db: Session):
         logger.info(
             f"snapshot_diario_batch: +{cadastro_added} grupos recuperados de cadastro_evento"
         )
+
+    # Filtra grupos cujos eventos já foram finalizados há > freeze_days.
+    # Snapshot já gravado continua sendo lido — só paramos de re-sincronizar
+    # dados que não mudam mais.
+    freeze_days = _freeze_after_days()
+    active_grupos = _load_active_grupos(db, freeze_days)
+    grupos_frozen = grupos_candidatos - active_grupos
+    if grupos_frozen:
+        logger.info(
+            f"snapshot_diario_batch: {len(grupos_frozen)} grupos pulados (finalizados há > {freeze_days} dias)"
+        )
+    grupos_candidatos = grupos_candidatos & active_grupos
 
     grupos_processados = set()
     for grupo in grupos_candidatos:
@@ -900,17 +1029,38 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         logger.warning("[MargemRevSync] engine_magento não disponível — sync ignorado")
         return {"status": "skipped", "motivo": "engine_magento indisponível"}
 
-    bundle_ids_all = [
-        row[0] for row in
-        db.query(KitConfig.bundle_entity_id)
+    # Carrega bundles com id_evento para podermos filtrar por evento finalizado.
+    # Bundles sem id_evento (legacy) ficam por padrão — não dá pra classificar
+    # como frozen sem ter data.
+    bundle_rows = (
+        db.query(KitConfig.bundle_entity_id, KitConfig.id_evento)
         .filter(KitConfig.tipo_kit.isnot(None))
         .distinct()
         .all()
-    ]
+    )
 
-    if not bundle_ids_all:
+    if not bundle_rows:
         logger.info("[MargemRevSync] Nenhum bundle_entity_id encontrado em kit_config")
         return {"status": "ok", "bundles_processados": 0}
+
+    # Filtro de eventos finalizados — economia de janela Magento.
+    freeze_days = _freeze_after_days()
+    active_event_ids, all_event_ids = _load_active_event_magento_ids(db, freeze_days)
+    bundle_ids_all = []
+    skipped_frozen = 0
+    for bid, evt_id in bundle_rows:
+        if evt_id is not None and evt_id in all_event_ids and evt_id not in active_event_ids:
+            skipped_frozen += 1
+            continue
+        bundle_ids_all.append(bid)
+    if skipped_frozen:
+        logger.info(
+            f"[MargemRevSync] {skipped_frozen} bundles pulados (eventos finalizados há > {freeze_days} dias)"
+        )
+
+    if not bundle_ids_all:
+        logger.info("[MargemRevSync] Todos os bundles estão congelados — nada a sincronizar")
+        return {"status": "ok", "bundles_processados": 0, "bundles_pulados_frozen": skipped_frozen}
 
     cortesia_bundle_set: set = set()
     try:

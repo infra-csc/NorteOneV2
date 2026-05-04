@@ -2469,6 +2469,35 @@ def get_margem_por_kit(
             for pid in projeto_ids
         }
 
+        # Detecta evento finalizado para pular a porta de 25h do snapshot
+        # (snapshot é autoridade absoluta para eventos finalizados — evita
+        # chamada Magento desnecessária). Critério ALINHADO com o write-side
+        # (snapshot_service._load_active_event_magento_ids):
+        #   - frozen requer TODOS os projetos com data_evento conhecida E
+        #     TODAS expiradas (data_evento < hoje - freeze_days).
+        #   - Se ALGUM projeto tem data_evento NULL → NÃO é frozen
+        #     (conservador, idem write-side: NULL = ativo).
+        # Sem esse alinhamento, um kit com 1 projeto NULL + 1 antigo seria
+        # tratado como frozen na leitura (snapshot stale) enquanto o write
+        # continua sincronizando — divergência que poderia mascarar dados
+        # mais novos.
+        try:
+            from ...services.snapshot_service import _freeze_after_days as _fad
+            _freeze_days_kit = _fad()
+        except Exception:
+            _freeze_days_kit = 30
+        _today_kit = date.today()
+        _cutoff_kit = _today_kit - timedelta(days=_freeze_days_kit)
+        _projs_kit = [p for p in proj_by_id.values() if p is not None]
+        _has_null_date = any(p.data_evento is None for p in _projs_kit)
+        _datas_kit = [p.data_evento for p in _projs_kit if p.data_evento is not None]
+        _event_frozen = (
+            bool(_datas_kit)
+            and not _has_null_date
+            and all(d < _cutoff_kit for d in _datas_kit)
+        )
+        _snapshot_max_age_h = None if _event_frozen else 25
+
         def _get_sku_maps(pid, fonte):
             proj = proj_by_id.get(pid)
             if not proj or not proj.codigo:
@@ -2728,17 +2757,19 @@ def get_margem_por_kit(
             else:
                 _cnt_snap_loaded = False
                 if not force_refresh:
-                    _cnt_snap_data, _cnt_snap_age_h = _load_snapshot_qtd(max_age_h=25)
+                    _cnt_snap_data, _cnt_snap_age_h = _load_snapshot_qtd(max_age_h=_snapshot_max_age_h)
                     # Aceita snapshot fresco SOMENTE se trouxer algo (>0). Snapshots antigos
                     # zerados (legado, antes da coluna ser preenchida) não devem mascarar
-                    # uma chamada LIVE bem-sucedida.
+                    # uma chamada LIVE bem-sucedida. Em evento finalizado, snapshot é
+                    # autoridade absoluta — usa qualquer idade.
                     if _cnt_snap_data and any(v > 0 for v in _cnt_snap_data.values()):
                         qtd_by_bid = dict(_cnt_snap_data)
                         _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
                         _cnt_snap_loaded = True
+                        _frozen_tag = " [evento finalizado]" if _event_frozen else ""
                         logger.info(
                             f"[Margem] count_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → "
-                            f"{len(qtd_by_bid)} entradas (idade {_cnt_snap_age_h:.1f}h)"
+                            f"{len(qtd_by_bid)} entradas (idade {_cnt_snap_age_h:.1f}h){_frozen_tag}"
                         )
 
                 if not _cnt_snap_loaded:
@@ -2861,13 +2892,14 @@ def get_margem_por_kit(
                 # --- Tentar snapshot PostgreSQL recente antes do Magento ao vivo ---
                 _snap_loaded = False
                 if not force_refresh:
-                    _snap_data, _snap_age_h = _load_snapshot_revenue(max_age_h=25)
+                    _snap_data, _snap_age_h = _load_snapshot_revenue(max_age_h=_snapshot_max_age_h)
                     if _snap_data is not None:
                         rev_by_bid = _snap_data
                         _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _now_mono)
                         _margem_rev_failure_cache.pop(_rev_cache_key, None)
                         _snap_loaded = True
-                        logger.info(f"[Margem] revenue_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_snap_age_h:.1f}h)")
+                        _frozen_tag = " [evento finalizado]" if _event_frozen else ""
+                        logger.info(f"[Margem] revenue_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_snap_age_h:.1f}h){_frozen_tag}")
 
                 if not _snap_loaded:
                     _cooldown_s = _margem_rev_cooldown_for(_failure_count)
