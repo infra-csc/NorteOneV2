@@ -2662,6 +2662,11 @@ def get_margem_por_kit(
                 "         OR soi_child.name LIKE '%%Distancia%%'\n"
                 "         OR soi_child.name LIKE '%%Distâncias%%'\n"
                 "         OR soi_child.name LIKE '%%Modalidade%%'\n"
+                "         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'\n"
+                "         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'\n"
+                "         OR soi_child.name LIKE 'Kit Participação%%'\n"
+                "         OR soi_child.name LIKE 'Olímpico%%'\n"
+                "         OR soi_child.name LIKE 'Yoga%%'\n"
                 "      )\n"
                 "WHERE\n"
                 "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
@@ -3158,6 +3163,11 @@ AND    value        IN :ev_ids_fb
                     "         OR soi_child.name LIKE '%%Distancia%%'\n"
                     "         OR soi_child.name LIKE '%%Distâncias%%'\n"
                     "         OR soi_child.name LIKE '%%Modalidade%%'\n"
+                    "         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'\n"
+                    "         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'\n"
+                    "         OR soi_child.name LIKE 'Kit Participação%%'\n"
+                    "         OR soi_child.name LIKE 'Olímpico%%'\n"
+                    "         OR soi_child.name LIKE 'Yoga%%'\n"
                     "      )\n"
                     "WHERE\n"
                     "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
@@ -3327,6 +3337,11 @@ AND    value        IN :ev_ids
                     "         OR soi_child.name LIKE '%%Distancia%%'\n"
                     "         OR soi_child.name LIKE '%%Distâncias%%'\n"
                     "         OR soi_child.name LIKE '%%Modalidade%%'\n"
+                    "         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'\n"
+                    "         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'\n"
+                    "         OR soi_child.name LIKE 'Kit Participação%%'\n"
+                    "         OR soi_child.name LIKE 'Olímpico%%'\n"
+                    "         OR soi_child.name LIKE 'Yoga%%'\n"
                     "      )\n"
                     "WHERE\n"
                     "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
@@ -3735,6 +3750,11 @@ LEFT JOIN sales_order_item soi_child
          OR soi_child.name LIKE '%%Distancia%%'
          OR soi_child.name LIKE '%%Distâncias%%'
          OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
       )
 
 JOIN (
@@ -4258,6 +4278,11 @@ INNER JOIN sales_order_item soi_child
          OR soi_child.name LIKE '%%Distancia%%'
          OR soi_child.name LIKE '%%Distâncias%%'
          OR soi_child.name LIKE '%%Modalidade%%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%%'
+         OR soi_child.name LIKE 'Olímpico%%'
+         OR soi_child.name LIKE 'Yoga%%'
       )
 INNER JOIN (
     SELECT entity_id, value
@@ -12183,6 +12208,11 @@ JOIN sales_order_item soi_child
      OR soi_child.name LIKE '%%Distancia%%'
      OR soi_child.name LIKE '%%Distâncias%%'
      OR soi_child.name LIKE '%%Modalidade%%'
+     OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+     OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+     OR soi_child.name LIKE 'Kit Participação%%'
+     OR soi_child.name LIKE 'Olímpico%%'
+     OR soi_child.name LIKE 'Yoga%%'
     )
 WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
   AND so.state NOT IN ('canceled')
