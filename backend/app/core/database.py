@@ -13,21 +13,65 @@ engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
     pool_recycle=3600,
-    pool_size=15,
-    max_overflow=35,
+    pool_size=25,
+    max_overflow=50,
     pool_timeout=30
 ) if settings.DATABASE_URL else None
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine else None
 Base = declarative_base()
 
+# Thread-local registry of local-Postgres sessions opened via get_db().
+# Used by release_local_db_connections() so that long upstream calls
+# (e.g. Magento queries that may take 60s+) do not hold a local PG
+# connection hostage and exhaust the pool, breaking unrelated screens.
+_active_local_sessions = threading.local()
+
+
+def _get_active_sessions_bucket() -> list:
+    sessions = getattr(_active_local_sessions, "sessions", None)
+    if sessions is None:
+        sessions = []
+        _active_local_sessions.sessions = sessions
+    return sessions
+
+
 def get_db():
     if SessionLocal is None:
         raise Exception("DATABASE_URL not configured")
     db = SessionLocal()
+    _get_active_sessions_bucket().append(db)
     try:
         yield db
     finally:
+        try:
+            _get_active_sessions_bucket().remove(db)
+        except ValueError:
+            pass
         db.close()
+
+
+def release_local_db_connections() -> None:
+    """Return the local Postgres connection held by this thread's active
+    sessions back to the pool, freeing it for other requests while a long
+    upstream call (Magento/Ativo) is in flight.
+
+    The session itself stays usable: SQLAlchemy lazily checks out a new
+    connection on the next query. Pending writes are NOT silently
+    committed — sessions with uncommitted changes are skipped.
+    """
+    for sess in list(_get_active_sessions_bucket()):
+        try:
+            # Skip sessions with uncommitted writes to avoid losing data.
+            if sess.dirty or sess.new or sess.deleted:
+                continue
+            # rollback() ends the (read-only) transaction and returns the
+            # connection to the pool. expire_all is implicit, which is safe
+            # because we only got here when nothing is pending.
+            sess.rollback()
+        except Exception as exc:
+            _db_logger.debug(
+                f"release_local_db_connections: skip session, {type(exc).__name__}: {exc}"
+            )
 
 engine_ativo = None
 SessionLocalAtivo = None

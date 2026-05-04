@@ -153,6 +153,18 @@ def magento_run(
     if engine is None:
         raise MagentoEngineUnavailable("engine_magento não configurado")
 
+    # Free local Postgres connections held by this thread's active sessions
+    # before spending up to ~60s waiting on Magento. Prevents Magento slowness
+    # from exhausting the local PG pool and breaking unrelated screens
+    # (e.g. /api/admin/sku-mappings/*).
+    try:
+        db_module.release_local_db_connections()
+    except Exception:
+        logger.debug(
+            f"[Magento][{label}] release_local_db_connections failed; continuing",
+            exc_info=True,
+        )
+
     max_attempts = int(cfg["max_attempts"])
     backoff_base = float(cfg["backoff_base"])
     max_backoff = float(cfg["max_backoff"])
