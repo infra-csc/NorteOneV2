@@ -878,11 +878,15 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
 
 
 def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
-    """Pré-computa receita Magento por bundle_entity_id e persiste em margem_bundle_rev_snapshot.
+    """Pré-computa receita E quantidade Magento por bundle_entity_id e persiste em margem_bundle_rev_snapshot.
 
-    Executa a mesma revenue query de get_margem_por_kit, mas de forma centralizada
-    para todos os bundles mapeados, com timeout maior (5 min) por ser job de background.
-    O resultado elimina timeouts na tela Margem por Kit para eventos de alto volume.
+    Executa as mesmas duas queries de get_margem_por_kit (count + revenue), mas
+    de forma centralizada para todos os bundles mapeados, com timeout maior
+    (5 min) por ser job de background. O resultado elimina timeouts na tela
+    Margem por Kit para eventos de alto volume e — mais importante — serve como
+    fallback persistente para a contagem de inscrições por bundle quando o
+    Magento ao vivo cai ou responde parcial. Sem isso o currentSales do detalhe
+    fica oscilando para baixo a cada falha de conexão.
 
     Chamado pelo job de consolidação das 4h (antes do full warmup das 5h).
     """
@@ -985,7 +989,39 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     rev_query_normal = _build_rev_query(False)
     rev_query_cortesia = _build_rev_query(True) if cortesia_bundle_set else None
 
+    def _build_cnt_query(include_cortesias: bool):
+        # Mesma lógica do count_query inline em get_margem_por_kit, com timeout
+        # elevado para 5 min (background). Retorna {bundle_entity_id: qtd}.
+        return text(
+            "SELECT /*+ MAX_EXECUTION_TIME(300000) */\n"
+            "    soi_parent.product_id                  AS bundle_entity_id,\n"
+            "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
+            "FROM sales_order so\n"
+            "INNER JOIN sales_order_item soi_parent\n"
+            "       ON soi_parent.order_id     = so.entity_id\n"
+            "      AND soi_parent.product_type = 'bundle'\n"
+            "      AND soi_parent.product_id   IN :bundle_ids\n"
+            "WHERE\n"
+            "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+            "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
+            "AND so.state != 'canceled'\n"
+            "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
+            "AND (:skip_cortesia_filter OR NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50))\n"
+            "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+            "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+            "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+            "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+            "GROUP BY soi_parent.product_id"
+        ).bindparams(
+            bindparam("bundle_ids", expanding=True),
+            skip_cortesia_filter=bool(include_cortesias),
+        )
+
+    cnt_query_normal = _build_cnt_query(False)
+    cnt_query_cortesia = _build_cnt_query(True) if cortesia_bundle_set else None
+
     rev_by_bid: dict = {}
+    qtd_by_bid: dict = {}
     BATCH_SIZE = 80
     upserted_total = 0
     persist_failures = 0
@@ -993,27 +1029,57 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     from app.core.db_retry import magento_run
     from app.core.database import SessionLocal as _PgSession
 
-    def _persist_batch(rows: dict) -> int:
-        """Grava um lote no Postgres usando session NOVA por chamada.
+    def _persist_batch(rev_rows: dict, cnt_rows: dict) -> int:
+        """Grava um lote (receita + qtd) no Postgres usando session NOVA por chamada.
 
         Sessão nova evita o problema de SSL fechado por inatividade enquanto as
         queries pesadas no Magento rodavam. Em caso de falha de persistência,
         loga e segue (próximo batch tenta de novo, sem perder os já gravados).
+        Faz upsert para todos os bundles que apareceram em receita OU contagem.
+        Usa GREATEST() para nunca rebaixar receita ou qtd já gravadas — o sync
+        é piso de segurança contra Magento parcial, não fonte de variações
+        negativas (essas vêm via sincronizar_hoje no vendas_diaria_snapshot).
         """
-        if not rows:
+        from sqlalchemy import func as _sa_func
+        all_bids = set(rev_rows.keys()) | set(cnt_rows.keys())
+        if not all_bids:
             return 0
         agora_utc = datetime.now(timezone.utc)
         _s = _PgSession()
         try:
             count = 0
-            for bid, receita in rows.items():
+            for bid in all_bids:
+                receita = float(rev_rows.get(bid, 0) or 0)
+                qtd = int(cnt_rows.get(bid, 0) or 0)
                 stmt = pg_insert(MargemBundleRevSnapshot).values(
                     bundle_entity_id=bid,
                     receita_liquida=receita,
+                    qtd_inscricoes=qtd,
                     calculado_em=agora_utc,
-                ).on_conflict_do_update(
+                )
+                # SAFEGUARD: nunca sobrescrever um valor positivo já gravado
+                # com 0. Cenário: Magento devolve resposta parcial para alguns
+                # bundles (sem lançar exceção), o sync gravaria 0 e o snapshot
+                # viraria piso baixo. GREATEST() preserva o maior valor entre
+                # o que já está gravado e o que está chegando agora.
+                # Receita e qtd têm o mesmo tratamento — ambas só "crescem".
+                # Cancelamentos e refunds reais aparecem via sincronizar_hoje
+                # (que atualiza vendas_diaria_snapshot, não este snapshot por
+                # bundle). Este snapshot é piso de segurança contra falha do
+                # Magento, não fonte primária de variações negativas.
+                stmt = stmt.on_conflict_do_update(
                     index_elements=["bundle_entity_id"],
-                    set_={"receita_liquida": receita, "calculado_em": agora_utc},
+                    set_={
+                        "receita_liquida": _sa_func.greatest(
+                            stmt.excluded.receita_liquida,
+                            MargemBundleRevSnapshot.receita_liquida,
+                        ),
+                        "qtd_inscricoes": _sa_func.greatest(
+                            stmt.excluded.qtd_inscricoes,
+                            MargemBundleRevSnapshot.qtd_inscricoes,
+                        ),
+                        "calculado_em": agora_utc,
+                    },
                 )
                 _s.execute(stmt)
                 count += 1
@@ -1029,36 +1095,58 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         batch = bundle_ids_all[i:i + BATCH_SIZE]
         normal_batch = [b for b in batch if b not in cortesia_bundle_set]
         cortesia_batch = [b for b in batch if b in cortesia_bundle_set]
-        batch_rows: dict = {}
+        batch_rev_rows: dict = {}
+        batch_cnt_rows: dict = {}
 
         def _sync_batch_work(conn):
-            collected = 0
+            collected_rev = 0
+            collected_cnt = 0
+            # Receita (lenta — join com filhos por nome)
             if normal_batch:
                 _rows_n = conn.execute(rev_query_normal, {"bundle_ids": normal_batch}).fetchall()
                 for row in _rows_n:
                     val = float(row[1] or 0)
-                    batch_rows[int(row[0])] = val
+                    batch_rev_rows[int(row[0])] = val
                     rev_by_bid[int(row[0])] = val
-                collected += len(_rows_n)
+                collected_rev += len(_rows_n)
             if cortesia_batch and rev_query_cortesia:
                 _rows_c = conn.execute(rev_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
                 for row in _rows_c:
                     val = float(row[1] or 0)
-                    batch_rows[int(row[0])] = val
+                    batch_rev_rows[int(row[0])] = val
                     rev_by_bid[int(row[0])] = val
-                collected += len(_rows_c)
-            return collected
+                collected_rev += len(_rows_c)
+            # Contagem (rápida — só sales_order_item parent)
+            if normal_batch:
+                _rows_cn = conn.execute(cnt_query_normal, {"bundle_ids": normal_batch}).fetchall()
+                for row in _rows_cn:
+                    val = int(row[1] or 0)
+                    batch_cnt_rows[int(row[0])] = val
+                    qtd_by_bid[int(row[0])] = val
+                collected_cnt += len(_rows_cn)
+            if cortesia_batch and cnt_query_cortesia:
+                _rows_cc = conn.execute(cnt_query_cortesia, {"bundle_ids": cortesia_batch}).fetchall()
+                for row in _rows_cc:
+                    val = int(row[1] or 0)
+                    batch_cnt_rows[int(row[0])] = val
+                    qtd_by_bid[int(row[0])] = val
+                collected_cnt += len(_rows_cc)
+            return collected_rev, collected_cnt
 
         try:
             collected = magento_run(_sync_batch_work, label=f"margem-rev-sync:batch{i // BATCH_SIZE + 1}", profile="background")
-            logger.info(f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → {collected} com receita")
+            _crev, _ccnt = collected if isinstance(collected, tuple) else (collected, 0)
+            logger.info(
+                f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → "
+                f"{_crev} com receita, {_ccnt} com qtd"
+            )
         except Exception as e:
             logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
             continue
 
         # Persiste imediatamente (session nova) para que parcial sempre fique.
         try:
-            persisted = _persist_batch(batch_rows)
+            persisted = _persist_batch(batch_rev_rows, batch_cnt_rows)
             upserted_total += persisted
         except Exception as _e_persist:
             persist_failures += 1

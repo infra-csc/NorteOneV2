@@ -1184,6 +1184,8 @@ def _run_column_migrations():
                 END IF;
             END $$
             """,
+            # margem_bundle_rev_snapshot: qtd por bundle (fallback persistente p/ count_query do Magento)
+            "ALTER TABLE margem_bundle_rev_snapshot ADD COLUMN IF NOT EXISTS qtd_inscricoes INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_by INTEGER REFERENCES dim_usuario(id)",
             "ALTER TABLE projecao_inscritos_historico ALTER COLUMN campo_alterado TYPE VARCHAR(200)",

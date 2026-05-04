@@ -42,14 +42,18 @@ class CurvaHistoricaSnapshot(Base):
 
 
 class MargemBundleRevSnapshot(Base):
-    """Cache persistente de receita Magento por bundle_entity_id.
+    """Cache persistente de receita E quantidade Magento por bundle_entity_id.
 
     Pré-computado pelo job diário das 4h (antes do full warmup das 5h).
-    Elimina o timeout da revenue query em get_margem_por_kit para eventos
-    de alto volume (ex: Circuito das Estações - BH) sem alterar a lógica de cálculo.
+    Elimina timeouts e quedas parciais do Magento em get_margem_por_kit:
+    - receita_liquida: soma de price-discount dos itens-filho (Distância/Modalidade)
+    - qtd_inscricoes: COUNT(DISTINCT soi_parent.item_id) — total de inscrições
+    Apesar do nome legado, hoje guarda os dois agregados que alimentam a tabela
+    "Margem por Tipo de Kit" e o currentSales do detalhe do evento.
     """
     __tablename__ = "margem_bundle_rev_snapshot"
 
     bundle_entity_id = Column(Integer, primary_key=True)
     receita_liquida = Column(Numeric(14, 2), nullable=False, default=0)
+    qtd_inscricoes = Column(Integer, nullable=False, default=0)
     calculado_em = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

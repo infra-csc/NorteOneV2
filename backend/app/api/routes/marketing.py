@@ -2684,9 +2684,39 @@ def get_margem_por_kit(
             rev_by_bid: dict = {}
 
             # --- Query 1: Contagem de inscrições por bundle ---
-            # Retry: 2 tentativas com backoff curto cobrem queda momentânea do túnel SSH.
-            # O resultado é armazenado em _margem_cnt_cache (TTL 4h) para que timeouts
-            # posteriores não zerarem a contagem e causarem subnotificação do currentSales.
+            # Estratégia em camadas, mesma filosofia da revenue_query:
+            #   1) cache em memória 4h (_margem_cnt_cache) — instantâneo
+            #   2) snapshot Postgres recente (até 25h) — pré-computado às 4h
+            #   3) Magento ao vivo (com retry curto)
+            #   4) backfill por bundle (snapshot preenche bundles ausentes da resposta LIVE)
+            #   5) fallback final: snapshot stale (qualquer idade) se LIVE falhou
+            # Isso elimina o flicker do currentSales causado por respostas parciais
+            # do Magento — a contagem nunca cai por causa de queda de conexão.
+            def _load_snapshot_qtd(max_age_h: Optional[float] = None):
+                """Lê qtd_inscricoes do snapshot. Retorna ({bid: qtd}, idade_horas)."""
+                try:
+                    from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBR_q
+                    from datetime import timezone as _tz_q
+                    _rows_q = db.query(_MBR_q).filter(
+                        _MBR_q.bundle_entity_id.in_(bundle_ids)
+                    ).all()
+                    if not _rows_q:
+                        return None, None
+                    _agora = _time.time()
+                    _oldest = min(
+                        r.calculado_em.replace(tzinfo=_tz_q.utc).timestamp()
+                        if r.calculado_em.tzinfo is None
+                        else r.calculado_em.timestamp()
+                        for r in _rows_q
+                    )
+                    _age_h = (_agora - _oldest) / 3600
+                    if max_age_h is not None and _age_h > max_age_h:
+                        return None, _age_h
+                    return {r.bundle_entity_id: int(r.qtd_inscricoes or 0) for r in _rows_q}, _age_h
+                except Exception as _err_q:
+                    logger.warning(f"[Margem] Erro ao ler qtd do snapshot: {_err_q}")
+                    return None, None
+
             _cnt_cache_key = (frozenset(bundle_ids), incluir_cortesias)
             _cnt_now_mono = _time.monotonic()
             if force_refresh:
@@ -2696,20 +2726,75 @@ def get_margem_por_kit(
                 qtd_by_bid = dict(_cnt_cached[0])
                 logger.info(f"[Margem] count_query cache HIT: {len(bundle_ids)} bundles → {len(qtd_by_bid)} entradas (TTL restante: {int(_MARGEM_CNT_TTL_SECONDS - (_cnt_now_mono - _cnt_cached[1]))}s)")
             else:
-                try:
-                    _rows_cnt, _elapsed_cnt = _execute_magento_with_retry(
-                        magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
-                    )
-                    for row in _rows_cnt:
-                        qtd_by_bid[int(row[0])] = int(row[1] or 0)
-                    logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_elapsed_cnt:.2f}s")
-                    _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
-                except Exception as e:
-                    logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
-                    _log_margem_magento_failed(e, "count")
-                    if _cnt_cached:
-                        qtd_by_bid = dict(_cnt_cached[0])
-                        logger.warning(f"[Margem] count_query falhou — usando cache expirado: {len(qtd_by_bid)} entradas")
+                _cnt_snap_loaded = False
+                if not force_refresh:
+                    _cnt_snap_data, _cnt_snap_age_h = _load_snapshot_qtd(max_age_h=25)
+                    # Aceita snapshot fresco SOMENTE se trouxer algo (>0). Snapshots antigos
+                    # zerados (legado, antes da coluna ser preenchida) não devem mascarar
+                    # uma chamada LIVE bem-sucedida.
+                    if _cnt_snap_data and any(v > 0 for v in _cnt_snap_data.values()):
+                        qtd_by_bid = dict(_cnt_snap_data)
+                        _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
+                        _cnt_snap_loaded = True
+                        logger.info(
+                            f"[Margem] count_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → "
+                            f"{len(qtd_by_bid)} entradas (idade {_cnt_snap_age_h:.1f}h)"
+                        )
+
+                if not _cnt_snap_loaded:
+                    _cnt_live_failed = False
+                    try:
+                        _rows_cnt, _elapsed_cnt = _execute_magento_with_retry(
+                            magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
+                        )
+                        for row in _rows_cnt:
+                            qtd_by_bid[int(row[0])] = int(row[1] or 0)
+                        logger.info(f"[Margem] count_query: {len(bundle_ids)} bundles → {len(qtd_by_bid)} linhas em {_elapsed_cnt:.2f}s")
+                        _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
+                    except Exception as e:
+                        logger.error(f"Erro ao buscar vendas Magento por bundle para margem: {e}")
+                        _log_margem_magento_failed(e, "count")
+                        _cnt_live_failed = True
+                        if _cnt_cached:
+                            qtd_by_bid = dict(_cnt_cached[0])
+                            logger.warning(f"[Margem] count_query falhou — usando cache expirado: {len(qtd_by_bid)} entradas")
+
+                    # Backfill por bundle: se o LIVE respondeu mas faltou bundle
+                    # que sabidamente tem qtd > 0 no snapshot, preenche do snapshot.
+                    # Mesma lógica do backfill de receita — protege contra resposta parcial.
+                    if not _cnt_live_failed:
+                        _bf_snap_data, _bf_snap_age_h = _load_snapshot_qtd(max_age_h=None)
+                        if _bf_snap_data:
+                            _bf_filled = 0
+                            for _bid_bf in bundle_ids:
+                                _live_v = int(qtd_by_bid.get(_bid_bf, 0) or 0)
+                                _snap_v = int(_bf_snap_data.get(_bid_bf, 0) or 0)
+                                # Snapshot é piso: se LIVE entregou menos do que o
+                                # snapshot conhece, restaura o número mais alto.
+                                if _snap_v > _live_v:
+                                    qtd_by_bid[_bid_bf] = _snap_v
+                                    _bf_filled += 1
+                            if _bf_filled > 0:
+                                _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
+                                _bf_age_msg = (
+                                    f" (idade {_bf_snap_age_h:.1f}h)"
+                                    if _bf_snap_age_h is not None else ""
+                                )
+                                logger.info(
+                                    f"[Margem] count_query BACKFILL PARCIAL: "
+                                    f"{_bf_filled} bundles abaixo do snapshot restaurados"
+                                    f"{_bf_age_msg}"
+                                )
+
+                    # Fallback final: LIVE falhou e cache em memória vazio → tenta snapshot stale
+                    if _cnt_live_failed and not qtd_by_bid:
+                        _stale_q, _stale_q_age_h = _load_snapshot_qtd(max_age_h=None)
+                        if _stale_q:
+                            qtd_by_bid = dict(_stale_q)
+                            logger.info(
+                                f"[Margem] count_query STALE SNAPSHOT FALLBACK: "
+                                f"{len(bundle_ids)} bundles → {len(qtd_by_bid)} entradas (idade {_stale_q_age_h:.1f}h)"
+                            )
 
             # --- Query 2: Receita por bundle (join com itens-filho) ---
             # A join com soi_child por nome (LIKE) é lenta para eventos de alto volume
@@ -3989,7 +4074,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "14"  # v14: currentSales consolidado alinhado com detalhe persistido
+_DETAIL_CACHE_VERSION = "15"  # v15: currentSales nunca rebaixado por kit_table parcial; qtd_inscricoes lida de snapshot
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
@@ -9350,9 +9435,14 @@ def get_marketing_event_by_id(
         # The kit table counts only Magento bundles registered in KitConfig; the
         # snapshot/ISC-cache count is broader. ISC was already calculated above, so
         # changing current_sales here does NOT affect the displayed ISC value.
+        # GUARDA: nunca rebaixar current_sales abaixo do que o snapshot+sync_hoje
+        # já conhece. O snapshot consolidado (atualizado às 4h + sincronizar_hoje
+        # ao longo do dia) é piso confiável; a tabela de kits pode flutuar para
+        # baixo quando o Magento responde parcial sem lançar exceção. Só
+        # ajustamos para CIMA quando a tabela enxerga vendas mais novas.
         _kit_rows_aligned = [r for r in (detail_margem_por_kit or []) if r.get('tipoKit') != 'CONSOLIDADO']
         _kit_total_qty_aligned = sum(int(r.get('qtd', 0) or 0) for r in _kit_rows_aligned)
-        if _kit_total_qty_aligned > 0 and _kit_total_qty_aligned != current_sales:
+        if _kit_total_qty_aligned > current_sales:
             logger.info(
                 f"[Detalhe] Alinhando currentSales '{grupo_nome}': {current_sales} → {_kit_total_qty_aligned} "
                 f"(diff={current_sales - _kit_total_qty_aligned})"
@@ -9361,6 +9451,11 @@ def get_marketing_event_by_id(
             avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else avg_ticket
             detail_margin = _calc_margin_fields(detail_budget_ticket, detail_kit_cost_avg, sales_goal,
                                                  avg_ticket, current_sales, current_receita)
+        elif _kit_total_qty_aligned > 0 and _kit_total_qty_aligned < current_sales:
+            logger.info(
+                f"[Detalhe] Alinhamento ignorado '{grupo_nome}': kit_table={_kit_total_qty_aligned} "
+                f"< snapshot={current_sales} (provável resposta parcial Magento — preservando piso do snapshot)"
+            )
 
         detail_consistency_warning = None  # aligned above; retained field for API compatibility
         detail_detalhe_vendas = []
@@ -9894,10 +9989,10 @@ def get_marketing_event_by_id(
         force_refresh=force_refresh,
         incluir_cortesias=_sa_incluir_cortesias,
     )
-    # Align currentSales with the kit table total (same logic as consolidated group branch).
+    # Align currentSales with the kit table total (same logic + guard as consolidated group branch).
     _sa_kit_rows_aligned = [r for r in (sa_margem_por_kit or []) if r.get('tipoKit') != 'CONSOLIDADO']
     _sa_kit_total_qty_aligned = sum(int(r.get('qtd', 0) or 0) for r in _sa_kit_rows_aligned)
-    if _sa_kit_total_qty_aligned > 0 and _sa_kit_total_qty_aligned != current_sales:
+    if _sa_kit_total_qty_aligned > current_sales:
         logger.info(
             f"[Detalhe SA] Alinhando currentSales '{projeto_nome}': {current_sales} → {_sa_kit_total_qty_aligned} "
             f"(diff={current_sales - _sa_kit_total_qty_aligned})"
@@ -9906,6 +10001,11 @@ def get_marketing_event_by_id(
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else avg_ticket
         detail_sa_margin = _calc_margin_fields(detail_standalone_bt, detail_sa_kit_cost, sales_goal,
                                                avg_ticket, current_sales, current_receita)
+    elif _sa_kit_total_qty_aligned > 0 and _sa_kit_total_qty_aligned < current_sales:
+        logger.info(
+            f"[Detalhe SA] Alinhamento ignorado '{projeto_nome}': kit_table={_sa_kit_total_qty_aligned} "
+            f"< snapshot={current_sales} (provável resposta parcial Magento — preservando piso do snapshot)"
+        )
 
     sa_detalhe_vendas = []
     sa_kit_query_failed = False
