@@ -55,5 +55,5 @@ class MargemBundleRevSnapshot(Base):
 
     bundle_entity_id = Column(Integer, primary_key=True)
     receita_liquida = Column(Numeric(14, 2), nullable=False, default=0)
-    qtd_inscricoes = Column(Integer, nullable=False, default=0)
+    qtd_inscricoes = Column(Integer, nullable=True, default=0)
     calculado_em = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
