@@ -786,6 +786,22 @@ def sincronizar_hoje_batch(db: Session) -> int:
         except Exception as _ce:
             logger.warning(f"sincronizar_hoje_batch: cache invalidation failed: {_ce}")
 
+    # Persist the "last_sync_hoje" timestamp HERE (inside the function) instead of
+    # relying on each outer caller to do it. Em produção o servidor reinicia com
+    # frequência (deploys, health checks) e os threads daemon que envolvem este
+    # batch são mortos antes de chegar na linha que persiste o carimbo. Como o
+    # trabalho real (UPSERT + invalidação de cache) já terminou neste ponto,
+    # gravar o timestamp aqui garante que o badge "Sinc. dd/mm às HH:MM" reflita
+    # a sincronização que de fato aconteceu, mesmo se o caller for interrompido
+    # logo depois do return.
+    if synced > 0 or backfilled > 0:
+        try:
+            import time as _t_lsh
+            from ..core.cache import set_last_sync_hoje as _set_lsh
+            _set_lsh(_t_lsh.time())
+        except Exception as _lsh_e:
+            logger.warning(f"sincronizar_hoje_batch: falha ao atualizar last_sync_hoje: {_lsh_e}")
+
     return synced
 
 
