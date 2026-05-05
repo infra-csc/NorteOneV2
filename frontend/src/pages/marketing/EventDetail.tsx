@@ -3955,15 +3955,23 @@ const EventDetail: React.FC = () => {
                   </div>
 
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm table-fixed">
+                      <colgroup>
+                        <col className="w-auto" />
+                        <col style={{width: '7rem'}} />
+                        <col style={{width: '6rem'}} />
+                        <col style={{width: '8rem'}} />
+                        <col style={{width: '5rem'}} />
+                        <col style={{width: '2rem'}} />
+                      </colgroup>
                       <thead>
                         <tr className={`border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Faixa</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Preço (R$)</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Receita</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
-                          <th className="py-2 px-2"></th>
+                          <th className="text-left py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Faixa</th>
+                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Preço (R$)</th>
+                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
+                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Receita</th>
+                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
+                          <th className="py-2 px-1"></th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3997,7 +4005,7 @@ const EventDetail: React.FC = () => {
                                   value={row.preco}
                                   placeholder="0,00"
                                   onChange={e => setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, preco: e.target.value } : r))}
-                                  className="w-24 text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                  className="w-full text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
                                 />
                               </td>
                               <td className="py-1.5 px-2">
@@ -4007,13 +4015,13 @@ const EventDetail: React.FC = () => {
                                   value={row.qtd}
                                   placeholder="0"
                                   onChange={e => setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, qtd: e.target.value } : r))}
-                                  className="w-20 text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                  className="w-full text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
                                 />
                               </td>
-                              <td className="py-1.5 px-3 text-right text-xs text-gray-700 dark:text-gray-300 font-medium">
+                              <td className="py-1.5 px-2 text-right text-xs text-gray-700 dark:text-gray-300 font-medium">
                                 {rowReceita > 0 ? formatCurrency(rowReceita) : '—'}
                               </td>
-                              <td className="py-1.5 px-3 text-right text-xs text-gray-500 dark:text-gray-400">
+                              <td className="py-1.5 px-2 text-right text-xs text-gray-500 dark:text-gray-400">
                                 {pctQtd}{pctQtd !== '—' ? '%' : ''}
                               </td>
                               <td className="py-1.5 px-2 text-center">
