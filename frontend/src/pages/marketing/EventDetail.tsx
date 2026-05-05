@@ -303,6 +303,8 @@ const EventDetail: React.FC = () => {
     preparingStartedAtRef.current = null;
     setIsPreparing(false);
     setPreparingGaveUp(false);
+    setSimuladorFaixas(false);
+    setProjetadoFaixas([]);
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -3787,6 +3789,7 @@ const EventDetail: React.FC = () => {
                   </span>
                 );
               };
+              const hasValidProjRows = projRows.length > 0;
 
               const colCard = (
                 title: string,
@@ -3803,29 +3806,29 @@ const EventDetail: React.FC = () => {
                     <div>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Qtd Inscr.</p>
                       <p className="text-base font-bold text-gray-900 dark:text-white">
-                        {qtd > 0 ? formatNumber(qtd) : '—'}
-                        {isProj && deltaBadge(qtd || null, orcQtd || null)}
+                        {hasValidProjRows || !isProj ? (qtd > 0 ? formatNumber(qtd) : '0') : '—'}
+                        {isProj && deltaBadge(hasValidProjRows ? qtd : null, orcQtd > 0 ? orcQtd : null)}
                       </p>
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Ticket Médio</p>
                       <p className="text-base font-bold text-blue-600 dark:text-blue-400">
-                        {tkt > 0 ? formatCurrency(tkt) : '—'}
-                        {isProj && deltaBadge(tkt || null, orcTkt || null, true)}
+                        {hasValidProjRows || !isProj ? (tkt > 0 ? formatCurrency(tkt) : '—') : '—'}
+                        {isProj && deltaBadge(hasValidProjRows ? tkt : null, orcTkt > 0 ? orcTkt : null, true)}
                       </p>
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Receita</p>
                       <p className="text-base font-bold text-gray-900 dark:text-white">
-                        {receita > 0 ? formatCurrency(receita) : '—'}
-                        {isProj && deltaBadge(receita || null, orcReceita || null, true)}
+                        {hasValidProjRows || !isProj ? (receita > 0 ? formatCurrency(receita) : 'R$ 0,00') : '—'}
+                        {isProj && deltaBadge(hasValidProjRows ? receita : null, orcReceita > 0 ? orcReceita : null, true)}
                       </p>
                     </div>
                     <div>
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Margem%</p>
-                      <p className={`text-base font-bold ${margemPct !== null && margemPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                      <p className={`text-base font-bold ${margemPct !== null && margemPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : margemPct !== null ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
                         {margemPct !== null ? `${margemPct.toFixed(1)}%` : '—'}
-                        {isProj && deltaBadge(margemPct, orcMargemPct, false, true)}
+                        {isProj && deltaBadge(hasValidProjRows ? margemPct : null, orcMargemPct, false, true)}
                       </p>
                     </div>
                   </div>
@@ -3925,7 +3928,7 @@ const EventDetail: React.FC = () => {
                         {projetadoFaixas.length > 0 && projQtd > 0 && (
                           <tr className={`font-semibold text-xs ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
                             <td className="py-2 px-3 text-gray-700 dark:text-gray-300">Total</td>
-                            <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(projTkt)}</td>
+                            <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400 font-normal italic">Tkt médio: {formatCurrency(projTkt)}</td>
                             <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatNumber(projQtd)}</td>
                             <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatCurrency(projReceita)}</td>
                             <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">100%</td>
