@@ -1209,6 +1209,18 @@ export const marketingService = {
     const response = await api.get('/marketing/playbook');
     return response.data;
   },
+  getProjetadoFaixas: async (eventoId: string): Promise<{ status: string; faixas: { id: string; nome: string; preco: string; qtd: string }[] }> => {
+    const response = await api.get(`/marketing/eventos/${encodeURIComponent(eventoId)}/projetado-faixas`);
+    return response.data;
+  },
+  upsertProjetadoFaixas: async (eventoId: string, faixas: { id: string; nome: string; preco: string; qtd: string }[]): Promise<{ status: string }> => {
+    const response = await api.put(`/marketing/eventos/${encodeURIComponent(eventoId)}/projetado-faixas`, { faixas });
+    return response.data;
+  },
+  deleteProjetadoFaixas: async (eventoId: string): Promise<{ status: string }> => {
+    const response = await api.delete(`/marketing/eventos/${encodeURIComponent(eventoId)}/projetado-faixas`);
+    return response.data;
+  },
 };
 
 export const profileService = {

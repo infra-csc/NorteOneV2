@@ -295,9 +295,16 @@ const EventDetail: React.FC = () => {
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
   const projFaixasHydratedRef = useRef<string | null>(null);
+  const projFaixasFetchTokenRef = useRef<number>(0);
+  const projFaixasSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const projFaixasSkipNextSaveRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!id || projFaixasHydratedRef.current !== id) return;
+    if (projFaixasSkipNextSaveRef.current) {
+      projFaixasSkipNextSaveRef.current = false;
+      return;
+    }
     try {
       if (projetadoFaixas.length === 0) {
         localStorage.removeItem(`proj_faixas_${id}`);
@@ -306,6 +313,19 @@ const EventDetail: React.FC = () => {
       }
     } catch {
     }
+    if (projFaixasSaveTimerRef.current) clearTimeout(projFaixasSaveTimerRef.current);
+    const savedId = id;
+    const snapshot = projetadoFaixas;
+    projFaixasSaveTimerRef.current = setTimeout(() => {
+      if (snapshot.length === 0) {
+        marketingService.deleteProjetadoFaixas(savedId).catch(() => {});
+      } else {
+        marketingService.upsertProjetadoFaixas(savedId, snapshot).catch(() => {});
+      }
+    }, 800);
+    return () => {
+      if (projFaixasSaveTimerRef.current) clearTimeout(projFaixasSaveTimerRef.current);
+    };
   }, [id, projetadoFaixas]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -318,23 +338,47 @@ const EventDetail: React.FC = () => {
     setIsPreparing(false);
     setPreparingGaveUp(false);
     setSimuladorFaixas(false);
-    if (id) {
-      try {
-        const saved = localStorage.getItem(`proj_faixas_${id}`);
-        const parsed = saved ? JSON.parse(saved) : [];
-        const isValid = Array.isArray(parsed) && parsed.every(
+    const projFaixasFetchId = id;
+    projFaixasHydratedRef.current = null;
+    projFaixasFetchTokenRef.current += 1;
+    const myToken = projFaixasFetchTokenRef.current;
+    if (projFaixasFetchId) {
+      marketingService.getProjetadoFaixas(projFaixasFetchId).then((res) => {
+        if (projFaixasFetchTokenRef.current !== myToken) return;
+        const isValid = Array.isArray(res.faixas) && res.faixas.every(
           (r: unknown) => r !== null && typeof r === 'object' &&
             'id' in (r as object) && 'nome' in (r as object) &&
             'preco' in (r as object) && 'qtd' in (r as object)
         );
-        setProjetadoFaixas(isValid ? parsed : []);
-      } catch {
-        setProjetadoFaixas([]);
-      }
-      projFaixasHydratedRef.current = id;
+        const faixas = isValid ? res.faixas : [];
+        projFaixasSkipNextSaveRef.current = true;
+        setProjetadoFaixas(faixas);
+        if (faixas.length > 0) {
+          try { localStorage.setItem(`proj_faixas_${projFaixasFetchId}`, JSON.stringify(faixas)); } catch {}
+        } else {
+          try { localStorage.removeItem(`proj_faixas_${projFaixasFetchId}`); } catch {}
+        }
+        projFaixasHydratedRef.current = projFaixasFetchId;
+      }).catch(() => {
+        if (projFaixasFetchTokenRef.current !== myToken) return;
+        try {
+          const saved = localStorage.getItem(`proj_faixas_${projFaixasFetchId}`);
+          const parsed = saved ? JSON.parse(saved) : [];
+          const isValid = Array.isArray(parsed) && parsed.every(
+            (r: unknown) => r !== null && typeof r === 'object' &&
+              'id' in (r as object) && 'nome' in (r as object) &&
+              'preco' in (r as object) && 'qtd' in (r as object)
+          );
+          projFaixasSkipNextSaveRef.current = true;
+          setProjetadoFaixas(isValid ? parsed : []);
+        } catch {
+          projFaixasSkipNextSaveRef.current = true;
+          setProjetadoFaixas([]);
+        }
+        projFaixasHydratedRef.current = projFaixasFetchId;
+      });
     } else {
       setProjetadoFaixas([]);
-      projFaixasHydratedRef.current = null;
     }
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -3886,7 +3930,10 @@ const EventDetail: React.FC = () => {
                         <button
                           onClick={() => {
                             setProjetadoFaixas([]);
-                            if (id) localStorage.removeItem(`proj_faixas_${id}`);
+                            if (id) {
+                              localStorage.removeItem(`proj_faixas_${id}`);
+                              marketingService.deleteProjetadoFaixas(id).catch(() => {});
+                            }
                           }}
                           className="text-[10px] font-semibold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
                         >

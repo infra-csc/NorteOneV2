@@ -11717,6 +11717,80 @@ def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db)
     return {"status": "success", "key": key, "value": setting.value}
 
 
+class ProjetadoFaixaItem(BaseModel):
+    id: str
+    nome: str
+    preco: str
+    qtd: str
+
+
+class ProjetadoFaixasUpsert(BaseModel):
+    faixas: List[ProjetadoFaixaItem]
+
+
+@router.get("/eventos/{evento_id}/projetado-faixas")
+def get_projetado_faixas(
+    evento_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    from ...models.projecao import SimuladorProjetadoFaixas
+    import json
+    record = db.query(SimuladorProjetadoFaixas).filter(
+        SimuladorProjetadoFaixas.evento_id == evento_id,
+        SimuladorProjetadoFaixas.usuario_id == current_user.id,
+    ).first()
+    if not record:
+        return {"status": "ok", "faixas": []}
+    try:
+        faixas = json.loads(record.faixas)
+    except Exception:
+        faixas = []
+    return {"status": "ok", "faixas": faixas}
+
+
+@router.put("/eventos/{evento_id}/projetado-faixas")
+def upsert_projetado_faixas(
+    evento_id: str,
+    body: ProjetadoFaixasUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    from ...models.projecao import SimuladorProjetadoFaixas
+    import json
+    record = db.query(SimuladorProjetadoFaixas).filter(
+        SimuladorProjetadoFaixas.evento_id == evento_id,
+        SimuladorProjetadoFaixas.usuario_id == current_user.id,
+    ).first()
+    serialized = json.dumps([f.model_dump() for f in body.faixas])
+    if record:
+        record.faixas = serialized
+    else:
+        record = SimuladorProjetadoFaixas(
+            evento_id=evento_id,
+            usuario_id=current_user.id,
+            faixas=serialized,
+        )
+        db.add(record)
+    db.commit()
+    return {"status": "ok"}
+
+
+@router.delete("/eventos/{evento_id}/projetado-faixas")
+def delete_projetado_faixas(
+    evento_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
+    from ...models.projecao import SimuladorProjetadoFaixas
+    db.query(SimuladorProjetadoFaixas).filter(
+        SimuladorProjetadoFaixas.evento_id == evento_id,
+        SimuladorProjetadoFaixas.usuario_id == current_user.id,
+    ).delete()
+    db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/diagnostico-inscricoes")
 def diagnostico_inscricoes(
     ativo_id: int,

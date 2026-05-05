@@ -141,3 +141,20 @@ class ProjecaoCutoffEventoArea(Base):
         UniqueConstraint("evento_id", "area_projecao_id", name="uq_cutoff_evento_area"),
     )
 
+
+class SimuladorProjetadoFaixas(Base):
+    __tablename__ = "simulador_projetado_faixas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(String(100), nullable=False, index=True)
+    usuario_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="CASCADE"), nullable=False)
+    faixas = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=_now_brasilia)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    usuario = relationship("Usuario")
+
+    __table_args__ = (
+        UniqueConstraint("evento_id", "usuario_id", name="uq_simulador_faixas_evento_usuario"),
+    )
+
