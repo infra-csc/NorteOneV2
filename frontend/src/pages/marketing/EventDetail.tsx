@@ -3969,7 +3969,7 @@ const EventDetail: React.FC = () => {
                         <col style={{width: '6rem'}} />
                         <col style={{width: '7rem'}} />
                         <col style={{width: '8rem'}} />
-                        <col style={{width: '5rem'}} />
+                        <col style={{width: '8rem'}} />
                         <col style={{width: '2rem'}} />
                       </colgroup>
                       <thead>
@@ -3978,7 +3978,7 @@ const EventDetail: React.FC = () => {
                           <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
                           <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket Médio</th>
                           <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Receita</th>
-                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
+                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Margem</th>
                           <th className="py-2 px-1"></th>
                         </tr>
                       </thead>
@@ -3994,7 +3994,7 @@ const EventDetail: React.FC = () => {
                           const precoN = parseFloat(row.preco.replace(',', '.')) || 0;
                           const qtdN = parseInt(row.qtd, 10) || 0;
                           const rowReceita = precoN * qtdN;
-                          const pctQtd = projQtd > 0 && qtdN > 0 ? ((qtdN / projQtd) * 100).toFixed(1) : '—';
+                          const rowMargem = custoKitUnit !== null && qtdN > 0 ? rowReceita - custoKitUnit * qtdN : null;
                           return (
                             <tr key={row.id} className={`border-b border-gray-100 dark:border-gray-700/50`}>
                               <td className="py-1.5 px-2">
@@ -4032,8 +4032,8 @@ const EventDetail: React.FC = () => {
                               <td className="py-1.5 px-2 text-right text-xs text-gray-700 dark:text-gray-300 font-medium">
                                 {rowReceita > 0 ? formatCurrency(rowReceita) : '—'}
                               </td>
-                              <td className="py-1.5 px-2 text-right text-xs text-gray-500 dark:text-gray-400">
-                                {pctQtd}{pctQtd !== '—' ? '%' : ''}
+                              <td className={`py-1.5 px-2 text-right text-xs font-medium ${rowMargem !== null && rowMargem >= 0 ? 'text-emerald-600 dark:text-emerald-400' : rowMargem !== null ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                                {rowMargem !== null ? formatCurrency(rowMargem) : '—'}
                               </td>
                               <td className="py-1.5 px-2 text-center">
                                 <button
