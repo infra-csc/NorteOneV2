@@ -3866,7 +3866,7 @@ const EventDetail: React.FC = () => {
                 const pctDiff = (diff / Math.abs(orc)) * 100;
                 const isPos = diff >= 0;
                 return (
-                  <span className={`ml-1 text-[10px] font-bold px-1 py-0.5 rounded ${isPos ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                  <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-1.5 py-0.5 rounded ${isPos ? 'bg-green-100 text-green-700 dark:bg-green-800/60 dark:text-green-300' : 'bg-red-100 text-red-700 dark:bg-red-800/60 dark:text-red-300'}`}>
                     {isPos ? '▲' : '▼'}{isCurrency ? formatCurrency(Math.abs(diff)) : formatNumber(Math.abs(diff))} ({Math.abs(pctDiff).toFixed(1)}%)
                   </span>
                 );
