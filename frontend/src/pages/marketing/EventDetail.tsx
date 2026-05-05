@@ -3849,18 +3849,25 @@ const EventDetail: React.FC = () => {
               const projQtd = projRows.reduce((s, r) => s + r.qtdN, 0);
               const projReceita = projRows.reduce((s, r) => s + r.precoN * r.qtdN, 0);
               const projTkt = projQtd > 0 ? projReceita / projQtd : 0;
-              const projMargemPct: number | null = (custoKitUnit !== null && projReceita > 0)
-                ? ((projReceita - custoKitUnit * projQtd) / projReceita) * 100
+              const projMargemVal: number | null = (custoKitUnit !== null && projQtd > 0)
+                ? projReceita - custoKitUnit * projQtd
                 : null;
 
-              const deltaBadge = (proj: number | null, orc: number | null, isCurrency = false, isPct = false) => {
+              const orcMargemVal: number | null = orcMargemPct !== null && orcReceita > 0
+                ? orcReceita * orcMargemPct / 100
+                : null;
+              const realMargemVal: number | null = realMargemPct !== null && realReceita > 0
+                ? realReceita * realMargemPct / 100
+                : null;
+
+              const deltaBadge = (proj: number | null, orc: number | null, isCurrency = false) => {
                 if (proj === null || orc === null || orc === 0) return null;
                 const diff = proj - orc;
                 const pctDiff = (diff / Math.abs(orc)) * 100;
                 const isPos = diff >= 0;
                 return (
                   <span className={`ml-1 text-[10px] font-bold px-1 py-0.5 rounded ${isPos ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
-                    {isPos ? '▲' : '▼'}{isPct ? `${Math.abs(diff).toFixed(1)}pp` : isCurrency ? formatCurrency(Math.abs(diff)) : formatNumber(Math.abs(diff))} ({Math.abs(pctDiff).toFixed(1)}%)
+                    {isPos ? '▲' : '▼'}{isCurrency ? formatCurrency(Math.abs(diff)) : formatNumber(Math.abs(diff))} ({Math.abs(pctDiff).toFixed(1)}%)
                   </span>
                 );
               };
@@ -3869,42 +3876,46 @@ const EventDetail: React.FC = () => {
               const colCard = (
                 title: string,
                 accent: string,
+                titleColor: string,
                 qtd: number,
                 tkt: number,
                 receita: number,
-                margemPct: number | null,
+                margemVal: number | null,
                 isProj = false
               ) => (
                 <div className={`rounded-xl border p-4 ${accent}`}>
-                  <p className="text-xs font-bold uppercase tracking-wider mb-3 text-gray-600 dark:text-gray-300">{title}</p>
-                  <div className="space-y-2.5">
+                  <p className={`text-xs font-extrabold uppercase tracking-widest mb-4 ${titleColor}`}>{title}</p>
+                  <div className="space-y-3">
                     <div>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Qtd Inscr.</p>
-                      <p className="text-base font-bold text-gray-900 dark:text-white">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Qtd. Inscritos</p>
+                      <p className="text-2xl font-extrabold text-gray-900 dark:text-white leading-tight">
                         {hasValidProjRows || !isProj ? (qtd > 0 ? formatNumber(qtd) : '0') : '—'}
-                        {isProj && deltaBadge(hasValidProjRows ? qtd : null, orcQtd > 0 ? orcQtd : null)}
                       </p>
+                      {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? qtd : null, orcQtd > 0 ? orcQtd : null)}</div>}
                     </div>
                     <div>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Ticket Médio</p>
-                      <p className="text-base font-bold text-blue-600 dark:text-blue-400">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Ticket Médio</p>
+                      <p className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 leading-tight">
                         {hasValidProjRows || !isProj ? (tkt > 0 ? formatCurrency(tkt) : '—') : '—'}
-                        {isProj && deltaBadge(hasValidProjRows ? tkt : null, orcTkt > 0 ? orcTkt : null, true)}
                       </p>
+                      {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? tkt : null, orcTkt > 0 ? orcTkt : null, true)}</div>}
                     </div>
                     <div>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Receita</p>
-                      <p className="text-base font-bold text-gray-900 dark:text-white">
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Receita Total</p>
+                      <p className="text-2xl font-extrabold text-gray-900 dark:text-white leading-tight">
                         {hasValidProjRows || !isProj ? (receita > 0 ? formatCurrency(receita) : 'R$ 0,00') : '—'}
-                        {isProj && deltaBadge(hasValidProjRows ? receita : null, orcReceita > 0 ? orcReceita : null, true)}
                       </p>
+                      {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? receita : null, orcReceita > 0 ? orcReceita : null, true)}</div>}
                     </div>
-                    <div>
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Margem%</p>
-                      <p className={`text-base font-bold ${margemPct !== null && margemPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : margemPct !== null ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
-                        {margemPct !== null ? `${margemPct.toFixed(1)}%` : '—'}
-                        {isProj && deltaBadge(hasValidProjRows ? margemPct : null, orcMargemPct, false, true)}
+                    <div className={`pt-3 border-t ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
+                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Margem (R$)</p>
+                      <p className={`text-2xl font-extrabold leading-tight ${margemVal !== null && margemVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : margemVal !== null ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
+                        {margemVal !== null ? formatCurrency(margemVal) : '—'}
                       </p>
+                      {margemVal !== null && receita > 0 && (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{((margemVal / receita) * 100).toFixed(1)}% da receita</p>
+                      )}
+                      {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? margemVal : null, orcMargemVal, true)}</div>}
                     </div>
                   </div>
                 </div>
@@ -3913,9 +3924,9 @@ const EventDetail: React.FC = () => {
               return (
                 <div>
                   <div className="grid grid-cols-3 gap-3 mb-6">
-                    {colCard('Orçado', isDark ? 'bg-gray-700/40 border-gray-600' : 'bg-gray-50 border-gray-200', orcQtd, orcTkt, orcReceita, orcMargemPct)}
-                    {colCard('Real Atual', isDark ? 'bg-blue-900/20 border-blue-700' : 'bg-blue-50 border-blue-200', realQtd, realTkt, realReceita, realMargemPct)}
-                    {colCard('Projetado', isDark ? 'bg-purple-900/20 border-purple-700' : 'bg-purple-50 border-purple-200', projQtd, projTkt, projReceita, projMargemPct, true)}
+                    {colCard('Orçado', isDark ? 'bg-gray-700/40 border-gray-600' : 'bg-gray-50 border-gray-200', 'text-gray-500 dark:text-gray-400', orcQtd, orcTkt, orcReceita, orcMargemVal)}
+                    {colCard('Real Atual', isDark ? 'bg-blue-900/20 border-blue-700' : 'bg-blue-50 border-blue-200', 'text-blue-600 dark:text-blue-400', realQtd, realTkt, realReceita, realMargemVal)}
+                    {colCard('Projetado', isDark ? 'bg-purple-900/20 border-purple-700' : 'bg-purple-50 border-purple-200', 'text-purple-600 dark:text-purple-400', projQtd, projTkt, projReceita, projMargemVal, true)}
                   </div>
 
                   <div className="mb-2 flex items-center justify-between">
