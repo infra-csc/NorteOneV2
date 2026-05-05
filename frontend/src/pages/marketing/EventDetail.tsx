@@ -3887,29 +3887,29 @@ const EventDetail: React.FC = () => {
                   <p className={`text-xs font-extrabold uppercase tracking-widest mb-4 ${titleColor}`}>{title}</p>
                   <div className="space-y-3">
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Qtd. Inscritos</p>
-                      <p className="text-2xl font-extrabold text-gray-900 dark:text-white leading-tight">
+                      <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-0.5">Qtd. Inscritos</p>
+                      <p className="text-base font-bold text-gray-900 dark:text-white">
                         {hasValidProjRows || !isProj ? (qtd > 0 ? formatNumber(qtd) : '0') : '—'}
                       </p>
                       {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? qtd : null, orcQtd > 0 ? orcQtd : null)}</div>}
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Ticket Médio</p>
-                      <p className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 leading-tight">
+                      <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-0.5">Ticket Médio</p>
+                      <p className="text-base font-bold text-blue-600 dark:text-blue-400">
                         {hasValidProjRows || !isProj ? (tkt > 0 ? formatCurrency(tkt) : '—') : '—'}
                       </p>
                       {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? tkt : null, orcTkt > 0 ? orcTkt : null, true)}</div>}
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Receita Total</p>
-                      <p className="text-2xl font-extrabold text-gray-900 dark:text-white leading-tight">
+                      <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-0.5">Receita Total</p>
+                      <p className="text-base font-bold text-gray-900 dark:text-white">
                         {hasValidProjRows || !isProj ? (receita > 0 ? formatCurrency(receita) : 'R$ 0,00') : '—'}
                       </p>
                       {isProj && <div className="mt-0.5">{deltaBadge(hasValidProjRows ? receita : null, orcReceita > 0 ? orcReceita : null, true)}</div>}
                     </div>
                     <div className={`pt-3 border-t ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
-                      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">Margem (R$)</p>
-                      <p className={`text-2xl font-extrabold leading-tight ${margemVal !== null && margemVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : margemVal !== null ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
+                      <p className="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-0.5">Margem (R$)</p>
+                      <p className={`text-base font-bold ${margemVal !== null && margemVal >= 0 ? 'text-emerald-600 dark:text-emerald-400' : margemVal !== null ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'}`}>
                         {margemVal !== null ? formatCurrency(margemVal) : '—'}
                       </p>
                       {margemVal !== null && receita > 0 && (
