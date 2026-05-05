@@ -3832,15 +3832,22 @@ const EventDetail: React.FC = () => {
               const realTkt = event?.averageTicket ?? 0;
               const realMargemPct = event?.margemRealizadaPct ?? null;
 
-              const custoKitUnit: number | null = (() => {
+              const { custoKitUnit, custoKitNome } = (() => {
                 if (event?.margemPorKit && event.margemPorKit.length > 0) {
+                  const isBasico = (nome: string) =>
+                    /b[áa]sico/i.test(nome) || /kit.?b[áa]s/i.test(nome);
+
                   const kitsComCusto = event.margemPorKit.filter(k => k.custoKit !== null && k.custoKit !== undefined && k.qtd > 0);
                   if (kitsComCusto.length > 0) {
-                    const totalQtd = kitsComCusto.reduce((s, k) => s + k.qtd, 0);
-                    return kitsComCusto.reduce((s, k) => s + (k.custoKit ?? 0) * k.qtd, 0) / totalQtd;
+                    const kitsBas = kitsComCusto.filter(k => isBasico(k.tipoKit));
+                    const kitsAlvo = kitsBas.length > 0 ? kitsBas : kitsComCusto;
+                    const totalQtd = kitsAlvo.reduce((s, k) => s + k.qtd, 0);
+                    const custo = kitsAlvo.reduce((s, k) => s + (k.custoKit ?? 0) * k.qtd, 0) / totalQtd;
+                    const nome = kitsBas.length > 0 ? kitsAlvo[0].tipoKit : 'média ponderada';
+                    return { custoKitUnit: custo, custoKitNome: nome };
                   }
                 }
-                return (event?.kitCostPerUnit ?? null) as number | null;
+                return { custoKitUnit: (event?.kitCostPerUnit ?? null) as number | null, custoKitNome: 'kit' };
               })();
 
               const projRows = projetadoFaixas
@@ -3942,7 +3949,7 @@ const EventDetail: React.FC = () => {
                     <div className="flex items-center gap-3">
                       {custoKitUnit !== null && (
                         <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                          Custo kit usado: {formatCurrency(custoKitUnit)}/unid.
+                          Custo usado ({custoKitNome}): {formatCurrency(custoKitUnit)}/unid.
                         </span>
                       )}
                       {projetadoFaixas.length > 0 && (
