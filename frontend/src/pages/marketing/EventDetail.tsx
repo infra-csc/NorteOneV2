@@ -294,6 +294,20 @@ const EventDetail: React.FC = () => {
   const PREPARING_GIVE_UP_MS = 3 * 60 * 1000;
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
+  const projFaixasHydratedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!id || projFaixasHydratedRef.current !== id) return;
+    try {
+      if (projetadoFaixas.length === 0) {
+        localStorage.removeItem(`proj_faixas_${id}`);
+      } else {
+        localStorage.setItem(`proj_faixas_${id}`, JSON.stringify(projetadoFaixas));
+      }
+    } catch {
+    }
+  }, [id, projetadoFaixas]);
+
   const abortControllerRef = useRef<AbortController | null>(null);
   const curvaAbortRef = useRef<AbortController | null>(null);
   const staleRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -304,7 +318,24 @@ const EventDetail: React.FC = () => {
     setIsPreparing(false);
     setPreparingGaveUp(false);
     setSimuladorFaixas(false);
-    setProjetadoFaixas([]);
+    if (id) {
+      try {
+        const saved = localStorage.getItem(`proj_faixas_${id}`);
+        const parsed = saved ? JSON.parse(saved) : [];
+        const isValid = Array.isArray(parsed) && parsed.every(
+          (r: unknown) => r !== null && typeof r === 'object' &&
+            'id' in (r as object) && 'nome' in (r as object) &&
+            'preco' in (r as object) && 'qtd' in (r as object)
+        );
+        setProjetadoFaixas(isValid ? parsed : []);
+      } catch {
+        setProjetadoFaixas([]);
+      }
+      projFaixasHydratedRef.current = id;
+    } else {
+      setProjetadoFaixas([]);
+      projFaixasHydratedRef.current = null;
+    }
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -3845,11 +3876,24 @@ const EventDetail: React.FC = () => {
 
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Faixas Projetadas</p>
-                    {custoKitUnit !== null && (
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                        Custo kit usado: {formatCurrency(custoKitUnit)}/unid.
-                      </span>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {custoKitUnit !== null && (
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                          Custo kit usado: {formatCurrency(custoKitUnit)}/unid.
+                        </span>
+                      )}
+                      {projetadoFaixas.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setProjetadoFaixas([]);
+                            if (id) localStorage.removeItem(`proj_faixas_${id}`);
+                          }}
+                          className="text-[10px] font-semibold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+                        >
+                          Limpar projeção
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
