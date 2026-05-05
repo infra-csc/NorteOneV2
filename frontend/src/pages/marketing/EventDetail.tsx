@@ -3967,7 +3967,7 @@ const EventDetail: React.FC = () => {
                       <thead>
                         <tr className={`border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
                           <th className="text-left py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Faixa</th>
-                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Preço (R$)</th>
+                          <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Ticket Médio</th>
                           <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
                           <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">Receita</th>
                           <th className="text-right py-2 px-2 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
