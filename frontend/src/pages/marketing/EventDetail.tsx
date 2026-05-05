@@ -25,7 +25,8 @@ import {
   TableProperties,
   ChevronDown,
   ChevronUp,
-  Archive
+  Archive,
+  Sliders
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -247,6 +248,8 @@ const EventDetail: React.FC = () => {
   const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
   const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
   const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(null);
+  const [simuladorFaixas, setSimuladorFaixas] = useState(false);
+  const [projetadoFaixas, setProjetadoFaixas] = useState<{ id: string; nome: string; preco: string; qtd: string }[]>([]);
   const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number; custo_kit?: number; margem_orcada?: number; margem_realizada?: number } } | null>(null);
   const [avisos, setAvisos] = useState<string[]>([]);
   const [curvaData, setCurvaData] = useState<any[]>([]);
@@ -3673,56 +3676,277 @@ const EventDetail: React.FC = () => {
 
       {faixasPrecoSite && (faixasPrecoSite.kit_basico.length > 0 || faixasPrecoSite.kit_participacao.length > 0) && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-            <DollarSign className="w-4 h-4 text-blue-500" />
-            Faixas de Preço Site (Orçado)
-          </h3>
-          <div className="space-y-4">
-            {(['kit_basico', 'kit_participacao'] as const).map((tipoKit) => {
-              const faixas = faixasPrecoSite[tipoKit];
-              if (faixas.length === 0) return null;
-              const totalQtd = faixas.reduce((s, f) => s + f.qtd, 0);
-              const totalReceita = faixas.reduce((s, f) => s + f.total, 0);
-              const tktMedioGlobal = totalQtd > 0 ? totalReceita / totalQtd : 0;
-              const label = tipoKit === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-blue-500" />
+              Faixas de Preço Site (Orçado)
+            </h3>
+            <button
+              onClick={() => setSimuladorFaixas(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                simuladorFaixas
+                  ? 'bg-purple-600 text-white hover:bg-purple-700'
+                  : 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-200 dark:border-purple-700'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              {simuladorFaixas ? 'Fechar Simulador' : 'Simulador'}
+            </button>
+          </div>
+
+          {!simuladorFaixas ? (
+            <div className="space-y-4">
+              {(['kit_basico', 'kit_participacao'] as const).map((tipoKit) => {
+                const faixas = faixasPrecoSite[tipoKit];
+                if (faixas.length === 0) return null;
+                const totalQtd = faixas.reduce((s, f) => s + f.qtd, 0);
+                const totalReceita = faixas.reduce((s, f) => s + f.total, 0);
+                const tktMedioGlobal = totalQtd > 0 ? totalReceita / totalQtd : 0;
+                const label = tipoKit === 'kit_basico' ? 'Kit Básico' : 'Kit Participação';
+                return (
+                  <div key={tipoKit}>
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{label}</p>
+                    <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className={`border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                            <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Faixa</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Tkt Médio</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Total</th>
+                            <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {faixas.map((f, i) => (
+                            <tr key={i} className={`border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30`}>
+                              <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">Faixa {f.faixa}</td>
+                              <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(f.qtd)}</td>
+                              <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400 font-medium">{formatCurrency(f.tkt_medio)}</td>
+                              <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(f.total)}</td>
+                              <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">{totalQtd > 0 ? ((f.qtd / totalQtd) * 100).toFixed(1) : '0.0'}%</td>
+                            </tr>
+                          ))}
+                          <tr className={`font-semibold ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                            <td className="py-2 px-3 text-gray-900 dark:text-white">Total</td>
+                            <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatNumber(totalQtd)}</td>
+                            <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">{formatCurrency(tktMedioGlobal)}</td>
+                            <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatCurrency(totalReceita)}</td>
+                            <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">100%</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* ── SIMULATOR MODE ── */
+            (() => {
+              const allFaixas = [...faixasPrecoSite.kit_basico, ...faixasPrecoSite.kit_participacao];
+              const orcQtd = allFaixas.reduce((s, f) => s + f.qtd, 0);
+              const orcReceita = allFaixas.reduce((s, f) => s + f.total, 0);
+              const orcTkt = orcQtd > 0 ? orcReceita / orcQtd : 0;
+              const orcMargemPct = event?.margemOrcadaPct ?? null;
+
+              const realQtd = event?.currentSales ?? 0;
+              const realReceita = event?.currentReceita ?? 0;
+              const realTkt = event?.averageTicket ?? 0;
+              const realMargemPct = event?.margemRealizadaPct ?? null;
+
+              const custoKitUnit: number | null = (() => {
+                if (event?.margemPorKit && event.margemPorKit.length > 0) {
+                  const kitsComCusto = event.margemPorKit.filter(k => k.custoKit !== null && k.custoKit !== undefined && k.qtd > 0);
+                  if (kitsComCusto.length > 0) {
+                    const totalQtd = kitsComCusto.reduce((s, k) => s + k.qtd, 0);
+                    return kitsComCusto.reduce((s, k) => s + (k.custoKit ?? 0) * k.qtd, 0) / totalQtd;
+                  }
+                }
+                return (event?.kitCostPerUnit ?? null) as number | null;
+              })();
+
+              const projRows = projetadoFaixas
+                .map(r => ({ ...r, precoN: parseFloat(r.preco.replace(',', '.')) || 0, qtdN: parseInt(r.qtd, 10) || 0 }))
+                .filter(r => r.precoN > 0 && r.qtdN > 0);
+              const projQtd = projRows.reduce((s, r) => s + r.qtdN, 0);
+              const projReceita = projRows.reduce((s, r) => s + r.precoN * r.qtdN, 0);
+              const projTkt = projQtd > 0 ? projReceita / projQtd : 0;
+              const projMargemPct: number | null = (custoKitUnit !== null && projReceita > 0)
+                ? ((projReceita - custoKitUnit * projQtd) / projReceita) * 100
+                : null;
+
+              const deltaBadge = (proj: number | null, orc: number | null, isCurrency = false, isPct = false) => {
+                if (proj === null || orc === null || orc === 0) return null;
+                const diff = proj - orc;
+                const pctDiff = (diff / Math.abs(orc)) * 100;
+                const isPos = diff >= 0;
+                return (
+                  <span className={`ml-1 text-[10px] font-bold px-1 py-0.5 rounded ${isPos ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'}`}>
+                    {isPos ? '▲' : '▼'}{isPct ? `${Math.abs(diff).toFixed(1)}pp` : isCurrency ? formatCurrency(Math.abs(diff)) : formatNumber(Math.abs(diff))} ({Math.abs(pctDiff).toFixed(1)}%)
+                  </span>
+                );
+              };
+
+              const colCard = (
+                title: string,
+                accent: string,
+                qtd: number,
+                tkt: number,
+                receita: number,
+                margemPct: number | null,
+                isProj = false
+              ) => (
+                <div className={`rounded-xl border p-4 ${accent}`}>
+                  <p className="text-xs font-bold uppercase tracking-wider mb-3 text-gray-600 dark:text-gray-300">{title}</p>
+                  <div className="space-y-2.5">
+                    <div>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Qtd Inscr.</p>
+                      <p className="text-base font-bold text-gray-900 dark:text-white">
+                        {qtd > 0 ? formatNumber(qtd) : '—'}
+                        {isProj && deltaBadge(qtd || null, orcQtd || null)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Ticket Médio</p>
+                      <p className="text-base font-bold text-blue-600 dark:text-blue-400">
+                        {tkt > 0 ? formatCurrency(tkt) : '—'}
+                        {isProj && deltaBadge(tkt || null, orcTkt || null, true)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Receita</p>
+                      <p className="text-base font-bold text-gray-900 dark:text-white">
+                        {receita > 0 ? formatCurrency(receita) : '—'}
+                        {isProj && deltaBadge(receita || null, orcReceita || null, true)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Margem%</p>
+                      <p className={`text-base font-bold ${margemPct !== null && margemPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                        {margemPct !== null ? `${margemPct.toFixed(1)}%` : '—'}
+                        {isProj && deltaBadge(margemPct, orcMargemPct, false, true)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+
               return (
-                <div key={tipoKit}>
-                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{label}</p>
-                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                <div>
+                  <div className="grid grid-cols-3 gap-3 mb-6">
+                    {colCard('Orçado', isDark ? 'bg-gray-700/40 border-gray-600' : 'bg-gray-50 border-gray-200', orcQtd, orcTkt, orcReceita, orcMargemPct)}
+                    {colCard('Real Atual', isDark ? 'bg-blue-900/20 border-blue-700' : 'bg-blue-50 border-blue-200', realQtd, realTkt, realReceita, realMargemPct)}
+                    {colCard('Projetado', isDark ? 'bg-purple-900/20 border-purple-700' : 'bg-purple-50 border-purple-200', projQtd, projTkt, projReceita, projMargemPct, true)}
+                  </div>
+
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Faixas Projetadas</p>
+                    {custoKitUnit !== null && (
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                        Custo kit usado: {formatCurrency(custoKitUnit)}/unid.
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mb-3">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className={`border-b ${isDark ? 'bg-gray-700/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
                           <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Faixa</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Preço (R$)</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Qtd</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Tkt Médio</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Total</th>
+                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">Receita</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400">% Qtd</th>
+                          <th className="py-2 px-2"></th>
                         </tr>
                       </thead>
                       <tbody>
-                        {faixas.map((f, i) => (
-                          <tr key={i} className={`border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30`}>
-                            <td className="py-2 px-3 font-medium text-gray-900 dark:text-white">Faixa {f.faixa}</td>
-                            <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatNumber(f.qtd)}</td>
-                            <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400 font-medium">{formatCurrency(f.tkt_medio)}</td>
-                            <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(f.total)}</td>
-                            <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">{totalQtd > 0 ? ((f.qtd / totalQtd) * 100).toFixed(1) : '0.0'}%</td>
+                        {projetadoFaixas.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="py-6 text-center text-xs text-gray-400 dark:text-gray-500">
+                              Nenhuma faixa projetada. Clique em "+ Adicionar Faixa" para começar.
+                            </td>
                           </tr>
-                        ))}
-                        <tr className={`font-semibold ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
-                          <td className="py-2 px-3 text-gray-900 dark:text-white">Total</td>
-                          <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatNumber(totalQtd)}</td>
-                          <td className="py-2 px-3 text-right text-blue-600 dark:text-blue-400">{formatCurrency(tktMedioGlobal)}</td>
-                          <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatCurrency(totalReceita)}</td>
-                          <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">100%</td>
-                        </tr>
+                        )}
+                        {projetadoFaixas.map((row) => {
+                          const precoN = parseFloat(row.preco.replace(',', '.')) || 0;
+                          const qtdN = parseInt(row.qtd, 10) || 0;
+                          const rowReceita = precoN * qtdN;
+                          const pctQtd = projQtd > 0 && qtdN > 0 ? ((qtdN / projQtd) * 100).toFixed(1) : '—';
+                          return (
+                            <tr key={row.id} className={`border-b border-gray-100 dark:border-gray-700/50`}>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="text"
+                                  value={row.nome}
+                                  placeholder="Ex: Lote 1"
+                                  onChange={e => setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, nome: e.target.value } : r))}
+                                  className="w-full text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                />
+                              </td>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={row.preco}
+                                  placeholder="0,00"
+                                  onChange={e => setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, preco: e.target.value } : r))}
+                                  className="w-24 text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                />
+                              </td>
+                              <td className="py-1.5 px-2">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={row.qtd}
+                                  placeholder="0"
+                                  onChange={e => setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, qtd: e.target.value } : r))}
+                                  className="w-20 text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                />
+                              </td>
+                              <td className="py-1.5 px-3 text-right text-xs text-gray-700 dark:text-gray-300 font-medium">
+                                {rowReceita > 0 ? formatCurrency(rowReceita) : '—'}
+                              </td>
+                              <td className="py-1.5 px-3 text-right text-xs text-gray-500 dark:text-gray-400">
+                                {pctQtd}{pctQtd !== '—' ? '%' : ''}
+                              </td>
+                              <td className="py-1.5 px-2 text-center">
+                                <button
+                                  onClick={() => setProjetadoFaixas(prev => prev.filter(r => r.id !== row.id))}
+                                  className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {projetadoFaixas.length > 0 && projQtd > 0 && (
+                          <tr className={`font-semibold text-xs ${isDark ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+                            <td className="py-2 px-3 text-gray-700 dark:text-gray-300">Total</td>
+                            <td className="py-2 px-3 text-right text-gray-700 dark:text-gray-300">{formatCurrency(projTkt)}</td>
+                            <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatNumber(projQtd)}</td>
+                            <td className="py-2 px-3 text-right text-gray-900 dark:text-white">{formatCurrency(projReceita)}</td>
+                            <td className="py-2 px-3 text-right text-gray-500 dark:text-gray-400">100%</td>
+                            <td></td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
+
+                  <button
+                    onClick={() => setProjetadoFaixas(prev => [...prev, { id: `${Date.now()}`, nome: '', preco: '', qtd: '' }])}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Adicionar Faixa
+                  </button>
                 </div>
               );
-            })}
-          </div>
+            })()
+          )}
         </div>
       )}
 
