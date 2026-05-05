@@ -58,11 +58,11 @@ const DeltaBadge: React.FC<{ value: number; small?: boolean }> = ({ value, small
 };
 
 const MargemBadge: React.FC<{ value: number; small?: boolean }> = ({ value, small }) => {
-  const positive = value >= 0;
+  const { isDark } = useTheme();
   const size = small ? 'text-xs' : 'text-sm';
   return (
     <div className="flex flex-col items-end">
-      <span className={`${size} font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+      <span className={`${size} font-bold ${isDark ? 'text-blue-300/80' : 'text-blue-600/80'}`}>
         {formatCurrency(value)}
       </span>
     </div>
