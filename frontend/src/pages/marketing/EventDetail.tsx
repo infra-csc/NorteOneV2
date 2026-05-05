@@ -4002,9 +4002,12 @@ const EventDetail: React.FC = () => {
                                 <input
                                   type="text"
                                   inputMode="numeric"
-                                  value={row.qtd}
+                                  value={row.qtd ? (parseInt(row.qtd, 10) || 0) > 0 ? (parseInt(row.qtd, 10)).toLocaleString('pt-BR') : row.qtd : row.qtd}
                                   placeholder="0"
-                                  onChange={e => setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, qtd: e.target.value } : r))}
+                                  onChange={e => {
+                                    const raw = e.target.value.replace(/\./g, '').replace(/\D/g, '');
+                                    setProjetadoFaixas(prev => prev.map(r => r.id === row.id ? { ...r, qtd: raw } : r));
+                                  }}
                                   className="w-full text-xs bg-transparent border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-right text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500"
                                 />
                               </td>
