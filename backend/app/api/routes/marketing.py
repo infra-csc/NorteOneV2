@@ -4481,6 +4481,15 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
             )
         except Exception as _cls_err:
             logger.warning(f"[ISC] Regime classification failed: {_cls_err}")
+            # SSL drops or other connection failures leave the session in an
+            # invalid transaction state. Rollback here so STEP 2 can reuse the
+            # same session without getting "Can't reconnect until invalid
+            # transaction is rolled back".
+            if db:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
 
     # ---------------------------------------------------------------------------
     # STEP 2: Read ALL grupo metrics from PostgreSQL snapshot table (<5ms).
@@ -4509,6 +4518,11 @@ def fetch_isc_pricing_data(db: Optional[Session] = None, force_refresh: bool = F
             )
         except Exception as e:
             logger.error(f"[ISC] Erro ao ler snapshot PostgreSQL: {e}")
+            # Ensure session is clean for subsequent callers even after failure
+            try:
+                db.rollback()
+            except Exception:
+                pass
             warnings.append("⚠️ Erro ao ler dados do PostgreSQL. Dashboard pode exibir valores desatualizados.")
 
     # ---------------------------------------------------------------------------

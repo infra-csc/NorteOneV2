@@ -12,7 +12,7 @@ _db_logger = logging.getLogger(__name__)
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_recycle=300,
     pool_size=25,
     max_overflow=50,
     pool_timeout=30
