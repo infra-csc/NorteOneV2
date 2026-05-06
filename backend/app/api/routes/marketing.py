@@ -5185,7 +5185,18 @@ def get_marketing_events(
             "avisos": ["Estamos preparando os eventos. Em alguns segundos a lista aparece aqui."],
         }
     # Caminho interno (warmup/SWR): executa o caminho completo abaixo.
-    
+
+    # Coleta IDs de snapshots já existentes para este ano — usados adiante para
+    # "bootstrap" de grupos sem snapshot (sem abrir queries individuais no loop).
+    _existing_snapshot_ids: set[str] = set()
+    if _is_internal_call and not status and not categoria and not busca:
+        try:
+            from ...services.event_detail_snapshot_service import EventoDetailSnapshot as _EDS
+            _snap_id_rows = db.query(_EDS.evento_id).filter(_EDS.ano == ano).all()
+            _existing_snapshot_ids = {r[0] for r in _snap_id_rows}
+        except Exception:
+            pass
+
     isc_cfg = _get_isc_settings(db)
     
     cadastro_query = db.query(CadastroEvento)
@@ -5435,7 +5446,23 @@ def get_marketing_events(
             **grupo_margin
         )
         eventos.append(evento)
-    
+
+        # Bootstrap: salva snapshot para grupos sem registro persistido,
+        # garantindo que apareçam no aggregate após restarts do servidor.
+        if _is_internal_call and evento.id not in _existing_snapshot_ids:
+            try:
+                from ...services.event_detail_snapshot_service import save_persisted_detail as _spd
+                _spd(
+                    db, evento.id, ano,
+                    {"evento": evento.model_dump(mode="json")},
+                    data_evento=projeto_data_evento,
+                    is_completed=not is_active,
+                )
+                _existing_snapshot_ids.add(evento.id)
+                logger.info(f"[EventosList] snapshot bootstrap salvo para {evento.id} ano={ano}")
+            except Exception as _snap_e:
+                logger.debug(f"[EventosList] snapshot bootstrap falhou para {evento.id}: {_snap_e}")
+
     for projeto in standalone_projetos:
         projeto_codigo = str(projeto.codigo) if projeto.codigo else None
         if not projeto_codigo:
@@ -5562,7 +5589,22 @@ def get_marketing_events(
             **standalone_margin
         )
         eventos.append(evento)
-    
+
+        # Bootstrap: salva snapshot para standalone sem registro persistido.
+        if _is_internal_call and evento.id not in _existing_snapshot_ids:
+            try:
+                from ...services.event_detail_snapshot_service import save_persisted_detail as _spd
+                _spd(
+                    db, evento.id, ano,
+                    {"evento": evento.model_dump(mode="json")},
+                    data_evento=projeto_data_evento,
+                    is_completed=not is_active,
+                )
+                _existing_snapshot_ids.add(evento.id)
+                logger.info(f"[EventosList] snapshot bootstrap salvo para standalone {evento.id} ano={ano}")
+            except Exception as _snap_e:
+                logger.debug(f"[EventosList] snapshot bootstrap falhou para standalone {evento.id}: {_snap_e}")
+
     eventos.sort(key=lambda e: (not e.isActive, e.dMinus))
     
     resumo = DashboardSummary(
