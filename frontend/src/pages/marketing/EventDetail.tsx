@@ -199,6 +199,12 @@ function normalizeExpectedOutliers<T extends _ExpectedItem>(
   });
 }
 
+// Rastreia eventos que já foram carregados completamente nesta sessão.
+// Persiste entre desmontagens/remontagens do componente (module-level).
+// Garante que o banner de "Atualizando..." só aparece na primeira visita
+// a um evento — visitas subsequentes atualizam os dados silenciosamente.
+const _loadedEventIds = new Set<string>();
+
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -397,7 +403,11 @@ const EventDetail: React.FC = () => {
         }
         // Banner com delay: só mostra se o request demorar mais que o threshold.
         // Para o caminho do snapshot (200ms típico), nunca chega a aparecer.
-        if (!silent && (forceRefresh || previewEvent)) {
+        // Na primeira visita ao evento (id não está em _loadedEventIds) o banner
+        // pode aparecer se a API demorar. Em visitas subsequentes, o evento já
+        // foi carregado e a atualização acontece silenciosamente — sem banner.
+        const _alreadyLoaded = _loadedEventIds.has(id ?? '');
+        if (!silent && (forceRefresh || (previewEvent && !_alreadyLoaded))) {
           if (detailsLoadingTimerRef.current) clearTimeout(detailsLoadingTimerRef.current);
           detailsLoadingTimerRef.current = setTimeout(() => {
             if (!controller.signal.aborted) setDetailsLoading(true);
@@ -502,6 +512,8 @@ const EventDetail: React.FC = () => {
           setCenariosCiclismo(null);
         }
         setAvisos((response as any).avisos || []);
+        // Marca evento como carregado para visitas futuras (sem banner).
+        if (id) _loadedEventIds.add(id);
         setError(null);
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
