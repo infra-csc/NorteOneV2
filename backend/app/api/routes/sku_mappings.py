@@ -23,9 +23,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
 
 
-def _invalidate_all_marketing_caches():
+def _proactive_eventos_list_refresh(ano: int):
+    """Dispara um refresh completo da lista de eventos em background,
+    sem esperar por uma requisição do usuário.
+    Garante que novos grupos/mappings apareçam no ISC imediatamente.
+    """
+    import threading
+
+    def _runner():
+        try:
+            from app.core.database import SessionLocal
+            from app.api.routes.marketing import get_marketing_events
+            _db = SessionLocal()
+            try:
+                get_marketing_events(ano=ano, db=_db, current_user=None)
+                logger.info(f"[SKUMapping] Proactive eventos_list refresh concluído ano={ano}")
+            finally:
+                _db.close()
+        except Exception as e:
+            logger.warning(f"[SKUMapping] Proactive eventos_list refresh falhou: {e}")
+
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+def _invalidate_all_marketing_caches(trigger_refresh: bool = True):
     """Invalida todos os caches de marketing (ISC, detalhe de evento, lista de eventos).
     Deve ser chamado sempre que mapeamentos SKU ou grupos de eventos forem alterados.
+    Se trigger_refresh=True (padrão), dispara imediatamente um refresh da lista
+    para que novos eventos apareçam sem esperar requisição do usuário.
     """
     try:
         from app.core.cache import isc_cache as _smart_isc_cache, event_detail_cache, eventos_list_cache
@@ -34,6 +59,14 @@ def _invalidate_all_marketing_caches():
         eventos_list_cache.invalidate()
     except Exception as e:
         logger.warning(f"Falha ao invalidar caches de marketing: {e}")
+
+    if trigger_refresh:
+        try:
+            from datetime import datetime as _dt
+            _ano = _dt.now().year
+            _proactive_eventos_list_refresh(_ano)
+        except Exception as e:
+            logger.warning(f"Falha ao disparar proactive refresh: {e}")
 
 
 def _invalidate_curva_cache(evento_grupo: str, ano: int, db: Session = None):
