@@ -2763,11 +2763,14 @@ def get_margem_por_kit(
                 _cnt_snap_loaded = False
                 if not force_refresh:
                     _cnt_snap_data, _cnt_snap_age_h = _load_snapshot_qtd(max_age_h=_snapshot_max_age_h)
-                    # Aceita snapshot fresco SOMENTE se trouxer algo (>0). Snapshots antigos
-                    # zerados (legado, antes da coluna ser preenchida) não devem mascarar
-                    # uma chamada LIVE bem-sucedida. Em evento finalizado, snapshot é
-                    # autoridade absoluta — usa qualquer idade.
-                    if _cnt_snap_data and any(v > 0 for v in _cnt_snap_data.values()):
+                    # Aceita snapshot fresco (< max_age_h) mesmo que todos os valores
+                    # sejam 0. A filtragem por max_age_h já garante que snapshots
+                    # antigos/legados nunca chegam aqui — a checagem extra de "any > 0"
+                    # era desnecessária e prejudicial: forçava uma query ao vivo no
+                    # Magento (47s+, sujeita a timeout) para eventos sem vendas ou
+                    # cujo batch não teve tempo de gravar a contagem. Em evento
+                    # finalizado, snapshot é autoridade absoluta (max_age_h = None).
+                    if _cnt_snap_data is not None:
                         qtd_by_bid = dict(_cnt_snap_data)
                         _margem_cnt_cache[_cnt_cache_key] = (dict(qtd_by_bid), _cnt_now_mono)
                         _cnt_snap_loaded = True

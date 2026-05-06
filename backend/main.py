@@ -79,16 +79,17 @@ def _scheduled_sincronizar_hoje():
 
 
 def _scheduled_margem_rev_safety_check():
-    """Rede de segurança: a cada tick do scheduler, verifica a idade do snapshot
-    margem_bundle_rev_snapshot. Se passou de 25h (mesmo critério usado pelo
-    consumidor em routes/marketing.py), dispara o sync.
+    """Rede de segurança: a cada tick do scheduler, verifica a idade E a cobertura
+    do snapshot margem_bundle_rev_snapshot. Dispara o sync se:
+      - snapshot passou de 25h (critério do consumidor em routes/marketing.py), OU
+      - cobertura de bundles < 85% (batch foi interrompido a meio).
 
     Garantia: mesmo se o startup hook não tiver disparado e o job das 4h falhar,
     o snapshot é refrescado dentro de no máximo o intervalo do scheduler (45min).
-    A checagem em si é barata: um único SELECT MAX(calculado_em).
     """
     from app.core.database import SessionLocal
     from app.models.vendas_snapshot import MargemBundleRevSnapshot
+    from app.models.kit_config import KitConfig as _KC_sc
     from app.services.snapshot_service import sincronizar_margem_bundle_rev_batch
     from sqlalchemy import func as _sfunc
     from datetime import datetime as _dt, timezone as _tz
@@ -110,7 +111,26 @@ def _scheduled_margem_rev_safety_check():
                 _needs_sync = True
                 _motivo = f"desatualizado ({_age_h:.1f}h > {_MAX_AGE_H}h)"
             else:
-                logger.debug(f"[SafetyCheck] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h) — nada a fazer")
+                # Além da idade, verifica cobertura de bundles: se o batch anterior
+                # foi interrompido, MAX(calculado_em) parece "fresco" mas muitos
+                # bundles não têm entrada. Threshold: < 85% dos bundles do kit_config.
+                try:
+                    _total_snap = db.query(_sfunc.count(MargemBundleRevSnapshot.bundle_entity_id)).scalar() or 0
+                    _expected = db.query(
+                        _sfunc.count(_sfunc.distinct(_KC_sc.bundle_entity_id))
+                    ).filter(_KC_sc.tipo_kit.isnot(None)).scalar() or 0
+                    _coverage = _total_snap / _expected if _expected > 0 else 1.0
+                    if _coverage < 0.85:
+                        _needs_sync = True
+                        _motivo = f"cobertura baixa ({_total_snap}/{_expected} = {_coverage:.0%})"
+                    else:
+                        logger.debug(
+                            f"[SafetyCheck] margem_bundle_rev_snapshot OK "
+                            f"({_age_h:.1f}h, {_total_snap}/{_expected} bundles = {_coverage:.0%})"
+                        )
+                except Exception as _cov_err:
+                    logger.warning(f"[SafetyCheck] Erro ao checar cobertura: {_cov_err}")
+                    logger.debug(f"[SafetyCheck] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h) — nada a fazer")
         if _needs_sync:
             logger.warning(f"[SafetyCheck] margem_bundle_rev_snapshot {_motivo} — disparando sync de emergência")
             try:
@@ -1547,6 +1567,7 @@ async def lifespan(app: FastAPI):
             try:
                 from app.core.database import SessionLocal as _SL2
                 from app.models.vendas_snapshot import MargemBundleRevSnapshot as _MBR2
+                from app.models.kit_config import KitConfig as _KC2
                 from app.services.snapshot_service import sincronizar_margem_bundle_rev_batch as _smrb
                 from sqlalchemy import func as _sfunc2
                 from datetime import datetime as _dt_m, timezone as _tz_m
@@ -1555,6 +1576,7 @@ async def lifespan(app: FastAPI):
                     _total = _db2.query(_MBR2).count()
                     _empty = _total == 0
                     _stale = False
+                    _low_coverage = False
                     _age_h = None
                     if not _empty:
                         # Idade considerada pelo consumidor em routes/marketing.py
@@ -1569,13 +1591,40 @@ async def lifespan(app: FastAPI):
                                 _newest_ts = _newest_ts.replace(tzinfo=_tz_m.utc)
                             _age_h = (_dt_m.now(_tz_m.utc) - _newest_ts).total_seconds() / 3600
                             _stale = _age_h > _MAX_AGE_H
-                    if _empty or _stale:
-                        _motivo = "vazio" if _empty else f"desatualizado ({_age_h:.1f}h > 25h)"
+
+                        # Cobertura: checamos se todos os bundles esperados (kit_config)
+                        # têm uma entrada no snapshot. MAX(calculado_em) reporta "fresco"
+                        # mesmo que o batch tenha sido interrompido no meio — bundles
+                        # processados depois da interrupção nunca são gravados e sempre
+                        # caem na query ao vivo do Magento (timeout de 47s).
+                        # Critério: se < 85% dos bundles estão cobertos, re-sync.
+                        if not _stale:
+                            try:
+                                _expected = _db2.query(
+                                    _sfunc2.count(_sfunc2.distinct(_KC2.bundle_entity_id))
+                                ).filter(_KC2.tipo_kit.isnot(None)).scalar() or 0
+                                _coverage = _total / _expected if _expected > 0 else 1.0
+                                if _coverage < 0.85:
+                                    _low_coverage = True
+                                    logger.warning(
+                                        f"[Startup] margem_bundle_rev_snapshot cobertura baixa "
+                                        f"({_total}/{_expected} = {_coverage:.0%}) — disparando sync"
+                                    )
+                            except Exception as _cov_err:
+                                logger.warning(f"[Startup] Erro ao checar cobertura de bundles: {_cov_err}")
+
+                    if _empty or _stale or _low_coverage:
+                        _motivo = (
+                            "vazio" if _empty
+                            else f"cobertura baixa ({_total} bundles no snapshot)"
+                            if _low_coverage
+                            else f"desatualizado ({_age_h:.1f}h > 25h)"
+                        )
                         logger.info(f"[Startup] margem_bundle_rev_snapshot {_motivo} — disparando sync em background")
                         result = _smrb(_db2)
                         logger.info(f"[Startup] margem_bundle_rev_snapshot sync: {result}")
                     else:
-                        logger.info(f"[Startup] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h) — sync ignorado")
+                        logger.info(f"[Startup] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h, cobertura OK) — sync ignorado")
                 finally:
                     _db2.close()
             except Exception as _e_m:
