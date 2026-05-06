@@ -214,7 +214,6 @@ interface _EventDetailSnapshot {
   cachedAt: number;
 }
 const _eventDetailCache = new Map<string, _EventDetailSnapshot>();
-const _EVENT_DETAIL_CACHE_TTL_MS = 15 * 60 * 1000; // 15 min
 
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -230,7 +229,11 @@ const EventDetail: React.FC = () => {
   // evento já tiver sido aberto antes nesta sessão.
   const _detailCacheKey = `${id}_${anoParam ?? 'cur'}`;
   const _detailCached = _eventDetailCache.get(_detailCacheKey);
-  const _detailCacheFresh = !!(_detailCached && Date.now() - _detailCached.cachedAt < _EVENT_DETAIL_CACHE_TTL_MS);
+  // O cache dura a sessão inteira — sem TTL. O backend já aplica o overlay
+  // de hoje em cada resposta (apply_today_overlay), então os dados são
+  // sempre atualizados silenciosamente a cada visita. O "Atualizar Hoje"
+  // existe para o usuário forçar a atualização quando quiser.
+  const _detailCacheFresh = !!_detailCached;
   // Seed instantly with the snapshot the user already saw on the dashboard so the
   // transition is imperceptible. Fresh data overwrites it once the API responds.
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
