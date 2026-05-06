@@ -835,7 +835,12 @@ def get_unconfigured_summary(
     ):
         source = "cache"
         all_kits = _kits_cache["data"]
-        unconfigured = [k for k in all_kits if not k.is_configured]
+        unconfigured = [
+            k for k in all_kits
+            if not k.is_configured
+            and getattr(k, "status_kit", None) != "inativo"
+            and not getattr(k, "ignorado", False)
+        ]
     elif (
         _unconfigured_cache["data"] is not None
         and (now - _unconfigured_cache["ts"]) < _UNCONFIGURED_TTL
@@ -854,7 +859,11 @@ def get_unconfigured_summary(
             SELECT
                 cpe.entity_id                   AS bundle_entity_id,
                 cpev_event_name.value           AS nome_evento,
-                cpev_kit_name.value             AS nome_kit
+                cpev_kit_name.value             AS nome_kit,
+                CASE cpei_status.value
+                    WHEN 1 THEN 'ativo'
+                    WHEN 2 THEN 'inativo'
+                END                             AS status_kit
             FROM catalog_product_entity cpe
             JOIN catalog_product_entity_varchar cpev1
                 ON cpe.entity_id = cpev1.entity_id
@@ -868,6 +877,16 @@ def get_unconfigured_summary(
             LEFT JOIN catalog_product_entity_varchar cpev_kit_name
                 ON cpev_kit_name.entity_id = cpe.entity_id
                AND cpev_kit_name.attribute_id = 73
+            LEFT JOIN catalog_product_entity_int cpei_status
+                ON cpei_status.entity_id = cpe.entity_id
+               AND cpei_status.attribute_id = (
+                    SELECT attribute_id FROM eav_attribute
+                    WHERE attribute_code = 'status'
+                      AND entity_type_id = (
+                            SELECT entity_type_id FROM eav_entity_type
+                            WHERE entity_type_code = 'catalog_product'
+                      )
+               )
             WHERE cpe.type_id = 'bundle'
               AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
               AND cped_date.value <  DATE_FORMAT(CURDATE(), '%Y-01-01') + INTERVAL 1 YEAR
@@ -893,9 +912,14 @@ def get_unconfigured_summary(
             def __init__(self, row):
                 self.is_configured = int(row["bundle_entity_id"]) in all_configs
                 self.nome_evento = row.get("nome_evento") or "Evento desconhecido"
+                self.status_kit = row.get("status_kit")
 
         all_kits = [_FakeKit(r) for r in rows]
-        unconfigured = [k for k in all_kits if not k.is_configured]
+        unconfigured = [
+            k for k in all_kits
+            if not k.is_configured
+            and k.status_kit != "inativo"
+        ]
 
     # ── build summary ────────────────────────────────────────────────────
     event_counts: dict = {}
