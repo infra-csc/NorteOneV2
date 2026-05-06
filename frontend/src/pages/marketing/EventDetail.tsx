@@ -199,11 +199,22 @@ function normalizeExpectedOutliers<T extends _ExpectedItem>(
   });
 }
 
-// Rastreia eventos que já foram carregados completamente nesta sessão.
-// Persiste entre desmontagens/remontagens do componente (module-level).
-// Garante que o banner de "Atualizando..." só aparece na primeira visita
-// a um evento — visitas subsequentes atualizam os dados silenciosamente.
-const _loadedEventIds = new Set<string>();
+// Cache em memória do estado completo do evento (module-level).
+// Persiste entre navegações (o componente pode desmontar/remontar).
+// Garante que na segunda visita os gráficos aparecem imediatamente
+// e o banner de "Atualizando..." só aparece na primeira visita.
+interface _EventDetailSnapshot {
+  event: ExtendedEvent;
+  comparacaoAnual: any;
+  cenariosCiclismo: any;
+  faixasPrecoSite: any;
+  avisos: string[];
+  projetosVinculados: { id: number; nome: string; sku: string }[];
+  anosDisponiveis: number[];
+  cachedAt: number;
+}
+const _eventDetailCache = new Map<string, _EventDetailSnapshot>();
+const _EVENT_DETAIL_CACHE_TTL_MS = 15 * 60 * 1000; // 15 min
 
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -214,11 +225,19 @@ const EventDetail: React.FC = () => {
   const { permissions } = usePermissions();
   const isAdmin = permissions?.is_admin ?? false;
   const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
+  // Consulta o cache de módulo ANTES dos useState para que o estado seja
+  // inicializado com os dados completos (inclusive dailySales/gráficos) se o
+  // evento já tiver sido aberto antes nesta sessão.
+  const _detailCacheKey = `${id}_${anoParam ?? 'cur'}`;
+  const _detailCached = _eventDetailCache.get(_detailCacheKey);
+  const _detailCacheFresh = !!(_detailCached && Date.now() - _detailCached.cachedAt < _EVENT_DETAIL_CACHE_TTL_MS);
   // Seed instantly with the snapshot the user already saw on the dashboard so the
   // transition is imperceptible. Fresh data overwrites it once the API responds.
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
-  const [event, setEvent] = useState<ExtendedEvent | null>(previewEvent ? { ...previewEvent } : null);
-  const [loading, setLoading] = useState(!previewEvent);
+  const [event, setEvent] = useState<ExtendedEvent | null>(
+    _detailCacheFresh ? _detailCached!.event : (previewEvent ? { ...previewEvent } : null)
+  );
+  const [loading, setLoading] = useState(!_detailCacheFresh && !previewEvent);
   // Banner "Atualizando dados em tempo real..." aparece somente se a requisição
   // demorar mais que DETAILS_LOADING_DELAY_MS (caminho lento). Para respostas
   // rápidas (snapshot fresco em ~100ms), o banner nunca chega a aparecer e a
@@ -250,14 +269,14 @@ const EventDetail: React.FC = () => {
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [savingAction, setSavingAction] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>([]);
-  const [comparacaoAnual, setComparacaoAnual] = useState<any>(null);
-  const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>([]);
-  const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(null);
+  const [projetosVinculados, setProjetosVinculados] = useState<{id: number; nome: string; sku: string}[]>(_detailCacheFresh ? _detailCached!.projetosVinculados : []);
+  const [comparacaoAnual, setComparacaoAnual] = useState<any>(_detailCacheFresh ? _detailCached!.comparacaoAnual : null);
+  const [anosDisponiveis, setAnosDisponiveis] = useState<number[]>(_detailCacheFresh ? _detailCached!.anosDisponiveis : []);
+  const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(_detailCacheFresh ? _detailCached!.faixasPrecoSite : null);
   const [simuladorFaixas, setSimuladorFaixas] = useState(false);
   const [projetadoFaixas, setProjetadoFaixas] = useState<{ id: string; nome: string; preco: string; qtd: string }[]>([]);
-  const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number; custo_kit?: number; margem_orcada?: number; margem_realizada?: number } } | null>(null);
-  const [avisos, setAvisos] = useState<string[]>([]);
+  const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number; custo_kit?: number; margem_orcada?: number; margem_realizada?: number } } | null>(_detailCacheFresh ? _detailCached!.cenariosCiclismo : null);
+  const [avisos, setAvisos] = useState<string[]>(_detailCacheFresh ? _detailCached!.avisos : []);
   const [curvaData, setCurvaData] = useState<any[]>([]);
   const [curvaMeta, setCurvaMeta] = useState<any>(null);
   const [showOverrideModal, setShowOverrideModal] = useState(false);
@@ -403,11 +422,9 @@ const EventDetail: React.FC = () => {
         }
         // Banner com delay: só mostra se o request demorar mais que o threshold.
         // Para o caminho do snapshot (200ms típico), nunca chega a aparecer.
-        // Na primeira visita ao evento (id não está em _loadedEventIds) o banner
-        // pode aparecer se a API demorar. Em visitas subsequentes, o evento já
-        // foi carregado e a atualização acontece silenciosamente — sem banner.
-        const _alreadyLoaded = _loadedEventIds.has(id ?? '');
-        if (!silent && (forceRefresh || (previewEvent && !_alreadyLoaded))) {
+        // Em visitas subsequentes (_detailCacheFresh=true) o evento já foi carregado
+        // com dados completos — a atualização acontece silenciosamente sem banner.
+        if (!silent && (forceRefresh || (previewEvent && !_detailCacheFresh))) {
           if (detailsLoadingTimerRef.current) clearTimeout(detailsLoadingTimerRef.current);
           detailsLoadingTimerRef.current = setTimeout(() => {
             if (!controller.signal.aborted) setDetailsLoading(true);
@@ -512,8 +529,21 @@ const EventDetail: React.FC = () => {
           setCenariosCiclismo(null);
         }
         setAvisos((response as any).avisos || []);
-        // Marca evento como carregado para visitas futuras (sem banner).
-        if (id) _loadedEventIds.add(id);
+        // Salva estado completo no cache de módulo para visitas futuras.
+        // Na segunda visita, todos os estados (inclusive dailySales/gráficos)
+        // são restaurados imediatamente sem depender da API.
+        if (id) {
+          _eventDetailCache.set(_detailCacheKey, {
+            event: eventWithData,
+            comparacaoAnual: (response as any).comparacao_anual || null,
+            cenariosCiclismo: (response as any).cenarios_ciclismo || null,
+            faixasPrecoSite: (response as any).faixas_preco_site || null,
+            avisos: (response as any).avisos || [],
+            projetosVinculados: (response as any).projetos_vinculados || [],
+            anosDisponiveis: (response as any).anos_disponiveis || [],
+            cachedAt: Date.now(),
+          });
+        }
         setError(null);
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
