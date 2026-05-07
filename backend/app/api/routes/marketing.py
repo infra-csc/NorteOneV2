@@ -11867,7 +11867,11 @@ def get_pricing_analysis(
 
 
 @router.get("/settings/{key}")
-def get_marketing_setting(key: str, db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin())):
+def get_marketing_setting(
+    key: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_configuracoes", "pode_visualizar")),
+):
     setting = db.query(MarketingSettings).filter(MarketingSettings.key == key).first()
     if setting:
         return {"status": "success", "key": key, "value": setting.value}
@@ -11875,7 +11879,12 @@ def get_marketing_setting(key: str, db: Session = Depends(get_db), current_user:
 
 
 @router.put("/settings/{key}")
-def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin())):
+def update_marketing_setting(
+    key: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_configuracoes", "pode_editar")),
+):
     setting = db.query(MarketingSettings).filter(MarketingSettings.key == key).first()
     if setting:
         setting.value = body.get("value", {})
@@ -11970,12 +11979,30 @@ def delete_projetado_faixas(
 def diagnostico_inscricoes(
     ativo_id: int,
     magento_id: str,
-    current_user: Usuario = Depends(require_admin())
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_admin()),
 ):
     """
-    Endpoint de diagnóstico para investigar discrepâncias entre o sistema e controles externos.
-    Executa múltiplas variações de queries para isolar o filtro causador da diferença.
+    Endpoint de diagnóstico restrito a administradores para investigar discrepâncias
+    entre o sistema e controles externos. Executa múltiplas variações de queries para
+    isolar o filtro causador da diferença.
+
+    Restrição de acesso: somente administradores (require_admin) podem invocar este
+    endpoint. IDs são validados contra registros conhecidos para evitar enumeração
+    arbitrária de eventos.
     """
+    if ativo_id <= 0:
+        raise HTTPException(status_code=422, detail="ativo_id deve ser um inteiro positivo")
+
+    projeto_exists = db.query(DimProjeto).filter(DimProjeto.id == ativo_id).first()
+    if not projeto_exists:
+        raise HTTPException(status_code=404, detail="Projeto/evento não encontrado para o ativo_id informado")
+
+    logger.info(
+        "[diagnostico-inscricoes] admin=%s (id=%s) consultou ativo_id=%s magento_id=%s",
+        current_user.email, current_user.id, ativo_id, magento_id,
+    )
+
     result = {"ativo_id": ativo_id, "magento_id": magento_id, "ativo": {}, "magento": {}}
 
     cupom_join = """

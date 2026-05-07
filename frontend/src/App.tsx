@@ -88,17 +88,16 @@ function App() {
               <Route path="/marketing/configuracoes" element={<PermissionRoute module="marketing_configuracoes"><Layout><MarketingSettings /></Layout></PermissionRoute>} />
               <Route path="/marketing/playbook" element={<PermissionRoute module="marketing_dashboard"><PlaybookPage /></PermissionRoute>} />
               <Route path="/nori" element={<PermissionRoute module="nori"><Layout><NoriAssistant /></Layout></PermissionRoute>} />
-              <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
-              <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />
-              <Route path="/admin/sku-mappings" element={<PrivateRoute><Layout><SkuMappings /></Layout></PrivateRoute>} />
-
-              <Route path="/admin/kit-config" element={<PrivateRoute><Layout><KitConfig /></Layout></PrivateRoute>} />
-              <Route path="/admin/centros-custo" element={<PrivateRoute><Layout><CentrosCusto /></Layout></PrivateRoute>} />
-              <Route path="/admin/perfis-acesso" element={<PrivateRoute><Layout><PerfisAcesso /></Layout></PrivateRoute>} />
-              <Route path="/admin/monitoramento" element={<PrivateRoute><Layout><MonitoramentoUsuarios /></Layout></PrivateRoute>} />
-              <Route path="/admin/saude-sistema" element={<PrivateRoute><Layout><SaudeSistema /></Layout></PrivateRoute>} />
-              <Route path="/projecao-inscritos" element={<PrivateRoute><Layout><ProjecaoInscritos /></Layout></PrivateRoute>} />
-              <Route path="/cotacoes" element={<PrivateRoute><Layout><CotacoesImportacao /></Layout></PrivateRoute>} />
+              <Route path="/admin/dados-consolidados" element={<PermissionRoute module="admin_dados_consolidados"><Layout><DadosConsolidados /></Layout></PermissionRoute>} />
+              <Route path="/admin/usuarios" element={<PermissionRoute module="admin_usuarios"><Layout><Usuarios /></Layout></PermissionRoute>} />
+              <Route path="/admin/sku-mappings" element={<PermissionRoute module="admin_sku_mappings"><Layout><SkuMappings /></Layout></PermissionRoute>} />
+              <Route path="/admin/kit-config" element={<PermissionRoute module="admin_kit_config"><Layout><KitConfig /></Layout></PermissionRoute>} />
+              <Route path="/admin/centros-custo" element={<PermissionRoute module="admin_centros_custo"><Layout><CentrosCusto /></Layout></PermissionRoute>} />
+              <Route path="/admin/perfis-acesso" element={<PermissionRoute module="admin_perfis_acesso"><Layout><PerfisAcesso /></Layout></PermissionRoute>} />
+              <Route path="/admin/monitoramento" element={<PermissionRoute module="admin_monitoramento"><Layout><MonitoramentoUsuarios /></Layout></PermissionRoute>} />
+              <Route path="/admin/saude-sistema" element={<PermissionRoute module="admin_monitoramento"><Layout><SaudeSistema /></Layout></PermissionRoute>} />
+              <Route path="/projecao-inscritos" element={<PermissionRoute module="projecao_inscritos"><Layout><ProjecaoInscritos /></Layout></PermissionRoute>} />
+              <Route path="/cotacoes" element={<PermissionRoute module="cotacoes_importacao"><Layout><CotacoesImportacao /></Layout></PermissionRoute>} />
               <Route path="/manual" element={<PrivateRoute><Layout><ManualSistema /></Layout></PrivateRoute>} />
               <Route path="/perfil" element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>} />
             </Routes>
