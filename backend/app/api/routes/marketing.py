@@ -10768,6 +10768,7 @@ def sync_hoje_todos(
 
     _smart_isc_cache.invalidate()
     eventos_list_cache.invalidate()
+    event_detail_cache.invalidate()
 
     try:
         fetch_isc_pricing_data(db=db, force_refresh=True)
