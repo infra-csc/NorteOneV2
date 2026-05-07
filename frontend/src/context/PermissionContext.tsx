@@ -47,6 +47,7 @@ export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children
       setIsLoading(false);
       return;
     }
+    setIsLoading(true);
     try {
       const res = await api.get('/perfis-acesso/me/permissoes');
       setPermissions(res.data);
