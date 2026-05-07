@@ -4961,7 +4961,7 @@ def _match_cutoff_with_weekend(d_minus: int) -> int | None:
 @router.get("/cutoff-alerts")
 def get_cutoff_alerts(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
 ):
     """Retorna eventos cujo D-Inscrição está exatamente em um ponto de corte estratégico.
     Na sexta-feira, antecipa pontos de corte que cairiam no sábado ou domingo."""
@@ -6243,7 +6243,7 @@ def check_duplicate_action_endpoint(
     projeto_id: int,
     tipo: str = Query(..., description="Tipo da ação"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
 ):
     """Verifica se já existe uma ação duplicada do mesmo tipo nos últimos 7 dias"""
     duplicate = check_duplicate_action(db, projeto_id, tipo)
@@ -6358,7 +6358,7 @@ _curva_cache_timestamp = None
 @router.get("/curva-comparativa")
 def get_curva_comparativa(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_comparativo", "pode_visualizar"))
 ):
     global _curva_cache, _curva_cache_timestamp
     import time
@@ -7746,7 +7746,7 @@ def get_curva_comparativa_evento(
     ano: int = Query(default=None, description="Ano base para comparacao"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_comparativo", "pode_visualizar")),
     response: Response = None
 ):
     import time
@@ -8169,7 +8169,7 @@ def get_evento_insights(
     ano: int = Query(default=None, description="Ano base para comparacao"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
     response: Response = None
 ):
     smart_insights_key = f"{ano}_{evento_id}_insights"
@@ -11445,7 +11445,7 @@ def get_pricing_analysis(
     categoria: Optional[str] = Query(None, description="Filtrar por categoria/modalidade"),
     busca: Optional[str] = Query(None, description="Buscar por nome do evento"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_pricing", "pode_visualizar"))
 ):
     """
     Retorna análise de pricing avançada para eventos.
@@ -11847,7 +11847,7 @@ class ProjetadoFaixasUpsert(BaseModel):
 def get_projetado_faixas(
     evento_id: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
 ):
     from ...models.projecao import SimuladorProjetadoFaixas
     import json
@@ -11869,7 +11869,7 @@ def upsert_projetado_faixas(
     evento_id: str,
     body: ProjetadoFaixasUpsert,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar")),
 ):
     from ...models.projecao import SimuladorProjetadoFaixas
     import json
@@ -11895,7 +11895,7 @@ def upsert_projetado_faixas(
 def delete_projetado_faixas(
     evento_id: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_deletar")),
 ):
     from ...models.projecao import SimuladorProjetadoFaixas
     db.query(SimuladorProjetadoFaixas).filter(
