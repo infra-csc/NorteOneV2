@@ -55,8 +55,8 @@ localPort = 8000
 externalPort = 8000
 
 [deployment]
-deploymentTarget = "vm"
-run = ["bash", "-c", "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000"]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd backend && python -m uvicorn main:app --host 0.0.0.0 --port 5000"]
 build = ["bash", "build.sh"]
 
 [userenv]
