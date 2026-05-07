@@ -10514,17 +10514,26 @@ def _atualizar_hoje_inner(
 
     hoje_total = hoje_ativo + hoje_magento
 
-    # If any required source failed, DO NOT overwrite today's snapshot — keep
-    # the previously saved row so we don't zero out real sales just because
-    # the upstream DB was momentarily unavailable. Return what we already had
-    # in the DB plus a status flag the frontend can use to show a warning.
     grupo_needs_ativo = bool(ativo_ids)
     grupo_needs_magento = bool(magento_ids)
-    sync_failed = (grupo_needs_ativo and not ativo_ok) or (grupo_needs_magento and not magento_ok)
 
-    # --- Update snapshot for today (only when every required source succeeded) ---
+    ativo_healthy = not grupo_needs_ativo or ativo_ok
+    magento_healthy = not grupo_needs_magento or magento_ok
+    all_sources_ok = ativo_healthy and magento_healthy
+    # Partial sync: at least one source healthy, one failed
+    sync_partial = (not all_sources_ok) and (ativo_healthy or magento_healthy)
+    # Full failure: nothing to work with
+    sync_failed = not all_sources_ok and not sync_partial
+
+    # --- Update snapshot for today ---
+    # Full sync → overwrite with complete consolidated value.
+    # Partial sync (one source down) → GREATEST() so we never lower a total
+    #   previously persisted from a successful full sync, but always surface
+    #   whatever the healthy source has (e.g. Ativo's 20 sales when Magento
+    #   is timing out).
+    # Both down → read existing row and return it without touching the DB.
     _HOJE_FONTE = 'CONSOLIDADO'
-    if grupo_nome and not sync_failed:
+    if grupo_nome and all_sources_ok:
         try:
             existing = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
@@ -10552,9 +10561,70 @@ def _atualizar_hoje_inner(
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro ao salvar snapshot para {grupo_nome}: {_e}")
             db.rollback()
+    elif grupo_nome and sync_partial:
+        # Partial UPSERT using GREATEST() — surfaces the healthy source data
+        # without ever lowering a value from a previous full sync.
+        missing = sources_failed[0] if sources_failed else "unknown"
+        logger.warning(
+            f"atualizar-hoje: UPSERT parcial para '{grupo_nome}' "
+            f"({missing} indisponível) — usando GREATEST() para preservar total anterior"
+        )
+        try:
+            from sqlalchemy.dialects.postgresql import insert as _pg_insert
+            from sqlalchemy import func as _sa_func
+            _stmt = _pg_insert(_VDS).values(
+                evento_grupo=grupo_nome,
+                fonte=_HOJE_FONTE,
+                data_venda=hoje,
+                quantidade=hoje_total,
+                receita=hoje_receita,
+                ano=ano,
+                updated_at=datetime.now()
+            ).on_conflict_do_update(
+                index_elements=["evento_grupo", "fonte", "data_venda"],
+                set_={
+                    "quantidade": _sa_func.greatest(
+                        _VDS.__table__.c.quantidade, hoje_total
+                    ),
+                    "receita": _sa_func.greatest(
+                        _VDS.__table__.c.receita, hoje_receita
+                    ),
+                    "ano": ano,
+                    "updated_at": datetime.now(),
+                }
+            )
+            db.execute(_stmt)
+            db.commit()
+            # Re-read the final persisted value so hoje_total reflects what's
+            # actually in the DB (may be higher due to GREATEST).
+            existing_after = db.query(_VDS).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == _HOJE_FONTE,
+                _VDS.data_venda == hoje,
+            ).first()
+            if existing_after:
+                hoje_total = int(existing_after.quantidade or 0)
+                hoje_receita = float(existing_after.receita or 0.0)
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro no UPSERT parcial para '{grupo_nome}': {_e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            # Fallback: read existing row for the response
+            try:
+                existing = db.query(_VDS).filter(
+                    _VDS.evento_grupo == grupo_nome,
+                    _VDS.fonte == _HOJE_FONTE,
+                    _VDS.data_venda == hoje,
+                ).first()
+                if existing:
+                    hoje_total = int(existing.quantidade or 0)
+                    hoje_receita = float(existing.receita or 0.0)
+            except Exception:
+                pass
     elif sync_failed and grupo_nome:
-        # Fall back to the previously stored snapshot for today so the response
-        # reflects the data we still have on disk instead of "0".
+        # Both sources down — read existing row so response shows real data.
         try:
             existing = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
@@ -10567,7 +10637,7 @@ def _atualizar_hoje_inner(
         except Exception:
             pass
         logger.warning(
-            f"atualizar-hoje: pulando UPSERT para '{grupo_nome}' — fontes indisponíveis: {sources_failed}"
+            f"atualizar-hoje: pulando UPSERT para '{grupo_nome}' — ambas fontes indisponíveis: {sources_failed}"
         )
 
     # --- Recalculate rolling averages from snapshot (no external DB) ---
@@ -10615,10 +10685,9 @@ def _atualizar_hoje_inner(
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
     # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do evento
-    # para refletir a hora do clique. Só faz isso quando o sync foi bem-sucedido
-    # (sync_failed=False) — caso contrário, manteríamos a impressão de dado
-    # fresco quando na verdade voltamos a usar o snapshot anterior.
-    if not sync_failed:
+    # para refletir a hora do clique. Faz isso quando pelo menos uma fonte
+    # funcionou (full ou partial) — só omite quando ambas falharam.
+    if all_sources_ok or sync_partial:
         try:
             from app.core.cache import set_last_sync_hoje as _set_lsh_a
             import time as _t_lsh_a
@@ -10626,8 +10695,9 @@ def _atualizar_hoje_inner(
         except Exception as _e_lsh_a:
             logger.warning(f"atualizar-hoje: erro ao atualizar last_sync_hoje: {_e_lsh_a}")
 
+    _response_status = "ok" if all_sources_ok else ("partial" if sync_partial else "failed")
     return {
-        "status": "partial" if sync_failed else "ok",
+        "status": _response_status,
         "evento_id": evento_id,
         "data": hoje.isoformat(),
         "hoje_ativo": hoje_ativo,

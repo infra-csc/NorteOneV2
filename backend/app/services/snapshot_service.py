@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 import os
+from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot, MargemBundleRevSnapshot
@@ -839,56 +840,107 @@ def sincronizar_hoje_batch(db: Session) -> int:
                     pass
 
     # --- Step 3: Aggregate by grupo and UPSERT today's row ---
+    # Strategy:
+    #   - Both sources OK → full UPSERT (overwrite with complete value)
+    #   - One source down, other OK → partial UPSERT using GREATEST() so we
+    #     always surface the healthy source's data without ever lowering a
+    #     previously-known total from a full sync. This avoids the scenario
+    #     where Magento goes down mid-day and today's Ativo sales (e.g. 20
+    #     inscriptions) remain invisible because the UPSERT was skipped entirely.
+    #   - Both sources down → skip entirely (preserve whatever is in the DB)
     synced = 0
+    partial_synced = 0
     failed = 0
     skipped_unhealthy = 0
     for grupo, ids in grupos.items():
-        # Skip UPSERT if any required source for this grupo failed —
-        # preserves the previously-stored row for today instead of zeroing it.
         grupo_needs_ativo = bool(ids["ativo_ids"])
         grupo_needs_magento = bool(ids["magento_ids"])
-        if (grupo_needs_ativo and not ativo_ok) or (grupo_needs_magento and not magento_ok):
+
+        ativo_healthy_for_grupo = not grupo_needs_ativo or ativo_ok
+        magento_healthy_for_grupo = not grupo_needs_magento or magento_ok
+        all_sources_ok = ativo_healthy_for_grupo and magento_healthy_for_grupo
+        # Can we do at least a partial UPSERT with one healthy source?
+        can_partial = (not all_sources_ok) and (ativo_healthy_for_grupo or magento_healthy_for_grupo)
+
+        if not all_sources_ok and not can_partial:
             skipped_unhealthy += 1
             logger.warning(
                 f"sincronizar_hoje_batch: pulando UPSERT de hoje para '{grupo}' — "
-                f"fonte indisponível (ativo_ok={ativo_ok}, magento_ok={magento_ok}); "
+                f"ambas fontes indisponíveis (ativo_ok={ativo_ok}, magento_ok={magento_ok}); "
                 f"snapshot existente preservado"
             )
             continue
+
         try:
             qtd_total = 0
             receita_total = 0.0
 
-            for eid in ids["ativo_ids"]:
-                entry = ativo_today.get(eid)
-                if entry:
-                    qtd_total += entry["qtd"]
-                    receita_total += entry["receita"]
+            if ativo_healthy_for_grupo:
+                for eid in ids["ativo_ids"]:
+                    entry = ativo_today.get(eid)
+                    if entry:
+                        qtd_total += entry["qtd"]
+                        receita_total += entry["receita"]
 
-            for eid in ids["magento_ids"]:
-                entry = magento_today.get(eid)
-                if entry:
-                    qtd_total += entry["qtd"]
-                    receita_total += entry["receita"]
+            if magento_healthy_for_grupo:
+                for eid in ids["magento_ids"]:
+                    entry = magento_today.get(eid)
+                    if entry:
+                        qtd_total += entry["qtd"]
+                        receita_total += entry["receita"]
 
-            stmt = pg_insert(VendasDiariaSnapshot).values(
-                evento_grupo=grupo,
-                fonte="CONSOLIDADO",
-                data_venda=today,
-                quantidade=qtd_total,
-                receita=receita_total,
-                ano=ano,
-            ).on_conflict_do_update(
-                index_elements=["evento_grupo", "fonte", "data_venda"],
-                set_={
-                    "quantidade": qtd_total,
-                    "receita": receita_total,
-                    "ano": ano,
-                }
-            )
+            if all_sources_ok:
+                # Full UPSERT: overwrite with complete consolidated value
+                stmt = pg_insert(VendasDiariaSnapshot).values(
+                    evento_grupo=grupo,
+                    fonte="CONSOLIDADO",
+                    data_venda=today,
+                    quantidade=qtd_total,
+                    receita=receita_total,
+                    ano=ano,
+                ).on_conflict_do_update(
+                    index_elements=["evento_grupo", "fonte", "data_venda"],
+                    set_={
+                        "quantidade": qtd_total,
+                        "receita": receita_total,
+                        "ano": ano,
+                    }
+                )
+            else:
+                # Partial UPSERT: use GREATEST() so we never lower a value
+                # that was previously persisted from a successful full sync.
+                # On INSERT (no existing row), the VALUES clause wins directly.
+                missing = "magento" if (grupo_needs_magento and not magento_ok) else "ativo"
+                logger.warning(
+                    f"sincronizar_hoje_batch: UPSERT parcial para '{grupo}' "
+                    f"({missing} indisponível) — usando GREATEST() para preservar total anterior"
+                )
+                stmt = pg_insert(VendasDiariaSnapshot).values(
+                    evento_grupo=grupo,
+                    fonte="CONSOLIDADO",
+                    data_venda=today,
+                    quantidade=qtd_total,
+                    receita=receita_total,
+                    ano=ano,
+                ).on_conflict_do_update(
+                    index_elements=["evento_grupo", "fonte", "data_venda"],
+                    set_={
+                        "quantidade": sa_func.greatest(
+                            VendasDiariaSnapshot.__table__.c.quantidade, qtd_total
+                        ),
+                        "receita": sa_func.greatest(
+                            VendasDiariaSnapshot.__table__.c.receita, receita_total
+                        ),
+                        "ano": ano,
+                    }
+                )
+
             db.execute(stmt)
             db.commit()
-            synced += 1
+            if all_sources_ok:
+                synced += 1
+            else:
+                partial_synced += 1
         except Exception as e:
             failed += 1
             logger.error(f"sincronizar_hoje_batch: erro para grupo='{grupo}': {e}")
@@ -899,12 +951,13 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     logger.info(
         f"sincronizar_hoje_batch: {synced}/{len(grupos)} grupos sincronizados para {today}"
-        f" (backfills={backfilled}, falhas={failed})"
+        f" (parciais={partial_synced}, backfills={backfilled}, falhas={failed},"
+        f" pulados={skipped_unhealthy})"
     )
 
     # Invalidate event_detail and ISC caches so next dashboard request gets fresh
     # snapshot data without waiting for the 22h/5min SmartCache TTL to expire.
-    if synced > 0:
+    if synced > 0 or partial_synced > 0:
         try:
             from ..core.cache import event_detail_cache, isc_cache
             from ..api.routes.marketing import eventos_list_cache
