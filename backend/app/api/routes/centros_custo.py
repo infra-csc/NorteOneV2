@@ -14,7 +14,7 @@ def list_centros_custo(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_centros_custo", "pode_visualizar"))
 ):
     centros = db.query(DimCentroCusto).filter(DimCentroCusto.ativo == True).offset(skip).limit(limit).all()
     return centros
@@ -39,7 +39,7 @@ def create_centro_custo(
 def get_centro_custo(
     centro_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_centros_custo", "pode_visualizar"))
 ):
     centro = db.query(DimCentroCusto).filter(DimCentroCusto.id == centro_id).first()
     if not centro:

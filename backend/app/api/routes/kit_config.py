@@ -818,7 +818,7 @@ def get_kits_with_config(
 @router.get("/unconfigured-summary")
 def get_unconfigured_summary(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
     """Returns a lightweight summary of bundles without KitConfig mapping.
 

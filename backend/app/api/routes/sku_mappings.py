@@ -9,7 +9,7 @@ from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
     EventoGrupoCreate, EventoGrupoUpdate, EventoGrupoResponse
 )
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user, require_admin, require_permission
 from app.models.user import Usuario
 import app.core.database as db_module
 from sqlalchemy import text, func
@@ -285,7 +285,7 @@ def list_sku_mappings(
     evento_grupo: Optional[str] = None,
     ativo: Optional[bool] = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     query = db.query(SkuMapping)
     
@@ -304,7 +304,7 @@ def list_sku_mappings(
 @router.get("/grupos", response_model=List[str])
 def list_evento_grupos(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     result = db.query(SkuMapping.evento_grupo).distinct().order_by(SkuMapping.evento_grupo).all()
     return [r[0] for r in result]
@@ -313,7 +313,7 @@ def list_evento_grupos(
 @router.get("/anos", response_model=List[int])
 def list_anos(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     result = db.query(SkuMapping.ano).distinct().order_by(SkuMapping.ano.desc()).all()
     return [r[0] for r in result]
@@ -323,7 +323,7 @@ def list_anos(
 def get_sku_mapping(
     mapping_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     mapping = db.query(SkuMapping).filter(SkuMapping.id == mapping_id).first()
     if not mapping:
@@ -477,7 +477,7 @@ def bulk_create_sku_mappings(
 @router.get("/descobrir-eventos", response_model=DescobertaEventosResponse)
 def descobrir_eventos_externos(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     """
     Descobre eventos dos bancos externos (Ativo e Magento) para o ano atual e anterior.
@@ -602,7 +602,7 @@ def list_evento_grupos_crud(
     ativo: Optional[bool] = None,
     busca: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     query = db.query(EventoGrupo)
     if ativo is not None:
@@ -667,7 +667,7 @@ def update_evento_grupo(
 @grupo_router.get("/available-curves")
 def list_available_curves(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     from sqlalchemy import and_
     max_ano_sub = db.query(
