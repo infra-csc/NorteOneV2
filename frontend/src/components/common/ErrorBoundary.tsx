@@ -23,6 +23,19 @@ class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, errorInfo);
+    // Chunk load failures (stale Vite chunks after deploy/HMR reload) são
+    // recuperáveis com um reload. Recarrega automaticamente uma vez.
+    const isChunkError =
+      error.message?.includes('Failed to fetch dynamically imported module') ||
+      error.message?.includes('Importing a module script failed') ||
+      error.name === 'ChunkLoadError';
+    if (isChunkError) {
+      const reloaded = sessionStorage.getItem('chunk-reload-attempted');
+      if (!reloaded) {
+        sessionStorage.setItem('chunk-reload-attempted', '1');
+        window.location.reload();
+      }
+    }
   }
 
   handleReset = () => {

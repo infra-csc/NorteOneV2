@@ -8,28 +8,44 @@ import ErrorBoundary from './components/common/ErrorBoundary';
 import Login from './pages/auth/Login';
 import PWAManager from './pwa/PWAManager';
 
-const Dashboard = lazy(() => import('./pages/dashboard/Dashboard'));
-const CentrosCusto = lazy(() => import('./pages/cadastros/CentrosCusto'));
-const CategoriasAtletas = lazy(() => import('./pages/cadastros/CategoriasAtletas'));
-const Eventos = lazy(() => import('./pages/cadastros/Cadastro'));
-const MarketingDashboard = lazy(() => import('./pages/marketing/MarketingDashboard'));
-const EventDetail = lazy(() => import('./pages/marketing/EventDetail'));
-const EventOpsView = lazy(() => import('./pages/marketing/EventOpsView'));
-const EventComparison = lazy(() => import('./pages/marketing/EventComparison'));
-const MarketingSettings = lazy(() => import('./pages/marketing/MarketingSettings'));
-const PlaybookPage = lazy(() => import('./pages/marketing/PlaybookPage'));
-const NoriAssistant = lazy(() => import('./pages/nori/NoriAssistant'));
-const DadosConsolidados = lazy(() => import('./pages/admin/DadosConsolidados'));
-const Usuarios = lazy(() => import('./pages/admin/Usuarios'));
-const SkuMappings = lazy(() => import('./pages/admin/SkuMappings'));
-const PerfisAcesso = lazy(() => import('./pages/admin/PerfisAcesso'));
-const MonitoramentoUsuarios = lazy(() => import('./pages/admin/MonitoramentoUsuarios'));
-const KitConfig = lazy(() => import('./pages/admin/KitConfig'));
-const SaudeSistema = lazy(() => import('./pages/admin/SaudeSistema'));
-const CotacoesImportacao = lazy(() => import('./pages/cotacoes/CotacoesImportacao'));
-const ManualSistema = lazy(() => import('./pages/manual/ManualSistema'));
-const ProjecaoInscritos = lazy(() => import('./pages/cadastros/ProjecaoInscritos'));
-const Profile = lazy(() => import('./pages/profile/Profile'));
+// Wrapper para lazy imports: quando o chunk está stale (após deploy ou HMR
+// full-reload), o browser recebe 404 ao tentar carregar a URL antiga.
+// Nesse caso recarregamos a página uma vez para buscar o novo bundle.
+const lazyWithRetry = (factory: () => Promise<any>) =>
+  lazy(() =>
+    factory().catch(() => {
+      const reloaded = sessionStorage.getItem('chunk-reload-attempted');
+      if (!reloaded) {
+        sessionStorage.setItem('chunk-reload-attempted', '1');
+        window.location.reload();
+      }
+      // Retorna módulo vazio enquanto a página recarrega
+      return { default: () => null };
+    })
+  );
+
+const Dashboard = lazyWithRetry(() => import('./pages/dashboard/Dashboard'));
+const CentrosCusto = lazyWithRetry(() => import('./pages/cadastros/CentrosCusto'));
+const CategoriasAtletas = lazyWithRetry(() => import('./pages/cadastros/CategoriasAtletas'));
+const Eventos = lazyWithRetry(() => import('./pages/cadastros/Cadastro'));
+const MarketingDashboard = lazyWithRetry(() => import('./pages/marketing/MarketingDashboard'));
+const EventDetail = lazyWithRetry(() => import('./pages/marketing/EventDetail'));
+const EventOpsView = lazyWithRetry(() => import('./pages/marketing/EventOpsView'));
+const EventComparison = lazyWithRetry(() => import('./pages/marketing/EventComparison'));
+const MarketingSettings = lazyWithRetry(() => import('./pages/marketing/MarketingSettings'));
+const PlaybookPage = lazyWithRetry(() => import('./pages/marketing/PlaybookPage'));
+const NoriAssistant = lazyWithRetry(() => import('./pages/nori/NoriAssistant'));
+const DadosConsolidados = lazyWithRetry(() => import('./pages/admin/DadosConsolidados'));
+const Usuarios = lazyWithRetry(() => import('./pages/admin/Usuarios'));
+const SkuMappings = lazyWithRetry(() => import('./pages/admin/SkuMappings'));
+const PerfisAcesso = lazyWithRetry(() => import('./pages/admin/PerfisAcesso'));
+const MonitoramentoUsuarios = lazyWithRetry(() => import('./pages/admin/MonitoramentoUsuarios'));
+const KitConfig = lazyWithRetry(() => import('./pages/admin/KitConfig'));
+const SaudeSistema = lazyWithRetry(() => import('./pages/admin/SaudeSistema'));
+const CotacoesImportacao = lazyWithRetry(() => import('./pages/cotacoes/CotacoesImportacao'));
+const ManualSistema = lazyWithRetry(() => import('./pages/manual/ManualSistema'));
+const ProjecaoInscritos = lazyWithRetry(() => import('./pages/cadastros/ProjecaoInscritos'));
+const Profile = lazyWithRetry(() => import('./pages/profile/Profile'));
 
 
 const PageLoader = () => (
@@ -75,6 +91,7 @@ function App() {
       <AuthProvider>
         <PermissionProvider>
         <Router>
+          <ErrorBoundary>
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -103,6 +120,7 @@ function App() {
             </Routes>
           </Suspense>
           <PWAManager />
+          </ErrorBoundary>
         </Router>
         </PermissionProvider>
       </AuthProvider>
