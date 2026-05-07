@@ -476,9 +476,28 @@ const ProjecaoInscritos: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showToast = (message: string, type: 'error' | 'success' = 'error') => {
+  const showToast = (message: unknown, type: 'error' | 'success' = 'error') => {
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
-    setToast({ message, type });
+    let text: string;
+    if (typeof message === 'string') {
+      text = message;
+    } else if (Array.isArray(message)) {
+      text = message
+        .map((m: unknown) =>
+          m !== null && typeof m === 'object'
+            ? ((m as Record<string, unknown>).msg as string) ||
+              ((m as Record<string, unknown>).message as string) ||
+              JSON.stringify(m)
+            : String(m),
+        )
+        .join('; ');
+    } else if (message !== null && typeof message === 'object') {
+      const obj = message as Record<string, unknown>;
+      text = (obj.msg as string) || (obj.message as string) || (obj.detail as string) || JSON.stringify(message);
+    } else {
+      text = message != null ? String(message) : 'Erro desconhecido';
+    }
+    setToast({ message: text || 'Erro desconhecido', type });
     toastTimeout.current = setTimeout(() => setToast(null), 4000);
   };
 
