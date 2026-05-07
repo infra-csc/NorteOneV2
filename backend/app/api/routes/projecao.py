@@ -380,6 +380,88 @@ def create_projecao(
     )
 
 
+def _parse_iso_date(value: Optional[str]):
+    if value is None or value == "":
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Data inválida: {value} (use YYYY-MM-DD)")
+
+
+@router.put("/cutoff-evento-area", response_model=CutoffEventoAreaResponse)
+def upsert_cutoff_evento_area(
+    data: CutoffEventoAreaUpsert,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Cria ou atualiza as duas datas de corte para um (evento, area)."""
+    area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True).first()
+    if not area:
+        raise HTTPException(status_code=404, detail="Área de projeção não encontrada")
+    if not area.usa_cutoff_customizado:
+        raise HTTPException(status_code=400, detail="Esta área não está habilitada para cortes customizados por evento")
+
+    _check_area_permission(db, current_user, area.id)
+
+    evento = db.query(CadastroEvento).filter(
+        CadastroEvento.id == data.evento_id,
+        CadastroEvento.deleted_at.is_(None),
+    ).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    d1 = _parse_iso_date(data.data_corte_1)
+    d2 = _parse_iso_date(data.data_corte_2)
+
+    def _filter_row():
+        return db.query(ProjecaoCutoffEventoArea).filter(
+            ProjecaoCutoffEventoArea.evento_id == data.evento_id,
+            ProjecaoCutoffEventoArea.area_projecao_id == data.area_projecao_id,
+        )
+
+    row = _filter_row().first()
+    if row is None:
+        row = ProjecaoCutoffEventoArea(
+            evento_id=data.evento_id,
+            area_projecao_id=data.area_projecao_id,
+            data_corte_1=d1,
+            data_corte_2=d2,
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            row = _filter_row().first()
+            if row is None:
+                raise HTTPException(status_code=500, detail="Falha ao salvar datas de corte")
+            row.data_corte_1 = d1
+            row.data_corte_2 = d2
+            row.updated_by = current_user.id
+            db.commit()
+    else:
+        row.data_corte_1 = d1
+        row.data_corte_2 = d2
+        row.updated_by = current_user.id
+        db.commit()
+    db.refresh(row)
+    editor = db.query(Usuario).filter(Usuario.id == row.updated_by).first() if row.updated_by else None
+    return CutoffEventoAreaResponse(
+        id=row.id,
+        evento_id=row.evento_id,
+        area_projecao_id=row.area_projecao_id,
+        area_projecao_nome=area.nome,
+        data_corte_1=row.data_corte_1.isoformat() if row.data_corte_1 else None,
+        data_corte_2=row.data_corte_2.isoformat() if row.data_corte_2 else None,
+        updated_by=row.updated_by,
+        updated_by_nome=editor.nome if editor else None,
+        updated_at=row.updated_at,
+    )
+
+
 @router.put("/{projecao_id}", response_model=ProjecaoInscritosResponse)
 def update_projecao(
     projecao_id: int,
@@ -1348,85 +1430,5 @@ def list_cutoffs_por_evento(
     return result
 
 
-def _parse_iso_date(value: Optional[str]):
-    if value is None or value == "":
-        return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Data inválida: {value} (use YYYY-MM-DD)")
 
-
-@router.put("/cutoff-evento-area", response_model=CutoffEventoAreaResponse)
-def upsert_cutoff_evento_area(
-    data: CutoffEventoAreaUpsert,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
-):
-    """Cria ou atualiza as duas datas de corte para um (evento, area)."""
-    area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True).first()
-    if not area:
-        raise HTTPException(status_code=404, detail="Área de projeção não encontrada")
-    if not area.usa_cutoff_customizado:
-        raise HTTPException(status_code=400, detail="Esta área não está habilitada para cortes customizados por evento")
-
-    _check_area_permission(db, current_user, area.id)
-
-    evento = db.query(CadastroEvento).filter(
-        CadastroEvento.id == data.evento_id,
-        CadastroEvento.deleted_at.is_(None),
-    ).first()
-    if not evento:
-        raise HTTPException(status_code=404, detail="Evento não encontrado")
-
-    d1 = _parse_iso_date(data.data_corte_1)
-    d2 = _parse_iso_date(data.data_corte_2)
-
-    def _filter_row():
-        return db.query(ProjecaoCutoffEventoArea).filter(
-            ProjecaoCutoffEventoArea.evento_id == data.evento_id,
-            ProjecaoCutoffEventoArea.area_projecao_id == data.area_projecao_id,
-        )
-
-    row = _filter_row().first()
-    if row is None:
-        row = ProjecaoCutoffEventoArea(
-            evento_id=data.evento_id,
-            area_projecao_id=data.area_projecao_id,
-            data_corte_1=d1,
-            data_corte_2=d2,
-            created_by=current_user.id,
-            updated_by=current_user.id,
-        )
-        db.add(row)
-        try:
-            db.commit()
-        except IntegrityError:
-            # Outra requisição criou a linha simultaneamente — recarrega e atualiza
-            db.rollback()
-            row = _filter_row().first()
-            if row is None:
-                raise HTTPException(status_code=500, detail="Falha ao salvar datas de corte")
-            row.data_corte_1 = d1
-            row.data_corte_2 = d2
-            row.updated_by = current_user.id
-            db.commit()
-    else:
-        row.data_corte_1 = d1
-        row.data_corte_2 = d2
-        row.updated_by = current_user.id
-        db.commit()
-    db.refresh(row)
-    editor = db.query(Usuario).filter(Usuario.id == row.updated_by).first() if row.updated_by else None
-    return CutoffEventoAreaResponse(
-        id=row.id,
-        evento_id=row.evento_id,
-        area_projecao_id=row.area_projecao_id,
-        area_projecao_nome=area.nome,
-        data_corte_1=row.data_corte_1.isoformat() if row.data_corte_1 else None,
-        data_corte_2=row.data_corte_2.isoformat() if row.data_corte_2 else None,
-        updated_by=row.updated_by,
-        updated_by_nome=editor.nome if editor else None,
-        updated_at=row.updated_at,
-    )
 
