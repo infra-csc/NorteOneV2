@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
-import { marketingApi } from '../../services/api';
+import { marketingService } from '../../services/api';
 import {
   ChevronDown, ChevronRight,
   BarChart2, Calendar, RefreshCw
@@ -101,7 +101,7 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading, onRefresh }) => {
     setRecalcMessages(prev => ({ ...prev, [key]: '' }));
 
     try {
-      const res = await marketingApi.recalcularSnapshot(key);
+      const res = await marketingService.recalcularSnapshot(key);
       const msg = res.margem_recalculada != null
         ? `Margem recalculada: ${formatCurrency(res.margem_recalculada)}`
         : 'Snapshot atualizado';
