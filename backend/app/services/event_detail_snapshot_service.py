@@ -345,6 +345,36 @@ def _to_jsonable(payload: Any) -> Any:
     return jsonable_encoder(payload)
 
 
+def _extract_margem_total(payload: Any) -> float | None:
+    """Extrai a soma de margemTotal das linhas não-CONSOLIDADO de margemPorKit.
+
+    Retorna None quando os dados são insuficientes para comparação (lista vazia,
+    sem vendas, payload malformado). Retorna 0.0 explicitamente apenas quando há
+    linhas com qtd > 0 mas margemTotal = 0 (evento com custo = receita).
+    """
+    try:
+        if not isinstance(payload, dict):
+            return None
+        evt = payload.get("evento")
+        if not isinstance(evt, dict):
+            return None
+        mpk = evt.get("margemPorKit")
+        if not isinstance(mpk, list) or not mpk:
+            return None
+        rows_real = [
+            r for r in mpk
+            if isinstance(r, dict) and r.get("tipoKit") != "CONSOLIDADO"
+        ]
+        if not rows_real:
+            return None
+        qtd_total = sum(int(r.get("qtd") or 0) for r in rows_real)
+        if qtd_total <= 0:
+            return None
+        return sum(float(r.get("margemTotal") or 0.0) for r in rows_real)
+    except Exception:
+        return None
+
+
 def get_persisted_detail(db: Session, evento_id: str, ano: int) -> dict | None:
     """Lê o snapshot persistido. Retorna dict com payload/computed_at/is_completed ou None."""
     try:
@@ -377,7 +407,14 @@ def save_persisted_detail(
     data_evento: date | None = None,
     is_completed: bool = False,
 ) -> bool:
-    """UPSERT do snapshot. Retorna True se gravou, False em caso de erro."""
+    """UPSERT do snapshot. Retorna True se gravou, False em caso de erro.
+
+    Para eventos já concluídos (is_completed=True) aplica uma salvaguarda
+    de margem: se a nova margem for inferior a 95% da margem persistida,
+    o snapshot existente é preservado. Isso evita que quedas de conexão
+    com o Magento (respostas parciais com menos bundles) sobrescrevam o
+    valor final correto de um evento encerrado.
+    """
     try:
         json_safe = _to_jsonable(payload)
         # Remove campos voláteis que devem ser injetados a cada request
@@ -386,6 +423,44 @@ def save_persisted_detail(
                 k: v for k, v in json_safe.items()
                 if k not in ("commercialActions", "__is_completed")
             }
+
+        # ── Salvaguarda para eventos concluídos ─────────────────────────────
+        # Lê o snapshot existente UMA VEZ e compara a margem antes de gravar.
+        # Executa apenas quando ambos (existente e novo) são is_completed=True,
+        # garantindo que a correção nunca bloqueie um evento ainda ativo nem
+        # impeça a gravação inicial do snapshot de um evento recém-encerrado.
+        if is_completed:
+            try:
+                existing_row = (
+                    db.query(EventoDetailSnapshot)
+                    .filter(
+                        EventoDetailSnapshot.evento_id == evento_id,
+                        EventoDetailSnapshot.ano == ano,
+                        EventoDetailSnapshot.is_completed == True,  # noqa: E712
+                    )
+                    .first()
+                )
+                if existing_row and isinstance(existing_row.payload, dict):
+                    existing_margem = _extract_margem_total(existing_row.payload)
+                    new_margem = _extract_margem_total(json_safe)
+                    # Protege apenas quando temos os dois valores e o novo é
+                    # significativamente menor (limiar 95% → tolera correções
+                    # legítimas de até 5% sem bloquear).
+                    if (
+                        existing_margem is not None
+                        and new_margem is not None
+                        and existing_margem > 0
+                        and new_margem < existing_margem * 0.95
+                    ):
+                        logger.warning(
+                            f"[EventDetailSnapshot] Preservando snapshot '{evento_id}/{ano}' — "
+                            f"nova margem ({new_margem:,.0f}) < 95% da existente ({existing_margem:,.0f}). "
+                            f"Possível resposta parcial do Magento. Snapshot anterior mantido."
+                        )
+                        return True
+            except Exception as _guard_e:
+                logger.debug(f"[EventDetailSnapshot] margem guard falhou para '{evento_id}/{ano}': {_guard_e}")
+
         stmt = pg_insert(EventoDetailSnapshot).values(
             evento_id=evento_id,
             ano=ano,
@@ -415,26 +490,61 @@ def save_persisted_detail(
 
 
 def refresh_active_event_details(max_events: int | None = None) -> int:
-    """Recomputa o detalhe de todos os eventos ativos (ano corrente) e persiste.
+    """Recomputa o detalhe de todos os eventos ATIVOS (ano corrente) e persiste.
 
     Chamado pelo scheduler em background após sincronizar_hoje_batch.
-    Por padrão recomputa todos os EventoGrupo (sem limite) para garantir
-    cobertura completa. Retorna a quantidade de eventos atualizados.
+    Eventos já marcados como concluídos (is_completed=True) no banco são
+    pulados: seus dados são finais e não precisam ser reprocessados a cada
+    30 min — evitando consultas desnecessárias ao Magento e eliminando a
+    janela em que uma queda de conexão poderia sobrescrever a margem final
+    de um evento encerrado com dados parciais.
+
+    Retorna a quantidade de eventos atualizados.
     """
     from ..core.database import SessionLocal
     from ..models.dimensoes import EventoGrupo as EventoGrupoModel
     from ..api.routes.marketing import get_marketing_event_by_id
 
     count = 0
+    skipped_completed = 0
     db = SessionLocal()
     try:
         ano = datetime.now().year
+
+        # Pré-carrega IDs de eventos já concluídos para evitar reprocessamento
+        # desnecessário e proteger a integridade da margem final.
+        completed_ids: set[str] = set()
+        try:
+            completed_rows = (
+                db.query(EventoDetailSnapshot.evento_id)
+                .filter(
+                    EventoDetailSnapshot.ano == ano,
+                    EventoDetailSnapshot.is_completed == True,  # noqa: E712
+                )
+                .all()
+            )
+            completed_ids = {r.evento_id for r in completed_rows}
+            if completed_ids:
+                logger.info(
+                    f"[EventDetailSnapshot] {len(completed_ids)} eventos concluídos "
+                    f"serão pulados no refresh (dados finais — sem consulta ao Magento)"
+                )
+        except Exception as _cid_e:
+            logger.warning(f"[EventDetailSnapshot] falha ao carregar completed_ids: {_cid_e}")
+
         q = db.query(EventoGrupoModel)
         if max_events is not None:
             q = q.limit(max_events)
         grupos = q.all()
+
         for g in grupos:
             evento_id = f"grp_{g.nome}"
+
+            # Pula eventos já concluídos — dados finais, não mudam mais.
+            if evento_id in completed_ids:
+                skipped_completed += 1
+                continue
+
             try:
                 # force_refresh=True força recomputo + persistência via save_persisted_detail
                 _db_iter = SessionLocal()
@@ -456,5 +566,8 @@ def refresh_active_event_details(max_events: int | None = None) -> int:
         logger.error(f"[EventDetailSnapshot] refresh_active_event_details falhou: {e}")
     finally:
         db.close()
-    logger.info(f"[EventDetailSnapshot] refresh_active_event_details: {count} eventos atualizados")
+    logger.info(
+        f"[EventDetailSnapshot] refresh_active_event_details: {count} eventos atualizados, "
+        f"{skipped_completed} concluídos pulados"
+    )
     return count

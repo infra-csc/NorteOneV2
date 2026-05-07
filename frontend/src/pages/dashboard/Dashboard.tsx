@@ -819,6 +819,7 @@ const Dashboard: React.FC = () => {
             <RelatorioFinanceiro
               data={relData || { meses: [] }}
               loading={relLoading && !relData}
+              onRefresh={() => loadData(filters, true)}
             />
           </div>
         )}

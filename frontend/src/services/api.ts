@@ -1011,6 +1011,16 @@ export const marketingService = {
     const response = await api.post(`/marketing/eventos/${encodeURIComponent(id)}/atualizar-hoje${queryString}`);
     return response.data;
   },
+  recalcularSnapshot: async (eventoId: string): Promise<{
+    status: string;
+    evento_id: string;
+    ano: number;
+    margem_recalculada: number | null;
+    ultima_atualizacao: string;
+  }> => {
+    const response = await api.post(`/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot`);
+    return response.data;
+  },
   toggleCortesias: async (eventoId: string): Promise<{ incluirCortesias: boolean }> => {
     const response = await api.patch(`/marketing/eventos/${encodeURIComponent(eventoId)}/cortesias`);
     return response.data;

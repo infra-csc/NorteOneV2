@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { usePermissions } from '../../context/PermissionContext';
+import { marketingApi } from '../../services/api';
 import {
   ChevronDown, ChevronRight,
-  BarChart2, Calendar
+  BarChart2, Calendar, RefreshCw
 } from 'lucide-react';
 
 const formatCurrency = (value: number) =>
@@ -14,6 +16,7 @@ const formatNumber = (value: number) =>
 
 interface EventoRow {
   id_evento: number;
+  evento_id?: string;
   nome_evento: string;
   data_evento: string;
   receita_realizada: number;
@@ -43,6 +46,7 @@ interface MesRow {
 interface Props {
   data: { meses: MesRow[] };
   loading?: boolean;
+  onRefresh?: () => void;
 }
 
 const DeltaBadge: React.FC<{ value: number; small?: boolean }> = ({ value, small }) => {
@@ -69,9 +73,14 @@ const MargemBadge: React.FC<{ value: number; small?: boolean }> = ({ value, smal
   );
 };
 
-const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
+const RelatorioFinanceiro: React.FC<Props> = ({ data, loading, onRefresh }) => {
   const { isDark } = useTheme();
+  const { permissions } = usePermissions();
+  const isAdmin = permissions?.is_admin === true;
+
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const [recalculating, setRecalculating] = useState<Set<string>>(new Set());
+  const [recalcMessages, setRecalcMessages] = useState<Record<string, string>>({});
 
   const cardClass = `rounded-2xl ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
 
@@ -82,6 +91,32 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
       else next.add(key);
       return next;
     });
+  };
+
+  const handleRecalcular = async (ev: EventoRow) => {
+    const key = ev.evento_id || String(ev.id_evento);
+    if (!key || recalculating.has(key)) return;
+
+    setRecalculating(prev => new Set(prev).add(key));
+    setRecalcMessages(prev => ({ ...prev, [key]: '' }));
+
+    try {
+      const res = await marketingApi.recalcularSnapshot(key);
+      const msg = res.margem_recalculada != null
+        ? `Margem recalculada: ${formatCurrency(res.margem_recalculada)}`
+        : 'Snapshot atualizado';
+      setRecalcMessages(prev => ({ ...prev, [key]: msg }));
+      if (onRefresh) setTimeout(onRefresh, 800);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || 'Erro ao recalcular';
+      setRecalcMessages(prev => ({ ...prev, [key]: `⚠ ${detail}` }));
+    } finally {
+      setRecalculating(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
   };
 
   const meses = data?.meses || [];
@@ -118,6 +153,11 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
             <BarChart2 className="w-4 h-4 text-emerald-400" />
             Resultado por Mês e Evento
           </h3>
+          {isAdmin && (
+            <span className={`text-[10px] px-2 py-0.5 rounded-full ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'}`}>
+              ↺ disponível para eventos concluídos
+            </span>
+          )}
         </div>
       </div>
 
@@ -201,55 +241,84 @@ const RelatorioFinanceiro: React.FC<Props> = ({ data, loading }) => {
                     </td>
                   </tr>
 
-                  {isExpanded && mes.eventos.map((ev) => (
-                    <tr
-                      key={ev.id_evento}
-                      className={`transition-colors ${
-                        isDark
-                          ? 'bg-gray-900/40 hover:bg-gray-900/60'
-                          : 'bg-gray-50/90 hover:bg-gray-100/80'
-                      }`}
-                    >
-                      <td className={`py-2 pl-10 pr-4 border-l-2 ${isDark ? 'border-emerald-500/25' : 'border-emerald-400/40'}`}>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] leading-none font-bold select-none ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>▸</span>
-                          <div>
-                            <p className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                              {ev.nome_evento}
-                            </p>
-                            <p className={`text-[11px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                              {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}
-                              {ev.ticket_medio > 0 && ` · TKT ${formatCurrency(ev.ticket_medio)}`}
-                            </p>
+                  {isExpanded && mes.eventos.map((ev) => {
+                    const evKey = ev.evento_id || String(ev.id_evento);
+                    const isCompleted = ev.receita_realizada > 0;
+                    const isRecalculating = recalculating.has(evKey);
+                    const recalcMsg = recalcMessages[evKey];
+                    const isEventoPast = new Date(ev.data_evento + 'T00:00:00') < new Date();
+
+                    return (
+                      <tr
+                        key={ev.id_evento}
+                        className={`transition-colors ${
+                          isDark
+                            ? 'bg-gray-900/40 hover:bg-gray-900/60'
+                            : 'bg-gray-50/90 hover:bg-gray-100/80'
+                        }`}
+                      >
+                        <td className={`py-2 pl-10 pr-4 border-l-2 ${isDark ? 'border-emerald-500/25' : 'border-emerald-400/40'}`}>
+                          <div className="flex items-start gap-2">
+                            <span className={`text-[10px] leading-none font-bold select-none mt-1 ${isDark ? 'text-gray-600' : 'text-gray-300'}`}>▸</span>
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-xs font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                                {ev.nome_evento}
+                              </p>
+                              <p className={`text-[11px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}
+                                {ev.ticket_medio > 0 && ` · TKT ${formatCurrency(ev.ticket_medio)}`}
+                              </p>
+                              {recalcMsg && (
+                                <p className={`text-[10px] mt-0.5 ${recalcMsg.startsWith('⚠') ? 'text-red-400' : 'text-emerald-400'}`}>
+                                  {recalcMsg}
+                                </p>
+                              )}
+                            </div>
+                            {isAdmin && isCompleted && isEventoPast && ev.evento_id && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleRecalcular(ev); }}
+                                disabled={isRecalculating}
+                                title="Recalcular margem final a partir do Magento"
+                                className={`flex-shrink-0 p-1 rounded transition-colors ${
+                                  isRecalculating
+                                    ? 'opacity-50 cursor-wait'
+                                    : isDark
+                                      ? 'text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10'
+                                      : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'
+                                }`}
+                              >
+                                <RefreshCw className={`w-3 h-3 ${isRecalculating ? 'animate-spin' : ''}`} />
+                              </button>
+                            )}
                           </div>
-                        </div>
-                      </td>
-                      <td className={`px-4 py-2 text-right text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                        {formatNumber(ev.atletas)}
-                      </td>
-                      <td className={`px-4 py-2 text-right text-xs ${isDark ? 'text-blue-300/60' : 'text-blue-500/70'}`}>
-                        {ev.receita_realizada > 0 ? formatCurrency(ev.receita_realizada) : <span className="text-gray-400">—</span>}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {ev.margem_orcada !== 0 || ev.margem_orcada_pct !== 0
-                          ? <MargemBadge value={ev.margem_orcada} small />
-                          : <span className="text-xs text-gray-400">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {ev.receita_realizada > 0
-                          ? <MargemBadge value={ev.margem_realizada} small />
-                          : <span className="text-xs text-gray-400">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {ev.receita_realizada > 0 || ev.margem_orcada !== 0
-                          ? <DeltaBadge value={ev.margem_realizada - ev.margem_orcada} small />
-                          : <span className="text-xs text-gray-400">—</span>
-                        }
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className={`px-4 py-2 text-right text-xs ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                          {formatNumber(ev.atletas)}
+                        </td>
+                        <td className={`px-4 py-2 text-right text-xs ${isDark ? 'text-blue-300/60' : 'text-blue-500/70'}`}>
+                          {ev.receita_realizada > 0 ? formatCurrency(ev.receita_realizada) : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {ev.margem_orcada !== 0 || ev.margem_orcada_pct !== 0
+                            ? <MargemBadge value={ev.margem_orcada} small />
+                            : <span className="text-xs text-gray-400">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {ev.receita_realizada > 0
+                            ? <MargemBadge value={ev.margem_realizada} small />
+                            : <span className="text-xs text-gray-400">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {ev.receita_realizada > 0 || ev.margem_orcada !== 0
+                            ? <DeltaBadge value={ev.margem_realizada - ev.margem_orcada} small />
+                            : <span className="text-xs text-gray-400">—</span>
+                          }
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </React.Fragment>
               );
             })}

@@ -913,6 +913,7 @@ def get_relatorio_financeiro(
         nome = ev.get("name") or fallback_nome or f"Evento {fallback_id}"
         evento_row = {
             "id_evento": fallback_id,
+            "evento_id": eds_eid,
             "nome_evento": nome,
             "data_evento": data_ev.isoformat(),
             "receita_realizada": round(current_receita, 2),

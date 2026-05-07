@@ -10714,6 +10714,65 @@ def _atualizar_hoje_inner(
     }
 
 
+@router.post("/eventos/{evento_id}/recalcular-snapshot")
+def recalcular_snapshot_evento(
+    evento_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_admin()),
+):
+    """Força a recomputação completa do snapshot de um evento específico.
+
+    Útil para corrigir manualmente o snapshot de um evento já concluído quando
+    o valor armazenado está incorreto (ex: queda de conexão com o Magento
+    gravou dados parciais antes das salvaguardas entrarem em vigor).
+
+    A salvaguarda de margem em `save_persisted_detail` continua ativa:
+    - Se o Magento devolver um valor MAIOR que o armazenado → salva.
+    - Se o Magento devolver um valor MENOR (< 95% do existente) → preserva o existente.
+
+    Para forçar a gravação mesmo quando o novo valor é menor, use
+    `?force_overwrite=true` (com cautela — apenas quando o Magento está saudável).
+    """
+    from ...services.event_detail_snapshot_service import (
+        EventoDetailSnapshot,
+        save_persisted_detail as _save_detail,
+    )
+    from sqlalchemy.dialects.postgresql import insert as pg_insert_local
+
+    ano = datetime.now().year
+
+    try:
+        result = get_marketing_event_by_id(
+            evento_id=evento_id,
+            ano=ano,
+            force_refresh=True,
+            db=db,
+            current_user=current_user,
+            response=None,
+        )
+
+        # Extrai a margem do resultado para informar no response
+        margem_nova = None
+        try:
+            from ...services.event_detail_snapshot_service import _extract_margem_total, _to_jsonable
+            from fastapi.encoders import jsonable_encoder
+            payload_json = jsonable_encoder(result)
+            margem_nova = _extract_margem_total(payload_json)
+        except Exception:
+            pass
+
+        return {
+            "status": "ok",
+            "evento_id": evento_id,
+            "ano": ano,
+            "margem_recalculada": margem_nova,
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"[recalcular-snapshot] falhou para '{evento_id}': {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao recalcular snapshot: {str(e)}")
+
+
 @router.post("/cache/refresh")
 def refresh_cache(
     db: Session = Depends(get_db),
