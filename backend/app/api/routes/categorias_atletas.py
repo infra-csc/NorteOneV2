@@ -16,7 +16,7 @@ def list_categorias(
     modalidade: str = None,
     genero: str = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("categorias_atletas", "pode_visualizar"))
 ):
     query = db.query(DimCategoriaAtleta).filter(DimCategoriaAtleta.ativo == True)
     if modalidade:
@@ -46,7 +46,7 @@ def create_categoria(
 def get_categoria(
     categoria_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("categorias_atletas", "pode_visualizar"))
 ):
     categoria = db.query(DimCategoriaAtleta).filter(DimCategoriaAtleta.id == categoria_id).first()
     if not categoria:

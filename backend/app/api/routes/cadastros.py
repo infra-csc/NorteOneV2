@@ -338,7 +338,8 @@ def listar_cadastros(
     skip: int = 0,
     limit: int = 1000,
     status: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("eventos", "pode_visualizar"))
 ):
     """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
     t0 = _time.time()
@@ -376,7 +377,7 @@ def listar_cadastros(
 
 
 @router.get("/lixeira/itens")
-def listar_lixeira(db: Session = Depends(get_db)):
+def listar_lixeira(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
     """Lista cadastros deletados (lixeira) — últimos 30 dias"""
     from datetime import timedelta
     cutoff = datetime.utcnow() - timedelta(days=30)
@@ -409,7 +410,7 @@ def restaurar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_
 
 
 @router.get("/{cadastro_id}", response_model=CadastroEventoResponse)
-def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
+def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
     """Obtém um cadastro específico (não deletado)"""
     cadastro = (
         db.query(CadastroEvento)
@@ -856,7 +857,7 @@ def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_us
 
 
 @router.get("/opcoes/circuitos", response_model=List[CircuitoProdutoSchema])
-def listar_circuitos(db: Session = Depends(get_db)):
+def listar_circuitos(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
     return db.query(CircuitoProduto).order_by(CircuitoProduto.nome).all()
 
 
@@ -894,7 +895,7 @@ def deletar_circuito(item_id: int, db: Session = Depends(get_db), current_user=D
 
 
 @router.get("/opcoes/localizacoes", response_model=List[LocalizacaoSchema])
-def listar_localizacoes(db: Session = Depends(get_db)):
+def listar_localizacoes(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
     return db.query(Localizacao).order_by(Localizacao.nome).all()
 
 

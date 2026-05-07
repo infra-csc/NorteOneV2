@@ -18,7 +18,7 @@ def list_projetos(
     status: Optional[str] = None,
     modalidade: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("eventos", "pode_visualizar"))
 ):
     query = db.query(DimProjeto)
     if status:
@@ -32,7 +32,7 @@ def list_projetos(
 @router.get("/skus-disponiveis")
 def get_skus_disponiveis(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("eventos", "pode_visualizar"))
 ):
     """Retorna SKUs disponíveis dos mapeamentos para seleção no cadastro de projetos."""
     from ...models.dimensoes import SkuMapping
@@ -57,7 +57,7 @@ def get_skus_disponiveis(
 @router.get("/filtros")
 def get_filtros_disponiveis(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("eventos", "pode_visualizar"))
 ):
     """
     Retorna os valores disponíveis para os filtros.
@@ -101,7 +101,7 @@ def create_projeto(
 def get_projeto(
     projeto_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("eventos", "pode_visualizar"))
 ):
     projeto = db.query(DimProjeto).filter(DimProjeto.id == projeto_id).first()
     if not projeto:
