@@ -1182,7 +1182,9 @@ const EventDetail: React.FC = () => {
   const margemRealizadaKits = _kitRowsRealizado.length > 0 && _kitTotalQtd > 0
     ? _kitSumMargem
     : _consRowMargem ?? null;
-  const mediaDiariaNecessaria = dMinusCalc > 0 ? Math.max(volumeParaMeta, 0) / dMinusCalc : 0;
+  // Quando D-Inscrições chega a 0, usa D-Evento como fallback para evitar divisão por zero e campos zerados
+  const dMinusEfetivo = dMinusCalc > 0 ? dMinusCalc : _safeDMinus;
+  const mediaDiariaNecessaria = dMinusEfetivo > 0 ? Math.max(volumeParaMeta, 0) / dMinusEfetivo : 0;
   // Média 14d usada como ritmo base no Simulador. Sempre baseada nas vendas reais.
   const _last14DaysSim = completeDailySales.slice(-14);
   const dashMediaDiaria14 = _last14DaysSim.length > 0
@@ -1206,7 +1208,7 @@ const EventDetail: React.FC = () => {
       const vendas = completeDailySales.slice(-dias);
       const totalVendas = vendas.reduce((sum, d) => sum + _saleVal(d), 0);
       const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
-      const potencial = media * dMinusCalc;
+      const potencial = media * dMinusEfetivo;
       const atingimento = totalInscritosConsolidado + potencial;
       const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
       const insightMargem = ticketAtualKit > 0 && custoKitBasico > 0 && event.budgetTicket > 0 && event.salesGoal > 0
@@ -1215,7 +1217,7 @@ const EventDetail: React.FC = () => {
       return {
         periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
         media: Math.round(media * 10) / 10,
-        dMinus: dMinusCalc,
+        dMinus: dMinusEfetivo,
         potencial: Math.round(potencial),
         vendasAcumuladas: totalInscritosConsolidado,
         atingimento: Math.round(atingimento),
