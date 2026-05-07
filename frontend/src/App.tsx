@@ -81,12 +81,12 @@ function App() {
               <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
               <Route path="/cadastros/categorias-atletas" element={<PermissionRoute module="categorias_atletas"><Layout><CategoriasAtletas /></Layout></PermissionRoute>} />
               <Route path="/cadastros/eventos" element={<PermissionRoute module="eventos"><Layout><Eventos /></Layout></PermissionRoute>} />
-              <Route path="/marketing" element={<PrivateRoute><Layout><MarketingDashboard /></Layout></PrivateRoute>} />
-              <Route path="/marketing/evento/:id" element={<PrivateRoute><Layout><ErrorBoundary fallbackNavigate="/marketing"><EventDetail /></ErrorBoundary></Layout></PrivateRoute>} />
-              <Route path="/marketing/evento/:id/operacao" element={<PrivateRoute><ErrorBoundary fallbackNavigate="/marketing"><EventOpsView /></ErrorBoundary></PrivateRoute>} />
-              <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
-              <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
-              <Route path="/marketing/playbook" element={<PrivateRoute><PlaybookPage /></PrivateRoute>} />
+              <Route path="/marketing" element={<PermissionRoute module="marketing_dashboard"><Layout><MarketingDashboard /></Layout></PermissionRoute>} />
+              <Route path="/marketing/evento/:id" element={<PermissionRoute module="marketing_dashboard"><Layout><ErrorBoundary fallbackNavigate="/marketing"><EventDetail /></ErrorBoundary></Layout></PermissionRoute>} />
+              <Route path="/marketing/evento/:id/operacao" element={<PermissionRoute module="marketing_dashboard"><ErrorBoundary fallbackNavigate="/marketing"><EventOpsView /></ErrorBoundary></PermissionRoute>} />
+              <Route path="/marketing/comparativo" element={<PermissionRoute module="marketing_comparativo"><Layout><EventComparison /></Layout></PermissionRoute>} />
+              <Route path="/marketing/configuracoes" element={<PermissionRoute module="marketing_configuracoes"><Layout><MarketingSettings /></Layout></PermissionRoute>} />
+              <Route path="/marketing/playbook" element={<PermissionRoute module="marketing_dashboard"><PlaybookPage /></PermissionRoute>} />
               <Route path="/nori" element={<PermissionRoute module="nori"><Layout><NoriAssistant /></Layout></PermissionRoute>} />
               <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
               <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />

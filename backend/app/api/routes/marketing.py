@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from ...core.database import get_db
 from ...core import database as db_module
 from ...core.db_retry import magento_run, MagentoEngineUnavailable
-from ...core.security import get_current_user, require_admin
+from ...core.security import get_current_user, require_admin, require_permission
 from ...models.dimensoes import DimProjeto, SkuMapping, EventoGrupo as EventoGrupoModel, MarketingSettings
 from ...models.user import Usuario
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem, CadastroFaixaPrecoSite
@@ -5075,7 +5075,7 @@ def get_marketing_events(
     busca: Optional[str] = Query(None, description="Buscar por nome do evento"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
     response: Response = None
 ):
     """
@@ -5642,7 +5642,7 @@ def get_marketing_events(
 def get_marketing_summary(
     ano: int = Query(default=None, description="Ano dos eventos"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
 ):
     """
     Retorna apenas o resumo do Dashboard ISC (contagem por zona).
@@ -5662,7 +5662,7 @@ def get_sales_averages(
     ano: int = Query(default=None, description="Ano do evento"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
     response: Response = None
 ):
     from datetime import timedelta
@@ -5831,7 +5831,7 @@ def get_curva_snapshot(
     evento_id: str,
     ano: int = Query(default=None, description="Ano do evento"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
 ):
     """
     Retorna os dados da curva histórica snapshot (ano anterior) para um evento,
@@ -5916,7 +5916,7 @@ def get_event_simulation(
     ano: int = Query(default=None, description="Ano do evento"),
     force_refresh: bool = Query(default=False, description="Forçar atualização"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
 ):
     from datetime import timedelta
     today = today_brazil()
@@ -8963,7 +8963,7 @@ def get_marketing_event_by_id(
     ano: int = Query(default=None, description="Ano para evento consolidado"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
     response: Response = None
 ):
     """
@@ -10357,7 +10357,7 @@ def atualizar_vendas_hoje(
     evento_id: str,
     ano: Optional[int] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar"))
 ):
     """
     Atualização leve: busca apenas as vendas de HOJE (data atual) do Ativo e Magento
@@ -10826,7 +10826,7 @@ def debug_snapshot_grupo(
     grupo: str,
     ano: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_admin()),
 ):
     """
     Diagnostic endpoint: returns a breakdown of vendas_diaria_snapshot rows
@@ -10891,7 +10891,7 @@ def debug_snapshot_grupo(
 
 @router.get("/cache/status")
 def get_cache_status(
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     import time as _cst_time
     from app.core.cache import get_last_full_refresh, get_last_sync_hoje, is_full_refresh_in_progress, get_warmup_progress, get_last_refresh_error, get_warmup_event_results, get_warmup_summary, get_gap_detection_result, get_known_tier1_ids
@@ -11044,7 +11044,7 @@ def get_acoes_comerciais(
     projeto_id: int,
     calcular_impacto: bool = Query(default=True, description="Calcular impacto em tempo real"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))
 ):
     """Lista todas as ações comerciais de um projeto/evento com cálculo de impacto"""
     from ...models.dimensoes import AcaoComercial
@@ -11096,7 +11096,7 @@ def get_acoes_comerciais(
 def create_acao_comercial(
     acao: AcaoComercialCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar"))
 ):
     """Cria uma nova ação comercial vinculada ao ponto de corte e com snapshot dos dados ISC"""
     from ...models.dimensoes import AcaoComercial
@@ -11146,7 +11146,7 @@ def update_acao_comercial(
     acao_id: int,
     acao_update: AcaoComercialUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_editar"))
 ):
     """Atualiza uma ação comercial existente"""
     from ...models.dimensoes import AcaoComercial
@@ -11182,7 +11182,7 @@ def update_acao_comercial(
 def delete_acao_comercial(
     acao_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_deletar"))
 ):
     """Remove uma ação comercial"""
     from ...models.dimensoes import AcaoComercial
@@ -11910,7 +11910,7 @@ def delete_projetado_faixas(
 def diagnostico_inscricoes(
     ativo_id: int,
     magento_id: str,
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     """
     Endpoint de diagnóstico para investigar discrepâncias entre o sistema e controles externos.
