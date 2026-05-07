@@ -83,10 +83,15 @@ def delete_photo(
 
 
 @router.get("/photo/{filename}")
-def get_photo(filename: str, db: Session = Depends(get_db)):
+def get_photo(
+    filename: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_user),
+):
     safe_name = os.path.basename(filename)
+    expected_path = f"/api/profile/photo/{safe_name}"
     user = db.query(Usuario).filter(
-        Usuario.foto_perfil.like(f"%{safe_name}")
+        Usuario.foto_perfil == expected_path
     ).first()
 
     if not user or not user.foto_perfil_data:
@@ -95,5 +100,5 @@ def get_photo(filename: str, db: Session = Depends(get_db)):
     return RawResponse(
         content=user.foto_perfil_data,
         media_type=user.foto_perfil_mime or "image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
+        headers={"Cache-Control": "private, max-age=86400"},
     )
