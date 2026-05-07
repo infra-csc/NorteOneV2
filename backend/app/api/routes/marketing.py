@@ -4862,7 +4862,7 @@ def _aggregate_grupo_sales(sales_data: dict, sku_to_grupo: dict) -> dict:
 
 
 @router.get("/playbook")
-def get_playbook():
+def get_playbook(current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar"))):
     """Retorna o playbook completo com todas as 9 entradas (3 estágios × 3 estados ISC)."""
     stages = [
         {"key": "analitico", "label": "D-90 → D-50", "sublabel": "Analítico", "description": "Fase de análise antecipada. Ações de percepção de valor e construção de demanda."},
