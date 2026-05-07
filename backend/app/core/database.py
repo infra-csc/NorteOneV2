@@ -332,7 +332,63 @@ def init_ssh_tunnel(_start_watchdog: bool = True):
             raise Exception(f"Could not load SSH key with any supported format. Last error: {last_error}")
         
         ssh_client = paramiko.SSHClient()
-        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # --- Host key verification (MITM protection) ---
+        # AutoAddPolicy silently trusts any server key, enabling MITM.
+        # We require a pinned server public key supplied via SSH_HOST_KEY
+        # ("<key-type> <base64-key>", the two middle fields of a known_hosts line).
+        # If the variable is absent we refuse to connect (fail-closed).
+        ssh_host_key_raw = settings.SSH_HOST_KEY.strip()
+        if not ssh_host_key_raw:
+            raise Exception(
+                "SSH_HOST_KEY is not configured. Refusing to open an SSH tunnel "
+                "without a pinned server host key — set SSH_HOST_KEY to the "
+                "server's public key ('<key-type> <base64-key>') to enable the "
+                "tunnel."
+            )
+
+        try:
+            key_parts = ssh_host_key_raw.split()
+            if len(key_parts) < 2:
+                raise ValueError("SSH_HOST_KEY must be '<key-type> <base64-key>'")
+            key_type_str, key_b64 = key_parts[0], key_parts[1]
+
+            import base64
+            key_data = base64.b64decode(key_b64)
+            key_msg = paramiko.message.Message(key_data)
+
+            _key_class_map = {
+                "ssh-rsa": paramiko.RSAKey,
+                "ssh-ed25519": paramiko.Ed25519Key,
+                "ecdsa-sha2-nistp256": paramiko.ECDSAKey,
+                "ecdsa-sha2-nistp384": paramiko.ECDSAKey,
+                "ecdsa-sha2-nistp521": paramiko.ECDSAKey,
+                "ssh-dss": paramiko.DSSKey,
+            }
+            key_class = _key_class_map.get(key_type_str)
+            if key_class is None:
+                raise ValueError(f"Unsupported SSH host key type: {key_type_str}")
+
+            pinned_host_key = key_class(msg=key_msg)
+        except Exception as hk_err:
+            raise Exception(
+                f"Failed to parse SSH_HOST_KEY: {hk_err}. "
+                "Ensure SSH_HOST_KEY is a valid '<key-type> <base64-key>' string."
+            )
+
+        # Paramiko matches host-key entries using "[host]:port" when the port
+        # is not 22, mirroring the OpenSSH known_hosts convention.
+        host_key_lookup = (
+            f"[{settings.SSH_HOST}]:{settings.SSH_PORT}"
+            if settings.SSH_PORT != 22
+            else settings.SSH_HOST
+        )
+        ssh_client.get_host_keys().add(
+            host_key_lookup, key_type_str, pinned_host_key
+        )
+        ssh_client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        # --- End host key verification ---
+
         ssh_client.connect(
             hostname=settings.SSH_HOST,
             port=settings.SSH_PORT,

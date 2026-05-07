@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     SSH_PORT: int = int(os.getenv("SSH_PORT", "22"))
     SSH_USER: str = os.getenv("SSH_USER", "")
     SSH_PRIVATE_KEY: str = os.getenv("SSH_PRIVATE_KEY", "")
+    # Pinned SSH server public key in known_hosts format: "<key-type> <base64-key>"
+    # Example: "ssh-rsa AAAAB3NzaC1yc2EAAA..."
+    # If unset the tunnel will refuse to connect (fail-closed — no MITM risk).
+    SSH_HOST_KEY: str = os.getenv("SSH_HOST_KEY", "")
     
     # Database via SSH Tunnel
     DB_HOST: str = os.getenv("DB_HOST", "localhost")
