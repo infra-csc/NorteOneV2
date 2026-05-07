@@ -39,12 +39,20 @@ const PermissionContext = createContext<PermissionContextType | undefined>(undef
 export const PermissionProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [permissions, setPermissions] = useState<PermissionsData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Inicializa como `true` quando há token no localStorage: garante que o
+  // PermissionRoute mostre o spinner enquanto o AuthContext ainda está
+  // resolvendo, evitando o redirect prematuro para "/" que ocorria na
+  // janela entre "auth resolveu" e "fetchPermissions ainda não rodou".
+  const [isLoading, setIsLoading] = useState(() => !!localStorage.getItem('token'));
 
   const fetchPermissions = async () => {
     if (!user) {
       setPermissions(null);
-      setIsLoading(false);
+      // Só encerra o loading quando não há token — se ainda há token,
+      // AuthContext vai resolver o usuário e chamar fetchPermissions novamente.
+      if (!localStorage.getItem('token')) {
+        setIsLoading(false);
+      }
       return;
     }
     setIsLoading(true);
