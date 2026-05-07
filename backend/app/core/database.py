@@ -363,8 +363,11 @@ def init_ssh_tunnel(_start_watchdog: bool = True):
                 "ecdsa-sha2-nistp256": paramiko.ECDSAKey,
                 "ecdsa-sha2-nistp384": paramiko.ECDSAKey,
                 "ecdsa-sha2-nistp521": paramiko.ECDSAKey,
-                "ssh-dss": paramiko.DSSKey,
             }
+            # DSSKey foi removido de versões recentes do paramiko (DSA é obsoleto).
+            _dss_cls = getattr(paramiko, "DSSKey", None)
+            if _dss_cls is not None:
+                _key_class_map["ssh-dss"] = _dss_cls
             key_class = _key_class_map.get(key_type_str)
             if key_class is None:
                 raise ValueError(f"Unsupported SSH host key type: {key_type_str}")

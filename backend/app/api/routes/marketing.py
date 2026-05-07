@@ -2641,11 +2641,11 @@ def get_margem_por_kit(
 
             # Query 2: receita — mesmo padrão de partida (sales_order com índice created_at)
             # + join filho para valor da distância/modalidade.
-            # Timeout elevado para 55s: eventos de alto volume precisam de ~20-25s.
+            # Timeout 90s: eventos de alto volume precisam de ~50-55s em pico de carga.
             # Resultado armazenado em cache em memória por 4h (_margem_rev_cache).
             # A segunda chamada (mesmos bundle_ids) é instantânea.
             _sql_bundle = (
-                "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
                 "    soi_parent.product_id                                                              AS bundle_entity_id,\n"
                 "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
                 "FROM sales_order so\n"
@@ -3149,7 +3149,7 @@ AND    value        IN :ev_ids_fb
                 )
 
                 fb_rev_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
                     "    soi_parent.name                                                                    AS bundle_name,\n"
                     "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
                     "FROM sales_order so\n"
@@ -3323,7 +3323,7 @@ AND    value        IN :ev_ids
                 )
 
                 _supp_rev_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
                     "    soi_parent.name                                                                    AS bundle_name,\n"
                     "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
                     "FROM sales_order so\n"
@@ -8840,7 +8840,7 @@ def _populate_cenarios_from_bundles(
     )
 
     _cic_rev_q = text(
-        "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+        "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
         "    soi_parent.product_id AS bundle_id,\n"
         "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita\n"
         "FROM sales_order so\n"
