@@ -952,17 +952,30 @@ def _sync_id_evento_magento():
 
 
 def seed_admin_user():
+    import os
     from app.core.database import SessionLocal
     from app.models.user import Usuario
     from app.models.perfil_acesso import PerfilAcesso, PerfilPermissao
     from app.core.security import get_password_hash
+
+    seed_email = os.getenv("SEED_ADMIN_EMAIL", "").strip()
+    seed_password = os.getenv("SEED_ADMIN_PASSWORD", "").strip()
+
+    if not seed_email or not seed_password:
+        logger.info(
+            "SEED_ADMIN_EMAIL or SEED_ADMIN_PASSWORD not set — "
+            "skipping automatic admin seeding. "
+            "Set both environment variables to enable first-run bootstrap."
+        )
+        return
+
     try:
         db = SessionLocal()
         user_count = db.query(Usuario).count()
         if user_count > 0:
             db.close()
             return
-        logger.info("No users found. Seeding admin user...")
+        logger.info("No users found. Seeding admin user from environment variables...")
         admin_perfil = db.query(PerfilAcesso).filter(PerfilAcesso.is_admin == True).first()
         if not admin_perfil:
             admin_perfil = PerfilAcesso(
@@ -992,15 +1005,15 @@ def seed_admin_user():
                 db.add(perm)
             logger.info("Admin profile created with full permissions")
         admin_user = Usuario(
-            email="leonardo.micheletti@cscdoesporte.com.br",
-            nome="Leonardo Micheletti",
-            senha_hash=get_password_hash("Norte@2024"),
+            email=seed_email,
+            nome=seed_email.split("@")[0],
+            senha_hash=get_password_hash(seed_password),
             perfil_acesso_id=admin_perfil.id,
             ativo=True
         )
         db.add(admin_user)
         db.commit()
-        logger.info(f"Admin user created: leonardo.micheletti@cscdoesporte.com.br")
+        logger.info(f"Admin user created: {seed_email}")
         db.close()
     except Exception as e:
         logger.error(f"Error seeding admin user: {e}")

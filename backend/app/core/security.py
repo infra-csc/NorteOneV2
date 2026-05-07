@@ -11,6 +11,20 @@ from .database import get_db
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+_secret_key_stripped = settings.SECRET_KEY.strip()
+if not _secret_key_stripped:
+    raise RuntimeError(
+        "SESSION_SECRET environment variable is not set or is empty. "
+        "The application cannot start without a strong JWT signing secret. "
+        "Set SESSION_SECRET to a long, random string before running the server."
+    )
+if len(_secret_key_stripped) < 32:
+    raise RuntimeError(
+        f"SESSION_SECRET is too short ({len(_secret_key_stripped)} characters). "
+        "A minimum of 32 characters is required for HS256 signing security. "
+        "Generate a strong random secret and set it in SESSION_SECRET."
+    )
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
