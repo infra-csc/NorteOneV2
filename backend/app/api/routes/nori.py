@@ -5,7 +5,7 @@ from typing import Optional, List
 import asyncio
 from zoneinfo import ZoneInfo
 from app.services.nori_service import chat_with_nori, analyze_marketing_data, get_greeting, OpenAIQuotaError, OpenAIConfigError
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_permission
 from app.core.database import get_db
 from app.models.user import Usuario
 from app.models.nori_insights import NoriInsight
@@ -56,7 +56,7 @@ class InsightResponse(BaseModel):
 
 
 @router.get("/greeting")
-def nori_greeting(current_user: Usuario = Depends(get_current_user)):
+def nori_greeting(current_user: Usuario = Depends(require_permission("nori", "pode_visualizar"))):
     return {"greeting": get_greeting(), "success": True}
 
 
@@ -64,7 +64,7 @@ def nori_greeting(current_user: Usuario = Depends(get_current_user)):
 def nori_chat(
     request: ChatRequest,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("nori", "pode_visualizar"))
 ):
     try:
         context_list = None
@@ -97,7 +97,7 @@ def nori_chat(
 @router.post("/analyze", response_model=ChatResponse)
 def nori_analyze(
     request: AnalysisRequest,
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("nori", "pode_visualizar"))
 ):
     try:
         response = asyncio.run(analyze_marketing_data(request.events_data))
@@ -116,7 +116,7 @@ def list_insights(
     tipo: Optional[str] = Query(None, description="Filtrar por tipo"),
     apenas_hoje: bool = Query(True, description="Retornar apenas insights do dia atual (padrão: True)"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("nori", "pode_visualizar")),
 ):
     brasilia_tz = ZoneInfo('America/Sao_Paulo')
     query = db.query(NoriInsight)
@@ -158,7 +158,7 @@ def update_insight_status(
     insight_id: int,
     status: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("nori", "pode_editar")),
 ):
     if status not in ("novo", "visto", "descartado"):
         raise HTTPException(status_code=400, detail="Status inválido. Use: novo, visto, descartado")
@@ -176,7 +176,7 @@ def clear_old_insights(
     dias: int = Query(30, description="Deletar insights com mais de N dias (padrão: 30)"),
     status: Optional[str] = Query("descartado", description="Filtrar por status ao limpar. Use 'todos' para incluir qualquer status."),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("nori", "pode_deletar")),
 ):
     """Remove insights antigos ou descartados para evitar acúmulo."""
     cutoff = datetime.now() - timedelta(days=dias)
@@ -193,7 +193,7 @@ def clear_old_insights(
 def delete_insight(
     insight_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("nori", "pode_deletar")),
 ):
     insight = db.query(NoriInsight).filter(NoriInsight.id == insight_id).first()
     if not insight:
@@ -207,7 +207,7 @@ def delete_insight(
 def trigger_insights_generation(
     force_refresh: bool = Query(True, description="Substituir insights de hoje e regenerar com dados frescos (padrão: True)"),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user),
+    current_user: Usuario = Depends(require_permission("nori", "pode_criar")),
 ):
     try:
         from app.services.nori_insights_service import run_proactive_insights_job

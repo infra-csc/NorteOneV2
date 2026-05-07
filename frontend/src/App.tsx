@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { PermissionProvider } from './context/PermissionContext';
+import { PermissionProvider, usePermissions } from './context/PermissionContext';
 import Layout from './components/common/Layout';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import Login from './pages/auth/Login';
@@ -52,6 +52,23 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return user ? <>{children}</> : <Navigate to="/login" />;
 };
 
+const PermissionRoute: React.FC<{ children: React.ReactNode; module: string }> = ({ children, module }) => {
+  const { user, isLoading: authLoading } = useAuth();
+  const { canView, isLoading: permLoading } = usePermissions();
+
+  if (authLoading || permLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/login" />;
+  if (!canView(module)) return <Navigate to="/" />;
+  return <>{children}</>;
+};
+
 function App() {
   return (
     <ThemeProvider>
@@ -70,7 +87,7 @@ function App() {
               <Route path="/marketing/comparativo" element={<PrivateRoute><Layout><EventComparison /></Layout></PrivateRoute>} />
               <Route path="/marketing/configuracoes" element={<PrivateRoute><Layout><MarketingSettings /></Layout></PrivateRoute>} />
               <Route path="/marketing/playbook" element={<PrivateRoute><PlaybookPage /></PrivateRoute>} />
-              <Route path="/nori" element={<PrivateRoute><Layout><NoriAssistant /></Layout></PrivateRoute>} />
+              <Route path="/nori" element={<PermissionRoute module="nori"><Layout><NoriAssistant /></Layout></PermissionRoute>} />
               <Route path="/admin/dados-consolidados" element={<PrivateRoute><Layout><DadosConsolidados /></Layout></PrivateRoute>} />
               <Route path="/admin/usuarios" element={<PrivateRoute><Layout><Usuarios /></Layout></PrivateRoute>} />
               <Route path="/admin/sku-mappings" element={<PrivateRoute><Layout><SkuMappings /></Layout></PrivateRoute>} />
