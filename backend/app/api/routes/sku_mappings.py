@@ -9,7 +9,7 @@ from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
     EventoGrupoCreate, EventoGrupoUpdate, EventoGrupoResponse
 )
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_admin
 from app.models.user import Usuario
 import app.core.database as db_module
 from sqlalchemy import text, func
@@ -335,7 +335,7 @@ def get_sku_mapping(
 def create_sku_mapping(
     mapping: SkuMappingCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     existing = db.query(SkuMapping).filter(
         SkuMapping.fonte == mapping.fonte,
@@ -365,7 +365,7 @@ def update_sku_mapping(
     mapping_id: int,
     mapping: SkuMappingUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     db_mapping = db.query(SkuMapping).filter(SkuMapping.id == mapping_id).first()
     if not db_mapping:
@@ -425,7 +425,7 @@ def update_sku_mapping(
 def delete_sku_mapping(
     mapping_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     db_mapping = db.query(SkuMapping).filter(SkuMapping.id == mapping_id).first()
     if not db_mapping:
@@ -444,7 +444,7 @@ def delete_sku_mapping(
 def bulk_create_sku_mappings(
     mappings: List[SkuMappingCreate],
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     created = []
     for mapping in mappings:
@@ -616,7 +616,7 @@ def list_evento_grupos_crud(
 def create_evento_grupo(
     grupo: EventoGrupoCreate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     existing = db.query(EventoGrupo).filter(EventoGrupo.nome == grupo.nome).first()
     if existing:
@@ -634,7 +634,7 @@ def update_evento_grupo(
     grupo_id: int,
     grupo: EventoGrupoUpdate,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     db_grupo = db.query(EventoGrupo).filter(EventoGrupo.id == grupo_id).first()
     if not db_grupo:
@@ -704,7 +704,7 @@ def set_curva_override(
     grupo_id: int,
     payload: dict,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     db_grupo = db.query(EventoGrupo).filter(EventoGrupo.id == grupo_id).first()
     if not db_grupo:
@@ -756,7 +756,7 @@ def set_curva_override(
 def delete_evento_grupo(
     grupo_id: int,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     db_grupo = db.query(EventoGrupo).filter(EventoGrupo.id == grupo_id).first()
     if not db_grupo:

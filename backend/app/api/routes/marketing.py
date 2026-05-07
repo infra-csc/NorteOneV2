@@ -10717,7 +10717,7 @@ def _atualizar_hoje_inner(
 @router.post("/cache/refresh")
 def refresh_cache(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     _smart_isc_cache.invalidate()
     event_detail_cache.invalidate()
@@ -10748,7 +10748,7 @@ def refresh_cache(
 @router.post("/cache/sync-hoje")
 def sync_hoje_todos(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     """Sincroniza apenas os dados de HOJE do MySQL para o snapshot PostgreSQL de todos os
     eventos ativos, depois reconstrói o ISC cache. Muito mais rápido que o refresh completo."""
@@ -10784,7 +10784,7 @@ def sync_hoje_todos(
 
 @router.post("/cache/refresh-all")
 def refresh_all_caches(
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_admin())
 ):
     from app.core.cache import (
         is_full_refresh_in_progress,
@@ -11807,7 +11807,7 @@ def get_pricing_analysis(
 
 
 @router.get("/settings/{key}")
-def get_marketing_setting(key: str, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def get_marketing_setting(key: str, db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin())):
     setting = db.query(MarketingSettings).filter(MarketingSettings.key == key).first()
     if setting:
         return {"status": "success", "key": key, "value": setting.value}
@@ -11815,7 +11815,7 @@ def get_marketing_setting(key: str, db: Session = Depends(get_db), current_user:
 
 
 @router.put("/settings/{key}")
-def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(get_current_user)):
+def update_marketing_setting(key: str, body: dict, db: Session = Depends(get_db), current_user: Usuario = Depends(require_admin())):
     setting = db.query(MarketingSettings).filter(MarketingSettings.key == key).first()
     if setting:
         setting.value = body.get("value", {})

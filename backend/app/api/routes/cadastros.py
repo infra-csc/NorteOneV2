@@ -9,7 +9,7 @@ import time as _time
 import logging
 
 from app.core.database import get_db
-from ...core.security import get_current_user
+from ...core.security import get_current_user, require_permission, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -395,7 +395,7 @@ def listar_lixeira(db: Session = Depends(get_db)):
 
 
 @router.post("/{cadastro_id}/restaurar")
-def restaurar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
+def restaurar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     """Restaura um cadastro da lixeira"""
     cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
     if not cadastro:
@@ -425,7 +425,7 @@ def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=CadastroEventoResponse)
-def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
+def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     """Cria um novo cadastro de evento"""
     
     if data.sku and data.sku.strip():
@@ -586,7 +586,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{cadastro_id}", response_model=CadastroEventoResponse)
-def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session = Depends(get_db)):
+def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     """Atualiza um cadastro existente"""
     cadastro = db.query(CadastroEvento).filter(CadastroEvento.id == cadastro_id).first()
     
@@ -796,7 +796,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
 
 
 @router.post("/resync-projetos")
-def resync_dim_projetos(db: Session = Depends(get_db)):
+def resync_dim_projetos(db: Session = Depends(get_db), current_user=Depends(require_admin())):
     """Re-sincroniza todos os cadastro_evento com dim_projeto, corrigindo links incorretos."""
     cadastros = db.query(CadastroEvento).all()
     fixed = 0
@@ -839,7 +839,7 @@ def resync_dim_projetos(db: Session = Depends(get_db)):
 
 
 @router.delete("/{cadastro_id}")
-def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db)):
+def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     """Move um cadastro para a lixeira (soft-delete — recuperável por 30 dias)"""
     cadastro = db.query(CadastroEvento).filter(
         CadastroEvento.id == cadastro_id,
@@ -861,7 +861,7 @@ def listar_circuitos(db: Session = Depends(get_db)):
 
 
 @router.post("/opcoes/circuitos", response_model=CircuitoProdutoSchema)
-def criar_circuito(data: CircuitoProdutoSchema, db: Session = Depends(get_db)):
+def criar_circuito(data: CircuitoProdutoSchema, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     existing = db.query(CircuitoProduto).filter(CircuitoProduto.nome == data.nome).first()
     if existing:
         raise HTTPException(status_code=409, detail="Circuito já existe")
@@ -873,7 +873,7 @@ def criar_circuito(data: CircuitoProdutoSchema, db: Session = Depends(get_db)):
 
 
 @router.put("/opcoes/circuitos/{item_id}", response_model=CircuitoProdutoSchema)
-def atualizar_circuito(item_id: int, data: CircuitoProdutoSchema, db: Session = Depends(get_db)):
+def atualizar_circuito(item_id: int, data: CircuitoProdutoSchema, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     item = db.query(CircuitoProduto).filter(CircuitoProduto.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Circuito não encontrado")
@@ -884,7 +884,7 @@ def atualizar_circuito(item_id: int, data: CircuitoProdutoSchema, db: Session = 
 
 
 @router.delete("/opcoes/circuitos/{item_id}")
-def deletar_circuito(item_id: int, db: Session = Depends(get_db)):
+def deletar_circuito(item_id: int, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     item = db.query(CircuitoProduto).filter(CircuitoProduto.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Circuito não encontrado")
@@ -899,7 +899,7 @@ def listar_localizacoes(db: Session = Depends(get_db)):
 
 
 @router.post("/opcoes/localizacoes", response_model=LocalizacaoSchema)
-def criar_localizacao(data: LocalizacaoSchema, db: Session = Depends(get_db)):
+def criar_localizacao(data: LocalizacaoSchema, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     existing = db.query(Localizacao).filter(Localizacao.nome == data.nome).first()
     if existing:
         raise HTTPException(status_code=409, detail="Localização já existe")
@@ -911,7 +911,7 @@ def criar_localizacao(data: LocalizacaoSchema, db: Session = Depends(get_db)):
 
 
 @router.put("/opcoes/localizacoes/{item_id}", response_model=LocalizacaoSchema)
-def atualizar_localizacao(item_id: int, data: LocalizacaoSchema, db: Session = Depends(get_db)):
+def atualizar_localizacao(item_id: int, data: LocalizacaoSchema, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     item = db.query(Localizacao).filter(Localizacao.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Localização não encontrada")
@@ -922,7 +922,7 @@ def atualizar_localizacao(item_id: int, data: LocalizacaoSchema, db: Session = D
 
 
 @router.delete("/opcoes/localizacoes/{item_id}")
-def deletar_localizacao(item_id: int, db: Session = Depends(get_db)):
+def deletar_localizacao(item_id: int, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     item = db.query(Localizacao).filter(Localizacao.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Localização não encontrada")
