@@ -224,3 +224,18 @@ class CutoffEventoAreaResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+class AutoLockConfigUpdate(BaseModel):
+    dias_antes_evento: int
+    ativo: bool
+
+
+class AutoLockConfigResponse(BaseModel):
+    dias_antes_evento: int
+    ativo: bool
+    updated_by_nome: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+

@@ -142,6 +142,18 @@ class ProjecaoCutoffEventoArea(Base):
     )
 
 
+class ProjecaoAutoLockConfig(Base):
+    __tablename__ = "projecao_auto_lock_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dias_antes_evento = Column(Integer, nullable=False, default=7)
+    ativo = Column(Boolean, default=True, nullable=False)
+    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    editor = relationship("Usuario", foreign_keys=[updated_by])
+
+
 class SimuladorProjetadoFaixas(Base):
     __tablename__ = "simulador_projetado_faixas"
 

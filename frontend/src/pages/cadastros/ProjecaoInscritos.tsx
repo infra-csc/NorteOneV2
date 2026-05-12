@@ -236,6 +236,13 @@ interface CutoffRule {
   updated_at?: string | null;
 }
 
+interface AutoLockConfig {
+  dias_antes_evento: number;
+  ativo: boolean;
+  updated_by_nome?: string | null;
+  updated_at?: string | null;
+}
+
 interface AreaPendente {
   area_projecao_id: number;
   area_projecao_nome: string;
@@ -473,6 +480,10 @@ const ProjecaoInscritos: React.FC = () => {
   const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string }>>({});
   const cutoffsLoadTokenRef = useRef(0);
 
+  const [autoLockConfig, setAutoLockConfig] = useState<AutoLockConfig>({ dias_antes_evento: 0, ativo: false });
+  const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; ativo: boolean }>({ dias: '0', ativo: false });
+  const [savingAutoLock, setSavingAutoLock] = useState(false);
+
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -607,6 +618,35 @@ const ProjecaoInscritos: React.FC = () => {
       setCutoffRules(data);
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao carregar regras de corte');
+    }
+  };
+
+  const loadAutoLockConfig = async () => {
+    try {
+      const data = await projecaoService.getAutoLockConfig();
+      setAutoLockConfig(data);
+      setAutoLockDraft({ dias: String(data.dias_antes_evento), ativo: data.ativo });
+    } catch {
+      // silently ignore — config pode não existir ainda
+    }
+  };
+
+  const saveAutoLockConfig = async () => {
+    const dias = parseInt(autoLockDraft.dias, 10);
+    if (isNaN(dias) || dias < 0 || dias > 365) {
+      showToast('Dias deve ser um número entre 0 e 365');
+      return;
+    }
+    setSavingAutoLock(true);
+    try {
+      const updated = await projecaoService.updateAutoLockConfig({ dias_antes_evento: dias, ativo: autoLockDraft.ativo });
+      setAutoLockConfig(updated);
+      setAutoLockDraft({ dias: String(updated.dias_antes_evento), ativo: updated.ativo });
+      showToast('Trava automática atualizada com sucesso', 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar trava automática');
+    } finally {
+      setSavingAutoLock(false);
     }
   };
 
@@ -792,7 +832,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); loadAutoLockConfig(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
@@ -809,6 +849,7 @@ const ProjecaoInscritos: React.FC = () => {
   useEffect(() => {
     loadPendencias();
     loadCutoffRules();
+    loadAutoLockConfig();
     const interval = setInterval(loadPendencias, 180000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -822,6 +863,28 @@ const ProjecaoInscritos: React.FC = () => {
     }
     return map;
   }, [pendencias]);
+
+  const autoLockedEventoIds = useMemo(() => {
+    const ids = new Set<number>();
+    if (!autoLockConfig.ativo || autoLockConfig.dias_antes_evento <= 0) return ids;
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    const todayParts = fmt.format(new Date()).split('-').map(Number);
+    const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]);
+    for (const ev of eventos) {
+      const dateStr = ev.info_geral?.data || ev.data_evento;
+      if (!dateStr) continue;
+      const datePart = dateStr.slice(0, 10);
+      const parts = datePart.split('-').map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) continue;
+      const evUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+      const dias = Math.round((evUtc - todayUtc) / 86400000);
+      if (dias <= autoLockConfig.dias_antes_evento) ids.add(ev.id);
+    }
+    return ids;
+  }, [eventos, autoLockConfig]);
 
   const cutoffByEventoId = useMemo(() => {
     const map: Record<number, { dias: number; rule: CutoffRule }> = {};
@@ -1329,16 +1392,26 @@ const ProjecaoInscritos: React.FC = () => {
               </button>
             )}
             {activeTab === 'projecoes' && canCreateProjecao && selectedEvento && (
-              <button
-                onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
-                className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                <span className="relative flex items-center gap-2">
-                  <Plus className="w-5 h-5" />
-                  Nova Projeção
-                </span>
-              </button>
+              !isAdmin && autoLockedEventoIds.has(selectedEvento.id) ? (
+                <div
+                  title={`Trava automática ativa: D-${autoLockConfig.dias_antes_evento}`}
+                  className="flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold text-sm cursor-not-allowed bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                >
+                  <Lock className="w-4 h-4" />
+                  Evento travado (D-{autoLockConfig.dias_antes_evento})
+                </div>
+              ) : (
+                <button
+                  onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
+                  className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-violet-400 via-blue-400 to-cyan-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  <span className="relative flex items-center gap-2">
+                    <Plus className="w-5 h-5" />
+                    Nova Projeção
+                  </span>
+                </button>
+              )
             )}
           </div>
         </div>
@@ -1662,6 +1735,15 @@ const ProjecaoInscritos: React.FC = () => {
                           <td className={`px-4 py-3 text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{ev.nome}</span>
+                              {!isAdmin && autoLockedEventoIds.has(ev.id) && (
+                                <span
+                                  title={`Trava automática ativa: evento a ≤ D-${autoLockConfig.dias_antes_evento} dias`}
+                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isDark ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40' : 'bg-amber-100 text-amber-700 border border-amber-300'}`}
+                                >
+                                  <Lock className="w-2.5 h-2.5" />
+                                  Trava Auto
+                                </span>
+                              )}
                               {showCutoffMarker && (
                                 <span
                                   title={
@@ -1989,7 +2071,7 @@ const ProjecaoInscritos: React.FC = () => {
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center gap-1">
-                                  {canEditProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && (
+                                  {canEditProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && !(!isAdmin && selectedEvento && autoLockedEventoIds.has(selectedEvento.id)) && (
                                     <button
                                       onClick={() => openEdit(p)}
                                       className="p-1.5 rounded-lg hover:bg-blue-500/20 text-blue-400 transition-colors"
@@ -2007,7 +2089,7 @@ const ProjecaoInscritos: React.FC = () => {
                                       <History className="w-4 h-4" />
                                     </button>
                                   )}
-                                  {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && (
+                                  {canDeleteProjecao && myAreaIds.has(p.area_projecao_id) && !p.locked_at && !(!isAdmin && selectedEvento && autoLockedEventoIds.has(selectedEvento.id)) && (
                                     <button
                                       onClick={() => handleDelete(p.id)}
                                       className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
@@ -2192,6 +2274,54 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'config' && isAdmin && (
           <div className="space-y-6">
+            {/* ── Trava Automática ── */}
+            <div className={`rounded-2xl p-5 border ${isDark ? 'bg-gray-800/60 border-amber-500/30' : 'bg-amber-50/80 border-amber-300/60'}`}>
+              <div className="flex items-center gap-2 mb-4">
+                <Lock className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+                <div>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Trava Automática</h2>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Bloqueia criação, edição e exclusão de projeções quando o evento está a N dias ou menos da data. Administradores podem sempre editar.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="flex flex-col gap-1">
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Dias antes do evento (D-N)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={autoLockDraft.dias}
+                    onChange={e => setAutoLockDraft(d => ({ ...d, dias: e.target.value }))}
+                    className={`w-28 px-3 py-2 rounded-xl border text-sm font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500/50`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Status</label>
+                  <button
+                    onClick={() => setAutoLockDraft(d => ({ ...d, ativo: !d.ativo }))}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${autoLockDraft.ativo ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600' : (isDark ? 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50')}`}
+                  >
+                    {autoLockDraft.ativo ? <><Lock className="w-4 h-4" /> Ativa</> : <><LockOpen className="w-4 h-4" /> Inativa</>}
+                  </button>
+                </div>
+                <button
+                  onClick={saveAutoLockConfig}
+                  disabled={savingAutoLock}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {savingAutoLock ? 'Salvando…' : 'Salvar'}
+                </button>
+              </div>
+              {autoLockConfig.updated_by_nome && (
+                <p className={`mt-3 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Última atualização por <span className="font-semibold">{autoLockConfig.updated_by_nome}</span>
+                  {autoLockConfig.updated_at ? ` em ${new Date(autoLockConfig.updated_at).toLocaleDateString('pt-BR')}` : ''}
+                </p>
+              )}
+            </div>
+
             {/* ── Pontos de corte (regras de notificação) ── */}
             <div className="space-y-3">
               <div className="flex items-center justify-between flex-wrap gap-3">

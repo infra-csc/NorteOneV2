@@ -16,7 +16,7 @@ from ...core.security import get_current_user, is_user_admin, require_permission
 from ...models.projecao import (
     AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos,
     ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoInscritosKit, ProjecaoCutoffRule,
-    ProjecaoCutoffEventoArea,
+    ProjecaoCutoffEventoArea, ProjecaoAutoLockConfig,
 )
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
@@ -31,6 +31,7 @@ from ...schemas.projecao import (
     CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
     PendenciaItem, PendenciasResponse, AreaPendenteItem,
     AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
+    AutoLockConfigUpdate, AutoLockConfigResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -258,6 +259,28 @@ def list_projecoes(
     return result
 
 
+def _get_auto_lock_config(db: Session) -> Optional[ProjecaoAutoLockConfig]:
+    return db.query(ProjecaoAutoLockConfig).first()
+
+
+def _check_auto_lock(db: Session, evento: CadastroEvento, current_user: Usuario):
+    """Rejeita a operação se o evento está dentro do período de trava automática (não-admins)."""
+    if is_user_admin(current_user):
+        return
+    config = _get_auto_lock_config(db)
+    if not config or not config.ativo:
+        return
+    if not evento.data_evento:
+        return
+    today = datetime.now(ZoneInfo('America/Sao_Paulo')).date()
+    dias = (evento.data_evento - today).days
+    if dias <= config.dias_antes_evento:
+        raise HTTPException(
+            status_code=423,
+            detail=f"Este evento está dentro do período de trava automática (D-{config.dias_antes_evento}). Não é possível criar, editar ou excluir projeções.",
+        )
+
+
 def _validate_distribuicao_sums(quantidade: int, clientes, kits):
     """Garante que a soma das distribuições por cliente e/ou kit bate com a quantidade total."""
     if clientes:
@@ -292,6 +315,8 @@ def create_projecao(
     evento = db.query(CadastroEvento).filter(CadastroEvento.id == data.evento_id, CadastroEvento.deleted_at.is_(None)).first()
     if not evento:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
+
+    _check_auto_lock(db, evento, current_user)
 
     area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True).first()
     if not area:
@@ -487,6 +512,9 @@ def update_projecao(
 
     _check_area_permission(db, current_user, projecao.area_projecao_id)
 
+    if projecao.evento:
+        _check_auto_lock(db, projecao.evento, current_user)
+
     if data.quantidade is None or data.quantidade <= 0:
         raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
 
@@ -660,6 +688,12 @@ def delete_projecao(
         raise HTTPException(status_code=423, detail="Esta projeção está travada e não pode ser removida")
 
     _check_area_permission(db, current_user, projecao.area_projecao_id)
+
+    projecao_com_evento = db.query(ProjecaoInscritos).options(
+        joinedload(ProjecaoInscritos.evento)
+    ).filter(ProjecaoInscritos.id == projecao_id).first()
+    if projecao_com_evento and projecao_com_evento.evento:
+        _check_auto_lock(db, projecao_com_evento.evento, current_user)
 
     _record_history(db, projecao.id, "DELECAO", current_user.id,
                     campo="quantidade", anterior=str(projecao.quantidade), novo=None)
@@ -1379,6 +1413,60 @@ def toggle_area_cutoff_customizado(
     db.commit()
     db.refresh(area)
     return area
+
+
+# ============================================================
+# TRAVA AUTOMÁTICA (Auto-Lock)
+# ============================================================
+
+@router.get("/auto-lock-config", response_model=AutoLockConfigResponse)
+def get_auto_lock_config(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    config = _get_auto_lock_config(db)
+    if config is None:
+        return AutoLockConfigResponse(dias_antes_evento=0, ativo=False)
+    editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
+    return AutoLockConfigResponse(
+        dias_antes_evento=config.dias_antes_evento,
+        ativo=config.ativo,
+        updated_by_nome=editor.nome if editor else None,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/auto-lock-config", response_model=AutoLockConfigResponse)
+def update_auto_lock_config(
+    data: AutoLockConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a trava automática")
+    if data.dias_antes_evento < 0 or data.dias_antes_evento > 365:
+        raise HTTPException(status_code=400, detail="Dias deve estar entre 0 e 365")
+
+    config = _get_auto_lock_config(db)
+    if config is None:
+        config = ProjecaoAutoLockConfig(
+            dias_antes_evento=data.dias_antes_evento,
+            ativo=data.ativo,
+            updated_by=current_user.id,
+        )
+        db.add(config)
+    else:
+        config.dias_antes_evento = data.dias_antes_evento
+        config.ativo = data.ativo
+        config.updated_by = current_user.id
+    db.commit()
+    db.refresh(config)
+    return AutoLockConfigResponse(
+        dias_antes_evento=config.dias_antes_evento,
+        ativo=config.ativo,
+        updated_by_nome=current_user.nome,
+        updated_at=config.updated_at,
+    )
 
 
 @router.get("/cutoff-evento-area", response_model=List[CutoffEventoAreaResponse])
