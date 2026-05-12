@@ -2029,14 +2029,11 @@ const ProjecaoInscritos: React.FC = () => {
                                     </span>
                                   )}
                                 </div>
-                                {canEditProjecao && (
+                                {canEditProjecao && isAdmin && (
                                   <button
-                                    onClick={() => {
-                                      if (allLocked && !isAdmin) return;
-                                      handleToggleLock(firstP.evento_id, allLocked);
-                                    }}
-                                    disabled={lockingEventoId === firstP.evento_id || (allLocked && !isAdmin)}
-                                    title={allLocked ? (isAdmin ? 'Destravar projeções (admin)' : 'Apenas administradores podem destravar') : 'Travar todas as projeções deste evento'}
+                                    onClick={() => handleToggleLock(firstP.evento_id, allLocked)}
+                                    disabled={lockingEventoId === firstP.evento_id}
+                                    title={allLocked ? 'Destravar projeções (admin)' : 'Travar todas as projeções deste evento (admin)'}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                                       allLocked
                                         ? isDark ? 'bg-orange-500/20 text-orange-400 hover:bg-orange-500/30' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
@@ -2338,7 +2335,15 @@ const ProjecaoInscritos: React.FC = () => {
                     min={0}
                     max={365}
                     value={autoLockDraft.dias}
-                    onChange={e => setAutoLockDraft(d => ({ ...d, dias: e.target.value }))}
+                    onChange={e => {
+                      const val = e.target.value;
+                      const n = parseInt(val, 10);
+                      setAutoLockDraft(d => ({
+                        dias: val,
+                        // Ativa automaticamente quando dias > 0; desativa quando dias = 0
+                        ativo: (!isNaN(n) && n > 0) ? true : (!isNaN(n) && n === 0) ? false : d.ativo,
+                      }));
+                    }}
                     className={`w-28 px-3 py-2 rounded-xl border text-sm font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500/50`}
                   />
                 </div>
