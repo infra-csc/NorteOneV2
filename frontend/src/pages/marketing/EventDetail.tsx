@@ -813,7 +813,7 @@ const EventDetail: React.FC = () => {
           <>
             <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
             <p className="mt-4 text-gray-700 dark:text-gray-200 font-medium">
-              Estamos preparando este evento, isso leva ~30s
+              Estamos preparando este evento, pode levar 1-3 minutos
             </p>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Você pode aguardar nesta tela — vamos atualizar automaticamente.

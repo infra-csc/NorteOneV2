@@ -9073,24 +9073,24 @@ def get_marketing_event_by_id(
             _gpd_completed = _persisted.get("is_completed", False)
             _gpd_payload_version = (_persisted["payload"] or {}).get("_cache_version") if isinstance(_persisted["payload"], dict) else None
             _gpd_version_mismatch = _gpd_payload_version != _DETAIL_CACHE_VERSION
-            # Safety guard: se a versão mudou, só servimos o snapshot se ele tem
-            # as chaves essenciais que o frontend exige. Caso contrário caímos
-            # para o caminho lento (mantém o comportamento seguro pré-refactor
-            # quando há um bump de schema realmente incompatível).
+            # Safety guard: se a versão mudou, descartamos apenas se o payload
+            # está completamente corrompido (evento ausente ou não-dict). Em todos
+            # os outros casos servimos o dado antigo via stale-while-revalidate,
+            # evitando o loop "preparing" que ocorre quando o recompute em background
+            # demora 2-3 min e o usuário fica com a tela vazia.
             if _gpd_version_mismatch:
                 _pl = _persisted["payload"] if isinstance(_persisted["payload"], dict) else {}
                 _evt_chk = _pl.get("evento") if isinstance(_pl, dict) else None
-                _has_essentials = (
-                    isinstance(_evt_chk, dict)
-                    and "currentSales" in _evt_chk
-                    and "salesGoal" in _evt_chk
-                    and isinstance(_pl.get("dailySales"), list)
-                )
+                # Aceita qualquer dict não-vazio como evento — frontend é defensivo
+                # a campos ausentes. Só descartamos se não há estrutura alguma.
+                _has_essentials = isinstance(_evt_chk, dict) and bool(_evt_chk)
                 if not _has_essentials:
+                    _dbg_pl_keys = list(_pl.keys())[:10] if isinstance(_pl, dict) else None
+                    _dbg_evt_type = type(_evt_chk).__name__
                     logger.warning(
                         f"[Persist] '{_ano_for_persist}_{evento_id}' version mismatch "
-                        f"({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) AND missing essential "
-                        f"keys — bypassing snapshot, fallback ao recompute síncrono"
+                        f"({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) AND payload inválido "
+                        f"— bypassing snapshot. payload_keys={_dbg_pl_keys}, evento_type={_dbg_evt_type}"
                     )
                     _persisted = None
         if _persisted is not None:
