@@ -414,6 +414,60 @@ def _parse_iso_date(value: Optional[str]):
         raise HTTPException(status_code=400, detail=f"Data inválida: {value} (use YYYY-MM-DD)")
 
 
+# ============================================================
+# TRAVA AUTOMÁTICA (Auto-Lock)
+# ============================================================
+
+@router.get("/auto-lock-config", response_model=AutoLockConfigResponse)
+def get_auto_lock_config(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    config = _get_auto_lock_config(db)
+    if config is None:
+        return AutoLockConfigResponse(dias_antes_evento=0, ativo=False)
+    editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
+    return AutoLockConfigResponse(
+        dias_antes_evento=config.dias_antes_evento,
+        ativo=config.ativo,
+        updated_by_nome=editor.nome if editor else None,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/auto-lock-config", response_model=AutoLockConfigResponse)
+def update_auto_lock_config(
+    data: AutoLockConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a trava automática")
+    if data.dias_antes_evento < 0 or data.dias_antes_evento > 365:
+        raise HTTPException(status_code=400, detail="Dias deve estar entre 0 e 365")
+
+    config = _get_auto_lock_config(db)
+    if config is None:
+        config = ProjecaoAutoLockConfig(
+            dias_antes_evento=data.dias_antes_evento,
+            ativo=data.ativo,
+            updated_by=current_user.id,
+        )
+        db.add(config)
+    else:
+        config.dias_antes_evento = data.dias_antes_evento
+        config.ativo = data.ativo
+        config.updated_by = current_user.id
+    db.commit()
+    db.refresh(config)
+    return AutoLockConfigResponse(
+        dias_antes_evento=config.dias_antes_evento,
+        ativo=config.ativo,
+        updated_by_nome=current_user.nome,
+        updated_at=config.updated_at,
+    )
+
+
 @router.put("/cutoff-evento-area", response_model=CutoffEventoAreaResponse)
 def upsert_cutoff_evento_area(
     data: CutoffEventoAreaUpsert,
@@ -1413,60 +1467,6 @@ def toggle_area_cutoff_customizado(
     db.commit()
     db.refresh(area)
     return area
-
-
-# ============================================================
-# TRAVA AUTOMÁTICA (Auto-Lock)
-# ============================================================
-
-@router.get("/auto-lock-config", response_model=AutoLockConfigResponse)
-def get_auto_lock_config(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
-):
-    config = _get_auto_lock_config(db)
-    if config is None:
-        return AutoLockConfigResponse(dias_antes_evento=0, ativo=False)
-    editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
-    return AutoLockConfigResponse(
-        dias_antes_evento=config.dias_antes_evento,
-        ativo=config.ativo,
-        updated_by_nome=editor.nome if editor else None,
-        updated_at=config.updated_at,
-    )
-
-
-@router.put("/auto-lock-config", response_model=AutoLockConfigResponse)
-def update_auto_lock_config(
-    data: AutoLockConfigUpdate,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
-):
-    if not is_user_admin(current_user):
-        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a trava automática")
-    if data.dias_antes_evento < 0 or data.dias_antes_evento > 365:
-        raise HTTPException(status_code=400, detail="Dias deve estar entre 0 e 365")
-
-    config = _get_auto_lock_config(db)
-    if config is None:
-        config = ProjecaoAutoLockConfig(
-            dias_antes_evento=data.dias_antes_evento,
-            ativo=data.ativo,
-            updated_by=current_user.id,
-        )
-        db.add(config)
-    else:
-        config.dias_antes_evento = data.dias_antes_evento
-        config.ativo = data.ativo
-        config.updated_by = current_user.id
-    db.commit()
-    db.refresh(config)
-    return AutoLockConfigResponse(
-        dias_antes_evento=config.dias_antes_evento,
-        ativo=config.ativo,
-        updated_by_nome=current_user.nome,
-        updated_at=config.updated_at,
-    )
 
 
 @router.get("/cutoff-evento-area", response_model=List[CutoffEventoAreaResponse])
