@@ -1428,7 +1428,17 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
     grupo_obj = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == evento_grupo).first()
 
     if grupo_obj and grupo_obj.curva_override:
+        override_ano_ref = prev_ano
         override_pattern = None if use_normalized else get_curva_historica_snapshot(db, grupo_obj.curva_override, prev_ano)
+        if not override_pattern and not use_normalized:
+            most_recent_ano = db.query(func.max(CurvaHistoricaSnapshot.ano_referencia)).filter(
+                CurvaHistoricaSnapshot.evento_grupo == grupo_obj.curva_override
+            ).scalar()
+            if most_recent_ano and most_recent_ano != prev_ano:
+                override_pattern = get_curva_historica_snapshot(db, grupo_obj.curva_override, most_recent_ano)
+                if override_pattern:
+                    override_ano_ref = most_recent_ano
+                    logger.info(f"[CurvaResolve] '{evento_grupo}' override '{grupo_obj.curva_override}': ano {prev_ano} não encontrado, usando ano_ref={most_recent_ano}")
         if not override_pattern:
             override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano, use_normalized=use_normalized)
         if override_pattern:
@@ -1436,7 +1446,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
             return override_pattern, {
                 "tipo_curva": "manual",
                 "fonte_curva": grupo_obj.curva_override,
-                "ano_referencia": prev_ano
+                "ano_referencia": override_ano_ref
             }
 
     own_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano, use_normalized=use_normalized)

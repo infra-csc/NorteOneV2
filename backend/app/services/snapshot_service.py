@@ -493,6 +493,8 @@ def consolidar_curvas_historicas_batch(db: Session):
         _build_sku_to_grupo_map, _fetch_previous_year_cumulative_pattern,
         _resolve_hist_pattern
     )
+    from ..models.vendas_snapshot import VendasDiariaSnapshot
+    from sqlalchemy import func as _func
 
     today = date.today()
     ano = today.year
@@ -551,7 +553,48 @@ def consolidar_curvas_historicas_batch(db: Session):
             logger.error(f"Erro ao gerar curva derivada para grupo='{grupo}': {e}")
 
     logger.info(f"Curvas históricas consolidadas: {saved} próprias, {derived} derivadas")
+
+    orphan_repair = _repair_orphan_curva_historica(db)
+    if orphan_repair:
+        logger.info(f"Curvas históricas órfãs reparadas: {orphan_repair}")
+
     return saved + derived
+
+
+def _repair_orphan_curva_historica(db: Session) -> int:
+    """Rebuild CurvaHistoricaSnapshot for groups that have VendasDiariaSnapshot
+    data but are missing any CurvaHistoricaSnapshot entry.  This covers groups
+    created or re-synced outside the normal nightly batch (e.g. manually added
+    historical groups like 'Vibra Riders')."""
+    from ..api.routes.marketing import _fetch_previous_year_cumulative_pattern
+    from ..models.vendas_snapshot import VendasDiariaSnapshot, CurvaHistoricaSnapshot
+    from sqlalchemy import func as _func
+
+    vendas_anos = db.query(
+        VendasDiariaSnapshot.evento_grupo,
+        _func.max(VendasDiariaSnapshot.ano).label("max_ano")
+    ).group_by(VendasDiariaSnapshot.evento_grupo).all()
+
+    curva_grupos = {
+        row[0] for row in db.query(CurvaHistoricaSnapshot.evento_grupo).distinct().all()
+    }
+
+    repaired = 0
+    for row in vendas_anos:
+        grupo = row.evento_grupo
+        max_ano = row.max_ano
+        if grupo in curva_grupos:
+            continue
+        try:
+            pattern = _fetch_previous_year_cumulative_pattern(db, grupo, max_ano + 1)
+            if pattern:
+                save_curva_historica_snapshot(db, grupo, max_ano, pattern, len(pattern), origem="historico")
+                repaired += 1
+                logger.info(f"[RepairOrphan] CurvaHistoricaSnapshot criada para '{grupo}' ano_referencia={max_ano}")
+        except Exception as e:
+            logger.warning(f"[RepairOrphan] Falha ao reparar '{grupo}': {e}")
+
+    return repaired
 
 
 def sincronizar_hoje_batch(db: Session) -> int:

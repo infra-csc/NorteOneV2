@@ -1476,6 +1476,30 @@ async def lifespan(app: FastAPI):
             _gap_result_post = get_gap_detection_result()
             _gap_count_post = len(_gap_result_post.get("missing_tier1_events", [])) + len(_gap_result_post.get("stale_tier1_events", []))
 
+        # Phase 3.5: repair orphan CurvaHistoricaSnapshot entries in background
+        # Groups invalidated/re-synced outside the nightly batch (e.g. newly
+        # created historical groups) may have VendasDiariaSnapshot data but no
+        # CurvaHistoricaSnapshot.  Repair them now so they appear in
+        # available-curves immediately without waiting for the next nightly run.
+        try:
+            import threading as _repair_threading
+            def _repair_orphan_curves():
+                try:
+                    from app.core.database import SessionLocal as _RepairSL
+                    from app.services.snapshot_service import _repair_orphan_curva_historica
+                    _rep_db = _RepairSL()
+                    try:
+                        n = _repair_orphan_curva_historica(_rep_db)
+                        if n:
+                            logger.info(f"[Startup] Orphan CurvaHistoricaSnapshot repair: {n} group(s) fixed")
+                    finally:
+                        _rep_db.close()
+                except Exception as _re:
+                    logger.warning(f"[Startup] Orphan curve repair failed: {_re}")
+            _repair_threading.Thread(target=_repair_orphan_curves, daemon=True).start()
+        except Exception as _re_err:
+            logger.warning(f"[Startup] Could not start orphan curve repair: {_re_err}")
+
         # Phase 4: scheduler, then snapshot + warmup in parallel
         # Interval bumped from 30min → 45min to reduce daytime pressure on the
         # upstream MySQL pools (Magento via SSH tunnel). The dashboard list

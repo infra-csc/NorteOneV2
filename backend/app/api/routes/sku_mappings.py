@@ -131,11 +131,19 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
         def _rebuild():
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import consolidar_vendas_grupo
+                from app.services.snapshot_service import consolidar_vendas_grupo, save_curva_historica_snapshot
                 rebuild_db = SessionLocal()
                 try:
                     consolidar_vendas_grupo(rebuild_db, evento_grupo, ano)
                     logger.info(f"Snapshot reconstruído em background: '{evento_grupo}' ano={ano}")
+                    try:
+                        from app.api.routes.marketing import _fetch_previous_year_cumulative_pattern
+                        pattern = _fetch_previous_year_cumulative_pattern(rebuild_db, evento_grupo, ano + 1)
+                        if pattern:
+                            save_curva_historica_snapshot(rebuild_db, evento_grupo, ano, pattern, len(pattern), origem="historico")
+                            logger.info(f"CurvaHistoricaSnapshot reconstruída em background: '{evento_grupo}' ano_referencia={ano}")
+                    except Exception as ce:
+                        logger.warning(f"Falha ao reconstruir CurvaHistoricaSnapshot para '{evento_grupo}' ano={ano}: {ce}")
                 finally:
                     rebuild_db.close()
             except Exception as e:
