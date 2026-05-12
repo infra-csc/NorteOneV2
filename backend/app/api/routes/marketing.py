@@ -2326,6 +2326,15 @@ _MARGEM_REV_FAILURE_COOLDOWNS = [60, 300, 900, 900, 1800]
 _margem_cnt_cache: dict = {}   # frozenset(bundle_ids) → ({bid: qtd}, monotonic_ts)
 _MARGEM_CNT_TTL_SECONDS = 14400  # 4 horas
 
+# Cooldown GLOBAL de Magento para margem: quando qualquer revenue_query falha,
+# todos os eventos entram em cooldown por _MARGEM_GLOBAL_COOLDOWN_S segundos.
+# Evita que múltiplos eventos simultâneos tentem o Magento instável em paralelo,
+# cada um bloqueando um thread por 90s × 2 tentativas antes de desistir.
+# Após o cooldown, apenas um evento retenta; se ele falhar, o cooldown se renova.
+_margem_magento_global_failure_ts: Optional[float] = None
+_margem_magento_global_failure_count: int = 0
+_MARGEM_GLOBAL_COOLDOWN_S = 300  # 5 minutos de cooldown global após qualquer falha
+
 def _margem_rev_cooldown_for(n_failures: int) -> int:
     if n_failures <= 0:
         return 0
@@ -2910,16 +2919,33 @@ def get_margem_por_kit(
                         logger.info(f"[Margem] revenue_query SNAPSHOT HIT (PostgreSQL): {len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_snap_age_h:.1f}h){_frozen_tag}")
 
                 if not _snap_loaded:
+                    global _margem_magento_global_failure_ts, _margem_magento_global_failure_count
                     _cooldown_s = _margem_rev_cooldown_for(_failure_count)
                     _in_cooldown = bool(_last_failure_ts and (_now_mono - _last_failure_ts) < _cooldown_s)
 
+                    # Verifica também o cooldown GLOBAL (compartilhado entre todos os eventos).
+                    # Se qualquer evento falhou recentemente, todos aguardam sem tentar o Magento.
+                    _global_in_cooldown = bool(
+                        _margem_magento_global_failure_ts is not None
+                        and (_now_mono - _margem_magento_global_failure_ts) < _MARGEM_GLOBAL_COOLDOWN_S
+                    )
+                    if _global_in_cooldown and not _in_cooldown:
+                        _global_restante = int(_MARGEM_GLOBAL_COOLDOWN_S - (_now_mono - _margem_magento_global_failure_ts))
+                        logger.info(
+                            f"[Margem] revenue_query SKIPPED (cooldown GLOBAL ativo, "
+                            f"{_global_restante}s restantes, falhas={_margem_magento_global_failure_count}): "
+                            f"{len(bundle_ids)} bundles"
+                        )
+                        _in_cooldown = True
+
                     _live_failed = False
                     if _in_cooldown:
-                        _cooldown_restante = int(_cooldown_s - (_now_mono - _last_failure_ts))
-                        logger.info(
-                            f"[Margem] revenue_query SKIPPED (cooldown pós-falha #{_failure_count} ativo, "
-                            f"{_cooldown_restante}s restantes): {len(bundle_ids)} bundles"
-                        )
+                        if not _global_in_cooldown:
+                            _cooldown_restante = int(_cooldown_s - (_now_mono - _last_failure_ts))
+                            logger.info(
+                                f"[Margem] revenue_query SKIPPED (cooldown pós-falha #{_failure_count} ativo, "
+                                f"{_cooldown_restante}s restantes): {len(bundle_ids)} bundles"
+                            )
                         _live_failed = True
                     else:
                         try:
@@ -2931,12 +2957,22 @@ def get_margem_por_kit(
                             logger.info(f"[Margem] revenue_query LIVE: {len(bundle_ids)} bundles → {len(rev_by_bid)} linhas em {_elapsed:.2f}s")
                             _margem_rev_cache[_rev_cache_key] = (dict(rev_by_bid), _time.monotonic())
                             _margem_rev_failure_cache.pop(_rev_cache_key, None)
+                            # Sucesso: limpa cooldown global
+                            _margem_magento_global_failure_ts = None
+                            _margem_magento_global_failure_count = 0
                         except Exception as e:
                             logger.error(f"Erro ao buscar receita Magento por bundle para margem: {e}")
                             _new_count = _failure_count + 1
                             _margem_rev_failure_cache[_rev_cache_key] = (_time.monotonic(), _new_count)
                             _next_cd = _margem_rev_cooldown_for(_new_count)
                             logger.info(f"[Margem] revenue_query: registrada falha #{_new_count}; próximo cooldown {_next_cd}s")
+                            # Atualiza cooldown global — todos os eventos aguardarão juntos
+                            _margem_magento_global_failure_ts = _time.monotonic()
+                            _margem_magento_global_failure_count += 1
+                            logger.info(
+                                f"[Margem] cooldown GLOBAL ativado por {_MARGEM_GLOBAL_COOLDOWN_S}s "
+                                f"(falha global #{_margem_magento_global_failure_count})"
+                            )
                             _log_margem_magento_failed(e, "revenue")
                             _live_failed = True
 
@@ -3149,7 +3185,7 @@ AND    value        IN :ev_ids_fb
                 )
 
                 fb_rev_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(30000) */\n"
                     "    soi_parent.name                                                                    AS bundle_name,\n"
                     "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
                     "FROM sales_order so\n"
@@ -3211,18 +3247,37 @@ AND    value        IN :ev_ids_fb
                     fb_rev_by_name = dict(_cached_fb[0])
                     logger.info(f"[Margem] fallback revenue_query cache HIT: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} entradas")
                 else:
-                    def _fb_rev_work(conn):
-                        return conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall()
-                    try:
-                        _t_fb1 = _time.monotonic()
-                        for fb_row in magento_run(_fb_rev_work, label="margem:fallback-revenue", profile="background"):
-                            fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
-                        _elapsed_fb = _time.monotonic() - _t_fb1
-                        logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_elapsed_fb:.2f}s")
-                        _margem_rev_cache[_fb_rev_cache_key] = (dict(fb_rev_by_name), _time.monotonic())
-                    except Exception as e:
-                        logger.error(f"Erro no fallback receita Magento para margem: {e}")
-                        _log_margem_magento_failed(e, "fallback-revenue")
+                    # Respeita cooldown global — se Magento está instável para outros eventos,
+                    # não tenta o fallback-revenue (que usa a mesma query lenta)
+                    _fb_global_in_cd = bool(
+                        _margem_magento_global_failure_ts is not None
+                        and (_now_mono_fb - _margem_magento_global_failure_ts) < _MARGEM_GLOBAL_COOLDOWN_S
+                    )
+                    if _fb_global_in_cd:
+                        _fb_cd_restante = int(_MARGEM_GLOBAL_COOLDOWN_S - (_now_mono_fb - _margem_magento_global_failure_ts))
+                        logger.info(
+                            f"[Margem] fallback revenue_query SKIPPED (cooldown GLOBAL ativo, "
+                            f"{_fb_cd_restante}s restantes): {len(fb_bundle_ids)} bundles"
+                        )
+                    else:
+                        def _fb_rev_work(conn):
+                            return conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall()
+                        try:
+                            _t_fb1 = _time.monotonic()
+                            for fb_row in magento_run(_fb_rev_work, label="margem:fallback-revenue", profile="background"):
+                                fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
+                            _elapsed_fb = _time.monotonic() - _t_fb1
+                            logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_elapsed_fb:.2f}s")
+                            _margem_rev_cache[_fb_rev_cache_key] = (dict(fb_rev_by_name), _time.monotonic())
+                        except Exception as e:
+                            logger.error(f"Erro no fallback receita Magento para margem: {e}")
+                            _margem_magento_global_failure_ts = _now_mono_fb
+                            _margem_magento_global_failure_count += 1
+                            logger.info(
+                                f"[Margem] cooldown GLOBAL ativado por fallback-revenue: "
+                                f"{_MARGEM_GLOBAL_COOLDOWN_S}s (falha global #{_margem_magento_global_failure_count})"
+                            )
+                            _log_margem_magento_failed(e, "fallback-revenue")
 
                 # Combina e aplica apenas onde qtd ainda é 0
                 all_fb_names = set(fb_qtd_by_name.keys()) | set(fb_rev_by_name.keys())
