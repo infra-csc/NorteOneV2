@@ -625,7 +625,10 @@ const ProjecaoInscritos: React.FC = () => {
     try {
       const data = await projecaoService.getAutoLockConfig();
       setAutoLockConfig(data);
-      setAutoLockDraft({ dias: String(data.dias_antes_evento), ativo: data.ativo });
+      // Se nunca foi configurado (dias=0, ativo=false), pré-preenche com ativo=true
+      // para que o admin apenas precise definir os dias e salvar.
+      const neverConfigured = data.dias_antes_evento === 0 && !data.ativo && !data.updated_by_nome;
+      setAutoLockDraft({ dias: String(data.dias_antes_evento), ativo: neverConfigured ? true : data.ativo });
     } catch {
       // silently ignore — config pode não existir ainda
     }
@@ -1843,6 +1846,26 @@ const ProjecaoInscritos: React.FC = () => {
               )}
             </div>
 
+            {/* Banner de trava automática */}
+            {autoLockConfig.ativo && autoLockConfig.dias_antes_evento > 0 && autoLockedEventoIds.has(selectedEvento.id) && (
+              isAdmin ? (
+                <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs ${isDark ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
+                  <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>
+                    <strong>Trava automática ativa (D-{autoLockConfig.dias_antes_evento})</strong> — como administrador, você ainda pode criar e editar projeções neste evento.
+                  </span>
+                </div>
+              ) : (
+                <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300' : 'bg-amber-100 border border-amber-300 text-amber-800'}`}>
+                  <Lock className="w-4 h-4 flex-shrink-0" />
+                  <span>
+                    Este evento está dentro do período de <strong>trava automática (D-{autoLockConfig.dias_antes_evento})</strong>.
+                    Criação, edição e exclusão de projeções estão bloqueadas.
+                  </span>
+                </div>
+              )
+            )}
+
             {(() => {
               const myCustomAreas = areas.filter(a => a.usa_cutoff_customizado && (isAdmin || myAreaIds.has(a.id)));
               if (myCustomAreas.length === 0) return null;
@@ -2276,15 +2299,37 @@ const ProjecaoInscritos: React.FC = () => {
           <div className="space-y-6">
             {/* ── Trava Automática ── */}
             <div className={`rounded-2xl p-5 border ${isDark ? 'bg-gray-800/60 border-amber-500/30' : 'bg-amber-50/80 border-amber-300/60'}`}>
-              <div className="flex items-center gap-2 mb-4">
-                <Lock className={`w-5 h-5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
-                <div>
-                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Trava Automática</h2>
-                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                    Bloqueia criação, edição e exclusão de projeções quando o evento está a N dias ou menos da data. Administradores podem sempre editar.
-                  </p>
+              <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Lock className={`w-5 h-5 flex-shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+                  <div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Trava Automática</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Bloqueia criação, edição e exclusão de projeções quando o evento está a N dias ou menos da data.
+                    </p>
+                  </div>
                 </div>
+                {/* Status atual salvo */}
+                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                  autoLockConfig.ativo && autoLockConfig.dias_antes_evento > 0
+                    ? isDark ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-amber-100 text-amber-700 border-amber-300'
+                    : isDark ? 'bg-gray-700 text-gray-400 border-gray-600' : 'bg-gray-100 text-gray-500 border-gray-200'
+                }`}>
+                  {autoLockConfig.ativo && autoLockConfig.dias_antes_evento > 0
+                    ? <><Lock className="w-3 h-3" /> Ativa — D-{autoLockConfig.dias_antes_evento}</>
+                    : <><LockOpen className="w-3 h-3" /> Inativa</>}
+                </span>
               </div>
+
+              {/* Aviso de bypass admin */}
+              <div className={`flex items-start gap-2 mb-4 px-3 py-2.5 rounded-xl text-xs ${isDark ? 'bg-blue-500/10 border border-blue-500/20 text-blue-300' : 'bg-blue-50 border border-blue-200 text-blue-700'}`}>
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  <strong>Administradores sempre podem criar e editar projeções</strong>, independente da trava.
+                  Para verificar que a trava está bloqueando corretamente, teste com uma conta não-administradora.
+                </span>
+              </div>
+
               <div className="flex flex-wrap items-end gap-4">
                 <div className="flex flex-col gap-1">
                   <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Dias antes do evento (D-N)</label>
@@ -2298,7 +2343,7 @@ const ProjecaoInscritos: React.FC = () => {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Status</label>
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Status da trava</label>
                   <button
                     onClick={() => setAutoLockDraft(d => ({ ...d, ativo: !d.ativo }))}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${autoLockDraft.ativo ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600' : (isDark ? 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50')}`}
