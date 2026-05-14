@@ -500,18 +500,6 @@ const EventDetail: React.FC = () => {
         setUltimaAtualizacao(systemRefresh || cacheTime || null);
         setUltimaAtualizacaoInscricoes(inscricoesSync || cacheTime || null);
         setSnapshotComputedAt(snapshotAt || systemRefresh || cacheTime || null);
-        // If the event cache is older than the last full refresh, silently refetch once
-        if (
-          !forceRefresh &&
-          !silentRefetchDoneRef.current &&
-          cacheTime &&
-          systemRefresh &&
-          new Date(cacheTime) < new Date(systemRefresh)
-        ) {
-          silentRefetchDoneRef.current = true;
-          fetchEvent(true, true);
-          return;
-        }
         if ((response as any).projetos_vinculados) {
           setProjetosVinculados((response as any).projetos_vinculados);
         }
@@ -535,7 +523,8 @@ const EventDetail: React.FC = () => {
         // Salva estado completo no cache de módulo para visitas futuras.
         // Na segunda visita, todos os estados (inclusive dailySales/gráficos)
         // são restaurados imediatamente sem depender da API.
-        if (id) {
+        // Só salva se o response tem dailySales válido para evitar cachear dados incompletos.
+        if (id && eventWithData.dailySales && eventWithData.dailySales.length > 0) {
           _eventDetailCache.set(_detailCacheKey, {
             event: eventWithData,
             comparacaoAnual: (response as any).comparacao_anual || null,
@@ -548,6 +537,19 @@ const EventDetail: React.FC = () => {
           });
         }
         setError(null);
+        // Se o cache do evento é mais antigo que o último refresh completo do sistema,
+        // dispara um re-fetch silencioso para atualizar os dados. O estado já foi
+        // aplicado acima, então o usuário vê os dados atuais enquanto aguarda.
+        if (
+          !forceRefresh &&
+          !silentRefetchDoneRef.current &&
+          cacheTime &&
+          systemRefresh &&
+          new Date(cacheTime) < new Date(systemRefresh)
+        ) {
+          silentRefetchDoneRef.current = true;
+          fetchEvent(true, true);
+        }
       } catch (err: any) {
         if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') return;
         console.error('Erro ao carregar evento:', err);
