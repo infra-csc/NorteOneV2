@@ -1933,7 +1933,10 @@ async def list_ssh_tables(current_user=Depends(get_current_user)):
         logger.error(f"Erro ao listar tabelas SSH: {str(e)}")
         return {"status": "error", "message": "Erro interno ao listar tabelas"}
 
-frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
+_backend_dir = os.path.dirname(os.path.abspath(__file__))
+_backend_static = os.path.join(_backend_dir, "static")
+_workspace_frontend_dist = os.path.join(os.path.dirname(_backend_dir), "frontend", "dist")
+frontend_dist = _backend_static if os.path.isdir(_backend_static) and os.path.isfile(os.path.join(_backend_static, "index.html")) else _workspace_frontend_dist
 if os.path.isdir(frontend_dist):
     assets_dir = os.path.join(frontend_dist, "assets")
     if os.path.isdir(assets_dir):
