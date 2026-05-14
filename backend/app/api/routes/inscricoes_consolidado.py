@@ -299,8 +299,7 @@ WHERE
             'Funcionário',
             'Cortesia Faturada',
             'Grupos',
-            'Coligados',
-            'Eventos Terceiros'
+            'Coligados'
         )
     )
 GROUP BY
