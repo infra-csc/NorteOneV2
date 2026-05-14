@@ -6651,6 +6651,7 @@ FROM (
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
+WHERE sub.canal = 'Site'
 GROUP BY sub.id_evento, sub.dia
 ORDER BY sub.id_evento, sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -6818,6 +6819,7 @@ FROM (
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
+WHERE sub.canal = 'Site'
 GROUP BY sub.dia
 ORDER BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -6873,6 +6875,7 @@ FROM (
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
+WHERE sub.canal = 'Site'
 GROUP BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
@@ -7001,6 +7004,7 @@ FROM (
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
+WHERE sub.canal = 'Site'
 GROUP BY sub.id_evento
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
