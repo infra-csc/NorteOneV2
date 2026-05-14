@@ -4051,7 +4051,7 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     COUNT(DISTINCT a.id_pedido_evento)                                              AS inscritos,
     SUM(a.nr_preco)                                                                 AS receita_bruta,
     SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita_liquida,
-    SUM(a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
+    SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0))
         / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                             AS ticket_medio
 FROM sa_evento AS b
 INNER JOIN sa_pedido_evento AS a ON a.id_evento = b.id_evento

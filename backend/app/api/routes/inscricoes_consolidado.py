@@ -265,10 +265,8 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     SUM(a.nr_preco)                                                                AS receita_bruta,
     SUM(COALESCE(a.nr_desconto_individual, 0))                                     AS total_desconto,
     SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita_liquida,
-    (
-        SUM(a.nr_preco)
-        - SUM(COALESCE(a.nr_desconto_individual, 0))
-    ) / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                              AS ticket_medio,
+    SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0))
+        / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                             AS ticket_medio,
     MIN(DATE(b.dt_evento))                                                         AS data_evento
 FROM sa_evento AS b
 INNER JOIN sa_pedido_evento AS a
