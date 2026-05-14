@@ -274,7 +274,7 @@ INNER JOIN sa_pedido_evento AS a
 INNER JOIN sa_pedido AS c
     ON c.id_pedido = a.id_pedido
     AND c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (1, 2)
+    AND c.id_pedido_status IN (2)
     AND c.nr_total > 0
 LEFT JOIN sa_modalidade_categoria AS h
     ON h.id_categoria = a.id_categoria
