@@ -4041,7 +4041,6 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     h.ds_categoria                                                                  AS kit,
     CASE
         WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
-        WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados') THEN 'Cortesia'
         WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
         WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
         ELSE                                                                                                  'Site'
@@ -4056,7 +4055,6 @@ INNER JOIN sa_pedido_evento AS a ON a.id_evento = b.id_evento
 INNER JOIN sa_pedido AS c
     ON c.id_pedido = a.id_pedido
    AND c.id_pedido_status IN (2)
-   AND c.nr_total > 0
 LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
 LEFT JOIN sa_evento_modalidade AS m ON m.id_modalidade = a.id_modalidade AND m.id_evento = b.id_evento
 LEFT JOIN (
@@ -4066,7 +4064,6 @@ LEFT JOIN (
 ) AS cupom ON cupom.id_cupom_desconto_item = a.id_cupom_individual
 WHERE b.id_evento IN ({ids_str})
   AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-  AND c.nr_total > 0
 GROUP BY
     b.id_evento,
     b.ds_evento,
@@ -4076,7 +4073,6 @@ GROUP BY
     h.ds_categoria,
     CASE
         WHEN a.nr_preco = 0                                                                             THEN 'Cortesia'
-        WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados') THEN 'Cortesia'
         WHEN cupom.en_cupom_classificacao = 'Grupos'                                                    THEN 'Grupos/B2B'
         WHEN h.ds_categoria LIKE '%%Grup%%'                                                             THEN 'Grupos/B2B'
         ELSE                                                                                                  'Site'
@@ -6628,10 +6624,7 @@ FROM (
         b.id_evento,
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN cupom.en_cupom_classificacao IN (
-                     'Funcionário', 'Cortesia Faturada',
-                     'Coligados'
-                 )                                                     THEN 'Cortesia'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
             WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
             ELSE                                                           'Site'
@@ -6653,12 +6646,11 @@ FROM (
         AND b.id_evento IN :id_eventos
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     GROUP BY b.id_evento, DATE(c.dt_pedido),
-             CASE WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados') THEN 'Cortesia'
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
-WHERE sub.canal = 'Site'
 GROUP BY sub.id_evento, sub.dia
 ORDER BY sub.id_evento, sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -6798,10 +6790,7 @@ FROM (
     SELECT
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN cupom.en_cupom_classificacao IN (
-                     'Funcionário', 'Cortesia Faturada',
-                     'Coligados'
-                 )                                                     THEN 'Cortesia'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
             WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
             ELSE                                                           'Site'
@@ -6824,12 +6813,11 @@ FROM (
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
     GROUP BY DATE(c.dt_pedido),
-             CASE WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados') THEN 'Cortesia'
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
-WHERE sub.canal = 'Site'
 GROUP BY sub.dia
 ORDER BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
@@ -6858,10 +6846,7 @@ FROM (
     SELECT
         DATE(c.dt_pedido) AS dia,
         CASE
-            WHEN cupom.en_cupom_classificacao IN (
-                     'Funcionário', 'Cortesia Faturada',
-                     'Coligados'
-                 )                                                     THEN 'Cortesia'
+            WHEN a.nr_preco = 0                                        THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
             WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
             ELSE                                                           'Site'
@@ -6883,12 +6868,11 @@ FROM (
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND DATE(c.dt_pedido) = CURDATE()
     GROUP BY DATE(c.dt_pedido),
-             CASE WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados') THEN 'Cortesia'
+             CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
-WHERE sub.canal = 'Site'
 GROUP BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
@@ -6990,10 +6974,6 @@ FROM (
         b.id_evento,
         CASE
             WHEN a.nr_preco = 0                                        THEN 'Cortesia'
-            WHEN cupom.en_cupom_classificacao IN (
-                     'Funcionário', 'Cortesia Faturada',
-                     'Coligados'
-                 )                                                     THEN 'Cortesia'
             WHEN cupom.en_cupom_classificacao = 'Grupos'               THEN 'Grupos/B2B'
             WHEN h.ds_categoria LIKE '%%Grup%%'                        THEN 'Grupos/B2B'
             ELSE                                                           'Site'
@@ -7017,12 +6997,10 @@ FROM (
         AND DATE(c.dt_pedido) = CURDATE()
     GROUP BY b.id_evento,
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
-                  WHEN cupom.en_cupom_classificacao IN ('Funcionário', 'Cortesia Faturada', 'Coligados') THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
                   WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
                   ELSE 'Site' END
 ) AS sub
-WHERE sub.canal = 'Site'
 GROUP BY sub.id_evento
 """).bindparams(bindparam("id_eventos", expanding=True))
         with db_module.engine_ssh.connect() as conn:
