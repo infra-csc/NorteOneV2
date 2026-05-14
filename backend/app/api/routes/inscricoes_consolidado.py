@@ -253,7 +253,7 @@ def build_query_ativo(ano: int) -> str:
     Constroi query do Ativo filtrando por ano do evento (dt_evento).
     Retorna métricas financeiras: receita bruta, desconto, receita líquida e ticket médio,
     agrupados por evento.
-    Filtra apenas inscrições site (fl_local_inscricao = 1), exclui grupos e cortesias.
+    Conta inscrições pagas (status 2), exclui grupos e cortesias.
     Colunas (índices): 0=id_evento, 1=evento, 2=qtd_site, 3=receita_bruta,
                        4=total_desconto, 5=receita_liquida, 6=ticket_medio, 7=data_evento
     """
@@ -273,7 +273,6 @@ INNER JOIN sa_pedido_evento AS a
     ON a.id_evento = b.id_evento
 INNER JOIN sa_pedido AS c
     ON c.id_pedido = a.id_pedido
-    AND c.fl_local_inscricao = '1'
     AND c.id_pedido_status IN (2)
     AND c.nr_total > 0
 LEFT JOIN sa_modalidade_categoria AS h

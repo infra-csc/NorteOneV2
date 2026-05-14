@@ -221,7 +221,6 @@ def fetch_daily_sales_ativo(id_evento: str, start_date: date, end_date: date) ->
         INNER JOIN sa_pedido AS c ON c.id_pedido = a.id_pedido
         WHERE 
             b.id_evento = :id_evento
-            AND c.fl_local_inscricao = '1'
             AND c.id_pedido_status IN (2)
             AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
             AND DATE(c.dt_pedido) >= :start_date
@@ -3528,7 +3527,6 @@ FROM (
         ON a.id_evento = b.id_evento
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
-        AND c.fl_local_inscricao = '1'
         AND c.id_pedido_status IN (2)
         AND c.nr_total > 0
     LEFT JOIN sa_modalidade_categoria AS h
@@ -4057,7 +4055,6 @@ FROM sa_evento AS b
 INNER JOIN sa_pedido_evento AS a ON a.id_evento = b.id_evento
 INNER JOIN sa_pedido AS c
     ON c.id_pedido = a.id_pedido
-   AND c.fl_local_inscricao = '1'
    AND c.id_pedido_status IN (2)
    AND c.nr_total > 0
 LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
@@ -4256,7 +4253,6 @@ FROM (
 
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
-       AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (2)
        AND c.nr_total > 0
 
@@ -6342,8 +6338,7 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (2)
+    c.id_pedido_status IN (2)
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND YEAR(c.dt_pedido) IN (:ano_atual, :ano_anterior)
 GROUP BY YEAR(c.dt_pedido), MONTH(c.dt_pedido)
@@ -6537,8 +6532,7 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (2)
+    c.id_pedido_status IN (2)
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
 GROUP BY MONTH(c.dt_pedido)
@@ -6647,7 +6641,6 @@ FROM (
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
-       AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
     LEFT JOIN (
@@ -6819,7 +6812,6 @@ FROM (
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
-       AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
     LEFT JOIN (
@@ -6879,7 +6871,6 @@ FROM (
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
-       AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
     LEFT JOIN (
@@ -7013,7 +7004,6 @@ FROM (
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
         ON c.id_pedido = a.id_pedido
-       AND c.fl_local_inscricao = '1'
        AND c.id_pedido_status IN (2)
     LEFT JOIN sa_modalidade_categoria AS h ON h.id_categoria = a.id_categoria
     LEFT JOIN (
@@ -7294,8 +7284,7 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (2)
+    c.id_pedido_status IN (2)
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
 GROUP BY h.ds_categoria
@@ -7331,8 +7320,7 @@ LEFT JOIN sa_modalidade_categoria AS h ON a.id_categoria = h.id_categoria
 LEFT JOIN sa_cupom_desconto_item AS e ON e.id_cupom_desconto_item = a.id_cupom_individual
 LEFT JOIN sa_cupom_desconto AS f ON f.id_cupom_desconto = e.id_cupom_desconto
 WHERE 
-    c.fl_local_inscricao = '1'
-    AND c.id_pedido_status IN (2)
+    c.id_pedido_status IN (2)
     AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
     AND b.id_evento IN :id_eventos
 GROUP BY b.id_evento, h.ds_categoria
