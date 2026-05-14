@@ -3522,8 +3522,7 @@ FROM (
             ELSE                                        'Site'
         END                                            AS canal,
         COUNT(DISTINCT a.id_pedido_evento)             AS qtd,
-        SUM(a.nr_preco)
-            - SUM(COALESCE(a.nr_desconto_individual, 0)) AS receita_liquida
+        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita_liquida
     FROM sa_evento AS b
     INNER JOIN sa_pedido_evento AS a
         ON a.id_evento = b.id_evento
@@ -4051,8 +4050,8 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     END                                                                             AS canal,
     COUNT(DISTINCT a.id_pedido_evento)                                              AS inscritos,
     SUM(a.nr_preco)                                                                 AS receita_bruta,
-    SUM(a.nr_preco) - SUM(COALESCE(a.nr_desconto_individual, 0))                    AS receita_liquida,
-    (SUM(a.nr_preco) - SUM(COALESCE(a.nr_desconto_individual, 0)))
+    SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita_liquida,
+    SUM(a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
         / NULLIF(COUNT(DISTINCT a.id_pedido_evento), 0)                             AS ticket_medio
 FROM sa_evento AS b
 INNER JOIN sa_pedido_evento AS a ON a.id_evento = b.id_evento
@@ -4246,7 +4245,7 @@ FROM (
             WHEN a.nr_preco > 0
              AND (h.ds_categoria IS NULL OR h.ds_categoria NOT LIKE '%%GRUPOS%%')
             THEN
-                GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0))
+                GREATEST(0, a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0))
             ELSE 0
         END)                                                                 AS inscricao_liquida
 
@@ -6334,7 +6333,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
-        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)
+        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -6529,7 +6528,7 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
               OR f.en_cupom_classificacao NOT IN ('Funcionário', 'Cortesia Faturada', 'Grupos', 'Coligados'))
         AND (h.ds_categoria IS NULL OR (h.ds_categoria NOT LIKE '%%GRUPOS%%' AND h.ds_categoria NOT LIKE '%%ortesia%%'))
         AND c.nr_total > 0 THEN 
-        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0), 0)
+        GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)
     ELSE 0 END) AS receita
 FROM sa_pedido_evento AS a
 INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
@@ -6815,14 +6814,7 @@ FROM (
             ELSE                                                           'Site'
         END AS canal,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-        SUM(GREATEST(
-            CASE
-                WHEN cupom.en_cupom_classificacao IN (
-                         'Funcionário', 'Cortesia Faturada', 'Coligados'
-                     ) THEN 0
-                ELSE a.nr_preco - COALESCE(a.nr_desconto_individual, 0)
-            END
-        , 0)) AS receita
+        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c
@@ -7016,14 +7008,7 @@ FROM (
             ELSE                                                           'Site'
         END AS canal,
         COUNT(DISTINCT a.id_pedido_evento) AS qtd,
-        SUM(GREATEST(
-            CASE
-                WHEN a.nr_preco = 0 OR cupom.en_cupom_classificacao IN (
-                         'Funcionário', 'Cortesia Faturada', 'Coligados'
-                     ) THEN 0
-                ELSE a.nr_preco - COALESCE(a.nr_desconto_individual, 0)
-            END
-        , 0)) AS receita
+        SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita
     FROM sa_pedido_evento AS a
     INNER JOIN sa_evento AS b ON b.id_evento = a.id_evento
     INNER JOIN sa_pedido AS c

@@ -264,8 +264,7 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     COUNT(DISTINCT a.id_pedido_evento)                                             AS qtd_site,
     SUM(a.nr_preco)                                                                AS receita_bruta,
     SUM(COALESCE(a.nr_desconto_individual, 0))                                     AS total_desconto,
-    SUM(a.nr_preco)
-        - SUM(COALESCE(a.nr_desconto_individual, 0))                               AS receita_liquida,
+    SUM(GREATEST(a.nr_preco - COALESCE(a.nr_desconto_individual, 0) - COALESCE(h.vl_kit, 0), 0)) AS receita_liquida,
     (
         SUM(a.nr_preco)
         - SUM(COALESCE(a.nr_desconto_individual, 0))
