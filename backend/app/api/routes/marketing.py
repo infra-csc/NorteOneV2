@@ -5800,21 +5800,36 @@ def get_sales_averages(
                 magento_ids.append(str(m.id_externo))
     
     all_raw_sales = {}
-    
-    if ativo_ids:
-        ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
-        for row in ativo_rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
-    
-    if magento_ids:
-        _cort_avg = _get_cortesia_magento_ids(db)
-        _mag_cort_avg = set(magento_ids) & _cort_avg if _cort_avg else None
-        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_avg if _mag_cort_avg else None)
-        for row in magento_rows:
-            d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
-            all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
-    
+
+    # For consolidated groups, prefer VendasDiariaSnapshot (same strategy as
+    # fetch_real_daily_sales_for_projetos).  This makes medias-vendas resilient
+    # to Ativo/Magento timeouts: when the live sources are unavailable the
+    # snapshot — which is refreshed every ~45 min by the background sync — is
+    # used as the primary source, preventing the averages from showing zeros.
+    snapshot_used_medias = False
+    if is_consolidated and grupo_nome:
+        from ...services.snapshot_service import get_snapshot_vendas as _gsv_medias
+        _snap = _gsv_medias(db, grupo_nome)
+        if _snap:
+            all_raw_sales.update(_snap)
+            snapshot_used_medias = True
+            logger.debug(f"[medias-vendas] snapshot loaded for '{grupo_nome}': {len(_snap)} days")
+
+    if not snapshot_used_medias:
+        if ativo_ids:
+            ativo_rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)))
+            for row in ativo_rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+
+        if magento_ids:
+            _cort_avg = _get_cortesia_magento_ids(db)
+            _mag_cort_avg = set(magento_ids) & _cort_avg if _cort_avg else None
+            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_avg if _mag_cort_avg else None)
+            for row in magento_rows:
+                d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
+                all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
+
     if all_raw_sales:
         latest_sale = max(all_raw_sales.keys())
         if (today - latest_sale).days > 30:
