@@ -3870,10 +3870,11 @@ const EventDetail: React.FC = () => {
           ) : (
             /* ── SIMULATOR MODE ── */
             (() => {
-              const allFaixas = [...faixasPrecoSite.kit_basico, ...faixasPrecoSite.kit_participacao];
-              const orcQtd = allFaixas.reduce((s, f) => s + f.qtd, 0);
-              const orcReceita = allFaixas.reduce((s, f) => s + f.total, 0);
-              const orcTkt = orcQtd > 0 ? orcReceita / orcQtd : 0;
+              // Orçado: uses atletas_site_pago and atletas_site_tkt_medio from the
+              // cadastro (salesGoal / budgetTicket), not the faixas breakdown table.
+              const orcQtd = event?.salesGoal ?? 0;
+              const orcTkt = event?.budgetTicket ?? 0;
+              const orcReceita = Math.round(orcQtd * orcTkt * 100) / 100;
               const orcMargemPct = event?.margemOrcadaPct ?? null;
 
               const realQtd = event?.currentSales ?? 0;
