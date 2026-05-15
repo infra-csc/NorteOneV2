@@ -1876,9 +1876,6 @@ const ProjecaoInscritos: React.FC = () => {
                     <h3 className={`text-sm font-bold ${isDark ? 'text-orange-200' : 'text-orange-800'}`}>
                       Datas de corte por evento
                     </h3>
-                    <span className={`text-xs ${isDark ? 'text-orange-300/70' : 'text-orange-700/80'}`}>
-                      Defina as duas datas em que sua área deve atualizar a projeção deste evento
-                    </span>
                   </div>
                   {eventoCutoffsLoading ? (
                     <div className="flex justify-center py-4">
