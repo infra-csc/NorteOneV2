@@ -696,25 +696,76 @@ def _get_ticket_atual_kit_nome_for_event(ticket_map: dict, projeto_ids) -> Optio
 
 
 def _get_faixas_preco_site_for_projeto_ids(db: Session, projeto_ids: list) -> dict:
-    """Returns faixas_preco_site aggregated across all cadastros for the given project IDs."""
+    """Returns faixas_preco_site for the given project IDs.
+
+    Source of truth: atletas_site_pago + atletas_site_tkt_medio from CadastroEvento.
+    The detailed faixas_preco_site table is used only when its total qtd matches
+    atletas_site_pago exactly. Otherwise (stale/wrong faixas data), a single synthetic
+    row is built from the atletas fields so the card always shows the cadastro values.
+    """
     if not projeto_ids:
         return {"kit_basico": [], "kit_participacao": []}
-    cadastros = db.query(CadastroEvento.id).filter(CadastroEvento.projeto_id.in_(projeto_ids)).all()
-    cadastro_ids = [c.id for c in cadastros]
-    if not cadastro_ids:
+
+    cadastros = db.query(
+        CadastroEvento.id,
+        CadastroEvento.atletas_site_pago,
+        CadastroEvento.atletas_site_tkt_medio,
+    ).filter(CadastroEvento.projeto_id.in_(projeto_ids)).all()
+
+    if not cadastros:
         return {"kit_basico": [], "kit_participacao": []}
+
+    cadastro_ids = [c.id for c in cadastros]
+
+    # ── Source-of-truth: atletas section of the cadastro ──────────────────────
+    total_atletas_pago = sum(int(c.atletas_site_pago or 0) for c in cadastros)
+    total_receita_orcada = sum(
+        float(c.atletas_site_tkt_medio or 0) * int(c.atletas_site_pago or 0)
+        for c in cadastros
+    )
+    tkt_medio_orcado = (
+        round(total_receita_orcada / total_atletas_pago, 2)
+        if total_atletas_pago > 0 else 0.0
+    )
+
+    # ── Detailed price tiers from the faixas table ─────────────────────────────
     faixas = db.query(CadastroFaixaPrecoSite).filter(
         CadastroFaixaPrecoSite.cadastro_id.in_(cadastro_ids)
     ).order_by(CadastroFaixaPrecoSite.faixa).all()
-    kit_basico = [
+
+    kit_basico_raw = [
         {"faixa": f.faixa, "qtd": f.qtd or 0, "tkt_medio": float(f.tkt_medio or 0), "total": float(f.total or 0)}
         for f in faixas if f.tipo_kit == "kit_basico" and (f.qtd or 0) > 0
     ]
-    kit_participacao = [
+    kit_participacao_raw = [
         {"faixa": f.faixa, "qtd": f.qtd or 0, "tkt_medio": float(f.tkt_medio or 0), "total": float(f.total or 0)}
         for f in faixas if f.tipo_kit == "kit_participacao" and (f.qtd or 0) > 0
     ]
-    return {"kit_basico": kit_basico, "kit_participacao": kit_participacao}
+
+    faixas_total_qtd = (
+        sum(f["qtd"] for f in kit_basico_raw)
+        + sum(f["qtd"] for f in kit_participacao_raw)
+    )
+
+    # ── Consistency check ──────────────────────────────────────────────────────
+    # If atletas_site_pago is set and the faixas table total diverges from it,
+    # the faixas data is stale/wrong.  Synthesise a single-row faixa from the
+    # atletas fields so the card always reflects what is in the cadastro.
+    if total_atletas_pago > 0 and faixas_total_qtd != total_atletas_pago:
+        total_receita_sintetica = round(tkt_medio_orcado * total_atletas_pago, 2)
+        return {
+            "kit_basico": [
+                {
+                    "faixa": "1",
+                    "qtd": total_atletas_pago,
+                    "tkt_medio": tkt_medio_orcado,
+                    "total": total_receita_sintetica,
+                }
+            ],
+            "kit_participacao": [],
+        }
+
+    return {"kit_basico": kit_basico_raw, "kit_participacao": kit_participacao_raw}
 
 
 router = APIRouter(prefix="/marketing", tags=["Marketing ISC"])
