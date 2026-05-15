@@ -1275,37 +1275,41 @@ def get_pendencias(
     areas_custom_ids = {a.id for a in areas_user if a.usa_cutoff_customizado}
     areas_nome_by_id = {a.id: a.nome for a in areas_user}
 
+    # Carrega regras de corte uma única vez — usadas pelos dois blocos
+    rules = (
+        db.query(ProjecaoCutoffRule)
+        .filter(ProjecaoCutoffRule.ativo == True)
+        .order_by(ProjecaoCutoffRule.dias_antes_evento.asc())
+        .all()
+    )
+    rule_by_dias = {r.dias_antes_evento: r for r in rules}
+
     # === Bloco 1: regras globais D-N para áreas SEM cutoff customizado ===
     eventos_global = []  # (evento, dias_ate, regra)
-    if areas_global_ids:
-        rules = (
-            db.query(ProjecaoCutoffRule)
-            .filter(ProjecaoCutoffRule.ativo == True)
-            .order_by(ProjecaoCutoffRule.dias_antes_evento.asc())
+    if areas_global_ids and rules:
+        target_dates = [today + timedelta(days=n) for n in rule_by_dias.keys()]
+        evs = (
+            db.query(CadastroEvento)
+            .filter(
+                CadastroEvento.deleted_at.is_(None),
+                CadastroEvento.status == 'Em andamento',
+                CadastroEvento.data_evento.isnot(None),
+                CadastroEvento.data_evento.in_(target_dates),
+            )
             .all()
         )
-        if rules:
-            rule_by_dias = {r.dias_antes_evento: r for r in rules}
-            target_dates = [today + timedelta(days=n) for n in rule_by_dias.keys()]
-            evs = (
-                db.query(CadastroEvento)
-                .filter(
-                    CadastroEvento.deleted_at.is_(None),
-                    CadastroEvento.status == 'Em andamento',
-                    CadastroEvento.data_evento.isnot(None),
-                    CadastroEvento.data_evento.in_(target_dates),
-                )
-                .all()
-            )
-            for ev in evs:
-                dias = (ev.data_evento - today).days
-                regra = rule_by_dias.get(dias)
-                if regra:
-                    eventos_global.append((ev, dias, regra))
+        for ev in evs:
+            dias = (ev.data_evento - today).days
+            regra = rule_by_dias.get(dias)
+            if regra:
+                eventos_global.append((ev, dias, regra))
 
     # === Bloco 2: cortes customizados por (evento, area) ===
-    cortes_custom = []  # (evento, area_id, data_corte_idx, cutoff_data)
-    if areas_custom_ids:
+    # Para a Data de corte Envio (data_corte_1), o alerta dispara N dias ANTES
+    # da data de corte, onde N vem das regras ativas (mesmo offset do Bloco 1,
+    # mas ancorado em data_corte_1 em vez de data_evento).
+    cortes_custom = []  # (evento, area_id, idx, cutoff_data, regra_matched)
+    if areas_custom_ids and rules:
         custom_rows = (
             db.query(ProjecaoCutoffEventoArea)
             .options(joinedload(ProjecaoCutoffEventoArea.evento))
@@ -1318,15 +1322,17 @@ def get_pendencias(
             ev = row.evento
             if not ev or ev.deleted_at is not None or ev.status != 'Em andamento':
                 continue
-            for idx, dt in enumerate([row.data_corte_1, row.data_corte_2], start=1):
-                if dt and dt == today:
-                    cortes_custom.append((ev, row.area_projecao_id, idx, dt))
+            if row.data_corte_1:
+                for rule in rules:
+                    trigger_date = row.data_corte_1 - timedelta(days=rule.dias_antes_evento)
+                    if trigger_date == today:
+                        cortes_custom.append((ev, row.area_projecao_id, 1, row.data_corte_1, rule))
 
     if not eventos_global and not cortes_custom:
         return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
 
     # Buscar projeções existentes para todos os eventos candidatos
-    evento_ids = {ev.id for ev, _, _ in eventos_global} | {ev.id for ev, _, _, _ in cortes_custom}
+    evento_ids = {ev.id for ev, _, _ in eventos_global} | {ev.id for ev, _, _, _, _ in cortes_custom}
     all_areas_ids = areas_global_ids | areas_custom_ids
     projs = (
         db.query(ProjecaoInscritos.evento_id, ProjecaoInscritos.area_projecao_id)
@@ -1345,7 +1351,7 @@ def get_pendencias(
     # áreas pendentes forem customizadas (sinaliza UI sem regra D-N).
     # Caso misto, prevalece a metadata global (D-N) e cutoff_data carrega a
     # data customizada para tooltip.
-    accum: dict = {}  # evento_id -> {evento, dias, regra, custom_areas, global_areas, custom_data, custom_indices, global_triggered}
+    accum: dict = {}  # evento_id -> {evento, dias, regra, custom_areas, global_areas, custom_data, custom_indices, global_triggered, custom_regra}
     # eventos em que uma regra global D-N disparou hoje, mesmo se todas as áreas
     # globais já tiverem projeção registrada — usado para sinalizar que o evento
     # NÃO é "apenas customizado" (cutoff_customizado=False).
@@ -1370,10 +1376,11 @@ def get_pendencias(
             "custom_areas": [],
             "custom_data": None,
             "custom_indices": set(),
+            "custom_regra": None,
         })
         accum[ev.id]["global_areas"].extend(faltando_global)
 
-    for ev, aid, idx, dt in cortes_custom:
+    for ev, aid, idx, dt, matched_rule in cortes_custom:
         if (ev.id, aid) in existentes:
             continue
         info = accum.setdefault(ev.id, {
@@ -1384,6 +1391,7 @@ def get_pendencias(
             "custom_areas": [],
             "custom_data": None,
             "custom_indices": set(),
+            "custom_regra": None,
         })
         if aid not in {a.area_projecao_id for a in info["custom_areas"]}:
             info["custom_areas"].append(AreaPendenteItem(
@@ -1393,6 +1401,8 @@ def get_pendencias(
         info["custom_indices"].add(idx)
         if info["custom_data"] is None:
             info["custom_data"] = dt
+        if info["custom_regra"] is None:
+            info["custom_regra"] = matched_rule
 
     pendencias = []
     for eid, info in accum.items():
@@ -1416,13 +1426,16 @@ def get_pendencias(
             and not global_areas
             and eid not in eventos_com_trigger_global
         )
+        custom_regra = info.get("custom_regra")
         if regra is not None:
             cutoff_dias = regra.dias_antes_evento
             cutoff_nome = regra.nome
+        elif custom_areas and custom_regra is not None:
+            cutoff_dias = custom_regra.dias_antes_evento
+            cutoff_nome = custom_regra.nome
         elif custom_areas:
-            idx_label = "/".join(str(i) for i in sorted(info["custom_indices"]))
             cutoff_dias = info["dias"]
-            cutoff_nome = f"Corte personalizado {idx_label}"
+            cutoff_nome = "Corte Envio"
         else:
             cutoff_dias = info["dias"]
             cutoff_nome = ""
