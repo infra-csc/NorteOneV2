@@ -431,6 +431,7 @@ const Cadastro: React.FC = () => {
   const initialFormData: FormData = {
     projeto_id: null,
     nome: '',
+    gratuito: false,
     circuito_produto: '',
     localizacao_evento: '',
     ano_evento: new Date().getFullYear(),
