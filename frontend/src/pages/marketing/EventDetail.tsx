@@ -3902,8 +3902,12 @@ const EventDetail: React.FC = () => {
               const projRows = projetadoFaixas
                 .map(r => ({ ...r, precoN: parseFloat(r.preco.replace(',', '.')) || 0, qtdN: parseInt(r.qtd, 10) || 0 }))
                 .filter(r => r.precoN > 0 && r.qtdN > 0);
-              const projQtd = projRows.reduce((s, r) => s + r.qtdN, 0);
-              const projReceita = projRows.reduce((s, r) => s + r.precoN * r.qtdN, 0);
+              // Incremental (only what was typed in the simulator)
+              const projOnlyQtd = projRows.reduce((s, r) => s + r.qtdN, 0);
+              const projOnlyReceita = projRows.reduce((s, r) => s + r.precoN * r.qtdN, 0);
+              // Combined = Real Atual + Faixas Projetadas (projected final outcome)
+              const projQtd = realQtd + projOnlyQtd;
+              const projReceita = realReceita + projOnlyReceita;
               const projTkt = projQtd > 0 ? projReceita / projQtd : 0;
               const projMargemVal: number | null = (custoKitUnit !== null && projQtd > 0)
                 ? projReceita - custoKitUnit * projQtd
@@ -3928,6 +3932,8 @@ const EventDetail: React.FC = () => {
                 );
               };
               const hasValidProjRows = projRows.length > 0;
+              // Projetado card shows values whenever there's real data OR typed faixas
+              const hasProjData = projQtd > 0;
 
               const colCard = (
                 title: string,
@@ -3937,10 +3943,14 @@ const EventDetail: React.FC = () => {
                 tkt: number,
                 receita: number,
                 margemVal: number | null,
-                isProj = false
+                isProj = false,
+                subtitle?: string
               ) => (
                 <div className={`rounded-xl border p-4 ${accent}`}>
-                  <p className={`text-xs font-extrabold uppercase tracking-widest mb-4 ${titleColor}`}>{title}</p>
+                  <div className="mb-4">
+                    <p className={`text-xs font-extrabold uppercase tracking-widest ${titleColor}`}>{title}</p>
+                    {subtitle && <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{subtitle}</p>}
+                  </div>
                   <div className="space-y-3">
                     <div>
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -3948,7 +3958,7 @@ const EventDetail: React.FC = () => {
                         {isProj && deltaBadge(hasValidProjRows ? qtd : null, orcQtd > 0 ? orcQtd : null)}
                       </div>
                       <p className="text-base font-bold text-gray-900 dark:text-white">
-                        {hasValidProjRows || !isProj ? (qtd > 0 ? formatNumber(qtd) : '0') : '—'}
+                        {hasProjData || !isProj ? (qtd > 0 ? formatNumber(qtd) : '0') : '—'}
                       </p>
                     </div>
                     <div>
@@ -3957,7 +3967,7 @@ const EventDetail: React.FC = () => {
                         {isProj && deltaBadge(hasValidProjRows ? tkt : null, orcTkt > 0 ? orcTkt : null, true)}
                       </div>
                       <p className="text-base font-bold text-blue-600 dark:text-blue-400">
-                        {hasValidProjRows || !isProj ? (tkt > 0 ? formatCurrency(tkt) : '—') : '—'}
+                        {hasProjData || !isProj ? (tkt > 0 ? formatCurrency(tkt) : '—') : '—'}
                       </p>
                     </div>
                     <div>
@@ -3966,7 +3976,7 @@ const EventDetail: React.FC = () => {
                         {isProj && deltaBadge(hasValidProjRows ? receita : null, orcReceita > 0 ? orcReceita : null, true)}
                       </div>
                       <p className="text-base font-bold text-gray-900 dark:text-white">
-                        {hasValidProjRows || !isProj ? (receita > 0 ? formatCurrency(receita) : 'R$ 0,00') : '—'}
+                        {hasProjData || !isProj ? (receita > 0 ? formatCurrency(receita) : 'R$ 0,00') : '—'}
                       </p>
                     </div>
                     <div className={`pt-3 border-t ${isDark ? 'border-gray-600' : 'border-gray-200'}`}>
@@ -3990,7 +4000,7 @@ const EventDetail: React.FC = () => {
                   <div className="grid grid-cols-3 gap-3 mb-6">
                     {colCard('Orçado', isDark ? 'bg-gray-700/40 border-gray-600' : 'bg-gray-50 border-gray-200', 'text-gray-500 dark:text-gray-400', orcQtd, orcTkt, orcReceita, orcMargemVal)}
                     {colCard('Real Atual', isDark ? 'bg-blue-900/20 border-blue-700' : 'bg-blue-50 border-blue-200', 'text-blue-600 dark:text-blue-400', realQtd, realTkt, realReceita, realMargemVal)}
-                    {colCard('Projetado', isDark ? 'bg-purple-900/20 border-purple-700' : 'bg-purple-50 border-purple-200', 'text-purple-600 dark:text-purple-400', projQtd, projTkt, projReceita, projMargemVal, true)}
+                    {colCard('Projetado', isDark ? 'bg-purple-900/20 border-purple-700' : 'bg-purple-50 border-purple-200', 'text-purple-600 dark:text-purple-400', projQtd, projTkt, projReceita, projMargemVal, true, 'Real atual + faixas projetadas')}
                   </div>
 
                   <div className="mb-2 flex items-center justify-between">
