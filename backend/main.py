@@ -1250,6 +1250,8 @@ def _run_column_migrations():
             """,
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_evento ON projecao_cutoff_evento_area (evento_id)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_area ON projecao_cutoff_evento_area (area_projecao_id)",
+            # gratuito flag added to cadastro_evento (task #3769e50)
+            "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS gratuito BOOLEAN DEFAULT FALSE",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",
