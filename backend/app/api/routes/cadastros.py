@@ -470,6 +470,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db), cu
         capacidade_maxima=data.capacidade_maxima,
         cidade=data.cidade,
         estado=data.estado,
+        gratuito=data.gratuito,
         data_evento=data_evento,
         horario_largada=data.info_geral.horario_largada,
         local=data.info_geral.local,
@@ -636,6 +637,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.cidade = data.cidade
     if data.estado is not None:
         cadastro.estado = data.estado
+    if data.gratuito is not None:
+        cadastro.gratuito = data.gratuito
     
     if data.info_geral is not None:
         if data.info_geral.data:

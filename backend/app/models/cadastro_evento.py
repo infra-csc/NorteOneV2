@@ -51,6 +51,7 @@ class CadastroEvento(Base):
     capacidade_maxima = Column(Integer)
     cidade = Column(String(100))
     estado = Column(String(50))
+    gratuito = Column(Boolean, default=False)
     
     data_evento = Column(Date)
     horario_largada = Column(String(10))

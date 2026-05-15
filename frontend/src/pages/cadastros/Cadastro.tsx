@@ -67,6 +67,7 @@ interface CadastroEvento {
   capacidade_maxima: number | null;
   cidade: string;
   estado: string;
+  gratuito: boolean;
   info_geral: {
     data: string;
     horario_largada: string;
@@ -109,6 +110,7 @@ interface FormData {
   capacidade_maxima: number | null;
   cidade: string;
   estado: string;
+  gratuito: boolean;
   info_geral: {
     data: string;
     horario_largada: string;
@@ -203,6 +205,7 @@ const createDefaultCadastro = (): Omit<CadastroEvento, 'id'> => ({
   capacidade_maxima: null,
   cidade: '',
   estado: '',
+  gratuito: false,
   info_geral: { data: '', horario_largada: '', local: '', distancias: [], dias_encerramento_inscricao: 2 },
   atletas: {
     site: { pago: 0, tkt_medio: 0 },
@@ -695,6 +698,7 @@ const Cadastro: React.FC = () => {
       capacidade_maxima: item.capacidade_maxima || null,
       cidade: item.cidade || '',
       estado: item.estado || '',
+      gratuito: item.gratuito ?? false,
       info_geral: { ...item.info_geral },
       atletas: { 
         site: { ...item.atletas.site },
@@ -803,6 +807,7 @@ const Cadastro: React.FC = () => {
         capacidade_maxima: form.capacidade_maxima,
         cidade: form.cidade,
         estado: form.estado,
+        gratuito: form.gratuito,
         info_geral: form.info_geral,
         atletas: form.atletas,
         cortesias: form.cortesias,
@@ -2039,6 +2044,20 @@ const Cadastro: React.FC = () => {
                   >
                     {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
+                </div>
+                <div className="col-span-3 flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setForm(prev => ({ ...prev, gratuito: !prev.gratuito }))}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-1 ${form.gratuito ? 'bg-emerald-500' : (isDark ? 'bg-gray-600' : 'bg-gray-300')}`}
+                    role="switch"
+                    aria-checked={form.gratuito}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.gratuito ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                  <span className={`ml-2 text-xs font-semibold ${form.gratuito ? 'text-emerald-500' : (isDark ? 'text-gray-400' : 'text-gray-600')}`}>
+                    Evento Gratuito
+                  </span>
                 </div>
               </div>
             </div>
