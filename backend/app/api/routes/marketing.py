@@ -9133,6 +9133,13 @@ def get_marketing_event_by_id(
                 except (ValueError, TypeError):
                     pass
             _gpd_result["commercialActions"] = _fetch_commercial_actions_from_db(db, _gpd_pids)
+            # Sempre injeta faixas_preco_site frescas do banco — o snapshot pode ter valores
+            # desatualizados se o cadastro foi editado após o último recompute.
+            if _gpd_pids:
+                try:
+                    _gpd_result["faixas_preco_site"] = _get_faixas_preco_site_for_projeto_ids(db, _gpd_pids)
+                except Exception as _fps_e:
+                    logger.warning(f"[Persist] faixas_preco_site refresh falhou: {_fps_e}")
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if _gpd_stale else "false"
                 if _gpd_version_mismatch:
@@ -9255,6 +9262,12 @@ def get_marketing_event_by_id(
                     except (ValueError, TypeError):
                         pass
                 result_hit["commercialActions"] = _fetch_commercial_actions_from_db(db, _ca_pids)
+                # Sempre injeta faixas_preco_site frescas do banco para refletir edições no cadastro.
+                if _ca_pids:
+                    try:
+                        result_hit["faixas_preco_site"] = _get_faixas_preco_site_for_projeto_ids(db, _ca_pids)
+                    except Exception as _fps_e2:
+                        logger.warning(f"[Cache] faixas_preco_site refresh falhou: {_fps_e2}")
                 return result_hit
 
         # Concurrent computation guard: if another request is already computing this
@@ -9996,6 +10009,12 @@ def get_marketing_event_by_id(
             result_sa = {k: v for k, v in cached_standalone.items() if k != "__is_completed"}
             if _sa_needs_recompute:
                 result_sa["ultima_atualizacao"] = "2000-01-01T00:00:00-03:00"
+            # Sempre injeta faixas_preco_site frescas do banco para refletir edições no cadastro.
+            try:
+                _sa_pids = [int(evento_id)]
+                result_sa["faixas_preco_site"] = _get_faixas_preco_site_for_projeto_ids(db, _sa_pids)
+            except Exception as _fps_e3:
+                logger.warning(f"[Cache-SA] faixas_preco_site refresh falhou: {_fps_e3}")
             return result_sa
     
     standalone_evento_grupo = None
