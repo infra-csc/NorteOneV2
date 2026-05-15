@@ -398,6 +398,10 @@ const MarketingDashboard: React.FC = () => {
     try {
       const result = await marketingService.syncHoje();
       if (result.status === 'ok') {
+        // After syncing today's data, also flush the caches (medias, event_detail,
+        // daily_sales, etc.) so the updated numbers appear immediately without
+        // waiting for natural TTL expiry.
+        try { await marketingService.refreshCache(); } catch { /* non-fatal */ }
         setSyncHojeResult('success');
         clearMarketingDashboardCache();
         fetchData(true, false);
