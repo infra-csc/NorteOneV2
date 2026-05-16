@@ -208,8 +208,20 @@ def aggregate_eventos_list_from_snapshots(
     # produz: 1 entrada por evento_grupo ativo (ano) + 1 entrada por projeto
     # standalone (cadastro cujo SKU não pertence a nenhum grupo no ano).
     expected = 0
+    valid_evento_ids: set[str] | None = None
     try:
         from ..api.routes.inscricoes_consolidado import normalize_sku as _ns
+
+        # Apenas grupos *ativos* contam — snapshots de grupos inativos/removidos
+        # são órfãos e devem ser filtrados/limpos.
+        from ..models.dimensoes import EventoGrupo as _EventoGrupo
+
+        active_grupo_names_q = (
+            db.query(_EventoGrupo.nome)
+            .filter(_EventoGrupo.ativo == True)  # noqa: E712
+            .all()
+        )
+        active_grupo_names = {n for (n,) in active_grupo_names_q if n}
 
         grupo_names_q = (
             db.query(SkuMapping.evento_grupo)
@@ -221,7 +233,8 @@ def aggregate_eventos_list_from_snapshots(
             .distinct()
             .all()
         )
-        grupo_names = {g[0] for g in grupo_names_q if g[0]}
+        # Só consideramos grupos que estão mapeados E estão ativos em evento_grupos.
+        grupo_names = {g[0] for g in grupo_names_q if g[0] and g[0] in active_grupo_names}
         expected_grouped = len(grupo_names)
 
         sku_to_grupo: dict[str, str] = {}
@@ -239,20 +252,39 @@ def aggregate_eventos_list_from_snapshots(
                 if s and g:
                     sku_to_grupo[_ns(str(s))] = g
 
-        cad_codigos = (
-            db.query(DimProjeto.codigo)
+        cad_rows = (
+            db.query(DimProjeto.id, DimProjeto.codigo)
             .join(CadastroEvento, CadastroEvento.projeto_id == DimProjeto.id)
             .filter(DimProjeto.codigo.isnot(None))
             .all()
         )
-        expected_standalone = sum(
-            1 for (codigo,) in cad_codigos
+        standalone_projeto_ids = {
+            str(pid) for (pid, codigo) in cad_rows
             if _ns(str(codigo)) not in sku_to_grupo
-        )
+        }
+        expected_standalone = len(standalone_projeto_ids)
         expected = expected_grouped + expected_standalone
+
+        # IDs válidos esperados pelo endpoint *agora*. Snapshots com IDs fora
+        # desse conjunto são órfãos (ex.: ficaram do tempo em que o evento era
+        # standalone e depois ganhou mapeamento de grupo, ou vice-versa).
+        valid_evento_ids = {f"grp_{n}" for n in grupo_names} | standalone_projeto_ids
     except Exception as e:
         logger.debug(f"[EventosListSnap] expected count falhou: {e}")
         expected = 0
+        valid_evento_ids = None
+
+    # Filtra snapshots órfãos antes de avaliar cobertura e montar a lista.
+    # Sem isso, um mesmo evento físico podia aparecer duas vezes (uma como
+    # standalone "<projeto.id>" e outra como agrupado "grp_<nome>") quando o
+    # mapeamento de SKU é criado/alterado depois do primeiro snapshot.
+    # A limpeza no banco é feita ao final, em sessão separada, para não
+    # expirar os objetos ORM ainda em uso neste caminho de leitura.
+    stale_ids_to_cleanup: list[str] = []
+    if valid_evento_ids is not None:
+        stale_ids_to_cleanup = [r.evento_id for r in rows if r.evento_id not in valid_evento_ids]
+        if stale_ids_to_cleanup:
+            rows = [r for r in rows if r.evento_id in valid_evento_ids]
 
     coverage = (len(rows) / float(expected)) if expected > 0 else 1.0
     logger.info(
@@ -324,6 +356,34 @@ def aggregate_eventos_list_from_snapshots(
         avisos = list(_giw() or [])
     except Exception:
         pass
+
+    # Limpeza dos snapshots órfãos detectados acima — feita em sessão própria
+    # para não comprometer o estado ORM da sessão de leitura (evita expirar
+    # objetos via commit). Falhas aqui são apenas logadas: a deduplicação
+    # já foi aplicada em memória acima.
+    if stale_ids_to_cleanup:
+        try:
+            from ..core.database import SessionLocal as _SL
+            _cleanup_db = _SL()
+            try:
+                (
+                    _cleanup_db.query(EventoDetailSnapshot)
+                    .filter(
+                        EventoDetailSnapshot.ano == ano,
+                        EventoDetailSnapshot.evento_id.in_(stale_ids_to_cleanup),
+                    )
+                    .delete(synchronize_session=False)
+                )
+                _cleanup_db.commit()
+                logger.info(
+                    f"[EventosListSnap] removidos {len(stale_ids_to_cleanup)} snapshot(s) "
+                    f"órfão(s) ano={ano}: {stale_ids_to_cleanup[:5]}"
+                    f"{'...' if len(stale_ids_to_cleanup) > 5 else ''}"
+                )
+            finally:
+                _cleanup_db.close()
+        except Exception as _del_e:
+            logger.warning(f"[EventosListSnap] falha ao remover snapshots órfãos: {_del_e}")
 
     return {
         "status": "success",
