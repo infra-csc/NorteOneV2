@@ -17,10 +17,35 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import re
+import threading
+import time as _time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
+
+# Debounce de rebuild de snapshot por (evento_grupo, ano). Evita pile-up de
+# threads quando _invalidate_snapshot é chamado em rajada (ex.: usuário corrige
+# vários campos do mesmo mapeamento em sequência, ou bulk-update). Janela curta
+# é suficiente: o objetivo é colapsar disparos quase simultâneos, não bloquear
+# refresh legítimos espaçados.
+_REBUILD_DEBOUNCE_SECONDS = 30
+_rebuild_debounce_lock = threading.Lock()
+_rebuild_debounce_ts: dict = {}
+
+
+def _should_dispatch_rebuild(evento_grupo: str, ano: int) -> bool:
+    """Retorna True se nenhum rebuild para essa chave foi disparado nos
+    últimos _REBUILD_DEBOUNCE_SECONDS segundos. Atualiza o registro
+    atomicamente para evitar corrida entre múltiplas requisições."""
+    key = (evento_grupo, ano)
+    now = _time.monotonic()
+    with _rebuild_debounce_lock:
+        last = _rebuild_debounce_ts.get(key)
+        if last is not None and (now - last) < _REBUILD_DEBOUNCE_SECONDS:
+            return False
+        _rebuild_debounce_ts[key] = now
+        return True
 
 
 def _proactive_eventos_list_refresh(ano: int):
@@ -126,6 +151,18 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
         if deleted_curva or deleted_vendas:
             db.commit()
             logger.info(f"Snapshot invalidado: '{evento_grupo}' ano={ano} (curva={deleted_curva}, vendas={deleted_vendas})")
+
+        # Debounce: se já há um rebuild recente para essa chave, não dispara
+        # outro. Evita pile-up quando vários campos do mesmo mapeamento são
+        # editados em sequência (cada PATCH cairia aqui).
+        if not _should_dispatch_rebuild(evento_grupo, ano):
+            logger.info(
+                f"Rebuild debounce ativo para '{evento_grupo}' ano={ano}: "
+                f"thread anterior disparada há <{_REBUILD_DEBOUNCE_SECONDS}s, pulando"
+            )
+            _invalidate_curva_cache(evento_grupo, ano, db)
+            _invalidate_all_marketing_caches()
+            return
 
         import threading
         def _rebuild():
@@ -402,6 +439,8 @@ def update_sku_mapping(
     old_data_evento = db_mapping.data_evento
     old_evento_grupo = db_mapping.evento_grupo
     old_ano = db_mapping.ano
+    old_id_externo = db_mapping.id_externo
+    old_fonte = db_mapping.fonte
 
     for key, value in update_data.items():
         setattr(db_mapping, key, value)
@@ -411,8 +450,17 @@ def update_sku_mapping(
 
     data_evento_changed = db_mapping.data_evento != old_data_evento
     grupo_or_ano_changed = db_mapping.evento_grupo != old_evento_grupo or db_mapping.ano != old_ano
+    # Mudanças em id_externo/fonte também invalidam o snapshot persistente:
+    # o vendas_diaria_snapshot é populado a partir do par (fonte, id_externo),
+    # então corrigir um ID errado precisa derrubar o snapshot atual e
+    # reconstruí-lo — caso contrário a UI continua mostrando vendas do ID
+    # antigo até a próxima rodada do job noturno.
+    ids_changed = (
+        db_mapping.id_externo != old_id_externo
+        or db_mapping.fonte != old_fonte
+    )
 
-    if data_evento_changed or grupo_or_ano_changed:
+    if data_evento_changed or grupo_or_ano_changed or ids_changed:
         invalidated = set()
         if old_evento_grupo:
             key = (old_evento_grupo, old_ano)
