@@ -5194,11 +5194,15 @@ def get_marketing_events(
         if cached is not None:
             from app.core.cache import get_last_full_refresh as _glf_eventos
             _lfr_ev = _glf_eventos()
+            cached = dict(cached)
             if _lfr_ev:
-                cached = dict(cached)
                 cached["ultima_atualizacao"] = datetime.fromtimestamp(
                     _lfr_ev, tz=ZoneInfo('America/Sao_Paulo')
                 ).isoformat()
+            # Avisos refletem o estado atual da conexão — não devem ser servidos
+            # do cache, senão um erro transitório no momento do build congela o
+            # banner "Dados Parciais" indefinidamente, mesmo após recuperação.
+            cached["avisos"] = list(get_isc_warnings())
             cached = _refresh_d_minus_in_cached_eventos(cached, cache_key)
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if (is_stale or _user_force_refresh) else "false"
