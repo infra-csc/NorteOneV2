@@ -4,8 +4,9 @@ import { adminService } from '../../services/api';
 import {
   ShieldCheck, ShieldAlert, AlertTriangle, Info, RefreshCw, Settings,
   Save, Send, ChevronDown, ChevronUp, Filter, Clock, Activity,
-  ChevronLeft, ChevronRight, CheckCircle2, RotateCcw
+  ChevronLeft, ChevronRight, CheckCircle2, RotateCcw, Database
 } from 'lucide-react';
+import SincronizacoesPanel from './SincronizacoesPanel';
 
 interface HealthEvent {
   id: number;
@@ -120,6 +121,7 @@ const SaudeSistema: React.FC = () => {
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
   const [showConfig, setShowConfig] = useState(false);
   const [resolvingEvents, setResolvingEvents] = useState<Set<number>>(new Set());
+  const [activeTab, setActiveTab] = useState<'overview' | 'sync'>('overview');
   const [formConfig, setFormConfig] = useState<AlertConfig>({
     email_enabled: false, email_recipients: '', email_from: '', smtp_host: '',
     smtp_port: 587, smtp_user: '', smtp_password: '', slack_enabled: false,
@@ -294,27 +296,56 @@ const SaudeSistema: React.FC = () => {
             <p className={`text-sm ${textSecondary}`}>Monitoramento de eventos e alertas de infraestrutura</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowConfig(v => !v)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border
-              ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
-          >
-            <Settings className="w-4 h-4" />
-            Configurações
-          </button>
-          <button
-            onClick={() => { fetchSummary(); fetchEvents(currentPage); }}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-all"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Atualizar
-          </button>
-        </div>
+        {activeTab === 'overview' && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowConfig(v => !v)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all border
+                ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+            >
+              <Settings className="w-4 h-4" />
+              Configurações
+            </button>
+            <button
+              onClick={() => { fetchSummary(); fetchEvents(currentPage); }}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-all"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </button>
+          </div>
+        )}
       </div>
 
-      {summary && (
+      <div className={`flex gap-1 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+        <button
+          onClick={() => setActiveTab('overview')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'overview'
+              ? 'border-blue-500 text-blue-500'
+              : `border-transparent ${textSecondary} hover:${textPrimary}`
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          Visão Geral
+        </button>
+        <button
+          onClick={() => setActiveTab('sync')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'sync'
+              ? 'border-blue-500 text-blue-500'
+              : `border-transparent ${textSecondary} hover:${textPrimary}`
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          Sincronizações
+        </button>
+      </div>
+
+      {activeTab === 'sync' && <SincronizacoesPanel />}
+
+      {activeTab === 'overview' && summary && (
         <div className={`${cardBase} rounded-xl p-5 border-l-4 ${stt.border}`}>
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
             <div className={`p-3 rounded-xl ${stt.bg} flex-shrink-0`}>
@@ -348,7 +379,7 @@ const SaudeSistema: React.FC = () => {
         </div>
       )}
 
-      {summary?.data_sources && Object.keys(summary.data_sources).length > 0 && (
+      {activeTab === 'overview' && summary?.data_sources && Object.keys(summary.data_sources).length > 0 && (
         <div className={`${cardBase} rounded-xl p-5`}>
           <h2 className={`text-sm font-semibold ${textSecondary} uppercase tracking-wider mb-4`}>Fontes de Dados — últimas 24h</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
@@ -389,7 +420,7 @@ const SaudeSistema: React.FC = () => {
         </div>
       )}
 
-      {showConfig && (
+      {activeTab === 'overview' && showConfig && (
         <div className={`${cardBase} rounded-xl p-6 space-y-6`}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className={`text-lg font-semibold ${textPrimary}`}>Configurações de Alerta</h2>
@@ -505,6 +536,7 @@ const SaudeSistema: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'overview' && (
       <div className={`${cardBase} rounded-xl overflow-hidden`}>
         <div className={`px-4 py-3 ${isDark ? 'bg-gray-700/30' : 'bg-gray-50'} flex flex-col gap-3`}>
           <div className="flex items-center justify-between">
@@ -729,6 +761,7 @@ const SaudeSistema: React.FC = () => {
           </>
         )}
       </div>
+      )}
     </div>
   );
 };

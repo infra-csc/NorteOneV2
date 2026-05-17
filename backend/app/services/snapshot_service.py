@@ -234,7 +234,7 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
     logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
 
 
-def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False):
+def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False, ciclo_id: Optional[str] = None, parent_job_name: Optional[str] = None):
     """Reconstrói o snapshot diário de vendas de um grupo.
 
     Modo padrão (incremental=False): varre histórico completo no Magento/Ativo
@@ -252,6 +252,23 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
         _fetch_daily_sales_ativo_by_ids, _fetch_daily_sales_magento_by_ids,
         _get_cortesia_magento_ids
     )
+    from .sync_log_service import log_evento, new_ciclo_id, classify_motivo
+    import time as _t_log
+
+    _standalone = ciclo_id is None
+    if ciclo_id is None:
+        ciclo_id = new_ciclo_id()
+    # Quando rodando dentro de um batch pai, usar o job_name do pai para que
+    # todas as linhas do mesmo ciclo compartilhem o mesmo job_name (consistência
+    # de filtro/derivação na UI).
+    _job_name = parent_job_name or "consolidar_vendas_grupo"
+    _t0 = _t_log.time()
+    if _standalone:
+        log_evento(
+            ciclo_id, _job_name, "iniciado",
+            nivel="ciclo", grupo=evento_grupo,
+            detalhes=f"incremental={incremental} ano={ano}",
+        )
 
     mappings = db.query(SkuMapping).filter(
         SkuMapping.evento_grupo == evento_grupo,
@@ -261,12 +278,30 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     if not mappings:
         logger.warning(f"Nenhum SKU mapping para grupo='{evento_grupo}', ano={ano}")
+        log_evento(
+            ciclo_id, _job_name, "pulado",
+            grupo=evento_grupo, motivo="sem_mapeamento",
+            duracao_ms=int((_t_log.time() - _t0) * 1000),
+        )
         return 0
 
     ativo_ids = [str(m.id_externo) for m in mappings if m.fonte == 'ATIVO' and m.id_externo]
     magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
 
     cortesia_ids = _get_cortesia_magento_ids(db)
+
+    # Snapshot atual (para reportar qtd_antes no log)
+    try:
+        _qtd_antes = int(
+            db.query(sa_func.coalesce(sa_func.sum(VendasDiariaSnapshot.quantidade), 0))
+            .filter(
+                VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                VendasDiariaSnapshot.ano == ano,
+            ).scalar() or 0
+        )
+    except Exception:
+        _qtd_antes = None
 
     # Modo incremental: calcula o piso de data baseado no maior dia já
     # gravado no snapshot. Se não existe snapshot ainda, cai pra modo full.
@@ -330,6 +365,11 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             logger.error(
                 f"[Snapshot] Ativo fetch falhou para grupo='{evento_grupo}', ano={ano}: {_e}"
             )
+            log_evento(
+                ciclo_id, _job_name, "falha",
+                grupo=evento_grupo, fonte="ativo",
+                motivo=classify_motivo(_e), detalhes=str(_e),
+            )
 
     if magento_ids:
         try:
@@ -351,6 +391,11 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             logger.error(
                 f"[Snapshot] Magento fetch falhou para grupo='{evento_grupo}', ano={ano}: {_e}"
             )
+            log_evento(
+                ciclo_id, _job_name, "falha",
+                grupo=evento_grupo, fonte="magento",
+                motivo=classify_motivo(_e), detalhes=str(_e),
+            )
 
     # Abort if any required source failed — preserves existing snapshot intact.
     # Next scheduled rebuild will retry once the source is healthy again.
@@ -363,6 +408,16 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             db.rollback()
         except Exception:
             pass
+        log_evento(
+            ciclo_id, _job_name, "pulado",
+            grupo=evento_grupo,
+            fonte=("ambas" if (ativo_ids and not ativo_ok and magento_ids and not magento_ok) else ("magento" if not magento_ok else "ativo")),
+            motivo="fonte_indisponivel",
+            detalhes=f"ativo_ok={ativo_ok} magento_ok={magento_ok} — snapshot preservado",
+            qtd_antes=_qtd_antes, qtd_depois=_qtd_antes,
+            data_floor=data_floor,
+            duracao_ms=int((_t_log.time() - _t0) * 1000),
+        )
         return 0
 
     yesterday = date.today() - timedelta(days=1)
@@ -383,6 +438,14 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
     if not all_daily:
         db.commit()
         logger.info(f"Nenhuma venda encontrada para grupo='{evento_grupo}', ano={ano}")
+        log_evento(
+            ciclo_id, _job_name, "ok",
+            grupo=evento_grupo,
+            motivo="sem_vendas_novas" if incremental else "sem_vendas",
+            qtd_antes=_qtd_antes, qtd_depois=_qtd_antes,
+            data_floor=data_floor,
+            duracao_ms=int((_t_log.time() - _t0) * 1000),
+        )
         return 0
 
     saved = 0
@@ -411,12 +474,47 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     db.commit()
     logger.info(f"Snapshot consolidado: grupo='{evento_grupo}', ano={ano}, {saved} dias salvos")
+
+    try:
+        _qtd_depois = int(
+            db.query(sa_func.coalesce(sa_func.sum(VendasDiariaSnapshot.quantidade), 0))
+            .filter(
+                VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                VendasDiariaSnapshot.ano == ano,
+            ).scalar() or 0
+        )
+    except Exception:
+        _qtd_depois = None
+    log_evento(
+        ciclo_id, _job_name, "ok",
+        grupo=evento_grupo,
+        detalhes=f"{saved} dias gravados (incremental={incremental})",
+        qtd_antes=_qtd_antes, qtd_depois=_qtd_depois,
+        data_floor=data_floor,
+        duracao_ms=int((_t_log.time() - _t0) * 1000),
+    )
+    if _standalone:
+        # Fecha o ciclo standalone para que a UI não rotule como "interrompido".
+        log_evento(
+            ciclo_id, _job_name, "concluido",
+            nivel="ciclo", grupo=evento_grupo,
+            detalhes=f"{saved} dias gravados (incremental={incremental} ano={ano})",
+            qtd_depois=_qtd_depois,
+            duracao_ms=int((_t_log.time() - _t0) * 1000),
+        )
     return saved
 
 
 def snapshot_diario_batch(db: Session):
     from ..api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
     from ..models.cadastro_evento import CadastroEvento
+    from .sync_log_service import log_evento, new_ciclo_id
+    import time as _t_batch
+
+    _ciclo = new_ciclo_id()
+    _t_start = _t_batch.time()
+    log_evento(_ciclo, "snapshot_diario_batch", "iniciado", nivel="ciclo")
 
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -519,11 +617,22 @@ def snapshot_diario_batch(db: Session):
             # Job agendado usa modo incremental: só busca dias novos desde
             # a última sincronização, reduzindo drasticamente a carga no
             # Magento e protegendo o histórico de gravações parciais.
-            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True)
+            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True, ciclo_id=_ciclo, parent_job_name="snapshot_diario_batch")
         except Exception as e:
             logger.error(f"Erro ao consolidar snapshot para grupo='{grupo}': {e}")
+            try:
+                from .sync_log_service import log_evento as _le_err, classify_motivo as _cm_err
+                _le_err(_ciclo, "snapshot_diario_batch", "falha", grupo=grupo,
+                        motivo=_cm_err(e), detalhes=str(e))
+            except Exception:
+                pass
 
     logger.info(f"Consolidação diária concluída: {len(grupos_processados)} grupos processados")
+    log_evento(
+        _ciclo, "snapshot_diario_batch", "concluido", nivel="ciclo",
+        detalhes=f"{len(grupos_processados)} grupos processados, {len(grupos_frozen)} congelados",
+        duracao_ms=int((_t_batch.time() - _t_start) * 1000),
+    )
     return len(grupos_processados)
 
 
@@ -655,6 +764,12 @@ def sincronizar_hoje_batch(db: Session) -> int:
         normalize_sku,
         _get_cortesia_magento_ids,
     )
+    from .sync_log_service import log_evento as _le_hj, new_ciclo_id as _ncid_hj, classify_motivo as _cm_hj
+    import time as _t_hj
+
+    _ciclo_hj = _ncid_hj()
+    _t_hj_start = _t_hj.time()
+    _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "iniciado", nivel="ciclo")
 
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -760,6 +875,9 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     if not live_grupos:
         logger.info("sincronizar_hoje_batch: nenhum grupo live/hybrid encontrado")
+        from .sync_log_service import log_evento as _le_empty
+        _le_empty(_ciclo_hj, "sincronizar_hoje_batch", "concluido", nivel="ciclo",
+                  motivo="sem_grupos_live", duracao_ms=int((_t_hj.time() - _t_hj_start) * 1000))
         return 0
 
     mappings = db.query(SkuMapping).filter(
@@ -770,6 +888,9 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     if not mappings:
         logger.info("sincronizar_hoje_batch: nenhum SkuMapping ativo para o ano corrente")
+        from .sync_log_service import log_evento as _le_nm
+        _le_nm(_ciclo_hj, "sincronizar_hoje_batch", "concluido", nivel="ciclo",
+               motivo="sem_mapeamento", duracao_ms=int((_t_hj.time() - _t_hj_start) * 1000))
         return 0
 
     grupos: dict = {}
@@ -824,10 +945,12 @@ def sincronizar_hoje_batch(db: Session) -> int:
         if latest is None:
             try:
                 logger.info(f"sincronizar_hoje_batch: backfill histórico para '{grupo}'")
-                consolidar_vendas_grupo(db, grupo, ano, data_fim=yesterday)
+                consolidar_vendas_grupo(db, grupo, ano, data_fim=yesterday, ciclo_id=_ciclo_hj, parent_job_name="sincronizar_hoje_batch")
                 backfilled += 1
             except Exception as e:
                 logger.warning(f"sincronizar_hoje_batch: backfill falhou para '{grupo}': {e}")
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "falha", grupo=grupo,
+                       motivo=_cm_hj(e), detalhes=f"backfill: {e}")
 
     # --- Step 2: Fetch today's data in batch (2 MySQL queries total) ---
     # Track *health* of each source separately so we can skip the UPSERT for
@@ -864,9 +987,13 @@ def sincronizar_hoje_batch(db: Session) -> int:
                 ativo_fetch_ok = True
             except _CircuitOpenError:
                 ativo_ok = False
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "falha", fonte="ativo",
+                       motivo="circuit_aberto", detalhes="Ativo circuit aberto durante fetch")
             except Exception as e:
                 ativo_ok = False
                 logger.error(f"sincronizar_hoje_batch: erro Ativo grouped: {e}")
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "falha", fonte="ativo",
+                       motivo=_cm_hj(e), detalhes=str(e))
             if ativo_fetch_ok:
                 # An empty result with engine_ssh down is indistinguishable from
                 # "no sales today" at this layer; treat missing engine explicitly.
@@ -906,9 +1033,13 @@ def sincronizar_hoje_batch(db: Session) -> int:
                 magento_fetch_ok = True
             except _CircuitOpenError:
                 magento_ok = False
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "falha", fonte="magento",
+                       motivo="circuit_aberto", detalhes="Magento circuit aberto durante fetch")
             except Exception as e:
                 magento_ok = False
                 logger.error(f"sincronizar_hoje_batch: erro Magento grouped: {e}")
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "falha", fonte="magento",
+                       motivo=_cm_hj(e), detalhes=str(e))
             if magento_fetch_ok:
                 try:
                     from ..core import database as db_module
@@ -951,6 +1082,9 @@ def sincronizar_hoje_batch(db: Session) -> int:
                 f"ambas fontes indisponíveis (ativo_ok={ativo_ok}, magento_ok={magento_ok}); "
                 f"snapshot existente preservado"
             )
+            _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "pulado", grupo=grupo,
+                   fonte="ambas", motivo="fonte_indisponivel",
+                   detalhes=f"ativo_ok={ativo_ok} magento_ok={magento_ok}")
             continue
 
         try:
@@ -1021,11 +1155,20 @@ def sincronizar_hoje_batch(db: Session) -> int:
             db.commit()
             if all_sources_ok:
                 synced += 1
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "ok", grupo=grupo,
+                       qtd_depois=qtd_total)
             else:
                 partial_synced += 1
+                _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "parcial", grupo=grupo,
+                       fonte=("magento" if (grupo_needs_magento and not magento_ok) else "ativo"),
+                       motivo="fonte_indisponivel",
+                       detalhes=f"GREATEST() aplicado — ativo_ok={ativo_ok} magento_ok={magento_ok}",
+                       qtd_depois=qtd_total)
         except Exception as e:
             failed += 1
             logger.error(f"sincronizar_hoje_batch: erro para grupo='{grupo}': {e}")
+            _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "falha", grupo=grupo,
+                   motivo=_cm_hj(e), detalhes=str(e))
             try:
                 db.rollback()
             except Exception:
@@ -1035,6 +1178,16 @@ def sincronizar_hoje_batch(db: Session) -> int:
         f"sincronizar_hoje_batch: {synced}/{len(grupos)} grupos sincronizados para {today}"
         f" (parciais={partial_synced}, backfills={backfilled}, falhas={failed},"
         f" pulados={skipped_unhealthy})"
+    )
+    _le_hj(
+        _ciclo_hj, "sincronizar_hoje_batch", "concluido", nivel="ciclo",
+        detalhes=(
+            f"total={len(grupos)} ok={synced} parciais={partial_synced} "
+            f"falhas={failed} pulados={skipped_unhealthy} backfills={backfilled} "
+            f"ativo_ok={ativo_ok} magento_ok={magento_ok}"
+        ),
+        qtd_depois=synced + partial_synced,
+        duracao_ms=int((_t_hj.time() - _t_hj_start) * 1000),
     )
 
     # Invalidate event_detail and ISC caches so next dashboard request gets fresh

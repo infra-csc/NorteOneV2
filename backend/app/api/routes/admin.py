@@ -1,12 +1,13 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import desc
+from sqlalchemy import desc, func as sa_func
 from typing import Optional
 from ...core.database import get_db
 from ...core.security import require_permission
 from ...models.user import Usuario
+from ...models.sync_event_log import SyncEventLog
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -108,6 +109,148 @@ def trigger_snapshot_consolidation(
     return {
         "status": "started",
         "message": "Consolidação de snapshots iniciada em background"
+    }
+
+
+@router.get("/sync-logs/cycles")
+def list_sync_cycles(
+    job: Optional[str] = Query(default=None, description="Filtra por job_name"),
+    status: Optional[str] = Query(default=None, description="Filtra por status do ciclo"),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Lista os ciclos mais recentes de jobs de sincronização.
+
+    Cada ciclo é identificado por `ciclo_id` e agrega múltiplos eventos.
+    Retorna o evento de nível 'ciclo' mais recente de cada ciclo + agregados
+    dos eventos de grupo (ok, parcial, falha, pulado).
+    """
+    cycle_ids_query = db.query(
+        SyncEventLog.ciclo_id,
+        sa_func.max(SyncEventLog.created_at).label("ultimo"),
+    ).group_by(SyncEventLog.ciclo_id).order_by(desc("ultimo")).limit(limit)
+    if job:
+        cycle_ids_query = db.query(
+            SyncEventLog.ciclo_id,
+            sa_func.max(SyncEventLog.created_at).label("ultimo"),
+        ).filter(SyncEventLog.job_name == job).group_by(SyncEventLog.ciclo_id).order_by(desc("ultimo")).limit(limit)
+
+    cycle_ids = [row[0] for row in cycle_ids_query.all()]
+    if not cycle_ids:
+        return {"cycles": []}
+
+    rows = db.query(SyncEventLog).filter(SyncEventLog.ciclo_id.in_(cycle_ids)).all()
+
+    by_cycle: dict = {}
+    for r in rows:
+        c = by_cycle.setdefault(r.ciclo_id, {
+            "ciclo_id": r.ciclo_id,
+            "job_name": None,
+            "fallback_job_name": r.job_name,
+            "ciclo_iniciado_at": None,
+            "ciclo_concluido_at": None,
+            "iniciado_em": None,
+            "concluido_em": None,
+            "status": "iniciado",
+            "duracao_ms": None,
+            "detalhes_ciclo": None,
+            "motivo_ciclo": None,
+            "total_grupos": 0,
+            "ok": 0, "parcial": 0, "falha": 0, "pulado": 0,
+            "ultima_atividade": None,
+            "first_failure_motivo": None,
+        })
+        if not c["ultima_atividade"] or r.created_at > c["ultima_atividade"]:
+            c["ultima_atividade"] = r.created_at
+        if r.nivel == "ciclo":
+            # job_name autoritativo vem das linhas nivel='ciclo' (registradas pelo
+            # batch raiz). Em caso de múltiplas, prevalece a mais antiga ('iniciado').
+            if r.status == "iniciado":
+                if not c["ciclo_iniciado_at"] or r.created_at < c["ciclo_iniciado_at"]:
+                    c["ciclo_iniciado_at"] = r.created_at
+                    c["job_name"] = r.job_name
+                    c["iniciado_em"] = r.created_at
+            else:
+                if not c["ciclo_concluido_at"] or r.created_at > c["ciclo_concluido_at"]:
+                    c["ciclo_concluido_at"] = r.created_at
+                    c["concluido_em"] = r.created_at
+                    c["status"] = r.status
+                    c["duracao_ms"] = r.duracao_ms
+                    c["detalhes_ciclo"] = r.detalhes
+                    c["motivo_ciclo"] = r.motivo
+                    if not c["job_name"]:
+                        c["job_name"] = r.job_name
+        else:
+            if r.grupo:
+                c["total_grupos"] += 1
+            if r.status in c:
+                c[r.status] += 1
+            if r.status in ("falha", "parcial") and not c["first_failure_motivo"]:
+                c["first_failure_motivo"] = r.motivo
+
+    result = []
+    for c in by_cycle.values():
+        if c["status"] == "iniciado" and not c["concluido_em"]:
+            age = (datetime.utcnow() - (c["iniciado_em"] or c["ultima_atividade"]).replace(tzinfo=None)).total_seconds() if (c["iniciado_em"] or c["ultima_atividade"]) else 0
+            if age > 3600:
+                c["status"] = "interrompido"
+        result.append({
+            "ciclo_id": c["ciclo_id"],
+            "job_name": c["job_name"] or c["fallback_job_name"],
+            "iniciado_em": c["iniciado_em"].isoformat() if c["iniciado_em"] else None,
+            "concluido_em": c["concluido_em"].isoformat() if c["concluido_em"] else None,
+            "ultima_atividade": c["ultima_atividade"].isoformat() if c["ultima_atividade"] else None,
+            "status": c["status"],
+            "duracao_ms": c["duracao_ms"],
+            "detalhes": c["detalhes_ciclo"],
+            "motivo": c["motivo_ciclo"] or c["first_failure_motivo"],
+            "total_grupos": c["total_grupos"],
+            "ok": c["ok"],
+            "parcial": c["parcial"],
+            "falha": c["falha"],
+            "pulado": c["pulado"],
+        })
+    result.sort(key=lambda x: x["ultima_atividade"] or "", reverse=True)
+    if status:
+        result = [c for c in result if c["status"] == status]
+    return {"cycles": result}
+
+
+@router.get("/sync-logs/{ciclo_id}")
+def get_sync_cycle_detail(
+    ciclo_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Detalhe de um ciclo — todos os eventos (ciclo + grupos)."""
+    rows = db.query(SyncEventLog).filter(
+        SyncEventLog.ciclo_id == ciclo_id
+    ).order_by(SyncEventLog.created_at.asc(), SyncEventLog.id.asc()).all()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+
+    return {
+        "ciclo_id": ciclo_id,
+        "events": [
+            {
+                "id": r.id,
+                "nivel": r.nivel,
+                "job_name": r.job_name,
+                "grupo": r.grupo,
+                "fonte": r.fonte,
+                "status": r.status,
+                "motivo": r.motivo,
+                "detalhes": r.detalhes,
+                "qtd_antes": r.qtd_antes,
+                "qtd_depois": r.qtd_depois,
+                "data_floor": r.data_floor.isoformat() if r.data_floor else None,
+                "duracao_ms": r.duracao_ms,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
     }
 
 

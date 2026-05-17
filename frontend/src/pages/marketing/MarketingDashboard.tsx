@@ -24,14 +24,15 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Smartphone
+  Smartphone,
+  Database
 } from 'lucide-react';
 import { 
   getISCColor, 
   getISCEmoji, 
   isInCriticalWindow 
 } from '../../types/marketingPerformance';
-import { marketingService, MarketingEvent, MarketingDashboardSummary, getMarketingDashboardCache, clearMarketingDashboardCache } from '../../services/api';
+import { marketingService, MarketingEvent, MarketingDashboardSummary, getMarketingDashboardCache, clearMarketingDashboardCache, adminService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 
@@ -204,6 +205,8 @@ const MarketingDashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
   const [syncingHoje, setSyncingHoje] = useState(false);
+  const [rebuildingSnapshots, setRebuildingSnapshots] = useState(false);
+  const [rebuildResult, setRebuildResult] = useState<'success' | 'error' | null>(null);
   const [syncHojeResult, setSyncHojeResult] = useState<'success' | 'error' | null>(null);
   const [bgRefreshing, setBgRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null; sub_current?: number; sub_total?: number} | null>(null);
@@ -413,6 +416,23 @@ const MarketingDashboard: React.FC = () => {
     } finally {
       setSyncingHoje(false);
       setTimeout(() => setSyncHojeResult(null), 5000);
+    }
+  };
+
+  const handleRebuildSnapshots = async () => {
+    if (rebuildingSnapshots) return;
+    setRebuildingSnapshots(true);
+    setRebuildResult(null);
+    try {
+      const r = await adminService.triggerSnapshotConsolidation();
+      setRebuildResult(r.status === 'started' ? 'success' : 'error');
+    } catch {
+      setRebuildResult('error');
+    } finally {
+      setTimeout(() => {
+        setRebuildingSnapshots(false);
+        setRebuildResult(null);
+      }, 6000);
     }
   };
 
@@ -730,6 +750,35 @@ const MarketingDashboard: React.FC = () => {
                             ? refreshProgress.label || `Passo ${refreshProgress.step}/${refreshProgress.total_steps}`
                             : 'Iniciando...'
                           : 'Atualizar'}
+                </span>
+              </button>
+              <button
+                onClick={handleRebuildSnapshots}
+                disabled={rebuildingSnapshots || fullRefreshing || loading}
+                title="Reconstrói os snapshots históricos (modo incremental): busca somente os dias novos no Magento/Ativo desde o último snapshot. Roda em background."
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm ${
+                  rebuildResult === 'success'
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                    : rebuildResult === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                      : 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-900/50'
+                } ${(rebuildingSnapshots || fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {rebuildResult === 'success' ? (
+                  <CheckCircle className="w-3.5 h-3.5" />
+                ) : rebuildResult === 'error' ? (
+                  <XCircle className="w-3.5 h-3.5" />
+                ) : (
+                  <Database className={`w-3.5 h-3.5 ${rebuildingSnapshots ? 'animate-pulse' : ''}`} />
+                )}
+                <span className="font-medium">
+                  {rebuildResult === 'success'
+                    ? 'Disparado!'
+                    : rebuildResult === 'error'
+                      ? 'Falha'
+                      : rebuildingSnapshots
+                        ? 'Iniciando...'
+                        : 'Reconstruir snapshots'}
                 </span>
               </button>
               <button

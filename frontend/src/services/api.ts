@@ -561,6 +561,52 @@ export const adminService = {
     const response = await api.post('/admin/alert-config/test');
     return response.data;
   },
+  getSyncCycles: async (params?: { job?: string; status?: string; limit?: number }) => {
+    const response = await api.get('/admin/sync-logs/cycles', { params });
+    return response.data as {
+      cycles: Array<{
+        ciclo_id: string;
+        job_name: string;
+        iniciado_em: string | null;
+        concluido_em: string | null;
+        ultima_atividade: string | null;
+        status: string;
+        duracao_ms: number | null;
+        detalhes: string | null;
+        motivo: string | null;
+        total_grupos: number;
+        ok: number;
+        parcial: number;
+        falha: number;
+        pulado: number;
+      }>;
+    };
+  },
+  getSyncCycleDetail: async (cicloId: string) => {
+    const response = await api.get(`/admin/sync-logs/${encodeURIComponent(cicloId)}`);
+    return response.data as {
+      ciclo_id: string;
+      events: Array<{
+        id: number;
+        nivel: string;
+        job_name: string;
+        grupo: string | null;
+        fonte: string | null;
+        status: string;
+        motivo: string | null;
+        detalhes: string | null;
+        qtd_antes: number | null;
+        qtd_depois: number | null;
+        data_floor: string | null;
+        duracao_ms: number | null;
+        created_at: string;
+      }>;
+    };
+  },
+  triggerSnapshotConsolidation: async () => {
+    const response = await api.post('/admin/snapshots/consolidar');
+    return response.data as { status: string; message: string };
+  },
 };
 
 export interface FonteDisponivel {

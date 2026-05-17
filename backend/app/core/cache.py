@@ -940,6 +940,14 @@ class CacheRefreshScheduler:
                     logger.info(f"[Daily] sincronizar_margem_bundle_rev_batch: {result_margem}")
                 except Exception as _e_margem:
                     logger.error(f"[Daily] sincronizar_margem_bundle_rev_batch falhou (não bloqueante): {_e_margem}")
+                # Cleanup de logs de sincronização antigos (retenção 30 dias)
+                try:
+                    from app.services.sync_log_service import cleanup_old as _sync_cleanup
+                    removed = _sync_cleanup(days=30)
+                    if removed:
+                        logger.info(f"[Daily 04:00] sync_event_log cleanup: {removed} linhas removidas (>30 dias)")
+                except Exception as _e_cleanup:
+                    logger.warning(f"[Daily 04:00] sync_event_log cleanup falhou (não bloqueante): {_e_cleanup}")
                 logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")
             finally:
                 db.close()
