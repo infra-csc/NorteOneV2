@@ -3194,7 +3194,7 @@ AND    value        IN :ev_ids_fb
                 )
 
                 fb_rev_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(30000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(60000) */\n"
                     "    soi_parent.name                                                                    AS bundle_name,\n"
                     "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
                     "FROM sales_order so\n"
@@ -7052,7 +7052,8 @@ FROM (
     WHERE
         b.id_evento IN :id_eventos
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-        AND DATE(c.dt_pedido) = CURDATE()
+        AND c.dt_pedido >= CURDATE()
+        AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
     GROUP BY DATE(c.dt_pedido),
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
@@ -7117,7 +7118,8 @@ WHERE
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
-    AND DATE(so.created_at) = CURDATE()
+    AND so.created_at >= CURDATE()
+    AND so.created_at <  CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(so.created_at)
 """).bindparams(bindparam("magento_event_ids", expanding=True))
         def _today_by_ids_work(conn):
@@ -7181,7 +7183,8 @@ FROM (
     WHERE
         b.id_evento IN :id_eventos
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
-        AND DATE(c.dt_pedido) = CURDATE()
+        AND c.dt_pedido >= CURDATE()
+        AND c.dt_pedido <  CURDATE() + INTERVAL 1 DAY
     GROUP BY b.id_evento,
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
@@ -7289,7 +7292,8 @@ WHERE
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
-    AND DATE(so.created_at) = CURDATE()
+    AND so.created_at >= CURDATE()
+    AND so.created_at <  CURDATE() + INTERVAL 1 DAY
 GROUP BY cpev1.value
 """).bindparams(bindparam("magento_event_ids", expanding=True))
         def _today_grouped_work(conn):
@@ -10679,6 +10683,100 @@ def _atualizar_hoje_inner(
     """
     from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
     from sqlalchemy import func as _sa_func
+
+    # --- Freeze guard: skip upstream call entirely for finished events ---
+    # Eventos finalizados (data_evento + EVENTO_FREEZE_AFTER_DAYS < hoje) não
+    # têm vendas novas hoje. Bater no Magento/Ativo apenas consome capacidade
+    # dos sistemas externos sem benefício real. Retornamos o snapshot existente
+    # imediatamente para esses casos.
+    try:
+        from ...services.snapshot_service import _freeze_after_days as _fad
+        _freeze_days_h = _fad()
+    except Exception:
+        _freeze_days_h = 30
+    # Conservador: só consideramos frozen quando TODOS os magento_ids deste
+    # evento estão cobertos por cadastro_evento com data_evento NOT NULL e
+    # TODAS as datas estão expiradas. Qualquer id sem cadastro OU com
+    # data_evento NULL → NÃO freeze (permite o fetch normal). Isso evita
+    # mascarar eventos novos que ainda não foram cadastrados.
+    _evt_dates: list = []
+    _evt_has_null = False
+    _covered_mag_ids: set = set()
+    _safe_mag_ids: list = []
+    try:
+        from ...models.cadastro_evento import CadastroEvento
+        _safe_mag_ids = [int(i) for i in magento_ids if str(i).isdigit()]
+        if _safe_mag_ids:
+            _rows_dt = db.query(
+                CadastroEvento.id_evento_magento,
+                CadastroEvento.data_evento,
+            ).filter(
+                CadastroEvento.id_evento_magento.in_(_safe_mag_ids),
+                CadastroEvento.deleted_at.is_(None),
+            ).all()
+            for (_mag_id, _dt) in _rows_dt:
+                _covered_mag_ids.add(int(_mag_id))
+                if _dt is None:
+                    _evt_has_null = True
+                else:
+                    _evt_dates.append(_dt)
+    except Exception as _e_fz:
+        logger.debug(f"atualizar-hoje: freeze lookup falhou para {grupo_nome}: {_e_fz}")
+
+    _cutoff_h = hoje - timedelta(days=_freeze_days_h)
+    _fully_covered = bool(_safe_mag_ids) and (set(_safe_mag_ids) <= _covered_mag_ids)
+    _is_frozen = (
+        _fully_covered
+        and bool(_evt_dates)
+        and (not _evt_has_null)
+        and all(d < _cutoff_h for d in _evt_dates)
+    )
+    logger.debug(
+        f"atualizar-hoje: freeze-check grupo='{grupo_nome}' mag_ids={len(_safe_mag_ids)} "
+        f"covered={len(_covered_mag_ids)} dates={len(_evt_dates)} nulls={_evt_has_null} "
+        f"frozen={_is_frozen}"
+    )
+    if _is_frozen:
+        logger.info(
+            f"atualizar-hoje: evento '{grupo_nome}' finalizado (>{_freeze_days_h}d) — "
+            f"pulando chamadas Magento/Ativo, devolvendo snapshot existente"
+        )
+        existing = None
+        try:
+            existing = db.query(_VDS).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == 'CONSOLIDADO',
+                _VDS.data_venda == hoje,
+            ).first()
+        except Exception:
+            pass
+        _hoje_total_fz = int(existing.quantidade) if existing else 0
+        _hoje_receita_fz = float(existing.receita) if existing else 0.0
+        _total_acum = 0
+        try:
+            _total_acum = int(db.query(_sa_func.coalesce(_sa_func.sum(_VDS.quantidade), 0)).filter(
+                _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == 'CONSOLIDADO',
+                _VDS.ano == ano,
+            ).scalar() or 0)
+        except Exception:
+            pass
+        return {
+            "status": "frozen",
+            "evento_id": evento_id,
+            "data": hoje.isoformat(),
+            "hoje_ativo": 0,
+            "hoje_magento": 0,
+            "hoje_total": _hoje_total_fz,
+            "media_7d": 0,
+            "media_14d": 0,
+            "media_30d": 0,
+            "total_acumulado": _total_acum,
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+            "ativo_ok": True,
+            "magento_ok": True,
+            "fontes_indisponiveis": [],
+        }
 
     # --- Fetch today's data from both sources (fast — date-filtered queries) ---
     # Track per-source health so we never overwrite a healthy snapshot row with

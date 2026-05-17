@@ -675,17 +675,19 @@ const EventDetail: React.FC = () => {
     setRefreshError(null);
     try {
       const result = await marketingService.atualizarHoje(id, anoParam);
-      // If the backend reports a partial/failed sync (e.g. Magento timing out),
-      // do NOT overwrite today's daily sales with whatever 0/partial number we
-      // got back — show a warning so the user knows to retry in a bit.
+      // Partial sync (uma fonte externa lenta/fora): o backend já fez UPSERT
+      // com GREATEST() — o total nunca abaixa. Mostramos os dados que vieram
+      // (snapshot + o que a fonte saudável trouxe) e sinalizamos com um aviso
+      // informativo, em vez de bloquear a UI com "erro de conexão".
       const partial = result.status === 'partial' || result.ativo_ok === false || result.magento_ok === false;
       if (partial) {
-        const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte de dados';
+        const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte';
         setRefreshError(
-          `Não foi possível buscar as vendas de hoje agora (${fontes} indisponível). Os números mostrados podem estar incompletos. Tente novamente em alguns instantes.`
+          `Dados parciais: ${fontes} indisponível no momento. Exibindo o que conseguimos sincronizar — atualize de novo em instantes para completar.`
         );
         setTimeout(() => setRefreshError(null), 8000);
-      } else {
+      }
+      {
         const todayStr = new Date().toISOString().split('T')[0];
         setEvent(prev => {
           if (!prev) return prev;

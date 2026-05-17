@@ -179,15 +179,16 @@ const EventOpsView: React.FC = () => {
     setRefreshOk(false);
     try {
       const result = await marketingService.atualizarHoje(id, anoParam);
-      // If the backend reports a partial sync (e.g. Magento timeout), don't
-      // overwrite today's number with whatever 0/partial value we got — show
-      // a warning instead so the user knows the totals may be incomplete.
+      // Partial sync (uma fonte falhou): ainda exibimos o que a fonte saudável
+      // trouxe — o backend já gravou via UPSERT com GREATEST() para nunca
+      // baixar um total previamente conhecido. Só sinalizamos com um aviso
+      // informativo ("dados parciais") em vez de "erro de conexão".
       const partial = result.status === 'partial' || result.ativo_ok === false || result.magento_ok === false;
       if (partial) {
-        const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte de dados';
-        setError(`Não foi possível buscar as vendas de hoje agora (${fontes} indisponível). Tente novamente em alguns instantes.`);
+        const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte';
+        setError(`Dados parciais: ${fontes} indisponível no momento. Mostrando o que conseguimos sincronizar — atualize de novo em instantes para completar.`);
         setTimeout(() => setError(null), 6000);
-        return;
+        // continua o fluxo para atualizar a UI com o que veio
       }
       setHojeTotal(result.hoje_total);
       setUltimaAtualizacao(result.ultima_atualizacao || new Date().toISOString());
