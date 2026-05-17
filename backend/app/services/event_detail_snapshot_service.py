@@ -179,7 +179,7 @@ def aggregate_eventos_list_from_snapshots(
     status: str | None = None,
     categoria: str | None = None,
     busca: str | None = None,
-    min_coverage: float = 0.97,
+    min_coverage: float = 0.90,
 ) -> dict | None:
     """Monta a resposta de GET /marketing/eventos a partir dos snapshots
     persistidos por evento, aplicando o overlay de HOJE em cada um.
