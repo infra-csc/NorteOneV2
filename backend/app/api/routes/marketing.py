@@ -6764,7 +6764,6 @@ WHERE
     AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
-    AND so.created_at >= CURDATE() - INTERVAL 18 MONTH
 GROUP BY MONTH(so.created_at)
 ORDER BY mes
 """).bindparams(bindparam("magento_event_ids", expanding=True))
@@ -7390,7 +7389,6 @@ WHERE
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
-    AND so.created_at >= CURDATE() - INTERVAL 18 MONTH
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
 GROUP BY DATE(so.created_at)
 ORDER BY dia
