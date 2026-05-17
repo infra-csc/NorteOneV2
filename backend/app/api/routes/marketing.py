@@ -2,7 +2,7 @@ import os
 import time as _time
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import text, bindparam, func
+from sqlalchemy import text, bindparam, func, extract
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
@@ -5191,26 +5191,153 @@ def get_marketing_events(
         )
         if _user_force_refresh:
             _kick_bg_refresh()
-        if cached is not None:
+        # "Empty" só é suspeito quando NÃO há filtros (busca/categoria/status):
+        # uma busca que legitimamente não casa com nenhum evento deve retornar
+        # eventos=[] de forma estável e não ser tratada como cache envenenado.
+        _is_base_query = (
+            not busca
+            and (not categoria or categoria == "all")
+            and (not status or status == "all")
+        )
+        # Detecta cache "envenenado" por build parcial: cache existe porém
+        # com eventos vazios na consulta base. Trata como cache miss e cai no
+        # fallback de snapshot, para que a lista nunca apareça vazia se
+        # houver dados persistidos no banco.
+        _cached_eventos_empty = (
+            _is_base_query
+            and isinstance(cached, dict)
+            and not (cached.get("eventos") or [])
+            and cached.get("status") != "preparing"
+        )
+        def _serve_cached(_c):
             from app.core.cache import get_last_full_refresh as _glf_eventos
             _lfr_ev = _glf_eventos()
-            cached = dict(cached)
+            _c = dict(_c)
             if _lfr_ev:
-                cached["ultima_atualizacao"] = datetime.fromtimestamp(
+                _c["ultima_atualizacao"] = datetime.fromtimestamp(
                     _lfr_ev, tz=ZoneInfo('America/Sao_Paulo')
                 ).isoformat()
             # Avisos refletem o estado atual da conexão — não devem ser servidos
             # do cache, senão um erro transitório no momento do build congela o
             # banner "Dados Parciais" indefinidamente, mesmo após recuperação.
-            cached["avisos"] = list(get_isc_warnings())
-            cached = _refresh_d_minus_in_cached_eventos(cached, cache_key)
+            _c["avisos"] = list(get_isc_warnings())
+            _c = _refresh_d_minus_in_cached_eventos(_c, cache_key)
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if (is_stale or _user_force_refresh) else "false"
-            return cached
-        # Sem cache em memória: tenta agregar dos snapshots persistentes
-        # (mesmo motivo do detalhe — abrir instantâneo após restart). Se a
-        # cobertura for boa, retorna imediatamente e dispara um refresh em bg
-        # para promover ao caminho lento (margem por kit, etc.).
+            return _c
+
+        if cached is not None and not _cached_eventos_empty:
+            return _serve_cached(cached)
+        if _cached_eventos_empty:
+            # Cache base com eventos=[] pode ser: (a) envenenado por build
+            # parcial — neste caso o snapshot persistente terá eventos e
+            # devemos invalidar/substituir; ou (b) ambiente legitimamente
+            # vazio — neste caso o snapshot também volta vazio/None e
+            # devemos servir o cache atual mesmo, em vez de entrar em loop
+            # de "preparing". Decidimos com base no que o snapshot diz.
+            _snap_probe = None
+            if _USE_SNAPSHOT_FIRST_LIST:
+                try:
+                    from ...services.event_detail_snapshot_service import (
+                        aggregate_eventos_list_from_snapshots as _agg_list_p,
+                    )
+                    _snap_probe = _agg_list_p(db, ano, status, categoria, busca)
+                except Exception as _agg_pe:
+                    logger.warning(f"[EventosList] snapshot probe falhou: {_agg_pe}")
+                    _snap_probe = None
+            if _snap_probe is not None and (_snap_probe.get("eventos") or []):
+                logger.warning(
+                    f"[EventosList] cache envenenado (eventos=[]) detectado "
+                    f"(cache_key={cache_key}) — substituindo pelo snapshot persistido "
+                    f"com {len(_snap_probe.get('eventos') or [])} eventos"
+                )
+                try:
+                    eventos_list_cache.invalidate(cache_key)
+                except Exception:
+                    try:
+                        eventos_list_cache.invalidate()
+                    except Exception:
+                        pass
+                eventos_list_cache.set(cache_key, _snap_probe)
+                _kick_bg_refresh()
+                if response is not None:
+                    response.headers["X-Data-Stale"] = "true"
+                    response.headers["X-Data-Source"] = "snapshot-aggregate"
+                _snap_probe = dict(_snap_probe)
+                _snap_probe["avisos"] = list(get_isc_warnings())
+                return _refresh_d_minus_in_cached_eventos(_snap_probe, cache_key)
+            # Snapshot probe == None pode significar: (1) nenhuma linha de
+            # snapshot para o ano (ambiente legitimamente vazio), (2) cobertura
+            # abaixo do threshold (rows existem mas não suficientes), ou (3)
+            # erro de leitura. Só confirmamos "empty legítimo" quando uma
+            # contagem direta no EventoDetailSnapshot confirmar zero linhas.
+            _snap_rows_for_year = -1
+            try:
+                from ...models.evento_detail_snapshot import EventoDetailSnapshot
+                _snap_rows_for_year = (
+                    db.query(EventoDetailSnapshot)
+                    .filter(EventoDetailSnapshot.ano == ano)
+                    .count()
+                )
+            except Exception as _cnt_e:
+                logger.warning(f"[EventosList] count EventoDetailSnapshot falhou: {_cnt_e}")
+                _snap_rows_for_year = -1
+            # Segunda checagem de legitimidade: além de 0 snapshots, exigir
+            # 0 eventos canônicos cadastrados no ano. Sem isso, um ambiente
+            # com CadastroEvento mas sem snapshots construídos seria
+            # classificado erroneamente como "empty legítimo" e os eventos
+            # ficariam invisíveis até manual refresh.
+            _canonical_count_for_year = -1
+            try:
+                from ...models.cadastro_evento import CadastroEvento as _CadEvt
+                from sqlalchemy import or_ as _or
+                # data_evento é nullable e o cadastro pode ter apenas
+                # ano_evento. Confirmamos "vazio canônico" exigindo ambas
+                # condições negativas: nenhum match nem por ano_evento nem
+                # por extract(year, data_evento).
+                _canonical_count_for_year = (
+                    db.query(_CadEvt)
+                    .filter(
+                        _or(
+                            _CadEvt.ano_evento == ano,
+                            extract('year', _CadEvt.data_evento) == ano,
+                        )
+                    )
+                    .count()
+                )
+            except Exception as _cce:
+                logger.warning(f"[EventosList] count CadastroEvento falhou: {_cce}")
+                _canonical_count_for_year = -1
+            if _snap_rows_for_year == 0 and _canonical_count_for_year == 0:
+                logger.info(
+                    f"[EventosList] cache eventos=[] confirmado por 0 snapshots e "
+                    f"0 cadastros no ano (cache_key={cache_key}) — servindo cache "
+                    f"como resultado legítimo"
+                )
+                # Refresh dedupado de auto-cura, caso novos cadastros entrem.
+                _kick_bg_refresh()
+                return _serve_cached(cached)
+            # Snapshots existem mas probe não retornou (cobertura baixa ou erro).
+            # NÃO confirma empty — agenda refresh e cai no caminho de
+            # "preparing" abaixo, evitando cimentar o cache envenenado.
+            logger.warning(
+                f"[EventosList] cache eventos=[] suspeito (cache_key={cache_key}, "
+                f"snapshot_rows_ano={_snap_rows_for_year}) — não confirmado por probe, "
+                f"agendando refresh e retornando preparing"
+            )
+            try:
+                eventos_list_cache.invalidate(cache_key)
+            except Exception:
+                try:
+                    eventos_list_cache.invalidate()
+                except Exception:
+                    pass
+            _kick_bg_refresh()
+        # Sem cache em memória (ou cache vazio descartado acima): tenta agregar
+        # dos snapshots persistentes (mesmo motivo do detalhe — abrir
+        # instantâneo após restart). Se a cobertura for boa, retorna
+        # imediatamente e dispara um refresh em bg para promover ao caminho
+        # lento (margem por kit, etc.).
         if _USE_SNAPSHOT_FIRST_LIST:
             try:
                 from ...services.event_detail_snapshot_service import (
@@ -5220,12 +5347,21 @@ def get_marketing_events(
             except Exception as _agg_e:
                 logger.warning(f"[EventosList] snapshot aggregate falhou: {_agg_e}")
                 _snap_list = None
-            if _snap_list is not None:
+            # Mesma guarda do caminho lento, restrita à consulta base: só
+            # bloqueamos a promoção de snapshots vazios quando NÃO há filtros.
+            # Para buscas/categorias filtradas, um aggregate vazio pode ser
+            # legítimo ("nenhum evento casa") e deve ser servido normalmente.
+            _snap_has_eventos = bool(_snap_list and (_snap_list.get("eventos") or []))
+            if _snap_list is not None and (_snap_has_eventos or not _is_base_query):
                 eventos_list_cache.set(cache_key, _snap_list)
                 _kick_bg_refresh()
                 if response is not None:
                     response.headers["X-Data-Stale"] = "true"
                     response.headers["X-Data-Source"] = "snapshot-aggregate"
+                # Avisos atualizados também aqui, pelo mesmo motivo do
+                # caminho de cache-hit acima.
+                _snap_list = dict(_snap_list)
+                _snap_list["avisos"] = list(get_isc_warnings())
                 return _refresh_d_minus_in_cached_eventos(_snap_list, cache_key)
         # Sem cache e sem cobertura de snapshot: dispara refresh em background
         # (deduplicado) e retorna preparing. O frontend faz polling.
@@ -5691,9 +5827,38 @@ def get_marketing_events(
         ultima_atualizacao=_eventos_ts,
         avisos=get_isc_warnings()
     )
-    eventos_list_cache.set(cache_key, result.model_dump(mode="json"))
+    # Guarda: nunca persistir um cache vazio NA CONSULTA BASE. Builds parciais
+    # (falha transitória do PostgreSQL/Magento) podem produzir `eventos=[]`
+    # mesmo havendo dados gravados; cachear esse resultado faria a lista
+    # "sumir" para todos os usuários até a próxima reconstrução. Para
+    # consultas filtradas (busca/categoria/status), eventos=[] pode ser
+    # legítimo e é cacheado normalmente.
+    _is_base_query_w = (
+        not busca
+        and (not categoria or categoria == "all")
+        and (not status or status == "all")
+    )
+    # Só preservamos cache anterior (skip do set) quando há evidência de que o
+    # "vazio" é anômalo: existe um cache prévio com eventos para a MESMA
+    # cache_key. Sem essa evidência, um ambiente legitimamente vazio (ano sem
+    # eventos, env nova) ficaria preso em "preparing" para sempre.
+    _skip_empty_cache_write = False
+    if not eventos and _is_base_query_w:
+        try:
+            _prior = eventos_list_cache.get(cache_key, stale_ok=True)
+            if isinstance(_prior, dict) and (_prior.get("eventos") or []):
+                _skip_empty_cache_write = True
+        except Exception:
+            _skip_empty_cache_write = False
+    if not _skip_empty_cache_write:
+        eventos_list_cache.set(cache_key, result.model_dump(mode="json"))
+    else:
+        logger.warning(
+            f"[EventosList] resultado vazio NÃO cacheado (cache_key={cache_key}, "
+            f"avisos={len(get_isc_warnings())}) — preservando cache anterior não-vazio"
+        )
     if response is not None:
-        response.headers["X-Data-Stale"] = "false"
+        response.headers["X-Data-Stale"] = "false" if eventos else "true"
     return result
 
 
