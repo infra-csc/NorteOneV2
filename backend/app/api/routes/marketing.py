@@ -6941,7 +6941,7 @@ ORDER BY cpev1.value, dia
         return {}
 
 
-def _fetch_daily_sales_ativo_by_ids(id_eventos: list, raise_on_error: bool = False) -> list:
+def _fetch_daily_sales_ativo_by_ids(id_eventos: list, raise_on_error: bool = False, data_floor: Optional[date] = None) -> list:
     if not id_eventos:
         return []
     if _is_warmup_thread():
@@ -6964,7 +6964,7 @@ def _fetch_daily_sales_ativo_by_ids(id_eventos: list, raise_on_error: bool = Fal
         safe_ids = [int(i) for i in id_eventos if str(i).isdigit()]
         if not safe_ids:
             return []
-        query = text("""
+        query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     sub.dia,
     SUM(sub.qtd)     AS qtd,
@@ -6995,6 +6995,7 @@ FROM (
         b.id_evento IN :id_eventos
         AND (b.id_campanha_salesforce IS NULL OR b.id_campanha_salesforce NOT LIKE '701d0000000%%')
         AND c.dt_pedido < CURDATE() + INTERVAL 1 DAY
+        {('AND c.dt_pedido >= :data_floor' if data_floor else '')}
     GROUP BY DATE(c.dt_pedido),
              CASE WHEN a.nr_preco = 0 THEN 'Cortesia'
                   WHEN cupom.en_cupom_classificacao = 'Grupos' THEN 'Grupos/B2B'
@@ -7005,8 +7006,11 @@ WHERE sub.canal = 'Site'
 GROUP BY sub.dia
 ORDER BY sub.dia
 """).bindparams(bindparam("id_eventos", expanding=True))
+        ativo_params = {"id_eventos": safe_ids}
+        if data_floor:
+            ativo_params["data_floor"] = data_floor
         with db_module.engine_ssh.connect() as conn:
-            result = conn.execute(query, {"id_eventos": safe_ids})
+            result = conn.execute(query, ativo_params)
             return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in result.fetchall()]
     except Exception as e:
         logger.error(f"Erro daily sales Ativo by IDs: {e}")
@@ -7305,7 +7309,7 @@ GROUP BY cpev1.value
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False) -> list:
+def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False, data_floor: Optional[date] = None) -> list:
     if not magento_event_ids:
         return []
     cort_ids = cortesia_magento_ids or set()
@@ -7390,6 +7394,7 @@ WHERE
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
+    {('AND so.created_at >= :data_floor' if data_floor else '')}
 GROUP BY DATE(so.created_at)
 ORDER BY dia
 """)
@@ -7398,6 +7403,8 @@ ORDER BY dia
         if cort_ids:
             bp.append(bindparam("cort_ids", expanding=True))
             params["cort_ids"] = safe_cort_ids
+        if data_floor:
+            params["data_floor"] = data_floor
         query = query.bindparams(*bp)
         def _daily_by_ids_work(conn):
             return conn.execute(query, params).fetchall()

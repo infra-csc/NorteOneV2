@@ -234,7 +234,20 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
     logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
 
 
-def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None):
+def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False):
+    """Reconstrói o snapshot diário de vendas de um grupo.
+
+    Modo padrão (incremental=False): varre histórico completo no Magento/Ativo
+    e DELETA snapshots existentes antes de reinserir. Usado em rebuilds
+    manuais e na primeira construção do snapshot.
+
+    Modo incremental (incremental=True): lê MAX(data_venda) do snapshot
+    existente e pede ao Magento/Ativo apenas as vendas a partir desse dia
+    (re-busca o último dia pra capturar atualizações tardias). NÃO deleta
+    snapshots existentes — só faz UPSERT dos dias novos/refrescados.
+    Vantagens: query muito mais leve no Magento e, se a fonte devolver
+    resposta parcial, o histórico anterior fica preservado.
+    """
     from ..api.routes.marketing import (
         _fetch_daily_sales_ativo_by_ids, _fetch_daily_sales_magento_by_ids,
         _get_cortesia_magento_ids
@@ -254,6 +267,26 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
     magento_ids = [str(m.id_externo) for m in mappings if m.fonte == 'MAGENTO' and m.id_externo]
 
     cortesia_ids = _get_cortesia_magento_ids(db)
+
+    # Modo incremental: calcula o piso de data baseado no maior dia já
+    # gravado no snapshot. Se não existe snapshot ainda, cai pra modo full.
+    data_floor: Optional[date] = None
+    if incremental:
+        from sqlalchemy import func as _sa_func
+        max_dia = db.query(_sa_func.max(VendasDiariaSnapshot.data_venda)).filter(
+            VendasDiariaSnapshot.evento_grupo == evento_grupo,
+            VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+        ).scalar()
+        if max_dia:
+            # Re-busca a partir do último dia gravado (não +1) pra capturar
+            # pedidos inseridos tardiamente naquele dia.
+            data_floor = max_dia
+        else:
+            # Sem snapshot anterior: força modo full nessa execução.
+            incremental = False
+            logger.info(
+                f"[Snapshot] grupo='{evento_grupo}' sem snapshot prévio — caindo pra rebuild completo"
+            )
 
     # Best-effort: if upstream engines went idle / disposed (common in autoscale
     # deployments after the SSH tunnel times out), try to re-establish them
@@ -285,7 +318,7 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     if ativo_ids:
         try:
-            rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)), raise_on_error=True)
+            rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)), raise_on_error=True, data_floor=data_floor)
             for row in rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 if d not in all_daily:
@@ -305,6 +338,7 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
                 list(set(magento_ids)),
                 cortesia_magento_ids=mag_cortesia if mag_cortesia else None,
                 raise_on_error=True,
+                data_floor=data_floor,
             )
             for row in rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
@@ -333,7 +367,9 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     yesterday = date.today() - timedelta(days=1)
 
-    if data_inicio is None:
+    # Em modo incremental NUNCA deletamos: o objetivo é exatamente preservar
+    # o histórico antigo intacto e só fazer UPSERT dos dias novos.
+    if not incremental and data_inicio is None:
         delete_q = db.query(VendasDiariaSnapshot).filter(
             VendasDiariaSnapshot.evento_grupo == evento_grupo,
             VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
@@ -480,7 +516,10 @@ def snapshot_diario_batch(db: Session):
             continue
 
         try:
-            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday)
+            # Job agendado usa modo incremental: só busca dias novos desde
+            # a última sincronização, reduzindo drasticamente a carga no
+            # Magento e protegendo o histórico de gravações parciais.
+            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True)
         except Exception as e:
             logger.error(f"Erro ao consolidar snapshot para grupo='{grupo}': {e}")
 
