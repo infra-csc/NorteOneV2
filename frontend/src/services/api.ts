@@ -642,6 +642,14 @@ export const adminService = {
     const response = await api.post('/admin/sync/interrupt');
     return response.data as { status: string; message: string; cycles_interrupted: number };
   },
+  interruptCycle: async (cicloId: string) => {
+    const response = await api.post(`/admin/sync/cycles/${encodeURIComponent(cicloId)}/interrupt`);
+    return response.data as { status: string; ciclo_id: string; cycles_interrupted: number };
+  },
+  interruptCyclesBatch: async (cicloIds: string[]) => {
+    const response = await api.post('/admin/sync/cycles/interrupt-batch', { ciclo_ids: cicloIds });
+    return response.data as { status: string; cycles_interrupted: number };
+  },
 };
 
 export interface FonteDisponivel {

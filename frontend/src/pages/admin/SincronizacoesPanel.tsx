@@ -113,6 +113,8 @@ const SincronizacoesPanel: React.FC = () => {
   const [pauseLoading, setPauseLoading] = useState(false);
   const [interruptLoading, setInterruptLoading] = useState(false);
   const [interruptResult, setInterruptResult] = useState<string | null>(null);
+  const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
+  const [interruptingCycles, setInterruptingCycles] = useState<Set<string>>(new Set());
 
   const cardBase = isDark
     ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
@@ -173,26 +175,83 @@ const SincronizacoesPanel: React.FC = () => {
     }
   };
 
+  const showInterruptResult = (msg: string, duration = 6000) => {
+    setInterruptResult(msg);
+    setTimeout(() => setInterruptResult(null), duration);
+  };
+
   const handleInterrupt = async () => {
     setInterruptLoading(true);
     setInterruptResult(null);
     try {
       const res = await adminService.interruptSync();
-      setInterruptResult(
+      showInterruptResult(
         res.cycles_interrupted > 0
           ? `${res.cycles_interrupted} ciclo(s) interrompido(s) imediatamente.`
           : 'Nenhum ciclo estava em execução.'
       );
+      setSelectedCycles(new Set());
       await fetchPauseStatus();
       await fetchCycles();
-      setTimeout(() => setInterruptResult(null), 6000);
     } catch (e) {
       console.error(e);
-      setInterruptResult('Erro ao interromper. Tente novamente.');
-      setTimeout(() => setInterruptResult(null), 4000);
+      showInterruptResult('Erro ao interromper. Tente novamente.', 4000);
     } finally {
       setInterruptLoading(false);
     }
+  };
+
+  const handleInterruptSingle = async (cicloId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setInterruptingCycles(prev => new Set(prev).add(cicloId));
+    try {
+      await adminService.interruptCycle(cicloId);
+      showInterruptResult(`Ciclo ${cicloId.slice(0, 8)}… interrompido.`);
+      setSelectedCycles(prev => { const s = new Set(prev); s.delete(cicloId); return s; });
+      await fetchCycles();
+    } catch (e) {
+      console.error(e);
+      showInterruptResult('Erro ao interromper o ciclo.', 4000);
+    } finally {
+      setInterruptingCycles(prev => { const s = new Set(prev); s.delete(cicloId); return s; });
+    }
+  };
+
+  const handleInterruptSelected = async () => {
+    if (selectedCycles.size === 0) return;
+    setInterruptLoading(true);
+    try {
+      const res = await adminService.interruptCyclesBatch(Array.from(selectedCycles));
+      showInterruptResult(`${res.cycles_interrupted} ciclo(s) interrompido(s).`);
+      setSelectedCycles(new Set());
+      await fetchCycles();
+    } catch (e) {
+      console.error(e);
+      showInterruptResult('Erro ao interromper os ciclos selecionados.', 4000);
+    } finally {
+      setInterruptLoading(false);
+    }
+  };
+
+  const runningCycleIds = cycles.filter(c => c.status === 'iniciado').map(c => c.ciclo_id);
+  const allRunningSelected = runningCycleIds.length > 0 && runningCycleIds.every(id => selectedCycles.has(id));
+
+  const toggleSelectAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (allRunningSelected) {
+      setSelectedCycles(new Set());
+    } else {
+      setSelectedCycles(new Set(runningCycleIds));
+    }
+  };
+
+  const toggleSelectCycle = (cicloId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedCycles(prev => {
+      const s = new Set(prev);
+      if (s.has(cicloId)) s.delete(cicloId); else s.add(cicloId);
+      return s;
+    });
   };
 
   const toggleExpand = async (cicloId: string) => {
@@ -332,9 +391,42 @@ const SincronizacoesPanel: React.FC = () => {
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {selectedCycles.size > 0 && (
+              <div className={`flex items-center gap-3 mb-3 px-3 py-2 rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600' : 'bg-blue-50 border-blue-200'}`}>
+                <span className={`text-sm font-medium ${isDark ? 'text-gray-200' : 'text-blue-800'}`}>
+                  {selectedCycles.size} ciclo(s) selecionado(s)
+                </span>
+                <button
+                  onClick={handleInterruptSelected}
+                  disabled={interruptLoading}
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${isDark ? 'bg-red-700 hover:bg-red-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'}`}
+                >
+                  {interruptLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <StopCircle className="w-3 h-3" />}
+                  Interromper selecionados
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSelectedCycles(new Set()); }}
+                  className={`text-xs ${isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  Limpar seleção
+                </button>
+              </div>
+            )}
             <table className="w-full text-sm">
               <thead>
                 <tr className={`text-left ${textSecondary} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                  <th className="py-2 pr-2 w-6">
+                    {runningCycleIds.length > 0 && (
+                      <input
+                        type="checkbox"
+                        checked={allRunningSelected}
+                        onChange={() => {}}
+                        onClick={toggleSelectAll}
+                        className="w-3.5 h-3.5 rounded cursor-pointer accent-red-500"
+                        title="Selecionar todos em execução"
+                      />
+                    )}
+                  </th>
                   <th className="py-2 pr-2 w-6"></th>
                   <th className="py-2 pr-3">Job</th>
                   <th className="py-2 pr-3">Início</th>
@@ -342,6 +434,7 @@ const SincronizacoesPanel: React.FC = () => {
                   <th className="py-2 pr-3">Status</th>
                   <th className="py-2 pr-3">Grupos</th>
                   <th className="py-2 pr-3">Motivo / detalhes</th>
+                  <th className="py-2 w-8"></th>
                 </tr>
               </thead>
               <tbody>
@@ -349,12 +442,26 @@ const SincronizacoesPanel: React.FC = () => {
                   const isOpen = expanded.has(c.ciclo_id);
                   const isLoadingDetail = loadingDetail.has(c.ciclo_id);
                   const cycleDetails = details[c.ciclo_id];
+                  const isRunning = c.status === 'iniciado';
+                  const isSelected = selectedCycles.has(c.ciclo_id);
+                  const isInterruptingThis = interruptingCycles.has(c.ciclo_id);
                   return (
                     <React.Fragment key={c.ciclo_id}>
                       <tr
                         onClick={() => toggleExpand(c.ciclo_id)}
-                        className={`cursor-pointer border-b ${isDark ? 'border-gray-700/50 hover:bg-gray-700/30' : 'border-gray-100 hover:bg-gray-50'}`}
+                        className={`cursor-pointer border-b ${isDark ? 'border-gray-700/50 hover:bg-gray-700/30' : 'border-gray-100 hover:bg-gray-50'} ${isSelected ? isDark ? 'bg-red-900/10' : 'bg-red-50/60' : ''}`}
                       >
+                        <td className="py-2 pr-2" onClick={e => e.stopPropagation()}>
+                          {isRunning ? (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}}
+                              onClick={(e) => toggleSelectCycle(c.ciclo_id, e)}
+                              className="w-3.5 h-3.5 rounded cursor-pointer accent-red-500"
+                            />
+                          ) : null}
+                        </td>
                         <td className="py-2 pr-2">
                           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </td>
@@ -386,10 +493,25 @@ const SincronizacoesPanel: React.FC = () => {
                         <td className={`py-2 pr-3 ${textSecondary} max-w-md truncate`}>
                           {c.motivo ? (MOTIVO_LABELS[c.motivo] || c.motivo) : (c.detalhes || '—')}
                         </td>
+                        <td className="py-2" onClick={e => e.stopPropagation()}>
+                          {isRunning && (
+                            <button
+                              onClick={(e) => handleInterruptSingle(c.ciclo_id, e)}
+                              disabled={isInterruptingThis}
+                              title="Interromper este ciclo"
+                              className={`p-1 rounded transition-colors ${isDark ? 'text-red-400 hover:bg-red-900/40 hover:text-red-300' : 'text-red-500 hover:bg-red-100 hover:text-red-700'} disabled:opacity-40`}
+                            >
+                              {isInterruptingThis
+                                ? <Loader2 className="w-4 h-4 animate-spin" />
+                                : <StopCircle className="w-4 h-4" />
+                              }
+                            </button>
+                          )}
+                        </td>
                       </tr>
                       {isOpen && (
                         <tr className={isDark ? 'bg-gray-900/40' : 'bg-gray-50/60'}>
-                          <td colSpan={7} className="p-3">
+                          <td colSpan={9} className="p-3">
                             {isLoadingDetail ? (
                               <div className={`text-center py-4 ${textSecondary}`}>
                                 <Loader2 className="w-4 h-4 inline animate-spin mr-2" />

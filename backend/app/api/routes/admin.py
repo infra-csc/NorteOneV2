@@ -593,6 +593,68 @@ def interrupt_sync_jobs(
     }
 
 
+@router.post("/sync/cycles/{ciclo_id}/interrupt")
+def interrupt_single_cycle(
+    ciclo_id: str,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Interrompe imediatamente um ciclo específico pelo ciclo_id."""
+    updated = (
+        db.query(SyncEventLog)
+        .filter(
+            SyncEventLog.ciclo_id == ciclo_id,
+            SyncEventLog.status == "iniciado",
+            SyncEventLog.nivel == "ciclo",
+        )
+        .update(
+            {
+                "status": "interrompido",
+                "motivo": "interrupcao_manual",
+                "detalhes": f"Interrompido manualmente por {current_user.nome} ({current_user.email})",
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado ou não está em execução.")
+    return {"status": "interrupted", "ciclo_id": ciclo_id, "cycles_interrupted": updated}
+
+
+class InterruptBatchRequest(BaseModel):
+    ciclo_ids: list[str]
+
+
+@router.post("/sync/cycles/interrupt-batch")
+def interrupt_cycles_batch(
+    payload: InterruptBatchRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Interrompe imediatamente um conjunto de ciclos pelo ciclo_id."""
+    if not payload.ciclo_ids:
+        return {"status": "ok", "cycles_interrupted": 0}
+    updated = (
+        db.query(SyncEventLog)
+        .filter(
+            SyncEventLog.ciclo_id.in_(payload.ciclo_ids),
+            SyncEventLog.status == "iniciado",
+            SyncEventLog.nivel == "ciclo",
+        )
+        .update(
+            {
+                "status": "interrompido",
+                "motivo": "interrupcao_manual",
+                "detalhes": f"Interrompido manualmente por {current_user.nome} ({current_user.email})",
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+    return {"status": "interrupted", "cycles_interrupted": updated}
+
+
 @router.get("/sync/pause-status")
 def get_sync_pause_status(
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
