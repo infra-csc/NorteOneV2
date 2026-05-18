@@ -9309,24 +9309,28 @@ def get_marketing_event_by_id(
             _gpd_completed = _persisted.get("is_completed", False)
             _gpd_payload_version = (_persisted["payload"] or {}).get("_cache_version") if isinstance(_persisted["payload"], dict) else None
             _gpd_version_mismatch = _gpd_payload_version != _DETAIL_CACHE_VERSION
-            # Safety guard: se a versão mudou, descartamos apenas se o payload
-            # está completamente corrompido (evento ausente ou não-dict). Em todos
-            # os outros casos servimos o dado antigo via stale-while-revalidate,
-            # evitando o loop "preparing" que ocorre quando o recompute em background
-            # demora 2-3 min e o usuário fica com a tela vazia.
+            # Safety guard: se a versão mudou, descartamos o snapshot se ele for
+            # um "bootstrap" incompleto (salvo pela lista de eventos com apenas
+            # {"evento": {...}}, sem dailySales nem _cache_version). Esses payloads
+            # causam Controle Diário vazio pois dailySales é undefined no frontend.
+            # Snapshots completos mas com versão antiga são servidos via SWR para
+            # evitar o loop "preparing" quando o recompute demora 2-3 min.
             if _gpd_version_mismatch:
                 _pl = _persisted["payload"] if isinstance(_persisted["payload"], dict) else {}
                 _evt_chk = _pl.get("evento") if isinstance(_pl, dict) else None
-                # Aceita qualquer dict não-vazio como evento — frontend é defensivo
-                # a campos ausentes. Só descartamos se não há estrutura alguma.
-                _has_essentials = isinstance(_evt_chk, dict) and bool(_evt_chk)
+                _has_evt = isinstance(_evt_chk, dict) and bool(_evt_chk)
+                # Um snapshot completo deve ter pelo menos a chave dailySales.
+                # Payloads sem ela são bootstraps da lista (só têm "evento")
+                # e devem ser descartados para triggerar recompute completo.
+                _has_daily_sales_key = "dailySales" in _pl if isinstance(_pl, dict) else False
+                _has_essentials = _has_evt and _has_daily_sales_key
                 if not _has_essentials:
                     _dbg_pl_keys = list(_pl.keys())[:10] if isinstance(_pl, dict) else None
-                    _dbg_evt_type = type(_evt_chk).__name__
+                    _dbg_reason = "bootstrap (sem dailySales)" if _has_evt else "payload inválido"
                     logger.warning(
                         f"[Persist] '{_ano_for_persist}_{evento_id}' version mismatch "
-                        f"({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) AND payload inválido "
-                        f"— bypassing snapshot. payload_keys={_dbg_pl_keys}, evento_type={_dbg_evt_type}"
+                        f"({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) AND {_dbg_reason} "
+                        f"— bypassing snapshot. payload_keys={_dbg_pl_keys}"
                     )
                     _persisted = None
         if _persisted is not None:
