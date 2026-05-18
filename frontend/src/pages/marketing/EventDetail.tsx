@@ -727,6 +727,9 @@ const EventDetail: React.FC = () => {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
+        // Reload completo silencioso: atualiza dailySales, indicadores de volume,
+        // ISC components e todos os dados históricos sem mostrar spinner de loading.
+        fetchEventRef.current?.(true, true);
       }
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
@@ -1392,7 +1395,7 @@ const EventDetail: React.FC = () => {
 
       {refreshSuccess && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 flex items-center gap-3">
-          <span className="text-sm text-green-700 dark:text-green-300 font-medium">Vendas de hoje atualizadas com sucesso.</span>
+          <span className="text-sm text-green-700 dark:text-green-300 font-medium">Vendas de hoje sincronizadas — recarregando todos os dados da página...</span>
         </div>
       )}
 
