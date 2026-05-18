@@ -7291,7 +7291,7 @@ def _fetch_today_sales_magento_grouped(magento_event_ids: list, cortesia_magento
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN"""
         query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(30000) */
+SELECT /*+ MAX_EXECUTION_TIME(12000) */
     cpev1.value AS id_evento,
     COUNT({cort_qtd_cond}) AS qtd,
     SUM({cort_rev_cond}
@@ -10808,7 +10808,35 @@ def atualizar_vendas_hoje(
             ciclo_id=_ciclo_id_ah,
         )
 
-    return _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
+    _ah_result = _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
+
+    # Ajusta o cooldown de acordo com o resultado real do sync.
+    # Se falhou ou foi parcial, encurta o cooldown para 5 min (em vez de 30 min)
+    # para não bloquear desnecessariamente uma nova tentativa quando o Magento
+    # ou Ativo se recuperar. Em caso de sucesso pleno, o cooldown de 30 min é mantido.
+    try:
+        _ah_status = (_ah_result or {}).get("status") if isinstance(_ah_result, dict) else None
+        if _ah_status == "failed":
+            # Ambas as fontes falharam — permite nova tentativa em 5 min.
+            _SHORT_COOLDOWN_FAIL = 300
+            _atualizar_hoje_cooldown[evento_id] = (
+                _now_ah - _ATUALIZAR_HOJE_COOLDOWN_S + _SHORT_COOLDOWN_FAIL,
+                _user_email_ah,
+                _user_nome_ah,
+            )
+        elif _ah_status == "partial":
+            # Uma fonte falhou — permite nova tentativa em 10 min.
+            _SHORT_COOLDOWN_PARTIAL = 600
+            _atualizar_hoje_cooldown[evento_id] = (
+                _now_ah - _ATUALIZAR_HOJE_COOLDOWN_S + _SHORT_COOLDOWN_PARTIAL,
+                _user_email_ah,
+                _user_nome_ah,
+            )
+        # status == "ok": cooldown completo de 30 min permanece.
+    except Exception as _cd_e:
+        logger.debug(f"atualizar-hoje: erro ao ajustar cooldown adaptativo: {_cd_e}")
+
+    return _ah_result
 
 
 def _atualizar_hoje_inner(
@@ -11181,15 +11209,18 @@ def _atualizar_hoje_inner(
     if grupo_nome:
         try:
             cutoff_30 = hoje - timedelta(days=30)
+            # Filter exclusively by CONSOLIDADO to avoid double-counting entries
+            # from other fontes (ATIVO, MAGENTO) that may coexist in the same table.
             snap_rows = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == _HOJE_FONTE,
                 _VDS.data_venda >= cutoff_30,
                 _VDS.data_venda <= hoje
             ).order_by(_VDS.data_venda).all()
 
             daily_map: dict = {}
             for r in snap_rows:
-                daily_map[r.data_venda] = daily_map.get(r.data_venda, 0) + r.quantidade
+                daily_map[r.data_venda] = daily_map.get(r.data_venda, 0) + int(r.quantidade or 0)
 
             def _avg_last_n(n: int) -> float:
                 cutoff = hoje - timedelta(days=n)
@@ -11200,8 +11231,10 @@ def _atualizar_hoje_inner(
             media_14d = _avg_last_n(14)
             media_30d = _avg_last_n(30)
 
+            # Total acumulado: sum only CONSOLIDADO entries to avoid double-counting.
             total_all = db.query(_sa_func.sum(_VDS.quantidade)).filter(
                 _VDS.evento_grupo == grupo_nome,
+                _VDS.fonte == _HOJE_FONTE,
             ).scalar() or 0
             total_acumulado = int(total_all)
         except Exception as _e:
@@ -11218,32 +11251,42 @@ def _atualizar_hoje_inner(
     except Exception as _ci:
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
-    # Trigger an immediate background recompute of the event detail snapshot so that
-    # subsequent fetches from the frontend (even the first one right after sync) get
-    # fresh fully-computed data instead of the stale persisted snapshot.
+    # Patch the persisted EventoDetailSnapshot in background using apply_today_overlay.
+    # This is a lightweight operation (<100ms, zero Magento queries) that updates
+    # dailySales[today] and currentSales directly in the PostgreSQL snapshot so that
+    # the "Controle Diário" tab and event detail page reflect fresh data immediately.
+    # NOTE: intentionally NOT triggering a full get_marketing_event_by_id recompute here —
+    # that would issue heavy Magento queries (90s timeout) while competing with the
+    # already-strained Magento connection, causing cascade timeouts.
     if all_sources_ok or sync_partial:
         try:
-            import threading as _thread_detail_ah
-            def _bg_recompute_detail_ah():
-                from ...core.database import SessionLocal as _BRD_SL_ah
-                _brd_db = _BRD_SL_ah()
+            import threading as _thread_patch_ah
+            def _bg_patch_snapshot_ah():
+                from ...core.database import SessionLocal as _PS_SL
+                _ps_db = _PS_SL()
                 try:
-                    get_marketing_event_by_id(
-                        evento_id=evento_id,
-                        ano=ano,
-                        force_refresh=True,
-                        force_magento_refresh=False,
-                        db=_brd_db,
-                        current_user=None,
+                    from ...services.event_detail_snapshot_service import (
+                        get_persisted_detail as _gpd_patch,
+                        save_persisted_detail as _spd_patch,
+                        apply_today_overlay as _ov_patch,
                     )
-                except Exception as _brd_e:
-                    logger.warning(f"atualizar-hoje: bg detail recompute falhou para {evento_id}: {_brd_e}")
+                    _ps_persisted = _gpd_patch(_ps_db, evento_id, ano)
+                    if _ps_persisted:
+                        _ps_payload = _ps_persisted.get("payload") or {}
+                        _ps_patched = _ov_patch(_ps_db, _ps_payload, evento_id)
+                        _spd_patch(
+                            _ps_db, evento_id, ano, _ps_patched,
+                            data_evento=_ps_persisted.get("data_evento"),
+                            is_completed=_ps_persisted.get("is_completed", False),
+                        )
+                        logger.info(f"atualizar-hoje: snapshot patched for {evento_id}")
+                except Exception as _ps_e:
+                    logger.warning(f"atualizar-hoje: snapshot patch falhou para {evento_id}: {_ps_e}")
                 finally:
-                    _brd_db.close()
-            _thread_detail_ah.Thread(target=_bg_recompute_detail_ah, daemon=True).start()
-            logger.info(f"atualizar-hoje: bg detail recompute enqueued for {evento_id}")
-        except Exception as _brd_start_e:
-            logger.warning(f"atualizar-hoje: erro ao enfileirar recompute detail: {_brd_start_e}")
+                    _ps_db.close()
+            _thread_patch_ah.Thread(target=_bg_patch_snapshot_ah, daemon=True).start()
+        except Exception as _ps_start_e:
+            logger.warning(f"atualizar-hoje: erro ao enfileirar snapshot patch: {_ps_start_e}")
 
     # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do evento
     # para refletir a hora do clique. Faz isso quando pelo menos uma fonte
