@@ -3,7 +3,7 @@ import { adminService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import {
   RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
-  XCircle, MinusCircle, Clock, Activity, Loader2
+  XCircle, MinusCircle, Clock, Activity, Loader2, PauseCircle, PlayCircle
 } from 'lucide-react';
 
 interface SyncCycle {
@@ -108,6 +108,9 @@ const SincronizacoesPanel: React.FC = () => {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [details, setDetails] = useState<Record<string, SyncEvent[]>>({});
   const [loadingDetail, setLoadingDetail] = useState<Set<string>>(new Set());
+  const [paused, setPaused] = useState(false);
+  const [pausedBy, setPausedBy] = useState<string | null>(null);
+  const [pauseLoading, setPauseLoading] = useState(false);
 
   const cardBase = isDark
     ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
@@ -132,11 +135,41 @@ const SincronizacoesPanel: React.FC = () => {
     }
   }, [filterJob, filterStatus]);
 
+  const fetchPauseStatus = useCallback(async () => {
+    try {
+      const info = await adminService.getSyncPauseStatus();
+      setPaused(info.paused);
+      setPausedBy(info.by);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCycles();
-    const it = setInterval(fetchCycles, 30000);
+    fetchPauseStatus();
+    const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 30000);
     return () => clearInterval(it);
-  }, [fetchCycles]);
+  }, [fetchCycles, fetchPauseStatus]);
+
+  const handleTogglePause = async () => {
+    setPauseLoading(true);
+    try {
+      if (paused) {
+        await adminService.resumeSync();
+        setPaused(false);
+        setPausedBy(null);
+      } else {
+        await adminService.pauseSync();
+        setPaused(true);
+      }
+      await fetchPauseStatus();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setPauseLoading(false);
+    }
+  };
 
   const toggleExpand = async (cicloId: string) => {
     const next = new Set(expanded);
@@ -162,6 +195,24 @@ const SincronizacoesPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {paused && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${isDark ? 'bg-orange-900/20 border-orange-700/50 text-orange-300' : 'bg-orange-50 border-orange-200 text-orange-800'}`}>
+          <PauseCircle className="w-5 h-5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="font-semibold">Execuções pausadas</span>
+            {pausedBy && <span className="ml-2 text-sm opacity-80">por {pausedBy}</span>}
+            <p className="text-xs opacity-70 mt-0.5">Os jobs em andamento terminarão o grupo atual e então pararão. Novos ciclos automáticos aguardarão.</p>
+          </div>
+          <button
+            onClick={handleTogglePause}
+            disabled={pauseLoading}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-orange-700 hover:bg-orange-600 text-white' : 'bg-orange-600 hover:bg-orange-700 text-white'} disabled:opacity-50`}
+          >
+            {pauseLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            Retomar
+          </button>
+        </div>
+      )}
       <div className={`${cardBase} rounded-xl p-4`}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
@@ -197,6 +248,24 @@ const SincronizacoesPanel: React.FC = () => {
               <option value="iniciado">Em execução</option>
               <option value="interrompido">Interrompido</option>
             </select>
+            <button
+              onClick={handleTogglePause}
+              disabled={pauseLoading}
+              title={paused ? 'Retomar execuções' : 'Pausar execuções'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                paused
+                  ? isDark ? 'bg-emerald-700 hover:bg-emerald-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : isDark ? 'bg-orange-700/80 hover:bg-orange-600 text-white' : 'bg-orange-500 hover:bg-orange-600 text-white'
+              }`}
+            >
+              {pauseLoading
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : paused
+                  ? <PlayCircle className="w-4 h-4" />
+                  : <PauseCircle className="w-4 h-4" />
+              }
+              {paused ? 'Retomar' : 'Pausar'}
+            </button>
             <button
               onClick={fetchCycles}
               disabled={loading}

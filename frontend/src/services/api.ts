@@ -626,6 +626,18 @@ export const adminService = {
     const response = await api.post('/admin/snapshots/consolidar');
     return response.data as { status: string; message: string };
   },
+  getSyncPauseStatus: async () => {
+    const response = await api.get('/admin/sync/pause-status');
+    return response.data as { paused: boolean; by: string | null; since: string | null };
+  },
+  pauseSync: async () => {
+    const response = await api.post('/admin/sync/pause');
+    return response.data as { status: string; message: string };
+  },
+  resumeSync: async () => {
+    const response = await api.post('/admin/sync/resume');
+    return response.data as { status: string; message: string };
+  },
 };
 
 export interface FonteDisponivel {
