@@ -1018,6 +1018,39 @@ def seed_admin_user():
     except Exception as e:
         logger.error(f"Error seeding admin user: {e}")
 
+def _force_reset_password():
+    """
+    Se FORCE_RESET_EMAIL e FORCE_RESET_PASSWORD estiverem definidos,
+    atualiza a senha daquele usuário no banco e loga o resultado.
+    Remove o efeito limpando as vars após o uso (não apaga os secrets,
+    apenas não faz nada se já foram removidos).
+    """
+    import os
+    from app.core.database import SessionLocal
+    from app.models.user import Usuario
+    from app.core.security import get_password_hash
+
+    email = os.getenv("FORCE_RESET_EMAIL", "").strip()
+    password = os.getenv("FORCE_RESET_PASSWORD", "").strip()
+
+    if not email or not password:
+        return
+
+    try:
+        db = SessionLocal()
+        user = db.query(Usuario).filter(Usuario.email == email).first()
+        if not user:
+            logger.warning(f"[ForceReset] Usuário '{email}' não encontrado — senha não alterada.")
+            db.close()
+            return
+        user.senha_hash = get_password_hash(password)
+        db.commit()
+        logger.info(f"[ForceReset] Senha do usuário '{email}' redefinida com sucesso.")
+        db.close()
+    except Exception as e:
+        logger.error(f"[ForceReset] Erro ao redefinir senha: {e}")
+
+
 def _seed_kit_config():
     from app.core.database import SessionLocal
     from app.models.kit_config import KitConfig
@@ -1415,6 +1448,7 @@ async def lifespan(app: FastAPI):
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()
             seed_admin_user()
+            _force_reset_password()
             _seed_kit_config()
             _seed_areas_projecao()
             _seed_cutoff_rules()
