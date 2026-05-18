@@ -526,6 +526,20 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
                 f"[Snapshot] grupo='{evento_grupo}' sem snapshot prévio — caindo pra rebuild completo"
             )
 
+    # Para rebuilds completos de um ano específico, limita os fetches ao início
+    # daquele ano — evita varredura do histórico inteiro no Magento/Ativo, que
+    # causa timeout em eventos grandes (ex: Girl Power, B2Run).
+    # O snapshot é sempre por-ano, então dados anteriores a `ano` não são relevantes.
+    # Nota: usa _fetch_data_floor apenas nos fetches; data_floor original (None)
+    # é preservado para os logs e para o modo incremental.
+    _fetch_data_floor = data_floor
+    if _fetch_data_floor is None and ano:
+        _fetch_data_floor = date(ano, 1, 1)
+        logger.info(
+            f"[Snapshot] grupo='{evento_grupo}' ano={ano}: fetch limitado a {_fetch_data_floor} "
+            f"(full rebuild com piso de ano)"
+        )
+
     # Best-effort: if upstream engines went idle / disposed (common in autoscale
     # deployments after the SSH tunnel times out), try to re-establish them
     # synchronously here. Without this, the abort below would just preserve a
@@ -556,7 +570,7 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     if ativo_ids:
         try:
-            rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)), raise_on_error=True, data_floor=data_floor)
+            rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)), raise_on_error=True, data_floor=_fetch_data_floor)
             for row in rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 if d not in all_daily:
@@ -581,7 +595,7 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
                 list(set(magento_ids)),
                 cortesia_magento_ids=mag_cortesia if mag_cortesia else None,
                 raise_on_error=True,
-                data_floor=data_floor,
+                data_floor=_fetch_data_floor,
             )
             for row in rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
