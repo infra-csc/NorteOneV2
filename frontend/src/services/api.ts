@@ -997,7 +997,7 @@ export const marketingService = {
     const response = await api.get('/marketing/cutoff-alerts', { signal });
     return response.data;
   },
-  getEventoById: async (id: string, signal?: AbortSignal, ano?: number, force_refresh?: boolean): Promise<{ 
+  getEventoById: async (id: string, signal?: AbortSignal, ano?: number, force_refresh?: boolean, force_magento_refresh?: boolean): Promise<{ 
     status: string; 
     evento: MarketingEvent; 
     dailySales?: { date: string; sales: number; expected: number; cumulativeSales: number; cumulativeExpected: number; dMinus?: number; curvaAnoAnterior?: number; dif?: number; atingimentoAcumulado?: number; atingimentoDiario?: number; normalizedSales?: number; cumulativeNormalized?: number; localMedian?: number | null; outlierLimit?: number | null; isOutlier?: boolean; excessRemoved?: number; excessReceived?: number }[];
@@ -1029,6 +1029,7 @@ export const marketingService = {
     const queryParams = new URLSearchParams();
     if (ano) queryParams.append('ano', ano.toString());
     if (force_refresh) queryParams.append('force_refresh', 'true');
+    if (force_magento_refresh) queryParams.append('force_magento_refresh', 'true');
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     const response = await api.get(`/marketing/eventos/${encodeURIComponent(id)}${queryString}`, { signal });
     const data = response.data;

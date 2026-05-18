@@ -462,20 +462,39 @@ def get_inscricoes_consolidadas(
     sku: Optional[str] = Query(None, description="Filtrar por SKU específico"),
     incluir_magento: bool = Query(True, description="Incluir dados do Magento"),
     ano: int = Query(2026, description="Ano do evento para filtrar (default: 2026)"),
+    force_magento_refresh: bool = Query(False, description="Forçar consulta ao Magento mesmo para anos antigos (≤ ano_atual-2)"),
     db: Session = Depends(get_db)
 ):
     from concurrent.futures import ThreadPoolExecutor, wait as futures_wait
-    
+    from datetime import datetime as _dt_ic
+
     mappings = get_sku_mappings_from_db(db, ano)
-    
+
+    # Bypass Magento para anos antigos (ano_atual-2 ou mais antigo).
+    # Eventos desses anos já estão fechados e os dados não mudam mais — não faz
+    # sentido carregar o Magento com 60s+ de query histórica. O usuário ainda
+    # pode forçar com ?force_magento_refresh=true em casos pontuais.
+    _ano_atual_ic = _dt_ic.now().year
+    _bypass_magento_old = (ano <= _ano_atual_ic - 2) and incluir_magento and not force_magento_refresh
+
     executor = ThreadPoolExecutor(max_workers=2)
     
     ativo_future = executor.submit(fetch_ativo_data, ano)
     
     magento_result = None
     magento_error = None
-    
-    if incluir_magento:
+
+    if _bypass_magento_old:
+        magento_error = (
+            f"Magento ignorado para ano {ano} (≤ {_ano_atual_ic - 2}). "
+            f"Use force_magento_refresh=true para forçar."
+        )
+        logger.info(f"[inscricoes-consolidado] Bypass Magento — ano antigo: {ano}")
+        incluir_magento_efetivo = False
+    else:
+        incluir_magento_efetivo = incluir_magento
+
+    if incluir_magento_efetivo:
         magento_future = executor.submit(fetch_magento_data, ano)
         try:
             done, not_done = futures_wait([ativo_future, magento_future], timeout=90.0)
@@ -494,7 +513,8 @@ def get_inscricoes_consolidadas(
             magento_error = "Timeout após 90 segundos"
     else:
         ativo_result, ativo_error = ativo_future.result()
-        magento_error = "Desabilitado. Use incluir_magento=true para incluir."
+        if not _bypass_magento_old:
+            magento_error = "Desabilitado. Use incluir_magento=true para incluir."
     
     fontes_disponiveis = {
         "ativo": {"disponivel": ativo_result is not None, "erro": ativo_error},

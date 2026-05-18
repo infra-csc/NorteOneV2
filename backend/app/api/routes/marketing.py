@@ -1592,7 +1592,7 @@ def _average_patterns(patterns: list, weights: Optional[list] = None) -> dict:
     return avg
 
 
-def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: Optional[int] = None, sales_goal: int = 1000, ano: Optional[int] = None, evento_grupo: Optional[str] = None, data_evento: Optional[date] = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: Optional[date] = None) -> list:
+def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: Optional[int] = None, sales_goal: int = 1000, ano: Optional[int] = None, evento_grupo: Optional[str] = None, data_evento: Optional[date] = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: Optional[date] = None, force_magento_refresh: bool = False) -> list:
     from ...services.snapshot_service import get_snapshot_vendas
     
     today = today_brazil()
@@ -1639,13 +1639,15 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     
     snapshot_used = False
     today_in_snapshot = False
-    if evento_grupo:
+    if evento_grupo and not force_magento_refresh:
         snapshot_data = get_snapshot_vendas(db, evento_grupo, data_fim=today)
         if snapshot_data:
             all_daily.update(snapshot_data)
             snapshot_used = True
             today_in_snapshot = today in snapshot_data
             logger.debug(f"Snapshot loaded for '{evento_grupo}': {len(snapshot_data)} days up to {today} (today_in_snapshot={today_in_snapshot})")
+    elif force_magento_refresh:
+        logger.info(f"[force_magento_refresh] Bypass snapshot-first p/ grupo='{evento_grupo}' — vai direto às fontes")
 
     if not snapshot_used:
         if ativo_ids:
@@ -1657,7 +1659,7 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
         if magento_ids:
             _cort = _get_cortesia_magento_ids(db)
             _mag_cort = set(magento_ids) & _cort if _cort else None
-            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
+            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None, db=db, ano=ano, force_magento_refresh=force_magento_refresh)
             for row in magento_rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 all_daily[d] = all_daily.get(d, 0) + row['qtd']
@@ -5994,7 +5996,7 @@ def get_sales_averages(
         if magento_ids:
             _cort_avg = _get_cortesia_magento_ids(db)
             _mag_cort_avg = set(magento_ids) & _cort_avg if _cort_avg else None
-            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_avg if _mag_cort_avg else None)
+            magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_avg if _mag_cort_avg else None, db=db, ano=ano)
             for row in magento_rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
@@ -6329,7 +6331,7 @@ def get_event_simulation(
     if not snapshot_used_sim and magento_ids:
         _cort = _get_cortesia_magento_ids(db)
         _mag_cort = set(magento_ids) & _cort if _cort else None
-        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None)
+        magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort if _mag_cort else None, db=db, ano=ano)
         for row in magento_rows:
             d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
             all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
@@ -6725,14 +6727,15 @@ ORDER BY mes
         return []
 
 
-def _fetch_monthly_sales_magento_by_ids(magento_event_ids: list) -> list:
+def _fetch_monthly_sales_magento_by_ids(magento_event_ids: list, data_floor: Optional[date] = None) -> list:
     if db_module.engine_magento is None or not magento_event_ids:
         return []
     try:
         safe_ids = [int(i) for i in magento_event_ids if str(i).isdigit()]
         if not safe_ids:
             return []
-        query = text("""
+        _floor_clause = "AND so.created_at >= :data_floor" if data_floor else ""
+        query = text(f"""
 SELECT
     MONTH(so.created_at) AS mes,
     COUNT(CASE WHEN so.base_grand_total > 0
@@ -6764,11 +6767,15 @@ WHERE
     AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
     AND cpev1.value IN :magento_event_ids
+    {_floor_clause}
 GROUP BY MONTH(so.created_at)
 ORDER BY mes
 """).bindparams(bindparam("magento_event_ids", expanding=True))
+        params = {"magento_event_ids": safe_ids}
+        if data_floor:
+            params["data_floor"] = data_floor
         def _monthly_by_ids_work(conn):
-            return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
+            return conn.execute(query, params).fetchall()
         rows = magento_run(_monthly_by_ids_work, label="curva:monthly-by-ids", profile="background")
         return [{"mes": int(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in rows]
     except Exception as e:
@@ -6854,7 +6861,7 @@ ORDER BY sub.id_evento, sub.dia
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None) -> dict:
+def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, data_floor: Optional[date] = None) -> dict:
     if not magento_event_ids:
         return {}
     cort_ids = cortesia_magento_ids or set()
@@ -6911,9 +6918,10 @@ WHERE
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
+    {floor_clause}
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
-""")
+""".replace("{floor_clause}", "AND so.created_at >= :data_floor" if data_floor else ""))
         if safe_cort_ids is not None:
             query = query.bindparams(
                 bindparam("magento_event_ids", expanding=True),
@@ -6923,6 +6931,8 @@ ORDER BY cpev1.value, dia
         else:
             query = query.bindparams(bindparam("magento_event_ids", expanding=True))
             exec_params = {"magento_event_ids": safe_ids}
+        if data_floor:
+            exec_params["data_floor"] = data_floor
         def _daily_grouped_work(conn):
             return conn.execute(query, exec_params).fetchall()
         rows = magento_run(_daily_grouped_work, label="daily-sales-grouped", profile="background")
@@ -7309,9 +7319,51 @@ GROUP BY cpev1.value
         return {}
 
 
-def _fetch_daily_sales_magento_by_ids(magento_event_ids: list, cortesia_magento_ids: Optional[set] = None, raise_on_error: bool = False, data_floor: Optional[date] = None) -> list:
+def _fetch_daily_sales_magento_by_ids(
+    magento_event_ids: list,
+    cortesia_magento_ids: Optional[set] = None,
+    raise_on_error: bool = False,
+    data_floor: Optional[date] = None,
+    *,
+    db: Optional[Session] = None,
+    ano: Optional[int] = None,
+    force_magento_refresh: bool = False,
+) -> list:
+    """Vendas diárias por IDs Magento.
+
+    Quando ``db`` é fornecido e ``force_magento_refresh=False``: divide os IDs
+    em ativos vs. congelados (data_evento + EVENTO_FREEZE_AFTER_DAYS < hoje),
+    lê os congelados direto do snapshot PostgreSQL (sem ir ao Magento) e roda
+    a query no Magento apenas para os IDs ativos. Os resultados são mesclados
+    por data antes do retorno.
+    """
     if not magento_event_ids:
         return []
+    # --- Roteamento inteligente: snapshot p/ frozen, Magento p/ ativos -------
+    _snap_daily: dict = {}
+    if db is not None and not force_magento_refresh:
+        try:
+            from ...services.snapshot_service import (
+                partition_magento_ids_by_freeze as _part,
+                read_daily_sales_snapshot_by_magento_ids as _snap_read,
+            )
+            active_ids, frozen_ids = _part(db, magento_event_ids, force_magento_refresh=False)
+            if frozen_ids:
+                _snap_daily = _snap_read(db, frozen_ids, ano=ano, data_floor=data_floor)
+                logger.info(
+                    f"[daily-by-ids] {len(frozen_ids)} IDs congelados servidos do snapshot "
+                    f"({len(_snap_daily)} dias); {len(active_ids)} IDs ativos ainda vão ao Magento"
+                )
+            magento_event_ids = active_ids
+        except Exception as _e_part:
+            logger.warning(f"[daily-by-ids] particionamento freeze falhou (ignorado): {_e_part}")
+    if not magento_event_ids:
+        if not _snap_daily:
+            return []
+        return [
+            {"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": v[0], "receita": v[1]}
+            for d, v in sorted(_snap_daily.items())
+        ]
     cort_ids = cortesia_magento_ids or set()
     if not cort_ids and _is_warmup_thread():
         with _warmup_daily_cache_lock:
@@ -7410,11 +7462,28 @@ ORDER BY dia
             return conn.execute(query, params).fetchall()
         profile = "background" if raise_on_error else "request"
         rows = magento_run(_daily_by_ids_work, label="daily-sales-by-ids", profile=profile)
-        return [{"dia": str(r[0]), "qtd": int(r[1] or 0), "receita": float(r[2] or 0)} for r in rows]
+        # Mescla snapshot (frozen) + Magento (ativos) por dia.
+        merged: dict = {}
+        for d, (q_s, r_s) in _snap_daily.items():
+            key = d.isoformat() if hasattr(d, 'isoformat') else str(d)
+            merged[key] = (q_s, r_s)
+        for r in rows:
+            key = str(r[0])
+            q_m = int(r[1] or 0)
+            r_m = float(r[2] or 0)
+            prev_q, prev_r = merged.get(key, (0, 0.0))
+            merged[key] = (prev_q + q_m, prev_r + r_m)
+        return [{"dia": k, "qtd": v[0], "receita": v[1]} for k, v in sorted(merged.items())]
     except Exception as e:
         logger.error(f"Erro daily sales Magento by IDs: {e}")
         if raise_on_error:
             raise
+        # Mesmo em falha do Magento, devolve o snapshot se houver dados.
+        if _snap_daily:
+            return [
+                {"dia": d.isoformat() if hasattr(d, 'isoformat') else str(d), "qtd": v[0], "receita": v[1]}
+                for d, v in sorted(_snap_daily.items())
+            ]
         return []
 
 
@@ -9168,6 +9237,7 @@ def get_marketing_event_by_id(
     evento_id: str,
     ano: int = Query(default=None, description="Ano para evento consolidado"),
     force_refresh: bool = Query(default=False, description="Forçar atualização dos dados ignorando cache"),
+    force_magento_refresh: bool = Query(default=False, description="Bypass do snapshot para eventos finalizados — vai direto ao Magento"),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
     response: Response = None
@@ -9272,7 +9342,8 @@ def get_marketing_event_by_id(
                     try:
                         get_marketing_event_by_id(
                             evento_id=evento_id, ano=_ano_for_persist,
-                            force_refresh=True, db=_gpd_db, current_user=None,
+                            force_refresh=True, force_magento_refresh=force_magento_refresh,
+                            db=_gpd_db, current_user=None,
                         )
                     except Exception as _gpd_e:
                         logger.warning(f"[Persist] bg refresh '{_gpd_key}' failed: {_gpd_e}")
@@ -9340,7 +9411,8 @@ def get_marketing_event_by_id(
                 try:
                     get_marketing_event_by_id(
                         evento_id=evento_id, ano=_ano_for_persist,
-                        force_refresh=True, db=_prep_db, current_user=None,
+                        force_refresh=True, force_magento_refresh=force_magento_refresh,
+                        db=_prep_db, current_user=None,
                     )
                 except Exception as _prep_e:
                     logger.warning(f"[Prepare] bg recompute '{_prep_key}' falhou: {_prep_e}")
@@ -9366,7 +9438,7 @@ def get_marketing_event_by_id(
         from ...core.database import SessionLocal
         _db = SessionLocal()
         try:
-            get_marketing_event_by_id(evento_id=evento_id, ano=ano, force_refresh=True, db=_db, current_user=None)
+            get_marketing_event_by_id(evento_id=evento_id, ano=ano, force_refresh=True, force_magento_refresh=force_magento_refresh, db=_db, current_user=None)
         finally:
             _db.close()
             _swr_recompute_in_progress.discard(_swr_key)
@@ -9564,7 +9636,7 @@ def get_marketing_event_by_id(
                     _detail_hist_for_daily = _norm_pat_daily
             except Exception as _e_norm_daily:
                 logger.warning(f"Falha ao obter hist_pattern normalizado p/ daily curve: {_e_norm_daily}")
-        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=_detail_hist_for_daily, data_evento_real=projeto_data_evento)
+        daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=_detail_hist_for_daily, data_evento_real=projeto_data_evento, force_magento_refresh=force_magento_refresh)
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         _today_detail = today_brazil()
@@ -9631,7 +9703,7 @@ def get_marketing_event_by_id(
             if magento_ids:
                 _cort_det = _get_cortesia_magento_ids(db)
                 _mag_cort_det = set(magento_ids) & _cort_det if _cort_det else None
-                magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_det if _mag_cort_det else None)
+                magento_rows = _fetch_daily_sales_magento_by_ids(list(set(magento_ids)), cortesia_magento_ids=_mag_cort_det if _mag_cort_det else None, db=db, ano=ano, force_magento_refresh=force_magento_refresh)
                 for row in magento_rows:
                     current_receita += row.get('receita', 0.0)
             
@@ -9762,7 +9834,7 @@ def get_marketing_event_by_id(
             card_total_receita=current_receita,
             card_kit_cost_avg=detail_kit_cost_avg,
             avisos_out=_detail_margem_avisos,
-            force_refresh=force_refresh,
+            force_refresh=force_refresh or force_magento_refresh,
             incluir_cortesias=_grupo_incluir_cortesias,
         )
         # Align currentSales with the kit table total so the card and the
@@ -9911,7 +9983,7 @@ def get_marketing_event_by_id(
                 if ant_magento_ids:
                     _cort_ant = _get_cortesia_magento_ids(db)
                     _mag_cort_ant = set(ant_magento_ids) & _cort_ant if _cort_ant else None
-                    for row in _fetch_daily_sales_magento_by_ids(list(set(ant_magento_ids)), cortesia_magento_ids=_mag_cort_ant if _mag_cort_ant else None):
+                    for row in _fetch_daily_sales_magento_by_ids(list(set(ant_magento_ids)), cortesia_magento_ids=_mag_cort_ant if _mag_cort_ant else None, db=db, ano=(ano - 1) if ano else None):
                         vendas_anterior += row.get('qtd', 0)
                         receita_anterior += row.get('receita', 0.0)
             
@@ -10242,7 +10314,7 @@ def get_marketing_event_by_id(
     elif standalone_detail_regime == "consolidated":
         logger.info(f"[Hybrid] Standalone evento {evento_id} é consolidated — pulando rebuild de snapshot")
 
-    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone, data_evento_real=projeto_data_evento)
+    daily_sales_list = fetch_real_daily_sales_for_projetos(db, [projeto], sales_goal=sales_goal, ano=ano, evento_grupo=standalone_evento_grupo, data_evento=data_fim_inscricoes_standalone, data_evento_real=projeto_data_evento, force_magento_refresh=force_magento_refresh)
     daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
     
     standalone_detail_hist = None
@@ -10327,7 +10399,7 @@ def get_marketing_event_by_id(
         card_total_receita=current_receita,
         card_kit_cost_avg=detail_sa_kit_cost,
         avisos_out=_sa_margem_avisos,
-        force_refresh=force_refresh,
+        force_refresh=force_refresh or force_magento_refresh,
         incluir_cortesias=_sa_incluir_cortesias,
     )
     # Align currentSales with the kit table total (same logic + guard as consolidated group branch).

@@ -317,7 +317,8 @@ const EventDetail: React.FC = () => {
   const [isPreparing, setIsPreparing] = useState(false);
   const [preparingGaveUp, setPreparingGaveUp] = useState(false);
   const silentRefetchDoneRef = useRef(false);
-  const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean) => void) | null>(null);
+  const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean, forceMagentoRefresh?: boolean) => void) | null>(null);
+  const [magentoRefreshing, setMagentoRefreshing] = useState(false);
   const preparingStartedAtRef = useRef<number | null>(null);
   const PREPARING_GIVE_UP_MS = 3 * 60 * 1000;
 
@@ -411,7 +412,7 @@ const EventDetail: React.FC = () => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const fetchEvent = async (forceRefresh = false, silent = false) => {
+    const fetchEvent = async (forceRefresh = false, silent = false, forceMagentoRefresh = false) => {
       if (!id) {
         setError('ID do evento não fornecido');
         setLoading(false);
@@ -433,7 +434,7 @@ const EventDetail: React.FC = () => {
             if (!controller.signal.aborted) setDetailsLoading(true);
           }, DETAILS_LOADING_DELAY_MS);
         }
-        const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined);
+        const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined, forceMagentoRefresh || undefined);
         if (controller.signal.aborted) return;
 
         // Backend sinaliza que ainda está preparando o snapshot — retry em 5s.
@@ -3411,10 +3412,42 @@ const EventDetail: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-purple-500" />
-                      Margem por Tipo de Kit
-                    </h3>
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-purple-500" />
+                        Margem por Tipo de Kit
+                      </h3>
+                      <button
+                        type="button"
+                        disabled={magentoRefreshing}
+                        onClick={async () => {
+                          if (!fetchEventRef.current) return;
+                          setMagentoRefreshing(true);
+                          try {
+                            // Primeira chamada: dispara o recompute (pode voltar stale + bg refresh).
+                            await Promise.resolve(fetchEventRef.current(true, false, true));
+                            // Como o backend usa SWR (snapshot + recompute em background),
+                            // fazemos retries silenciosos até a resposta voltar fresca ou
+                            // atingir o limite. Cada retry espera o bg job terminar.
+                            for (let i = 0; i < 4; i++) {
+                              await new Promise(r => setTimeout(r, 4000));
+                              if (!fetchEventRef.current) break;
+                              await Promise.resolve(fetchEventRef.current(false, true, false));
+                              // Lê o estado mais recente para decidir se ainda está stale.
+                              // Se _isStale virou false (resposta direta do recompute), paramos.
+                              // Nota: o componente é remontado a cada fetch, então usamos um
+                              // pequeno delay e confiamos no limite máximo de retries.
+                            }
+                          } finally {
+                            setMagentoRefreshing(false);
+                          }
+                        }}
+                        title="Ignora o snapshot e consulta o Magento agora (útil em eventos finalizados onde o snapshot é a fonte padrão)."
+                        className="text-[11px] px-2 py-1 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {magentoRefreshing ? 'Atualizando…' : '⟳ Atualizar do Magento'}
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 italic">
                       Baseado em vendas Magento (bundle) + Ativo (por categoria), somadas por tipo de kit. Requer configuração de "Tipo Kit" e "Cat. Ativo" no painel de kits.
                     </p>

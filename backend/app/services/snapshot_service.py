@@ -30,6 +30,209 @@ def _freeze_after_days() -> int:
         return 30
 
 
+def is_event_frozen(data_evento: Optional[date], freeze_days: Optional[int] = None) -> bool:
+    """Retorna True quando data_evento + freeze_days < hoje.
+
+    Conservador: data_evento=None NUNCA é frozen (mesma regra do write-side).
+    """
+    if data_evento is None:
+        return False
+    fd = freeze_days if freeze_days is not None else _freeze_after_days()
+    return data_evento < (date.today() - timedelta(days=fd))
+
+
+def _load_data_evento_by_magento_id(db: Session, magento_ids) -> dict:
+    """Map id_evento_magento (str) -> data_evento. None quando ausente do cadastro."""
+    from ..models.cadastro_evento import CadastroEvento
+    if not magento_ids:
+        return {}
+    norm = {str(int(i)) for i in magento_ids if str(i).isdigit()}
+    if not norm:
+        return {}
+    rows = db.query(
+        CadastroEvento.id_evento_magento,
+        CadastroEvento.data_evento,
+    ).filter(
+        CadastroEvento.deleted_at.is_(None),
+        CadastroEvento.id_evento_magento.in_(list(norm)),
+    ).all()
+    out: dict = {}
+    for mag_id, dt in rows:
+        if mag_id is None:
+            continue
+        # se houver múltiplos cadastros (caso raro), prefere data mais recente
+        key = str(mag_id)
+        if key not in out or (dt and (out[key] is None or dt > out[key])):
+            out[key] = dt
+    return out
+
+
+def partition_magento_ids_by_freeze(
+    db: Session,
+    magento_ids,
+    force_magento_refresh: bool = False,
+    freeze_days: Optional[int] = None,
+) -> tuple:
+    """Divide a lista de magento_ids em (active_ids, frozen_ids) baseado em
+    `data_evento + freeze_days`. IDs sem cadastro são tratados como ativos
+    (conservador). Quando ``force_magento_refresh=True``, retorna tudo como ativo.
+
+    Guarda anti-dupla-contagem: o snapshot é gravado por evento_grupo
+    (não por id_externo individual), portanto se um grupo tem IDs tanto ativos
+    quanto frozen, ler o snapshot daquele grupo retornaria também as vendas
+    dos IDs ativos — que depois seriam somadas novamente pela consulta live ao
+    Magento. Para evitar isso, sempre que um grupo é "misto", todos os seus IDs
+    são forçados para ATIVO (ou seja, vão ao Magento e o snapshot é ignorado
+    para esse grupo). Apenas grupos 100% frozen são servidos pelo snapshot.
+
+    Retorna listas de strings (preserva ordem da entrada, sem duplicar).
+    """
+    seen = set()
+    ordered = []
+    for i in magento_ids:
+        s = str(i)
+        if s not in seen and s.lstrip("-").isdigit():
+            seen.add(s)
+            ordered.append(s)
+    if force_magento_refresh or not ordered:
+        return ordered, []
+    fd = freeze_days if freeze_days is not None else _freeze_after_days()
+    cutoff = date.today() - timedelta(days=fd)
+    dt_map = _load_data_evento_by_magento_id(db, ordered)
+    # 1ª passada: classificação individual
+    initial_frozen: set = set()
+    for s in ordered:
+        dt = dt_map.get(s)
+        if dt is not None and dt < cutoff:
+            initial_frozen.add(s)
+    # 2ª passada: guarda por grupo — se um grupo tem misto frozen+ativo,
+    # todos os seus IDs viram ativos para evitar dupla contagem.
+    if initial_frozen:
+        try:
+            grupo_rows = db.query(SkuMapping.id_externo, SkuMapping.evento_grupo).filter(
+                SkuMapping.fonte == "MAGENTO",
+                SkuMapping.id_externo.in_(ordered),
+                SkuMapping.ativo == True,
+                SkuMapping.evento_grupo.isnot(None),
+            ).all()
+            grupo_by_id: dict = {str(r[0]): r[1] for r in grupo_rows if r[1]}
+            grupos_to_ids: dict = {}
+            for s in ordered:
+                g = grupo_by_id.get(s)
+                if g:
+                    grupos_to_ids.setdefault(g, set()).add(s)
+            grupos_mistos = {
+                g for g, ids in grupos_to_ids.items()
+                if (ids & initial_frozen) and (ids - initial_frozen)
+            }
+            if grupos_mistos:
+                # Rebaixa frozen → ativo para todos os IDs de grupos mistos
+                downgrade = {s for g in grupos_mistos for s in grupos_to_ids[g]}
+                initial_frozen -= downgrade
+                logger.info(
+                    f"[partition_freeze] {len(grupos_mistos)} grupo(s) misto(s) "
+                    f"({len(downgrade)} IDs rebaixados para ATIVO) — anti-dupla-contagem"
+                )
+        except Exception as _eg:
+            logger.warning(
+                f"[partition_freeze] guarda anti-dupla-contagem falhou (conservador: tudo ativo): {_eg}"
+            )
+            initial_frozen.clear()
+    active, frozen = [], []
+    for s in ordered:
+        if s in initial_frozen:
+            frozen.append(s)
+        else:
+            active.append(s)
+    return active, frozen
+
+
+def compute_data_floor_for_magento_ids(
+    db: Session,
+    magento_ids,
+    lookback_days: int = 365,
+) -> Optional[date]:
+    """Calcula o piso de data ideal para uma query Magento por IDs.
+
+    Regra: floor = min(data_evento dos IDs) - lookback_days.
+    - Se nenhum ID tem cadastro com data_evento → retorna None (sem floor).
+    - Limita o floor a no máximo (hoje - 24 meses) por segurança.
+    """
+    dt_map = _load_data_evento_by_magento_id(db, magento_ids)
+    datas = [d for d in dt_map.values() if d is not None]
+    if not datas:
+        return None
+    floor = min(datas) - timedelta(days=lookback_days)
+    safety_cap = date.today() - timedelta(days=730)
+    return max(floor, safety_cap)
+
+
+def read_daily_sales_snapshot_by_magento_ids(
+    db: Session,
+    magento_ids,
+    ano: Optional[int] = None,
+    data_floor: Optional[date] = None,
+) -> dict:
+    """Lê vendas diárias do snapshot (VendasDiariaSnapshot) agregadas por dia
+    para um conjunto de magento_ids — usado para servir eventos congelados sem
+    bater no Magento.
+
+    Bridge: magento_id → SkuMapping(fonte='MAGENTO').evento_grupo → snapshot.
+    Soma por data. Considera fonte 'MAGENTO' e fallback 'CONSOLIDADO' quando
+    presente, escolhendo o maior por (grupo, data) para evitar dupla contagem.
+
+    Retorna: dict {date -> int(qtd)}.
+    """
+    if not magento_ids:
+        return {}
+    norm = [str(int(i)) for i in magento_ids if str(i).isdigit()]
+    if not norm:
+        return {}
+    grupo_by_id: dict = {}
+    grupo_filter = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.id_externo.in_(norm),
+        SkuMapping.ativo == True,
+    )
+    if ano is not None:
+        grupo_filter = grupo_filter.filter(SkuMapping.ano == ano)
+    for mm in grupo_filter.all():
+        if mm.evento_grupo:
+            grupo_by_id[str(mm.id_externo)] = mm.evento_grupo
+    grupos = set(grupo_by_id.values())
+    if not grupos:
+        return {}
+    q = db.query(
+        VendasDiariaSnapshot.evento_grupo,
+        VendasDiariaSnapshot.data_venda,
+        VendasDiariaSnapshot.fonte,
+        VendasDiariaSnapshot.quantidade,
+        VendasDiariaSnapshot.receita,
+    ).filter(
+        VendasDiariaSnapshot.evento_grupo.in_(list(grupos)),
+        VendasDiariaSnapshot.fonte.in_(['MAGENTO', 'CONSOLIDADO']),
+    )
+    if ano is not None:
+        q = q.filter(VendasDiariaSnapshot.ano == ano)
+    if data_floor is not None:
+        q = q.filter(VendasDiariaSnapshot.data_venda >= data_floor)
+    # Para evitar dupla contagem quando há linhas MAGENTO e CONSOLIDADO para o
+    # mesmo (grupo, dia): preferimos a fonte com MAIOR quantidade.
+    by_key: dict = {}
+    for grupo, dia, fonte, qtd, rec in q.all():
+        key = (grupo, dia)
+        v = int(qtd or 0)
+        r = float(rec or 0.0)
+        cur = by_key.get(key)
+        if cur is None or v > cur[0]:
+            by_key[key] = (v, r)
+    out: dict = {}
+    for (grupo, dia), (v, r) in by_key.items():
+        prev_q, prev_r = out.get(dia, (0, 0.0))
+        out[dia] = (prev_q + v, prev_r + r)
+    return out
+
+
 def _load_active_event_magento_ids(db: Session, freeze_days: int) -> tuple:
     """Retorna (active_ids: set, all_ids: set) de id_evento_magento.
 
