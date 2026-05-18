@@ -562,10 +562,15 @@ const EventDetail: React.FC = () => {
           clearTimeout(detailsLoadingTimerRef.current);
           detailsLoadingTimerRef.current = null;
         }
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          setDetailsLoading(false);
-        }
+        // SEMPRE limpar os flags de loading, mesmo quando o request foi
+        // abortado. Caso contrário, se o timer de 600ms tiver disparado e
+        // ligado o banner azul ANTES do abort, o banner nunca era zerado
+        // (a guarda anterior `if (!aborted)` pulava esse `setState`) e o
+        // usuário ficava preso em "Atualizando dados do evento em tempo
+        // real..." indefinidamente. O componente continua montado depois
+        // do abort (o effect só re-roda), então o setState é seguro.
+        setLoading(false);
+        setDetailsLoading(false);
       }
     };
     
@@ -581,6 +586,9 @@ const EventDetail: React.FC = () => {
         clearTimeout(detailsLoadingTimerRef.current);
         detailsLoadingTimerRef.current = null;
       }
+      // Garantia extra: ao re-rodar o effect ou desmontar, limpar o banner
+      // azul para que ele nunca fique preso entre cycles.
+      setDetailsLoading(false);
     };
   }, [id, anoParam]);
 
