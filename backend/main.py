@@ -46,7 +46,11 @@ def _scheduled_isc_refresh():
             db.close()
 
 
-def _scheduled_sincronizar_hoje():
+def _run_sincronizar_hoje_com_warmup():
+    """
+    Executa sincronizar_hoje_batch + pre-warm do cache de detalhes.
+    Reutilizado pelo scheduler legado e pelo loop dedicado abaixo.
+    """
     from app.core.database import SessionLocal
     from app.services.snapshot_service import sincronizar_hoje_batch
     import time as _time
@@ -55,27 +59,77 @@ def _scheduled_sincronizar_hoje():
     try:
         db = SessionLocal()
         count = sincronizar_hoje_batch(db)
-        logger.info(f"Scheduled sincronizar_hoje_batch completed: {count} groups synced")
+        logger.info(f"[SyncHoje] sincronizar_hoje_batch concluído: {count} grupos sincronizados")
         set_last_sync_hoje(_time.time())
-        logger.info("last_sync_hoje atualizado após sincronizar_hoje_batch")
-        # Refresh persisted event detail snapshots in background so clicks are instant
         def _refresh_details_bg():
             try:
                 from app.services.event_detail_snapshot_service import refresh_active_event_details
                 refresh_active_event_details()
             except Exception as _rd_e:
-                logger.warning(f"refresh_active_event_details failed: {_rd_e}")
+                logger.warning(f"[SyncHoje] refresh_active_event_details falhou: {_rd_e}")
         _sh_threading.Thread(target=_refresh_details_bg, daemon=True).start()
     except Exception as e:
-        logger.error(f"Scheduled sincronizar_hoje_batch failed: {e}")
+        logger.error(f"[SyncHoje] sincronizar_hoje_batch falhou: {e}")
         try:
             from app.services.health_alert_service import log_and_alert
-            log_and_alert("SYNC_BATCH_FAILED", "HIGH", f"Falha na sincronização diária de snapshots", str(e))
+            log_and_alert("SYNC_BATCH_FAILED", "HIGH", "Falha na sincronização de inscritos de hoje", str(e))
         except Exception:
             pass
     finally:
         if db:
             db.close()
+
+
+def _scheduled_sincronizar_hoje():
+    _run_sincronizar_hoje_com_warmup()
+
+
+# ────────────────────────────────────────────────────────────────
+# Loop dedicado: sincroniza inscritos de hoje a cada N minutos.
+#
+# O scheduler principal usa CURRENT_YEAR_TTL (22 h) — adequado para
+# dados históricos mas longe demais para o dia corrente.  Os ganchos
+# das 05:00 e 17:00 BRT cobrem apenas dois momentos fixos do dia;
+# entre eles podem passar até 12 h sem atualização.
+#
+# Este loop roda em thread daemon separada e garante que, a cada
+# HOJE_SYNC_INTERVAL_MINUTES (padrão 20), os inscritos de hoje sejam
+# buscados nas fontes (Ativo + Magento) e gravados no snapshot.
+# ────────────────────────────────────────────────────────────────
+_HOJE_SYNC_LOCK = None  # inicializado em _start_hoje_sync_loop
+
+
+def _start_hoje_sync_loop():
+    import os as _os
+    import time as _time
+    import threading as _thr
+
+    global _HOJE_SYNC_LOCK
+    _HOJE_SYNC_LOCK = _thr.Lock()
+
+    interval_min = max(5, int(_os.getenv("HOJE_SYNC_INTERVAL_MINUTES", "20")))
+    interval_sec = interval_min * 60
+
+    def _loop():
+        # Aguarda um pouco para o startup terminar antes do primeiro tick
+        _time.sleep(30)
+        logger.info(f"[HojeSyncLoop] Loop iniciado — intervalo: {interval_min} min")
+        while True:
+            _time.sleep(interval_sec)
+            if not _HOJE_SYNC_LOCK.acquire(blocking=False):
+                logger.debug("[HojeSyncLoop] Sync anterior ainda em execução — pulando tick")
+                continue
+            try:
+                logger.info("[HojeSyncLoop] Iniciando sync de inscritos de hoje...")
+                _run_sincronizar_hoje_com_warmup()
+            except Exception as _loop_e:
+                logger.error(f"[HojeSyncLoop] Erro inesperado: {_loop_e}")
+            finally:
+                _HOJE_SYNC_LOCK.release()
+
+    t = _thr.Thread(target=_loop, daemon=True, name="hoje-sync-loop")
+    t.start()
+    logger.info(f"[HojeSyncLoop] Thread daemon iniciada (intervalo={interval_min}min, env=HOJE_SYNC_INTERVAL_MINUTES)")
 
 
 def _scheduled_margem_rev_safety_check():
@@ -1749,6 +1803,10 @@ async def lifespan(app: FastAPI):
 
         _margem_thread = threading.Thread(target=_maybe_sync_margem_rev, daemon=True, name="startup-margem-rev-sync")
         _margem_thread.start()
+
+        # Loop dedicado: re-sincroniza inscritos de hoje a cada HOJE_SYNC_INTERVAL_MINUTES
+        # (padrão 20 min). Independente do scheduler de 22 h e dos ganchos das 05/17h.
+        _start_hoje_sync_loop()
 
         # Decide whether to run a full warmup on startup.
         # If targeted warmup resolved all gaps (gap count == 0 now), skip the full warmup.
