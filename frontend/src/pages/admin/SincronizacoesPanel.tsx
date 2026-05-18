@@ -3,7 +3,7 @@ import { adminService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import {
   RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
-  XCircle, MinusCircle, Clock, Activity, Loader2, PauseCircle, PlayCircle
+  XCircle, MinusCircle, Clock, Activity, Loader2, PauseCircle, PlayCircle, StopCircle
 } from 'lucide-react';
 
 interface SyncCycle {
@@ -111,6 +111,8 @@ const SincronizacoesPanel: React.FC = () => {
   const [paused, setPaused] = useState(false);
   const [pausedBy, setPausedBy] = useState<string | null>(null);
   const [pauseLoading, setPauseLoading] = useState(false);
+  const [interruptLoading, setInterruptLoading] = useState(false);
+  const [interruptResult, setInterruptResult] = useState<string | null>(null);
 
   const cardBase = isDark
     ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
@@ -168,6 +170,28 @@ const SincronizacoesPanel: React.FC = () => {
       console.error(e);
     } finally {
       setPauseLoading(false);
+    }
+  };
+
+  const handleInterrupt = async () => {
+    setInterruptLoading(true);
+    setInterruptResult(null);
+    try {
+      const res = await adminService.interruptSync();
+      setInterruptResult(
+        res.cycles_interrupted > 0
+          ? `${res.cycles_interrupted} ciclo(s) interrompido(s) imediatamente.`
+          : 'Nenhum ciclo estava em execução.'
+      );
+      await fetchPauseStatus();
+      await fetchCycles();
+      setTimeout(() => setInterruptResult(null), 6000);
+    } catch (e) {
+      console.error(e);
+      setInterruptResult('Erro ao interromper. Tente novamente.');
+      setTimeout(() => setInterruptResult(null), 4000);
+    } finally {
+      setInterruptLoading(false);
     }
   };
 

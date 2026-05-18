@@ -555,6 +555,44 @@ def resume_sync_jobs(
     return {"status": "active", "message": "Jobs de sincronização retomados."}
 
 
+@router.post("/sync/interrupt")
+def interrupt_sync_jobs(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Interrompe imediatamente os jobs de sincronização em execução:
+    1. Ativa o flag de pausa (impede novas iterações de grupo).
+    2. Marca todos os ciclos com status 'iniciado' como 'interrompido' no banco,
+       sem aguardar a iteração atual terminar.
+    """
+    from ...core.cache import pause_sync
+    from datetime import datetime as _dt
+    import time as _t
+
+    pause_sync(by=f"{current_user.nome} ({current_user.email})")
+
+    now_ms = int(_t.time() * 1000)
+    updated = (
+        db.query(SyncEventLog)
+        .filter(SyncEventLog.status == "iniciado", SyncEventLog.nivel == "ciclo")
+        .update(
+            {
+                "status": "interrompido",
+                "motivo": "interrupcao_manual",
+                "detalhes": f"Interrompido manualmente por {current_user.nome} ({current_user.email})",
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+
+    return {
+        "status": "interrupted",
+        "message": f"Execuções interrompidas. {updated} ciclo(s) marcado(s) como interrompido no banco. Pausa ativada para impedir novas iterações.",
+        "cycles_interrupted": updated,
+    }
+
+
 @router.get("/sync/pause-status")
 def get_sync_pause_status(
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),

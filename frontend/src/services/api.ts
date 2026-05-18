@@ -638,6 +638,10 @@ export const adminService = {
     const response = await api.post('/admin/sync/resume');
     return response.data as { status: string; message: string };
   },
+  interruptSync: async () => {
+    const response = await api.post('/admin/sync/interrupt');
+    return response.data as { status: string; message: string; cycles_interrupted: number };
+  },
 };
 
 export interface FonteDisponivel {
