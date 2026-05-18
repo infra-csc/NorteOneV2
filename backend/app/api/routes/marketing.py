@@ -11257,6 +11257,80 @@ def sync_hoje_todos(
     }
 
 
+@router.post("/cache/sync-faltantes")
+def sync_grupos_faltantes(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_admin()),
+):
+    """Detecta grupos mapeados sem snapshot no ano corrente e reconstrói apenas esses.
+
+    Útil quando o auto-sync noturno não conseguiu gerar snapshot para alguns grupos
+    (ex: timeout Magento, grupo recém-adicionado). Muito mais rápido que reconstruir tudo,
+    pois toca apenas os grupos realmente ausentes.
+    """
+    from app.services.snapshot_service import (
+        get_isc_totals_from_snapshot,
+        consolidar_vendas_grupo,
+    )
+    from app.core.database import SessionLocal
+
+    ano = datetime.now().year
+
+    # 1. Todos os grupos mapeados para o ano
+    sku_to_grupo = _build_sku_to_grupo_map(db, ano)
+    todos_grupos: set = set(sku_to_grupo.values())
+
+    # 2. Grupos que já têm snapshot
+    snapshot_existente = get_isc_totals_from_snapshot(db, ano)
+    com_snapshot: set = set(snapshot_existente.keys())
+
+    # 3. Faltantes = mapeados sem snapshot
+    faltantes: list = sorted(todos_grupos - com_snapshot)
+
+    if not faltantes:
+        return {
+            "status": "ok",
+            "faltantes": [],
+            "synced": 0,
+            "message": "Todos os grupos mapeados já possuem snapshot. Nada a fazer.",
+            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+        }
+
+    logger.info(f"[sync-faltantes] {len(faltantes)} grupos sem snapshot: {faltantes}")
+
+    def _rebuild_missing(grupos: list, year: int):
+        try:
+            with SessionLocal() as bg_db:
+                for g in grupos:
+                    try:
+                        consolidar_vendas_grupo(bg_db, g, year)
+                        logger.info(f"[sync-faltantes] Snapshot construído para '{g}' ano={year}")
+                    except Exception as _e:
+                        logger.warning(f"[sync-faltantes] Falha ao construir snapshot para '{g}': {_e}")
+            _smart_isc_cache.invalidate()
+            eventos_list_cache.invalidate()
+            event_detail_cache.invalidate()
+            try:
+                with SessionLocal() as isc_db:
+                    fetch_isc_pricing_data(db=isc_db, force_refresh=True)
+                logger.info("[sync-faltantes] ISC cache reconstruído após sync de faltantes.")
+            except Exception as _ec:
+                logger.warning(f"[sync-faltantes] Erro ao reconstruir ISC cache: {_ec}")
+        except Exception as e:
+            logger.error(f"[sync-faltantes] Erro geral no background task: {e}")
+
+    background_tasks.add_task(_rebuild_missing, faltantes, ano)
+
+    return {
+        "status": "started",
+        "faltantes": faltantes,
+        "synced": len(faltantes),
+        "message": f"Sincronização iniciada em background para {len(faltantes)} grupo(s) faltante(s): {', '.join(faltantes)}.",
+        "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+    }
+
+
 @router.post("/cache/refresh-all")
 def refresh_all_caches(
     current_user: Usuario = Depends(require_admin())

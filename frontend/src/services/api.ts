@@ -1228,6 +1228,16 @@ export const marketingService = {
     const response = await api.post('/marketing/cache/sync-hoje', null, { timeout: 120000 });
     return response.data;
   },
+  syncFaltantes: async (): Promise<{
+    status: string;
+    faltantes: string[];
+    synced: number;
+    message: string;
+    ultima_atualizacao: string;
+  }> => {
+    const response = await api.post('/marketing/cache/sync-faltantes', null, { timeout: 30000 });
+    return response.data;
+  },
   getCacheStatus: async (): Promise<{
     status: string;
     refresh_in_progress: boolean;
