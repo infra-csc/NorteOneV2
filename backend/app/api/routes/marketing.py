@@ -11011,6 +11011,7 @@ def _atualizar_hoje_inner(
             sources_failed.append("magento")
 
     hoje_total = hoje_ativo + hoje_magento
+    _pre_greatest_total = hoje_total  # save before any GREATEST() UPSERT may raise it
 
     grupo_needs_ativo = bool(ativo_ids)
     grupo_needs_magento = bool(magento_ids)
@@ -11138,6 +11139,25 @@ def _atualizar_hoje_inner(
             f"atualizar-hoje: pulando UPSERT para '{grupo_nome}' — ambas fontes indisponíveis: {sources_failed}"
         )
 
+    # --- Snapshot bridge: reclassify "parcial" → "concluido" when prior snapshot covered the gap ---
+    # After the GREATEST() UPSERT, hoje_total reflects the best known value in the DB.
+    # If it is strictly higher than the sum of what the live sources returned (_pre_greatest_total),
+    # a prior full sync (e.g. the 04h batch) already persisted complete Magento data today.
+    # In that case the data quality is equivalent to a successful full sync — only the live
+    # fetch timed out, not the underlying data. Mark as concluido and expose snapshot_bridge=True
+    # so the UI can display the correct nuance ("Magento: via snapshot ✓" instead of error).
+    _snapshot_bridge = False
+    if sync_partial and hoje_total > _pre_greatest_total:
+        logger.info(
+            f"atualizar-hoje: snapshot bridge '{grupo_nome}' — "
+            f"DB={hoje_total} > live={_pre_greatest_total} "
+            f"(falhou: {sources_failed}) → reclassificando para concluido"
+        )
+        all_sources_ok = True
+        sync_partial = False
+        sync_failed = False
+        _snapshot_bridge = True
+
     # --- Recalculate rolling averages from snapshot (no external DB) ---
     media_7d = 0.0
     media_14d = 0.0
@@ -11237,6 +11257,7 @@ def _atualizar_hoje_inner(
         "ativo_ok": ativo_ok,
         "magento_ok": magento_ok,
         "fontes_indisponiveis": sources_failed,
+        "snapshot_bridge": _snapshot_bridge,
     }
 
 

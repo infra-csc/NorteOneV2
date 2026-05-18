@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X, CheckCircle, XCircle, AlertTriangle, RefreshCw, Loader2, Database, Zap, Save, RotateCcw } from 'lucide-react';
+import { X, CheckCircle, XCircle, AlertTriangle, RefreshCw, Loader2, Database, Zap, Save, RotateCcw, Archive } from 'lucide-react';
 
 export type SyncStatus = 'loading' | 'success' | 'partial' | 'frozen' | 'failed' | 'error' | 'busy' | 'cooldown';
 
@@ -15,6 +15,7 @@ export interface SyncResult {
   magento_ok?: boolean;
   fontes_indisponiveis?: string[];
   ultima_atualizacao?: string;
+  snapshot_bridge?: boolean;
 }
 
 interface Props {
@@ -241,6 +242,10 @@ function StepRow({ step }: { step: Step; index: number }) {
 function ResultCard({ result, status }: { result: SyncResult; status: SyncStatus }) {
   const isFrozen = status === 'frozen';
   const isPartial = status === 'partial';
+  const bridge = result.snapshot_bridge === true;
+
+  const ativoViaSnapshot  = bridge && result.ativo_ok === false;
+  const magentoViaSnapshot = bridge && result.magento_ok === false;
 
   return (
     <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 space-y-3">
@@ -252,15 +257,27 @@ function ResultCard({ result, status }: { result: SyncResult; status: SyncStatus
         {isPartial && (
           <span className="px-2 py-0.5 rounded-full text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-medium">Parcial</span>
         )}
-        {status === 'success' && (
+        {status === 'success' && !bridge && (
           <span className="px-2 py-0.5 rounded-full text-xs bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 font-medium">Completo</span>
+        )}
+        {status === 'success' && bridge && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-medium">
+            <Archive className="w-3 h-3" />
+            Via snapshot
+          </span>
         )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <SourceBadge label="Ativo" value={result.hoje_ativo} ok={result.ativo_ok !== false} />
-        <SourceBadge label="Magento" value={result.hoje_magento} ok={result.magento_ok !== false} />
+        <SourceBadge label="Ativo"   value={result.hoje_ativo}   ok={result.ativo_ok !== false}   viaSnapshot={ativoViaSnapshot} />
+        <SourceBadge label="Magento" value={result.hoje_magento} ok={result.magento_ok !== false} viaSnapshot={magentoViaSnapshot} />
       </div>
+
+      {bridge && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+          O Magento não respondeu ao vivo, mas o snapshot do batch anterior preservou os dados — total não foi reduzido.
+        </p>
+      )}
 
       <div className="border-t border-gray-200 dark:border-gray-700 pt-3 grid grid-cols-2 gap-3">
         <MetricItem label="Total hoje" value={fmt(result.hoje_total)} highlight />
@@ -272,7 +289,18 @@ function ResultCard({ result, status }: { result: SyncResult; status: SyncStatus
   );
 }
 
-function SourceBadge({ label, value, ok }: { label: string; value: number; ok: boolean }) {
+function SourceBadge({ label, value, ok, viaSnapshot }: { label: string; value: number; ok: boolean; viaSnapshot?: boolean }) {
+  if (viaSnapshot) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <Archive className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+        <div className="min-w-0">
+          <div className="text-xs text-amber-600 dark:text-amber-400">{label}</div>
+          <div className="text-sm font-semibold text-amber-700 dark:text-amber-300">via snapshot</div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className={`flex items-center gap-2 rounded-lg px-3 py-2 ${ok ? 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600' : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'}`}>
       {ok
