@@ -210,10 +210,18 @@ const EventOpsView: React.FC = () => {
       console.error('Falha ao atualizar hoje (ops):', err);
       if (err?.isBusy) {
         setError(err.message || 'Sincronização já em andamento. Os dados serão atualizados em instantes.');
+      } else if (err?.isRateLimit) {
+        const mins = Math.floor((err.retryAfter ?? 0) / 60);
+        const secs = (err.retryAfter ?? 0) % 60;
+        const quem = err.blockedBy ? ` por ${err.blockedBy}` : '';
+        const tempo = mins > 0 ? `${mins}min ${secs}s` : `${secs}s`;
+        setError(
+          `Atualização já solicitada recentemente${quem}. Disponível novamente em ${tempo}.`
+        );
       } else {
         setError('Não foi possível atualizar agora. Tente de novo em instantes.');
       }
-      setTimeout(() => setError(null), 6000);
+      setTimeout(() => setError(null), 10000);
     } finally {
       setRefreshing(false);
     }

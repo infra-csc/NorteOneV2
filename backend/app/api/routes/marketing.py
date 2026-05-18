@@ -4168,6 +4168,11 @@ ativo_breaker = CircuitBreaker("ativo", failure_threshold=3, cooldown_s=60.0, wi
 # upstream load no matter how many concurrent users we have.
 _atualizar_hoje_cache = CoalescingCache(ttl_s=20.0, name="atualizar_hoje")
 
+# Cooldown por evento: 30 min entre chamadas de "Atualizar Hoje".
+# Tupla: (timestamp_float, user_email, user_nome)
+_atualizar_hoje_cooldown: dict = {}
+_ATUALIZAR_HOJE_COOLDOWN_S = 1800  # 30 minutos
+
 # Trust the persisted snapshot for "today" if the background batch ran within
 # this many seconds. Slightly larger than the batch interval so we always
 # have one batch's worth of overlap. Avoids redundant live MySQL queries on
@@ -10745,6 +10750,44 @@ def atualizar_vendas_hoje(
             "message": f"Sincronização global em andamento (por {quem}). Os dados serão atualizados em instantes — tente novamente em alguns segundos.",
         })
 
+    # Cooldown de 30 min por evento — apenas uma requisição por janela.
+    import time as _time_ah
+    _now_ah = _time_ah.time()
+    _cool = _atualizar_hoje_cooldown.get(evento_id)
+    if _cool:
+        _cool_ts, _cool_email, _cool_nome = _cool
+        _elapsed_ah = _now_ah - _cool_ts
+        if _elapsed_ah < _ATUALIZAR_HOJE_COOLDOWN_S:
+            _remaining_ah = int(_ATUALIZAR_HOJE_COOLDOWN_S - _elapsed_ah)
+            _min_ah = _remaining_ah // 60
+            _sec_ah = _remaining_ah % 60
+            _next_ah = datetime.fromtimestamp(
+                _cool_ts + _ATUALIZAR_HOJE_COOLDOWN_S,
+                tz=ZoneInfo('America/Sao_Paulo')
+            ).isoformat()
+            _quem_ah = _cool_nome or _cool_email
+            from fastapi.responses import JSONResponse as _JR_cool
+            return _JR_cool(status_code=429, content={
+                "status": "cooldown",
+                "retry_after": _remaining_ah,
+                "detail": (
+                    f"Atualização já solicitada por {_quem_ah}. "
+                    f"Disponível novamente em {_min_ah}min {_sec_ah}s."
+                ),
+                "next_allowed_at": _next_ah,
+                "blocked_by": _quem_ah,
+            })
+
+    # Registra cooldown ANTES de disparar o fetch — garante que outros usuários
+    # que clicarem durante a execução também sejam bloqueados.
+    _user_nome_ah = getattr(current_user, 'nome', None) or getattr(current_user, 'email', '') or 'usuário'
+    _user_email_ah = getattr(current_user, 'email', '') or ''
+    _atualizar_hoje_cooldown[evento_id] = (_now_ah, _user_email_ah, _user_nome_ah)
+
+    # Gera ciclo_id para o log de sincronização (aparece no painel).
+    from ...services.sync_log_service import new_ciclo_id as _new_ciclo_ah
+    _ciclo_id_ah = _new_ciclo_ah()
+
     # Single-flight: if many users click "Atualizar Hoje" for the same event
     # within a short window, only the first request actually runs the fetch +
     # snapshot UPSERT. All other concurrent requests wait briefly and reuse
@@ -10762,6 +10805,7 @@ def atualizar_vendas_hoje(
             grupo_nome=grupo_nome,
             ativo_ids=ativo_ids,
             magento_ids=magento_ids,
+            ciclo_id=_ciclo_id_ah,
         )
 
     return _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
@@ -10776,14 +10820,25 @@ def _atualizar_hoje_inner(
     grupo_nome: str,
     ativo_ids: list,
     magento_ids: list,
+    ciclo_id: Optional[str] = None,
 ):
     """Fetch today's sales + UPSERT snapshot + return refreshed totals.
 
     Extracted from atualizar_vendas_hoje() so the logic can be invoked under
     the single-flight CoalescingCache wrapper.
     """
+    import time as _time_inner
+    _t_start_inner = _time_inner.time()
     from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
     from sqlalchemy import func as _sa_func
+
+    # Log de início de ciclo (painel de Sincronizações)
+    if ciclo_id:
+        try:
+            from ...services.sync_log_service import log_evento as _log_ev
+            _log_ev(ciclo_id, "atualizar_hoje", "iniciado", nivel="ciclo", grupo=grupo_nome)
+        except Exception:
+            pass
 
     # --- Freeze guard: skip upstream call entirely for finished events ---
     # Eventos finalizados (data_evento + EVENTO_FREEZE_AFTER_DAYS < hoje) não
@@ -11117,6 +11172,34 @@ def _atualizar_hoje_inner(
             logger.warning(f"atualizar-hoje: erro ao atualizar last_sync_hoje: {_e_lsh_a}")
 
     _response_status = "ok" if all_sources_ok else ("partial" if sync_partial else "failed")
+
+    # Log de conclusão + grupo (painel de Sincronizações)
+    if ciclo_id:
+        try:
+            from ...services.sync_log_service import log_evento as _log_ev_end
+            _duracao_ms_inner = int((_time_inner.time() - _t_start_inner) * 1000)
+            _status_ciclo = "concluido" if all_sources_ok else ("parcial" if sync_partial else "falha")
+            _status_grupo = "ok" if all_sources_ok else ("parcial" if sync_partial else "falha")
+            _motivo_grupo = None if all_sources_ok else ("magento_indisponivel" if not magento_ok else "ativo_indisponivel")
+            _log_ev_end(
+                ciclo_id, "atualizar_hoje", _status_grupo,
+                nivel="grupo", grupo=grupo_nome,
+                qtd_antes=None, qtd_depois=hoje_total,
+                motivo=_motivo_grupo,
+                duracao_ms=_duracao_ms_inner,
+            )
+            _log_ev_end(
+                ciclo_id, "atualizar_hoje", _status_ciclo,
+                nivel="ciclo", grupo=grupo_nome,
+                duracao_ms=_duracao_ms_inner,
+                detalhes=(
+                    f"ativo={hoje_ativo} magento={hoje_magento} total={hoje_total}"
+                    + (f" | indisponível: {', '.join(sources_failed)}" if sources_failed else "")
+                ),
+            )
+        except Exception:
+            pass
+
     return {
         "status": _response_status,
         "evento_id": evento_id,

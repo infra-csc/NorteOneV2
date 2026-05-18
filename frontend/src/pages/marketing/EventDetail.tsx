@@ -735,10 +735,18 @@ const EventDetail: React.FC = () => {
       console.error('Erro ao atualizar vendas de hoje:', err);
       if (err?.isBusy) {
         setRefreshError(err.message || 'Sincronização já em andamento. Os dados serão atualizados em instantes.');
+      } else if (err?.isRateLimit) {
+        const mins = Math.floor((err.retryAfter ?? 0) / 60);
+        const secs = (err.retryAfter ?? 0) % 60;
+        const quem = err.blockedBy ? ` por ${err.blockedBy}` : '';
+        const tempo = mins > 0 ? `${mins}min ${secs}s` : `${secs}s`;
+        setRefreshError(
+          `Atualização já solicitada recentemente${quem}. Disponível novamente em ${tempo}.`
+        );
       } else {
         setRefreshError('Não foi possível atualizar as vendas de hoje agora. Tente novamente em alguns instantes.');
       }
-      setTimeout(() => setRefreshError(null), 8000);
+      setTimeout(() => setRefreshError(null), 10000);
     } finally {
       setRefreshing(false);
     }

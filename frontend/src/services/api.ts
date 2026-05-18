@@ -26,9 +26,16 @@ api.interceptors.response.use(
     if (error.response?.status === 429) {
       const retryAfter = error.response.data?.retry_after ?? 60;
       const detail = error.response.data?.detail ?? `Muitas requisições. Aguarde ${retryAfter}s.`;
-      const enriched = new Error(detail) as Error & { isRateLimit: boolean; retryAfter: number };
+      const enriched = new Error(detail) as Error & {
+        isRateLimit: boolean;
+        retryAfter: number;
+        blockedBy?: string;
+        nextAllowedAt?: string;
+      };
       enriched.isRateLimit = true;
       enriched.retryAfter = retryAfter;
+      if (error.response.data?.blocked_by) enriched.blockedBy = error.response.data.blocked_by;
+      if (error.response.data?.next_allowed_at) enriched.nextAllowedAt = error.response.data.next_allowed_at;
       return Promise.reject(enriched);
     }
     if (error.response?.status === 409) {

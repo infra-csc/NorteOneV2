@@ -66,6 +66,7 @@ const JOB_LABELS: Record<string, string> = {
   sincronizar_hoje_batch: 'Sincronização de hoje',
   snapshot_diario_batch: 'Snapshot diário',
   consolidar_vendas_grupo: 'Consolidação por grupo',
+  atualizar_hoje: 'Atualizar Hoje (manual)',
 };
 
 function fmtDateTime(iso: string | null): string {
