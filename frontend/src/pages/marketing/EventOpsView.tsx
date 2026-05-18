@@ -101,6 +101,7 @@ const EventOpsView: React.FC = () => {
 
   const abortRef = useRef<AbortController | null>(null);
   const avgAbortRef = useRef<AbortController | null>(null);
+  const bgRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -151,7 +152,10 @@ const EventOpsView: React.FC = () => {
 
   useEffect(() => {
     loadEvent();
-    return () => { if (abortRef.current) abortRef.current.abort(); };
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+      if (bgRefreshTimerRef.current) clearTimeout(bgRefreshTimerRef.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, anoParam]);
 
@@ -206,9 +210,16 @@ const EventOpsView: React.FC = () => {
       });
       setRefreshOk(true);
       setTimeout(() => setRefreshOk(false), 3500);
-      // Reload completo: busca dados frescos do backend para atualizar
-      // toda a seção do evento (Controle Diário, indicadores, etc.)
+      // 1ª busca (imediata): aplica today-overlay (Controle Diário, currentSales).
+      // Também dispara recompute completo em background no servidor.
       loadEvent(true);
+      // 2ª busca (silenciosa, 15s depois): captura ISC, curvas e demais campos
+      // do recompute completo do backend (~5-30s).
+      if (bgRefreshTimerRef.current) clearTimeout(bgRefreshTimerRef.current);
+      bgRefreshTimerRef.current = setTimeout(() => {
+        bgRefreshTimerRef.current = null;
+        loadEvent(false);
+      }, 15000);
     } catch (err: any) {
       console.error('Falha ao atualizar hoje (ops):', err);
       if (err?.isBusy) {

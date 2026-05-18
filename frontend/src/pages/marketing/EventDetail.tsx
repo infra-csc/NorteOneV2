@@ -727,10 +727,16 @@ const EventDetail: React.FC = () => {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
-        // Reload completo visível: força novo fetch do backend (bypassando cache
-        // e buscando dados frescos do Magento/Ativo) para atualizar o Controle
-        // Diário, indicadores de volume, ISC e todos os dados históricos.
+        // 1ª busca (imediata): visível ao usuário, força bypass de cache e
+        // aplica today-overlay (atualiza Controle Diário, currentSales, etc).
+        // Também dispara recompute completo em background no servidor.
         fetchEventRef.current?.(true, false, true);
+        // 2ª busca (silenciosa, 15s depois): captura o recompute completo do
+        // backend (ISC, curvas, comparativo anual) que termina em ~5-30s.
+        staleRetryTimerRef.current = setTimeout(() => {
+          staleRetryTimerRef.current = null;
+          fetchEventRef.current?.(true, true);
+        }, 15000);
       }
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
