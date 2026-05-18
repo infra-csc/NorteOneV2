@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ConnectionAlert from '../../components/common/ConnectionAlert';
+import { OperationLogPanel, OperationLog, makeOperation, createEntry } from '../../components/marketing/OperationLogPanel';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -209,6 +210,48 @@ const MarketingDashboard: React.FC = () => {
   const [syncFaltantesResult, setSyncFaltantesResult] = useState<'success' | 'error' | 'none' | null>(null);
   const [syncFaltantesCount, setSyncFaltantesCount] = useState<number | null>(null);
   const [rebuildingSnapshots, setRebuildingSnapshots] = useState(false);
+
+  const [opLog, setOpLog] = useState<OperationLog | null>(null);
+  const opLogRef = useRef<OperationLog | null>(null);
+
+  const opStart = useCallback((name: string) => {
+    const op = makeOperation(name);
+    opLogRef.current = op;
+    setOpLog({ ...op });
+  }, []);
+
+  const opLog_add = useCallback((level: Parameters<typeof createEntry>[0], message: string) => {
+    setOpLog(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, logs: [...prev.logs, createEntry(level, message)] };
+      opLogRef.current = updated;
+      return updated;
+    });
+  }, []);
+
+  const opLog_progress = useCallback((progress: number, label: string, eta?: number | null) => {
+    setOpLog(prev => {
+      if (!prev) return prev;
+      const updated = { ...prev, progress, progressLabel: label, eta: eta ?? null };
+      opLogRef.current = updated;
+      return updated;
+    });
+  }, []);
+
+  const opLog_finish = useCallback((status: 'success' | 'error') => {
+    setOpLog(prev => {
+      if (!prev) return prev;
+      const updated = {
+        ...prev,
+        status,
+        progress: status === 'success' ? 100 : prev.progress,
+        progressLabel: status === 'success' ? 'Concluído com sucesso' : 'Falha na operação',
+        eta: null,
+      };
+      opLogRef.current = updated;
+      return updated;
+    });
+  }, []);
   const [rebuildResult, setRebuildResult] = useState<'success' | 'error' | null>(null);
   const [syncHojeResult, setSyncHojeResult] = useState<'success' | 'error' | 'busy' | null>(null);
   const [bgRefreshing, setBgRefreshing] = useState(false);
@@ -413,23 +456,66 @@ const MarketingDashboard: React.FC = () => {
     if (syncingHoje || fullRefreshing) return;
     setSyncingHoje(true);
     setSyncHojeResult(null);
+
+    opStart('Sincronizar Hoje');
+    const EXPECTED_S = 180;
+    const stages: [number, number, string][] = [
+      [0,  3,  'Conectando ao servidor...'],
+      [3,  20, 'Buscando inscrições do Ativo...'],
+      [20, 80, 'Buscando vendas do Magento...'],
+      [80, 110,'Processando e salvando no banco...'],
+      [110,150,'Reconstruindo cache ISC...'],
+      [150,180,'Finalizando...'],
+    ];
+    const stageProgress = [2, 20, 50, 72, 87, 95];
+    let stageIdx = 0;
+    const startTs = Date.now();
+
+    opLog_add('info', 'Iniciando sincronização dos dados de hoje...');
+    opLog_progress(2, 'Conectando ao servidor...', EXPECTED_S);
+
+    const stageTimer = setInterval(() => {
+      const elapsed = (Date.now() - startTs) / 1000;
+      for (let i = stageIdx; i < stages.length; i++) {
+        const [from, to, label] = stages[i];
+        if (elapsed >= from && elapsed < to && i > stageIdx) {
+          stageIdx = i;
+          const pct = stageProgress[i];
+          const eta = Math.max(0, EXPECTED_S - elapsed);
+          opLog_add('info', label);
+          opLog_progress(pct, label, eta);
+          break;
+        }
+      }
+    }, 2000);
+
     try {
       const result = await marketingService.syncHoje();
+      clearInterval(stageTimer);
       if (result.status === 'ok') {
-        // After syncing today's data, also flush the caches (medias, event_detail,
-        // daily_sales, etc.) so the updated numbers appear immediately without
-        // waiting for natural TTL expiry.
+        opLog_add('info', 'Dados sincronizados — limpando cache local...');
+        opLog_progress(97, 'Atualizando tela...', 3);
         try { await marketingService.refreshCache(); } catch { /* non-fatal */ }
         setSyncHojeResult('success');
+        const synced = (result as any).synced ?? '–';
+        opLog_add('success', `Concluído! ${synced} grupo(s) sincronizados.`);
+        opLog_finish('success');
         clearMarketingDashboardCache();
         fetchData(true, false);
       } else {
+        opLog_add('error', `Resposta inesperada do servidor: ${result.status}`);
+        opLog_finish('error');
         setSyncHojeResult('error');
       }
     } catch (err: any) {
+      clearInterval(stageTimer);
       if (err?.isBusy) {
+        opLog_add('warning', 'Já existe uma sincronização em andamento. Aguarde o término.');
+        opLog_finish('error');
         setSyncHojeResult('busy');
       } else {
+        opLog_add('error', `Falha: ${err?.message || 'Erro de conexão com o servidor.'}`);
+        opLog_finish('error');
         setSyncHojeResult('error');
       }
     } finally {
@@ -443,18 +529,38 @@ const MarketingDashboard: React.FC = () => {
     setSyncingFaltantes(true);
     setSyncFaltantesResult(null);
     setSyncFaltantesCount(null);
+
+    opStart('Sync Faltantes');
+    opLog_add('info', 'Detectando grupos sem snapshot no ano corrente...');
+    opLog_progress(5, 'Verificando banco de dados...');
+
     try {
       const result = await marketingService.syncFaltantes();
       if (result.status === 'ok' && result.synced === 0) {
+        opLog_add('success', 'Todos os grupos já possuem snapshot. Nenhuma ação necessária.');
+        opLog_progress(100, 'Todos OK', 0);
+        opLog_finish('success');
         setSyncFaltantesResult('none');
         setSyncFaltantesCount(0);
       } else if (result.status === 'started' || result.status === 'ok') {
+        const grupos = result.faltantes ?? [];
+        const etaS = grupos.length * 180;
+        opLog_add('info', `${grupos.length} grupo(s) sem snapshot detectado(s):`);
+        grupos.forEach((g: string) => opLog_add('info', `  → ${g}`));
+        opLog_add('info', `Reconstrução iniciada em background. ETA estimado: ~${Math.round(etaS / 60)} min.`);
+        opLog_add('warning', 'Esta janela pode ser fechada — a sincronização continua no servidor.');
+        opLog_progress(15, `Processando ${grupos.length} grupo(s) em background...`, etaS);
+        opLog_finish('success');
         setSyncFaltantesResult('success');
         setSyncFaltantesCount(result.synced);
       } else {
+        opLog_add('error', `Resposta inesperada: ${result.status}`);
+        opLog_finish('error');
         setSyncFaltantesResult('error');
       }
-    } catch {
+    } catch (err: any) {
+      opLog_add('error', `Falha: ${err?.message || 'Erro de conexão com o servidor.'}`);
+      opLog_finish('error');
       setSyncFaltantesResult('error');
     } finally {
       setSyncingFaltantes(false);
@@ -466,10 +572,29 @@ const MarketingDashboard: React.FC = () => {
     if (rebuildingSnapshots) return;
     setRebuildingSnapshots(true);
     setRebuildResult(null);
+
+    opStart('Reconstruir Snapshots');
+    opLog_add('info', 'Iniciando reconstrução incremental de snapshots históricos...');
+    opLog_add('info', 'Modo incremental: busca apenas dias novos desde o último snapshot.');
+    opLog_progress(5, 'Enviando comando ao servidor...');
+
     try {
       const r = await adminService.triggerSnapshotConsolidation();
-      setRebuildResult(r.status === 'started' ? 'success' : 'error');
-    } catch {
+      if (r.status === 'started') {
+        opLog_add('success', 'Reconstrução disparada com sucesso — rodando em background.');
+        opLog_add('info', 'ETA estimado: 10–30 min dependendo do número de eventos.');
+        opLog_add('warning', 'Esta janela pode ser fechada — o processo continua no servidor.');
+        opLog_progress(10, 'Processando em background...', 1200);
+        opLog_finish('success');
+        setRebuildResult('success');
+      } else {
+        opLog_add('error', 'O servidor não confirmou o início da reconstrução.');
+        opLog_finish('error');
+        setRebuildResult('error');
+      }
+    } catch (err: any) {
+      opLog_add('error', `Falha: ${err?.message || 'Erro de conexão com o servidor.'}`);
+      opLog_finish('error');
       setRebuildResult('error');
     } finally {
       setTimeout(() => {
@@ -483,42 +608,70 @@ const MarketingDashboard: React.FC = () => {
     setFullRefreshing(true);
     setRefreshProgress(null);
     setRefreshResult(null);
-    // Atualização completa pode levar 30-45 min. Mantemos polling enquanto o
-    // servidor reportar in_progress, sem encerrar por timeout de UI (apenas mantemos
-    // o usuário informado do progresso). Ele pode navegar/sair — o estado é restaurado
-    // pelo cacheStatus polling de 60s do useEffect.
+
+    opStart('Atualização Completa');
+    opLog_add('info', 'Iniciando atualização completa de todos os dados...');
+    opLog_add('info', 'Este processo pode levar 10–30 minutos.');
+    opLog_progress(2, 'Enviando comando ao servidor...');
+
+    let lastStep = -1;
     const POLL_INTERVAL = 5000;
 
     const startPolling = () => {
       const pollStatus = setInterval(async () => {
         try {
           const status = await marketingService.getCacheStatus();
+          if (status.progress && status.progress.step !== lastStep) {
+            lastStep = status.progress.step;
+            const pct = Math.round(
+              ((status.progress.step - 1 + (
+                status.progress.sub_total && status.progress.sub_total > 0
+                  ? (status.progress.sub_current || 0) / status.progress.sub_total
+                  : 0
+              )) / status.progress.total_steps) * 100
+            );
+            const elapsed = status.progress.elapsed_seconds ?? 0;
+            const etaS = pct > 2 ? Math.round(elapsed / (pct / 100) - elapsed) : null;
+            const label = status.progress.label || `Passo ${status.progress.step} de ${status.progress.total_steps}`;
+            opLog_add('info', `[${pct}%] ${label}`);
+            if (status.progress.sub_total && status.progress.sub_total > 0) {
+              opLog_add('info', `  └ ${status.progress.sub_current || 0} de ${status.progress.sub_total} eventos`);
+            }
+            opLog_progress(pct, label, etaS);
+            setRefreshProgress(status.progress);
+          }
           if (!status.refresh_in_progress) {
             clearInterval(pollStatus);
             setFullRefreshing(false);
             setRefreshProgress(null);
             if (status.last_error) {
               if (status.last_error.includes('avisos')) {
+                opLog_add('warning', `Concluído com avisos: ${status.last_error}`);
+                opLog_finish('success');
                 showRefreshResult('success');
                 setAvisos(prev => [...prev, status.last_error!]);
               } else {
+                opLog_add('error', `Falha: ${status.last_error}`);
+                opLog_finish('error');
                 showRefreshResult('error');
                 setError(status.last_error);
               }
             } else {
+              opLog_add('success', 'Atualização completa concluída com sucesso!');
+              opLog_finish('success');
               showRefreshResult('success');
             }
             if (status.ultima_atualizacao_completa) {
               setServerLastUpdate(status.ultima_atualizacao_completa);
             }
             fetchData(true, false);
-          } else if (status.progress) {
-            setRefreshProgress(status.progress);
           }
         } catch {
           clearInterval(pollStatus);
           setFullRefreshing(false);
           setRefreshProgress(null);
+          opLog_add('error', 'Perda de conexão ao verificar o status. Tente novamente.');
+          opLog_finish('error');
           showRefreshResult('error');
           setError('Erro de conexão ao verificar o status da atualização. Tente novamente.');
         }
@@ -528,9 +681,14 @@ const MarketingDashboard: React.FC = () => {
     try {
       const result = await marketingService.refreshAllCaches();
       if (result.status === 'started' || result.status === 'in_progress') {
+        opLog_add('success', 'Comando aceito pelo servidor — atualização iniciada.');
+        opLog_add('info', 'Verificando progresso a cada 5s...');
+        opLog_progress(3, 'Aguardando primeiro ciclo de progresso...', null);
         startPolling();
       } else {
         setFullRefreshing(false);
+        opLog_add('error', 'Servidor não pôde iniciar a atualização.');
+        opLog_finish('error');
         showRefreshResult('error');
         setError('Não foi possível iniciar a atualização. Tente novamente.');
       }
@@ -538,6 +696,8 @@ const MarketingDashboard: React.FC = () => {
       console.error('Erro ao atualizar todos os caches:', err);
       setFullRefreshing(false);
       setRefreshProgress(null);
+      opLog_add('error', 'Falha ao conectar com o servidor.');
+      opLog_finish('error');
       showRefreshResult('error');
       setError('Erro ao conectar com o servidor para iniciar a atualização.');
     }
@@ -1429,6 +1589,11 @@ const MarketingDashboard: React.FC = () => {
       </div>
       </div>
     </div>
+
+    <OperationLogPanel
+      operation={opLog}
+      onDismiss={() => setOpLog(null)}
+    />
   );
 };
 
