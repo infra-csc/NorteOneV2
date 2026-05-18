@@ -836,6 +836,7 @@ const MarketingDashboard: React.FC = () => {
   };
 
   return (
+    <>
     <div className="min-h-screen">
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className={`absolute top-0 left-1/4 w-96 h-96 ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'} rounded-full blur-3xl animate-pulse`} />
@@ -1594,6 +1595,7 @@ const MarketingDashboard: React.FC = () => {
       operation={opLog}
       onDismiss={() => setOpLog(null)}
     />
+    </>
   );
 };
 

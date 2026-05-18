@@ -4993,6 +4993,11 @@ def _refresh_d_minus_in_cached_eventos(cached: dict, cache_key: str) -> dict:
         if new_d_ins != d_ins or new_d_evt != d_evt:
             ev = {**ev, "dMinusInscricoes": new_d_ins, "dMinus": new_d_evt}
             changed = True
+        # Atualiza isActive com base no delta cru: D-0 (fecha hoje) = ativo
+        new_is_active = new_d_ins_raw >= 0
+        if ev.get("isActive") != new_is_active:
+            ev = {**ev, "isActive": new_is_active}
+            changed = True
         new_eventos.append(ev)
     if not changed:
         return cached
@@ -5500,7 +5505,13 @@ def get_marketing_events(
         dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
         d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
-        is_active = d_minus_inscricoes > 0
+        # is_active usa delta cru (sem max(0,…)) para incluir eventos com D-0
+        # (inscrições fechando hoje). calculate_d_minus clamp a 0, então D-0
+        # e D-negativo retornam 0 — precisamos da comparação de data direta.
+        is_active = bool(
+            projeto_data_evento and
+            (projeto_data_evento - timedelta(days=dias_enc)) >= today_brazil()
+        )
         grupo_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
         
         if status == 'active' and not is_active:
@@ -5674,7 +5685,10 @@ def get_marketing_events(
         dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=cad)
         d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
-        is_active = d_minus_inscricoes > 0
+        is_active = bool(
+            projeto_data_evento and
+            (projeto_data_evento - timedelta(days=dias_enc)) >= today_brazil()
+        )
         standalone_regime = get_data_regime(projeto_data_evento, dias_enc) if projeto_data_evento else "live"
         
         if status == 'active' and not is_active:
@@ -12090,7 +12104,10 @@ def get_pricing_analysis(
         dias_enc = get_dias_encerramento(db, projeto_id=rep_projeto.id, cadastro=rep_cadastro) if rep_projeto else 2
         d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
-        is_active = d_minus_inscricoes > 0
+        is_active = bool(
+            projeto_data_evento and
+            (projeto_data_evento - timedelta(days=dias_enc)) >= today_brazil()
+        )
         
         if status == 'active' and not is_active:
             continue
@@ -12218,7 +12235,10 @@ def get_pricing_analysis(
         dias_enc = get_dias_encerramento(db, projeto_id=projeto.id, cadastro=cad)
         d_minus_inscricoes = calculate_d_minus(projeto_data_evento, dias_encerramento=dias_enc) if projeto_data_evento else 0
         d_minus = calculate_d_minus(projeto_data_evento, dias_encerramento=0) if projeto_data_evento else 0
-        is_active = d_minus_inscricoes > 0
+        is_active = bool(
+            projeto_data_evento and
+            (projeto_data_evento - timedelta(days=dias_enc)) >= today_brazil()
+        )
         
         if status == 'active' and not is_active:
             continue
