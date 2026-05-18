@@ -23,6 +23,14 @@ api.interceptors.response.use(
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
+    if (error.response?.status === 429) {
+      const retryAfter = error.response.data?.retry_after ?? 60;
+      const detail = error.response.data?.detail ?? `Muitas requisições. Aguarde ${retryAfter}s.`;
+      const enriched = new Error(detail) as Error & { isRateLimit: boolean; retryAfter: number };
+      enriched.isRateLimit = true;
+      enriched.retryAfter = retryAfter;
+      return Promise.reject(enriched);
+    }
     return Promise.reject(error);
   }
 );
@@ -40,7 +48,12 @@ export const authService = {
   getMe: async () => {
     const response = await api.get('/auth/me');
     return response.data;
-  }
+  },
+  logout: async (token: string) => {
+    await api.post('/auth/logout', null, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  },
 };
 
 interface DashboardFilters {

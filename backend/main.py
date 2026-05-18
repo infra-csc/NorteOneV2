@@ -155,6 +155,25 @@ def _scheduled_margem_rev_safety_check():
             db.close()
 
 
+def _scheduled_cleanup_sessions():
+    """Remove sessões expiradas da tabela user_sessions (roda diariamente)."""
+    from app.core.database import SessionLocal
+    from app.models.user_session import UserSession
+    from datetime import datetime
+    db = None
+    try:
+        db = SessionLocal()
+        deleted = db.query(UserSession).filter(UserSession.expires_at < datetime.utcnow()).delete()
+        db.commit()
+        if deleted:
+            logger.info(f"[SessionCleanup] {deleted} sessões expiradas removidas.")
+    except Exception as e:
+        logger.error(f"[SessionCleanup] Erro na limpeza de sessões: {e}")
+    finally:
+        if db:
+            db.close()
+
+
 def _scheduled_nori_insights():
     from app.core.database import SessionLocal
     import asyncio as _aio
@@ -1407,6 +1426,7 @@ async def lifespan(app: FastAPI):
     cache_scheduler.register(_scheduled_isc_refresh)
     cache_scheduler.register(_scheduled_sincronizar_hoje)
     cache_scheduler.register(_scheduled_margem_rev_safety_check)
+    cache_scheduler.register(_scheduled_cleanup_sessions)
     # NOTE: _scheduled_nori_insights is also registered with cache_scheduler for
     # periodic execution, but since the daily 05:00 BRT path uses _full_refresh_callback
     # and skips _refresh_callbacks, we add a dedicated daily timer at 05:30 BRT.
@@ -1444,6 +1464,7 @@ async def lifespan(app: FastAPI):
             from app.models import system_health as _sh_models  # noqa: F401 — ensure health tables are registered
             from app.models import projecao as _proj_models  # noqa: F401 — ensure projecao tables are registered
             from app.models import evento_detail_snapshot as _eds_models  # noqa: F401 — ensure detail snapshot table is registered
+            from app.models import user_session as _us_models  # noqa: F401 — ensure user_sessions table is registered
             if engine:
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()
@@ -1906,6 +1927,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Data-Stale"],
 )
+
+from app.core.rate_limit import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware, secret_key=app_settings.SECRET_KEY, algorithm=app_settings.ALGORITHM)
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
