@@ -58,6 +58,52 @@ def get_sync_hoje_running_by() -> Optional[str]:
     return _SYNC_HOJE_RUNNING_BY
 
 
+# ---------------------------------------------------------------------------
+# Global sync pause flag
+# Quando ativo, os batch jobs verificam este flag entre iterações de grupo
+# e interrompem antecipadamente, registrando status "interrompido".
+# ---------------------------------------------------------------------------
+_SYNC_PAUSED: bool = False
+_SYNC_PAUSED_BY: Optional[str] = None
+_SYNC_PAUSED_AT: Optional[datetime] = None
+_sync_paused_lock = threading.Lock()
+
+
+def pause_sync(by: str = "usuario") -> None:
+    """Ativa o flag de pausa global dos jobs de sincronização."""
+    global _SYNC_PAUSED, _SYNC_PAUSED_BY, _SYNC_PAUSED_AT
+    with _sync_paused_lock:
+        _SYNC_PAUSED = True
+        _SYNC_PAUSED_BY = by
+        _SYNC_PAUSED_AT = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    logger.warning(f"[SyncPause] Execuções de sync pausadas por '{by}'")
+
+
+def resume_sync(by: str = "usuario") -> None:
+    """Desativa o flag de pausa global dos jobs de sincronização."""
+    global _SYNC_PAUSED, _SYNC_PAUSED_BY, _SYNC_PAUSED_AT
+    with _sync_paused_lock:
+        _SYNC_PAUSED = False
+        _SYNC_PAUSED_BY = None
+        _SYNC_PAUSED_AT = None
+    logger.info(f"[SyncPause] Execuções de sync retomadas por '{by}'")
+
+
+def is_sync_paused() -> bool:
+    """Retorna True se os jobs de sincronização estão pausados."""
+    return _SYNC_PAUSED
+
+
+def get_sync_pause_info() -> dict:
+    """Retorna informações sobre o estado de pausa atual."""
+    with _sync_paused_lock:
+        return {
+            "paused": _SYNC_PAUSED,
+            "by": _SYNC_PAUSED_BY,
+            "since": _SYNC_PAUSED_AT.isoformat() if _SYNC_PAUSED_AT else None,
+        }
+
+
 _full_refresh_pending = False  # outra rodada enfileirada enquanto a atual estiver em andamento
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None

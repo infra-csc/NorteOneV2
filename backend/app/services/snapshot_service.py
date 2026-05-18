@@ -808,6 +808,14 @@ def snapshot_diario_batch(db: Session):
 
     grupos_processados = set()
     for grupo in grupos_candidatos:
+        from ..core.cache import is_sync_paused
+        if is_sync_paused():
+            logger.warning(f"snapshot_diario_batch: pausa ativada — interrompendo após {len(grupos_processados)} grupos")
+            log_evento(_ciclo, "snapshot_diario_batch", "interrompido", nivel="ciclo",
+                       detalhes=f"Pausa manual após {len(grupos_processados)} grupos processados",
+                       duracao_ms=int((_t_batch.time() - _t_start) * 1000))
+            return len(grupos_processados)
+
         if grupo in grupos_processados:
             continue
         grupos_processados.add(grupo)
@@ -1269,6 +1277,14 @@ def sincronizar_hoje_batch(db: Session) -> int:
     failed = 0
     skipped_unhealthy = 0
     for grupo, ids in grupos.items():
+        from ..core.cache import is_sync_paused
+        if is_sync_paused():
+            logger.warning(f"sincronizar_hoje_batch: pausa ativada — interrompendo após {synced + partial_synced} grupos")
+            _le_hj(_ciclo_hj, "sincronizar_hoje_batch", "interrompido", nivel="ciclo",
+                   detalhes=f"Pausa manual após {synced + partial_synced} grupos sincronizados",
+                   duracao_ms=int((_t_hj.time() - _t_hj_start) * 1000))
+            return synced
+
         grupo_needs_ativo = bool(ids["ativo_ids"])
         grupo_needs_magento = bool(ids["magento_ids"])
 

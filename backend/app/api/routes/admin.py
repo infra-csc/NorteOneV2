@@ -535,6 +535,35 @@ def update_alert_config(
     return {"status": "ok", "message": "Configuração salva com sucesso"}
 
 
+@router.post("/sync/pause")
+def pause_sync_jobs(
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Pausa a execução dos jobs de sincronização entre iterações de grupo."""
+    from ...core.cache import pause_sync
+    pause_sync(by=f"{current_user.nome} ({current_user.email})")
+    return {"status": "paused", "message": "Jobs de sincronização pausados. A pausa será aplicada na próxima iteração de cada job em execução."}
+
+
+@router.post("/sync/resume")
+def resume_sync_jobs(
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Retoma a execução dos jobs de sincronização."""
+    from ...core.cache import resume_sync
+    resume_sync(by=f"{current_user.nome} ({current_user.email})")
+    return {"status": "active", "message": "Jobs de sincronização retomados."}
+
+
+@router.get("/sync/pause-status")
+def get_sync_pause_status(
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Retorna o estado atual de pausa dos jobs de sincronização."""
+    from ...core.cache import get_sync_pause_info
+    return get_sync_pause_info()
+
+
 @router.post("/alert-config/test")
 def test_alert(
     db: Session = Depends(get_db),
