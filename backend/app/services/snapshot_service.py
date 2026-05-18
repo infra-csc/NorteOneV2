@@ -527,17 +527,19 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             )
 
     # Para rebuilds completos de um ano específico, limita os fetches ao início
-    # daquele ano — evita varredura do histórico inteiro no Magento/Ativo, que
-    # causa timeout em eventos grandes (ex: Girl Power, B2Run).
-    # O snapshot é sempre por-ano, então dados anteriores a `ano` não são relevantes.
+    # do ANO ANTERIOR — evita varredura do histórico inteiro no Magento/Ativo,
+    # que causa timeout em eventos grandes (ex: Girl Power, B2Run).
+    # Usamos ano-1 (não ano) para capturar vendas de early bird que costumam
+    # abrir em set/out do ano anterior (ex: inscrições 2026 abertas em 2025).
+    # Uma janela de ~24 meses cobre qualquer cenário real de abertura antecipada.
     # Nota: usa _fetch_data_floor apenas nos fetches; data_floor original (None)
     # é preservado para os logs e para o modo incremental.
     _fetch_data_floor = data_floor
     if _fetch_data_floor is None and ano:
-        _fetch_data_floor = date(ano, 1, 1)
+        _fetch_data_floor = date(ano - 1, 1, 1)
         logger.info(
             f"[Snapshot] grupo='{evento_grupo}' ano={ano}: fetch limitado a {_fetch_data_floor} "
-            f"(full rebuild com piso de ano)"
+            f"(full rebuild — janela 2 anos para capturar early bird)"
         )
 
     # Best-effort: if upstream engines went idle / disposed (common in autoscale
