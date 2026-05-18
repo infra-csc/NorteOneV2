@@ -4152,7 +4152,7 @@ def get_detalhe_vendas_ativo(
 _isc_cache = {}
 _isc_cache_timestamp = None
 
-from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL, get_last_sync_hoje
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL, get_last_sync_hoje, try_acquire_sync_hoje, release_sync_hoje, is_sync_hoje_running, get_sync_hoje_running_by
 from ...core.resilience import CircuitBreaker, CircuitOpenError, CoalescingCache
 
 # Circuit breakers protect the upstream MySQL pools from being hammered when
@@ -10715,6 +10715,17 @@ def atualizar_vendas_hoje(
             detail="Este evento não possui grupo mapeado. A atualização de hoje requer um grupo para persistir o snapshot."
         )
 
+    # Bloqueia se uma sincronização global (sync-hoje ou loop automático) já está
+    # em execução. Evita que múltiplos usuários disparem queries ao Magento/Ativo
+    # simultaneamente — o sync global já vai atualizar todos os eventos de uma vez.
+    if is_sync_hoje_running():
+        quem = get_sync_hoje_running_by() or "sistema"
+        from fastapi.responses import JSONResponse as _JR_ah
+        return _JR_ah(status_code=409, content={
+            "status": "busy",
+            "message": f"Sincronização global em andamento (por {quem}). Os dados serão atualizados em instantes — tente novamente em alguns segundos.",
+        })
+
     # Single-flight: if many users click "Atualizar Hoje" for the same event
     # within a short window, only the first request actually runs the fetch +
     # snapshot UPSERT. All other concurrent requests wait briefly and reuse
@@ -11206,11 +11217,23 @@ def sync_hoje_todos(
     from app.core.cache import set_last_sync_hoje as _set_lsh
     import time as _time_lsh
 
+    caller_name = getattr(current_user, "nome", None) or getattr(current_user, "email", "admin")
+
+    if not try_acquire_sync_hoje(caller_name):
+        quem = get_sync_hoje_running_by() or "outro usuário"
+        from fastapi.responses import JSONResponse as _JR
+        return _JR(status_code=409, content={
+            "status": "busy",
+            "message": f"Sincronização já em andamento (iniciada por {quem}). Aguarde o término antes de tentar novamente.",
+            "synced": 0,
+        })
     try:
         synced = sincronizar_hoje_batch(db)
     except Exception as e:
         logger.error(f"sync-hoje: erro em sincronizar_hoje_batch: {e}")
         return {"status": "error", "message": str(e), "synced": 0}
+    finally:
+        release_sync_hoje()
 
     # Atualiza o carimbo "Inscrições às HH:MM" para refletir o horário do clique
     # — caso contrário o badge fica preso no último tick automático do agendador.

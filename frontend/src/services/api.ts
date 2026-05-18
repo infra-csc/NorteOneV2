@@ -31,6 +31,12 @@ api.interceptors.response.use(
       enriched.retryAfter = retryAfter;
       return Promise.reject(enriched);
     }
+    if (error.response?.status === 409) {
+      const msg = error.response.data?.message ?? 'Operação já em andamento. Aguarde o término e tente novamente.';
+      const enriched = new Error(msg) as Error & { isBusy: boolean };
+      enriched.isBusy = true;
+      return Promise.reject(enriched);
+    }
     return Promise.reject(error);
   }
 );

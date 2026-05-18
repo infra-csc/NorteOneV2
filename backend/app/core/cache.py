@@ -18,6 +18,46 @@ _last_full_refresh_timestamp = None
 _last_sync_hoje_timestamp = None
 _last_sync_hoje_lock = threading.Lock()
 _full_refresh_in_progress = False
+
+# ---------------------------------------------------------------------------
+# Global "sincronizar hoje" mutex
+# Garante que apenas UMA operação de sync-hoje rode por vez, seja via
+# endpoint manual, por evento, ou pelo loop automático de 20 minutos.
+# ---------------------------------------------------------------------------
+_SYNC_HOJE_GLOBAL_LOCK = threading.Lock()
+_SYNC_HOJE_RUNNING_BY: Optional[str] = None
+
+
+def try_acquire_sync_hoje(caller: str = "sistema") -> bool:
+    """Tenta adquirir o lock global de sync-hoje.
+    Retorna True se o lock foi adquirido, False se já está em uso."""
+    global _SYNC_HOJE_RUNNING_BY
+    acquired = _SYNC_HOJE_GLOBAL_LOCK.acquire(blocking=False)
+    if acquired:
+        _SYNC_HOJE_RUNNING_BY = caller
+    return acquired
+
+
+def release_sync_hoje() -> None:
+    """Libera o lock global de sync-hoje."""
+    global _SYNC_HOJE_RUNNING_BY
+    _SYNC_HOJE_RUNNING_BY = None
+    try:
+        _SYNC_HOJE_GLOBAL_LOCK.release()
+    except RuntimeError:
+        pass
+
+
+def is_sync_hoje_running() -> bool:
+    """Retorna True se uma sincronização de hoje está em andamento."""
+    return _SYNC_HOJE_GLOBAL_LOCK.locked()
+
+
+def get_sync_hoje_running_by() -> Optional[str]:
+    """Retorna o identificador de quem está rodando o sync-hoje atual."""
+    return _SYNC_HOJE_RUNNING_BY
+
+
 _full_refresh_pending = False  # outra rodada enfileirada enquanto a atual estiver em andamento
 _full_refresh_lock = threading.Lock()
 _full_warmup_fn = None

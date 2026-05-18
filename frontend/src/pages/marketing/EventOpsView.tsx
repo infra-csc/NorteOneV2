@@ -206,10 +206,14 @@ const EventOpsView: React.FC = () => {
       });
       setRefreshOk(true);
       setTimeout(() => setRefreshOk(false), 3500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Falha ao atualizar hoje (ops):', err);
-      setError('Não foi possível atualizar agora. Tente de novo em instantes.');
-      setTimeout(() => setError(null), 4000);
+      if (err?.isBusy) {
+        setError(err.message || 'Sincronização já em andamento. Os dados serão atualizados em instantes.');
+      } else {
+        setError('Não foi possível atualizar agora. Tente de novo em instantes.');
+      }
+      setTimeout(() => setError(null), 6000);
     } finally {
       setRefreshing(false);
     }

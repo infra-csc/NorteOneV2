@@ -96,16 +96,11 @@ def _scheduled_sincronizar_hoje():
 # HOJE_SYNC_INTERVAL_MINUTES (padrão 20), os inscritos de hoje sejam
 # buscados nas fontes (Ativo + Magento) e gravados no snapshot.
 # ────────────────────────────────────────────────────────────────
-_HOJE_SYNC_LOCK = None  # inicializado em _start_hoje_sync_loop
-
-
 def _start_hoje_sync_loop():
     import os as _os
     import time as _time
     import threading as _thr
-
-    global _HOJE_SYNC_LOCK
-    _HOJE_SYNC_LOCK = _thr.Lock()
+    from app.core.cache import try_acquire_sync_hoje, release_sync_hoje
 
     interval_min = max(5, int(_os.getenv("HOJE_SYNC_INTERVAL_MINUTES", "20")))
     interval_sec = interval_min * 60
@@ -116,8 +111,8 @@ def _start_hoje_sync_loop():
         logger.info(f"[HojeSyncLoop] Loop iniciado — intervalo: {interval_min} min")
         while True:
             _time.sleep(interval_sec)
-            if not _HOJE_SYNC_LOCK.acquire(blocking=False):
-                logger.debug("[HojeSyncLoop] Sync anterior ainda em execução — pulando tick")
+            if not try_acquire_sync_hoje("loop-automático"):
+                logger.debug("[HojeSyncLoop] Sync já em execução (manual ou outro tick) — pulando tick")
                 continue
             try:
                 logger.info("[HojeSyncLoop] Iniciando sync de inscritos de hoje...")
@@ -125,7 +120,7 @@ def _start_hoje_sync_loop():
             except Exception as _loop_e:
                 logger.error(f"[HojeSyncLoop] Erro inesperado: {_loop_e}")
             finally:
-                _HOJE_SYNC_LOCK.release()
+                release_sync_hoje()
 
     t = _thr.Thread(target=_loop, daemon=True, name="hoje-sync-loop")
     t.start()

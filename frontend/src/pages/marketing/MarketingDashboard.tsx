@@ -207,7 +207,7 @@ const MarketingDashboard: React.FC = () => {
   const [syncingHoje, setSyncingHoje] = useState(false);
   const [rebuildingSnapshots, setRebuildingSnapshots] = useState(false);
   const [rebuildResult, setRebuildResult] = useState<'success' | 'error' | null>(null);
-  const [syncHojeResult, setSyncHojeResult] = useState<'success' | 'error' | null>(null);
+  const [syncHojeResult, setSyncHojeResult] = useState<'success' | 'error' | 'busy' | null>(null);
   const [bgRefreshing, setBgRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState<{step: number; total_steps: number; label: string; elapsed_seconds: number | null; sub_current?: number; sub_total?: number} | null>(null);
   const [refreshResult, setRefreshResult] = useState<'success' | 'error' | 'timeout' | null>(null);
@@ -423,8 +423,12 @@ const MarketingDashboard: React.FC = () => {
       } else {
         setSyncHojeResult('error');
       }
-    } catch {
-      setSyncHojeResult('error');
+    } catch (err: any) {
+      if (err?.isBusy) {
+        setSyncHojeResult('busy');
+      } else {
+        setSyncHojeResult('error');
+      }
     } finally {
       setSyncingHoje(false);
       setTimeout(() => setSyncHojeResult(null), 5000);
@@ -800,13 +804,17 @@ const MarketingDashboard: React.FC = () => {
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm ${
                   syncHojeResult === 'success'
                     ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                    : syncHojeResult === 'error'
-                      ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                      : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+                    : syncHojeResult === 'busy'
+                      ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                      : syncHojeResult === 'error'
+                        ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'
                 } ${(syncingHoje || fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {syncHojeResult === 'success' ? (
                   <CheckCircle className="w-3.5 h-3.5" />
+                ) : syncHojeResult === 'busy' ? (
+                  <Clock className="w-3.5 h-3.5" />
                 ) : syncHojeResult === 'error' ? (
                   <XCircle className="w-3.5 h-3.5" />
                 ) : (
@@ -815,11 +823,13 @@ const MarketingDashboard: React.FC = () => {
                 <span className="font-medium">
                   {syncHojeResult === 'success'
                     ? 'Sincronizado!'
-                    : syncHojeResult === 'error'
-                      ? 'Falha'
-                      : syncingHoje
-                        ? 'Sincronizando...'
-                        : 'Sincronizar Hoje'}
+                    : syncHojeResult === 'busy'
+                      ? 'Em andamento...'
+                      : syncHojeResult === 'error'
+                        ? 'Falha'
+                        : syncingHoje
+                          ? 'Sincronizando...'
+                          : 'Sincronizar Hoje'}
                 </span>
               </button>
               {fullRefreshing && refreshProgress && refreshProgress.elapsed_seconds != null && (
