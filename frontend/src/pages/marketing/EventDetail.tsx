@@ -307,6 +307,7 @@ const EventDetail: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncErrorMsg, setSyncErrorMsg] = useState<string | null>(null);
+  const [syncStartTime, setSyncStartTime] = useState<number | undefined>(undefined);
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
@@ -689,6 +690,7 @@ const EventDetail: React.FC = () => {
     setRefreshError(null);
     setSyncResult(null);
     setSyncErrorMsg(null);
+    setSyncStartTime(Date.now());
     setSyncStatus('loading');
     setShowSyncModal(true);
     try {
@@ -1361,6 +1363,7 @@ const EventDetail: React.FC = () => {
         result={syncResult}
         errorMsg={syncErrorMsg}
         onClose={() => setShowSyncModal(false)}
+        startTime={syncStartTime}
       />
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className={`absolute top-0 left-1/4 w-96 h-96 ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'} rounded-full blur-3xl animate-pulse`} />

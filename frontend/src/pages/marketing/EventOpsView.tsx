@@ -91,6 +91,7 @@ const EventOpsView: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [syncErrorMsg, setSyncErrorMsg] = useState<string | null>(null);
+  const [syncStartTime, setSyncStartTime] = useState<number | undefined>(undefined);
   const [salesAvg, setSalesAvg] = useState<{ media: number; periodo: number; label: string }[]>([]);
   const [hojeTotal, setHojeTotal] = useState<number | null>(null);
   const [showActionModal, setShowActionModal] = useState(false);
@@ -188,6 +189,7 @@ const EventOpsView: React.FC = () => {
     setRefreshOk(false);
     setSyncResult(null);
     setSyncErrorMsg(null);
+    setSyncStartTime(Date.now());
     setSyncStatus('loading');
     setShowSyncModal(true);
     try {
@@ -358,6 +360,7 @@ const EventOpsView: React.FC = () => {
         result={syncResult}
         errorMsg={syncErrorMsg}
         onClose={() => setShowSyncModal(false)}
+        startTime={syncStartTime}
       />
       {/* Sticky header */}
       <div className="sticky top-0 z-20 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
