@@ -739,11 +739,20 @@ const EventDetail: React.FC = () => {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
-        fetchEventRef.current?.(true, false, true);
+        // Delay o primeiro re-fetch para dar tempo ao recompute em background
+        // (disparado pelo backend imediatamente após o sync) de concluir.
+        // O re-fetch imediato devolvia o snapshot stale e sobrescrevia "Vendas Hoje"
+        // com 0, anulando a atualização manual correta feita acima.
         staleRetryTimerRef.current = setTimeout(() => {
           staleRetryTimerRef.current = null;
-          fetchEventRef.current?.(true, true);
-        }, 15000);
+          fetchEventRef.current?.(true, false, true);
+          // Segunda rodada silenciosa após mais 12s (total ~16s) para pegar
+          // qualquer dado que o recompute completo tenha atualizado.
+          staleRetryTimerRef.current = setTimeout(() => {
+            staleRetryTimerRef.current = null;
+            fetchEventRef.current?.(true, true);
+          }, 12000);
+        }, 4000);
       }
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);

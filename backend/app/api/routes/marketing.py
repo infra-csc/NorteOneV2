@@ -11209,12 +11209,41 @@ def _atualizar_hoje_inner(
 
     # Invalidate the eventos list cache so the main table shows fresh counts immediately,
     # and the ISC cache so projected totals reflect the new today-sync data.
+    # Also invalidate the event_detail_cache so the next fetch returns fresh data.
     try:
         eventos_list_cache.invalidate()
         _smart_isc_cache.invalidate()
-        logger.info(f"atualizar-hoje: eventos_list and ISC caches invalidated for {evento_id}")
+        event_detail_cache.invalidate(f"{ano}_{evento_id}_detail")
+        logger.info(f"atualizar-hoje: caches invalidated for {evento_id}")
     except Exception as _ci:
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
+
+    # Trigger an immediate background recompute of the event detail snapshot so that
+    # subsequent fetches from the frontend (even the first one right after sync) get
+    # fresh fully-computed data instead of the stale persisted snapshot.
+    if all_sources_ok or sync_partial:
+        try:
+            import threading as _thread_detail_ah
+            def _bg_recompute_detail_ah():
+                from ...core.database import SessionLocal as _BRD_SL_ah
+                _brd_db = _BRD_SL_ah()
+                try:
+                    get_marketing_event_by_id(
+                        evento_id=evento_id,
+                        ano=ano,
+                        force_refresh=True,
+                        force_magento_refresh=False,
+                        db=_brd_db,
+                        current_user=None,
+                    )
+                except Exception as _brd_e:
+                    logger.warning(f"atualizar-hoje: bg detail recompute falhou para {evento_id}: {_brd_e}")
+                finally:
+                    _brd_db.close()
+            _thread_detail_ah.Thread(target=_bg_recompute_detail_ah, daemon=True).start()
+            logger.info(f"atualizar-hoje: bg detail recompute enqueued for {evento_id}")
+        except Exception as _brd_start_e:
+            logger.warning(f"atualizar-hoje: erro ao enfileirar recompute detail: {_brd_start_e}")
 
     # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do evento
     # para refletir a hora do clique. Faz isso quando pelo menos uma fonte

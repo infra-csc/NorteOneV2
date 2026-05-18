@@ -49,12 +49,33 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
     """
     if not isinstance(payload, dict):
         return payload
-    if not evento_id or not evento_id.startswith("grp_"):
-        # Standalone events (numeric ID) não têm overlay simples — snapshot do
-        # scheduler (a cada 30 min) é suficiente. Retorna sem alterar.
-        return payload
 
-    grupo_nome = evento_id[4:]
+    if evento_id and evento_id.startswith("grp_"):
+        grupo_nome = evento_id[4:]
+    else:
+        # Standalone events (numeric ID): resolve grupo_nome via DimProjeto → SkuMapping
+        grupo_nome = None
+        try:
+            numeric_id = int(evento_id)
+            from ..models.dimensoes import DimProjeto as _DP_ov, SkuMapping as _SM_ov
+            _proj_ov = db.query(_DP_ov).filter(_DP_ov.id == numeric_id).first()
+            if _proj_ov and _proj_ov.codigo:
+                _sm_ov = (
+                    db.query(_SM_ov)
+                    .filter(
+                        _SM_ov.sku == str(_proj_ov.codigo),
+                        _SM_ov.evento_grupo.isnot(None),
+                        _SM_ov.ativo == True,  # noqa: E712
+                    )
+                    .order_by(_SM_ov.ano.desc())
+                    .first()
+                )
+                if _sm_ov:
+                    grupo_nome = _sm_ov.evento_grupo
+        except Exception as _e_ov:
+            logger.debug(f"[Overlay] standalone lookup failed for '{evento_id}': {_e_ov}")
+        if not grupo_nome:
+            return payload
     # Usa data BRT para evitar off-by-one em torno de meia-noite UTC.
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     today_str = today.isoformat()
