@@ -6899,6 +6899,7 @@ def _fetch_daily_sales_magento_by_ids_grouped(magento_event_ids: list, cortesia_
         AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         THEN 1 END"""
+        _floor_clause = "AND so.created_at >= :data_floor" if data_floor else ""
         query = text(f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     cpev1.value AS id_evento,
@@ -6918,10 +6919,10 @@ WHERE
     AND cpev1.value IN :magento_event_ids
     AND so.increment_id NOT REGEXP '-[0-9]'
     AND so.created_at < CURDATE() + INTERVAL 1 DAY
-    {floor_clause}
+    {_floor_clause}
 GROUP BY cpev1.value, DATE(so.created_at)
 ORDER BY cpev1.value, dia
-""".replace("{floor_clause}", "AND so.created_at >= :data_floor" if data_floor else ""))
+""")
         if safe_cort_ids is not None:
             query = query.bindparams(
                 bindparam("magento_event_ids", expanding=True),
