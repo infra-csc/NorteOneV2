@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { adminService } from '../../services/api';
 import { useTheme } from '../../context/ThemeContext';
 import {
   RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
-  XCircle, MinusCircle, Clock, Activity, Loader2, PauseCircle, PlayCircle, StopCircle
+  XCircle, MinusCircle, Clock, Activity, Loader2, PauseCircle, PlayCircle,
+  StopCircle, ArrowRight
 } from 'lucide-react';
 
 interface SyncCycle {
@@ -40,33 +41,36 @@ interface SyncEvent {
 }
 
 const STATUS_BADGE: Record<string, { label: string; cls: string; Icon: any }> = {
-  ok: { label: 'OK', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400', Icon: CheckCircle2 },
-  concluido: { label: 'Concluído', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400', Icon: CheckCircle2 },
-  parcial: { label: 'Parcial', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400', Icon: AlertTriangle },
-  falha: { label: 'Falha', cls: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', Icon: XCircle },
-  pulado: { label: 'Pulado', cls: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', Icon: MinusCircle },
-  iniciado: { label: 'Em execução', cls: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400', Icon: Loader2 },
-  interrompido: { label: 'Interrompido', cls: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400', Icon: AlertTriangle },
+  ok:           { label: 'OK',           cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400', Icon: CheckCircle2 },
+  concluido:    { label: 'Concluído',    cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400', Icon: CheckCircle2 },
+  parcial:      { label: 'Parcial',      cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',         Icon: AlertTriangle },
+  falha:        { label: 'Falha',        cls: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',                 Icon: XCircle },
+  pulado:       { label: 'Pulado',       cls: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',               Icon: MinusCircle },
+  iniciado:     { label: 'Em execução', cls: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',              Icon: Loader2 },
+  inicio:       { label: 'Iniciado',     cls: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',               Icon: ArrowRight },
+  interrompido: { label: 'Interrompido', cls: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400',     Icon: AlertTriangle },
 };
 
 const MOTIVO_LABELS: Record<string, string> = {
-  magento_timeout: 'Timeout no Magento',
-  conexao_perdida: 'Conexão perdida',
-  ssh_down: 'Túnel SSH indisponível',
-  circuit_aberto: 'Circuit breaker aberto',
-  pool_exaurido: 'Pool de conexões esgotado',
-  erro_operacional: 'Erro operacional',
-  timeout: 'Timeout',
-  sem_mapeamento: 'Sem mapeamento',
-  erro_generico: 'Erro genérico',
-  fonte_indisponivel: 'Fonte indisponível',
+  magento_timeout:      'Timeout no Magento',
+  magento_indisponivel: 'Magento indisponível',
+  ativo_indisponivel:   'Ativo indisponível',
+  conexao_perdida:      'Conexão perdida',
+  ssh_down:             'Túnel SSH indisponível',
+  circuit_aberto:       'Circuit breaker aberto',
+  pool_exaurido:        'Pool de conexões esgotado',
+  erro_operacional:     'Erro operacional',
+  timeout:              'Timeout',
+  sem_mapeamento:       'Sem mapeamento',
+  erro_generico:        'Erro genérico',
+  fonte_indisponivel:   'Fonte indisponível',
 };
 
 const JOB_LABELS: Record<string, string> = {
-  sincronizar_hoje_batch: 'Sincronização de hoje',
-  snapshot_diario_batch: 'Snapshot diário',
-  consolidar_vendas_grupo: 'Consolidação por grupo',
-  atualizar_hoje: 'Atualizar Hoje (manual)',
+  sincronizar_hoje_batch:   'Sincronização de hoje',
+  snapshot_diario_batch:    'Snapshot diário',
+  consolidar_vendas_grupo:  'Consolidação por grupo',
+  atualizar_hoje:           'Atualizar Hoje (manual)',
 };
 
 function fmtDateTime(iso: string | null): string {
@@ -88,13 +92,13 @@ function fmtDuration(ms: number | null): string {
   return `${m}min ${rs}s`;
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, spinning }: { status: string; spinning?: boolean }) {
   const cfg = STATUS_BADGE[status] || { label: status, cls: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', Icon: Activity };
   const Icon = cfg.Icon;
-  const spin = status === 'iniciado' ? 'animate-spin' : '';
+  const shouldSpin = spinning ?? (status === 'iniciado');
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${cfg.cls}`}>
-      <Icon className={`w-3 h-3 ${spin}`} />
+      <Icon className={`w-3 h-3 ${shouldSpin ? 'animate-spin' : ''}`} />
       {cfg.label}
     </span>
   );
@@ -117,6 +121,15 @@ const SincronizacoesPanel: React.FC = () => {
   const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
   const [interruptingCycles, setInterruptingCycles] = useState<Set<string>>(new Set());
 
+  // Track previous cycle states to detect "iniciado → final" transitions
+  const prevCyclesRef = useRef<SyncCycle[]>([]);
+  // Use a ref for expanded so fetchCycles can access it without being in deps
+  const expandedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
+
   const cardBase = isDark
     ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
     : 'bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm';
@@ -124,21 +137,52 @@ const SincronizacoesPanel: React.FC = () => {
   const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
   const selectClass = `text-sm rounded-lg px-3 py-1.5 border outline-none ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`;
 
+  const refreshDetail = useCallback(async (cicloId: string) => {
+    try {
+      const d = await adminService.getSyncCycleDetail(cicloId);
+      setDetails(prev => ({ ...prev, [cicloId]: d.events }));
+    } catch (e) {
+      console.error('detail refresh failed:', e);
+    }
+  }, []);
+
   const fetchCycles = useCallback(async () => {
-    setLoading(true);
     try {
       const data = await adminService.getSyncCycles({
         job: filterJob || undefined,
         status: filterStatus || undefined,
         limit: 100,
       });
-      setCycles(data.cycles || []);
+      const newCycles: SyncCycle[] = data.cycles || [];
+
+      // Auto-refresh detail for cycles that just transitioned from 'iniciado' → final
+      const transitions = newCycles.filter(c => {
+        const prev = prevCyclesRef.current.find(p => p.ciclo_id === c.ciclo_id);
+        return prev?.status === 'iniciado' && c.status !== 'iniciado';
+      });
+      // Also refresh detail of still-running expanded cycles (pick up new sub-events)
+      const runningExpanded = newCycles.filter(c =>
+        c.status === 'iniciado' && expandedRef.current.has(c.ciclo_id)
+      );
+
+      const toRefresh = new Set([
+        ...transitions.map(c => c.ciclo_id),
+        ...runningExpanded.map(c => c.ciclo_id),
+      ]);
+      toRefresh.forEach(id => {
+        if (expandedRef.current.has(id)) {
+          refreshDetail(id);
+        }
+      });
+
+      prevCyclesRef.current = newCycles;
+      setCycles(newCycles);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [filterJob, filterStatus]);
+  }, [filterJob, filterStatus, refreshDetail]);
 
   const fetchPauseStatus = useCallback(async () => {
     try {
@@ -151,9 +195,11 @@ const SincronizacoesPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    setLoading(true);
     fetchCycles();
     fetchPauseStatus();
-    const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 30000);
+    // Poll every 10s for better real-time feel (was 30s)
+    const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 10000);
     return () => clearInterval(it);
   }, [fetchCycles, fetchPauseStatus]);
 
@@ -264,16 +310,15 @@ const SincronizacoesPanel: React.FC = () => {
     }
     next.add(cicloId);
     setExpanded(next);
-    if (!details[cicloId]) {
-      setLoadingDetail(prev => new Set(prev).add(cicloId));
-      try {
-        const d = await adminService.getSyncCycleDetail(cicloId);
-        setDetails(prev => ({ ...prev, [cicloId]: d.events }));
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoadingDetail(prev => { const s = new Set(prev); s.delete(cicloId); return s; });
-      }
+    // Always fetch fresh detail when expanding (never serve a stale cache)
+    setLoadingDetail(prev => new Set(prev).add(cicloId));
+    try {
+      const d = await adminService.getSyncCycleDetail(cicloId);
+      setDetails(prev => ({ ...prev, [cicloId]: d.events }));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingDetail(prev => { const s = new Set(prev); s.delete(cicloId); return s; });
     }
   };
 
@@ -311,7 +356,7 @@ const SincronizacoesPanel: React.FC = () => {
               Ciclos de sincronização
             </h3>
             <p className={`text-xs ${textSecondary} mt-0.5`}>
-              Histórico dos jobs de sincronização (retenção 30 dias). Atualiza a cada 30s.
+              Histórico dos jobs de sincronização (retenção 30 dias). Atualiza a cada 10s.
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -321,6 +366,7 @@ const SincronizacoesPanel: React.FC = () => {
               className={selectClass}
             >
               <option value="">Todos os jobs</option>
+              <option value="atualizar_hoje">Atualizar Hoje (manual)</option>
               <option value="sincronizar_hoje_batch">Sincronização de hoje</option>
               <option value="snapshot_diario_batch">Snapshot diário</option>
               <option value="consolidar_vendas_grupo">Consolidação por grupo</option>
@@ -371,10 +417,10 @@ const SincronizacoesPanel: React.FC = () => {
               Interromper
             </button>
             <button
-              onClick={fetchCycles}
+              onClick={() => { setLoading(true); fetchCycles(); }}
               disabled={loading}
               className={`p-1.5 rounded-lg ${isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'} transition-colors disabled:opacity-50`}
-              title="Atualizar"
+              title="Atualizar agora"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -521,50 +567,14 @@ const SincronizacoesPanel: React.FC = () => {
                             ) : !cycleDetails || cycleDetails.length === 0 ? (
                               <div className={`text-center py-4 ${textSecondary}`}>Sem eventos registrados.</div>
                             ) : (
-                              <div className="overflow-x-auto">
-                                <div className={`text-xs ${textSecondary} mb-2`}>
-                                  ID do ciclo: <code className="font-mono">{c.ciclo_id}</code>
-                                </div>
-                                <table className="w-full text-xs">
-                                  <thead>
-                                    <tr className={`text-left ${textSecondary} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-                                      <th className="py-1.5 pr-2">Horário</th>
-                                      <th className="py-1.5 pr-2">Nível</th>
-                                      <th className="py-1.5 pr-2">Grupo</th>
-                                      <th className="py-1.5 pr-2">Fonte</th>
-                                      <th className="py-1.5 pr-2">Status</th>
-                                      <th className="py-1.5 pr-2">Qtd</th>
-                                      <th className="py-1.5 pr-2">Duração</th>
-                                      <th className="py-1.5 pr-2">Motivo / Detalhes</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {cycleDetails.map(ev => (
-                                      <tr key={ev.id} className={`border-b ${isDark ? 'border-gray-700/30' : 'border-gray-100'}`}>
-                                        <td className={`py-1.5 pr-2 ${textSecondary}`}>{fmtDateTime(ev.created_at)}</td>
-                                        <td className={`py-1.5 pr-2 ${textSecondary}`}>{ev.nivel}</td>
-                                        <td className={`py-1.5 pr-2 ${textPrimary}`}>{ev.grupo || '—'}</td>
-                                        <td className={`py-1.5 pr-2 ${textSecondary}`}>{ev.fonte || '—'}</td>
-                                        <td className="py-1.5 pr-2"><StatusBadge status={ev.status} /></td>
-                                        <td className={`py-1.5 pr-2 ${textSecondary}`}>
-                                          {ev.qtd_antes != null || ev.qtd_depois != null ? (
-                                            <>{ev.qtd_antes ?? '?'} → {ev.qtd_depois ?? '?'}</>
-                                          ) : '—'}
-                                        </td>
-                                        <td className={`py-1.5 pr-2 ${textSecondary}`}>{fmtDuration(ev.duracao_ms)}</td>
-                                        <td className={`py-1.5 pr-2 ${textSecondary} max-w-xl`}>
-                                          {ev.motivo && (
-                                            <span className="font-medium">{MOTIVO_LABELS[ev.motivo] || ev.motivo}</span>
-                                          )}
-                                          {ev.motivo && ev.detalhes && ' — '}
-                                          {ev.detalhes && <span className="break-words">{ev.detalhes}</span>}
-                                          {!ev.motivo && !ev.detalhes && '—'}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
+                              <DetailTable
+                                cycle={c}
+                                events={cycleDetails}
+                                isDark={isDark}
+                                textPrimary={textPrimary}
+                                textSecondary={textSecondary}
+                                onRefresh={() => refreshDetail(c.ciclo_id)}
+                              />
                             )}
                           </td>
                         </tr>
@@ -580,5 +590,98 @@ const SincronizacoesPanel: React.FC = () => {
     </div>
   );
 };
+
+interface DetailTableProps {
+  cycle: SyncCycle;
+  events: SyncEvent[];
+  isDark: boolean;
+  textPrimary: string;
+  textSecondary: string;
+  onRefresh: () => void;
+}
+
+function DetailTable({ cycle, events, isDark, textPrimary, textSecondary, onRefresh }: DetailTableProps) {
+  const cycleFinished = cycle.status !== 'iniciado';
+
+  // For completed cycles: hide ciclo-level "iniciado" entries — they're redundant
+  // (the cycle status is shown in the parent row) and confuse the status column
+  // by showing "Em execução" after the cycle is already done.
+  const visibleEvents = cycleFinished
+    ? events.filter(ev => !(ev.nivel === 'ciclo' && ev.status === 'iniciado'))
+    : events;
+
+  // For running cycles that have a ciclo-level "iniciado" entry, normalize its
+  // display to avoid duplicate "Em execução" — we use a softer "inicio" status
+  const displayEvents = visibleEvents.map(ev =>
+    (ev.nivel === 'ciclo' && ev.status === 'iniciado' && !cycleFinished)
+      ? { ...ev, status: 'inicio' }
+      : ev
+  );
+
+  return (
+    <div className="overflow-x-auto">
+      <div className={`flex items-center justify-between text-xs ${textSecondary} mb-2`}>
+        <span>
+          ID do ciclo: <code className="font-mono">{cycle.ciclo_id}</code>
+        </span>
+        <button
+          onClick={onRefresh}
+          title="Recarregar eventos deste ciclo"
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${isDark ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'} transition-colors`}
+        >
+          <RefreshCw className="w-3 h-3" />
+          Recarregar
+        </button>
+      </div>
+      {displayEvents.length === 0 ? (
+        <div className={`text-center py-3 ${textSecondary} text-xs`}>
+          Sem eventos de grupo registrados.
+        </div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className={`text-left ${textSecondary} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+              <th className="py-1.5 pr-2">Horário</th>
+              <th className="py-1.5 pr-2">Nível</th>
+              <th className="py-1.5 pr-2">Grupo</th>
+              <th className="py-1.5 pr-2">Fonte</th>
+              <th className="py-1.5 pr-2">Status</th>
+              <th className="py-1.5 pr-2">Qtd</th>
+              <th className="py-1.5 pr-2">Duração</th>
+              <th className="py-1.5 pr-2">Motivo / Detalhes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayEvents.map(ev => (
+              <tr key={ev.id} className={`border-b ${isDark ? 'border-gray-700/30' : 'border-gray-100'}`}>
+                <td className={`py-1.5 pr-2 ${textSecondary}`}>{fmtDateTime(ev.created_at)}</td>
+                <td className={`py-1.5 pr-2 ${textSecondary}`}>{ev.nivel}</td>
+                <td className={`py-1.5 pr-2 ${textPrimary}`}>{ev.grupo || '—'}</td>
+                <td className={`py-1.5 pr-2 ${textSecondary}`}>{ev.fonte || '—'}</td>
+                <td className="py-1.5 pr-2">
+                  <StatusBadge status={ev.status} spinning={ev.status === 'iniciado' && cycle.status === 'iniciado'} />
+                </td>
+                <td className={`py-1.5 pr-2 ${textSecondary}`}>
+                  {ev.qtd_antes != null || ev.qtd_depois != null ? (
+                    <>{ev.qtd_antes ?? '?'} → {ev.qtd_depois ?? '?'}</>
+                  ) : '—'}
+                </td>
+                <td className={`py-1.5 pr-2 ${textSecondary}`}>{fmtDuration(ev.duracao_ms)}</td>
+                <td className={`py-1.5 pr-2 ${textSecondary} max-w-xl`}>
+                  {ev.motivo && (
+                    <span className="font-medium">{MOTIVO_LABELS[ev.motivo] || ev.motivo}</span>
+                  )}
+                  {ev.motivo && ev.detalhes && ' — '}
+                  {ev.detalhes && <span className="break-words">{ev.detalhes}</span>}
+                  {!ev.motivo && !ev.detalhes && '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 export default SincronizacoesPanel;
