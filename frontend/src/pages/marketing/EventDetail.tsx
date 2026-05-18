@@ -727,9 +727,10 @@ const EventDetail: React.FC = () => {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
-        // Reload completo silencioso: atualiza dailySales, indicadores de volume,
-        // ISC components e todos os dados históricos sem mostrar spinner de loading.
-        fetchEventRef.current?.(true, true);
+        // Reload completo visível: força novo fetch do backend (bypassando cache
+        // e buscando dados frescos do Magento/Ativo) para atualizar o Controle
+        // Diário, indicadores de volume, ISC e todos os dados históricos.
+        fetchEventRef.current?.(true, false, true);
       }
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);

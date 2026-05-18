@@ -113,14 +113,14 @@ const EventOpsView: React.FC = () => {
     };
   }, []);
 
-  const loadEvent = useCallback(async () => {
+  const loadEvent = useCallback(async (forceRefresh = false) => {
     if (!id) return;
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     if (!event) setLoading(true);
     try {
-      const resp = await marketingService.getEventoById(id, controller.signal, anoParam);
+      const resp = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined, forceRefresh || undefined);
       if (controller.signal.aborted) return;
       if ((resp as any)?.status === 'preparing') {
         setError('Estamos preparando este evento. Aguarde alguns segundos e atualize.');
@@ -206,6 +206,9 @@ const EventOpsView: React.FC = () => {
       });
       setRefreshOk(true);
       setTimeout(() => setRefreshOk(false), 3500);
+      // Reload completo: busca dados frescos do backend para atualizar
+      // toda a seção do evento (Controle Diário, indicadores, etc.)
+      loadEvent(true);
     } catch (err: any) {
       console.error('Falha ao atualizar hoje (ops):', err);
       if (err?.isBusy) {
