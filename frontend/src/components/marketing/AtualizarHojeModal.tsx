@@ -16,6 +16,7 @@ export interface SyncResult {
   fontes_indisponiveis?: string[];
   ultima_atualizacao?: string;
   snapshot_bridge?: boolean;
+  snapshot_atualizado_em?: string | null;
 }
 
 interface Props {
@@ -274,9 +275,19 @@ function ResultCard({ result, status }: { result: SyncResult; status: SyncStatus
       </div>
 
       {bridge && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-          O Magento não respondeu ao vivo, mas o snapshot do batch anterior preservou os dados — total não foi reduzido.
-        </p>
+        <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 space-y-1">
+          <p>O Magento não respondeu ao vivo, mas o snapshot do batch anterior preservou os dados — total não foi reduzido.</p>
+          {result.snapshot_atualizado_em && (
+            <p className="font-medium">
+              Snapshot válido desde:{' '}
+              {new Date(result.snapshot_atualizado_em).toLocaleString('pt-BR', {
+                timeZone: 'America/Sao_Paulo',
+                day: '2-digit', month: '2-digit',
+                hour: '2-digit', minute: '2-digit',
+              })}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="border-t border-gray-200 dark:border-gray-700 pt-3 grid grid-cols-2 gap-3">

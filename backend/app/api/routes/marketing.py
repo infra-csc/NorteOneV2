@@ -11032,6 +11032,7 @@ def _atualizar_hoje_inner(
     #   is timing out).
     # Both down → read existing row and return it without touching the DB.
     _HOJE_FONTE = 'CONSOLIDADO'
+    _snapshot_updated_at = None  # set when partial UPSERT re-reads the row
     if grupo_nome and all_sources_ok:
         try:
             existing = db.query(_VDS).filter(
@@ -11104,6 +11105,7 @@ def _atualizar_hoje_inner(
             if existing_after:
                 hoje_total = int(existing_after.quantidade or 0)
                 hoje_receita = float(existing_after.receita or 0.0)
+                _snapshot_updated_at = existing_after.updated_at
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro no UPSERT parcial para '{grupo_nome}': {_e}")
             try:
@@ -11120,6 +11122,7 @@ def _atualizar_hoje_inner(
                 if existing:
                     hoje_total = int(existing.quantidade or 0)
                     hoje_receita = float(existing.receita or 0.0)
+                    _snapshot_updated_at = existing.updated_at
             except Exception:
                 pass
     elif sync_failed and grupo_nome:
@@ -11140,23 +11143,34 @@ def _atualizar_hoje_inner(
         )
 
     # --- Snapshot bridge: reclassify "parcial" → "concluido" when prior snapshot covered the gap ---
-    # After the GREATEST() UPSERT, hoje_total reflects the best known value in the DB.
-    # If it is strictly higher than the sum of what the live sources returned (_pre_greatest_total),
-    # a prior full sync (e.g. the 04h batch) already persisted complete Magento data today.
-    # In that case the data quality is equivalent to a successful full sync — only the live
-    # fetch timed out, not the underlying data. Mark as concluido and expose snapshot_bridge=True
-    # so the UI can display the correct nuance ("Magento: via snapshot ✓" instead of error).
+    # Conditions (ALL must be true):
+    #   1. sync_partial — at least one source was healthy, one failed
+    #   2. _pre_greatest_total > 0 — the live source(s) returned actual positive data, not zeros.
+    #      If the live total is 0 the live fetch effectively did nothing useful, so we must NOT
+    #      call this "concluido" even if a prior snapshot exists.
+    #   3. hoje_total > _pre_greatest_total — the DB snapshot (from a prior same-day batch)
+    #      had a higher value. GREATEST() preserved it, meaning the failed source's data is
+    #      already in the DB from a previous full sync today.
+    # Together these guarantee: (a) a live fetch ran and confirmed real Ativo sales, AND
+    # (b) a same-day full-sync snapshot is covering the failed source's portion.
     _snapshot_bridge = False
-    if sync_partial and hoje_total > _pre_greatest_total:
+    if sync_partial and _pre_greatest_total > 0 and hoje_total > _pre_greatest_total:
         logger.info(
             f"atualizar-hoje: snapshot bridge '{grupo_nome}' — "
-            f"DB={hoje_total} > live={_pre_greatest_total} "
+            f"DB={hoje_total} > live={_pre_greatest_total} > 0 "
             f"(falhou: {sources_failed}) → reclassificando para concluido"
         )
         all_sources_ok = True
         sync_partial = False
         sync_failed = False
         _snapshot_bridge = True
+    elif sync_partial and _pre_greatest_total == 0 and hoje_total > _pre_greatest_total:
+        # Live source returned 0 (or all zeros), snapshot has prior data but no live confirmation.
+        # Keep as "parcial" — we cannot confirm the live sources captured anything today.
+        logger.info(
+            f"atualizar-hoje: snapshot disponível para '{grupo_nome}' mas live=0 "
+            f"— mantendo status parcial (sem confirmação de dados ao vivo)"
+        )
 
     # --- Recalculate rolling averages from snapshot (no external DB) ---
     media_7d = 0.0
@@ -11258,6 +11272,10 @@ def _atualizar_hoje_inner(
         "magento_ok": magento_ok,
         "fontes_indisponiveis": sources_failed,
         "snapshot_bridge": _snapshot_bridge,
+        "snapshot_atualizado_em": (
+            _snapshot_updated_at.astimezone(ZoneInfo('America/Sao_Paulo')).isoformat()
+            if _snapshot_bridge and _snapshot_updated_at else None
+        ),
     }
 
 
