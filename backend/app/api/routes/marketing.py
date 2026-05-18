@@ -7186,7 +7186,7 @@ def _fetch_today_sales_ativo_grouped(id_eventos: list, raise_on_error: bool = Fa
         if not safe_ids:
             return {}
         query = text("""
-SELECT /*+ MAX_EXECUTION_TIME(30000) */
+SELECT /*+ MAX_EXECUTION_TIME(20000) */
     sub.id_evento,
     SUM(sub.qtd)     AS qtd,
     SUM(sub.receita) AS receita
@@ -10860,11 +10860,19 @@ def _atualizar_hoje_inner(
     from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
     from sqlalchemy import func as _sa_func
 
-    # Log de início de ciclo (painel de Sincronizações)
+    # Log de início de ciclo (painel de Sincronizações).
+    # Fire-and-forget: log_evento abre sua própria sessão PG internamente —
+    # não bloqueamos o caminho crítico do fetch por uma escrita de auditoria.
     if ciclo_id:
         try:
+            import threading as _thr_log_init
             from ...services.sync_log_service import log_evento as _log_ev
-            _log_ev(ciclo_id, "atualizar_hoje", "iniciado", nivel="ciclo", grupo=grupo_nome)
+            _thr_log_init.Thread(
+                target=_log_ev,
+                args=(ciclo_id, "atualizar_hoje", "iniciado"),
+                kwargs={"nivel": "ciclo", "grupo": grupo_nome},
+                daemon=True,
+            ).start()
         except Exception:
             pass
 
@@ -11062,29 +11070,29 @@ def _atualizar_hoje_inner(
     _HOJE_FONTE = 'CONSOLIDADO'
     _snapshot_updated_at = None  # set when partial UPSERT re-reads the row
     if grupo_nome and all_sources_ok:
+        # Use pg INSERT ... ON CONFLICT DO UPDATE (1 SQL + COMMIT) instead of
+        # SELECT + conditional UPDATE/INSERT + COMMIT (2-3 round trips).
+        # The partial path already does this; align the full-sync path for consistency.
         try:
-            existing = db.query(_VDS).filter(
-                _VDS.evento_grupo == grupo_nome,
-                _VDS.fonte == _HOJE_FONTE,
-                _VDS.data_venda == hoje,
-            ).first()
-
-            if existing:
-                existing.quantidade = hoje_total
-                existing.receita = hoje_receita
-                existing.ano = ano
-                existing.updated_at = datetime.now()
-            else:
-                new_row = _VDS(
-                    evento_grupo=grupo_nome,
-                    fonte=_HOJE_FONTE,
-                    data_venda=hoje,
-                    quantidade=hoje_total,
-                    receita=hoje_receita,
-                    ano=ano,
-                    updated_at=datetime.now()
-                )
-                db.add(new_row)
+            from sqlalchemy.dialects.postgresql import insert as _pg_insert_full
+            _stmt_full = _pg_insert_full(_VDS).values(
+                evento_grupo=grupo_nome,
+                fonte=_HOJE_FONTE,
+                data_venda=hoje,
+                quantidade=hoje_total,
+                receita=hoje_receita,
+                ano=ano,
+                updated_at=datetime.now()
+            ).on_conflict_do_update(
+                index_elements=["evento_grupo", "fonte", "data_venda"],
+                set_={
+                    "quantidade": hoje_total,
+                    "receita": hoje_receita,
+                    "ano": ano,
+                    "updated_at": datetime.now(),
+                }
+            )
+            db.execute(_stmt_full)
             db.commit()
         except Exception as _e:
             logger.warning(f"atualizar-hoje: erro ao salvar snapshot para {grupo_nome}: {_e}")
@@ -11301,30 +11309,32 @@ def _atualizar_hoje_inner(
 
     _response_status = "ok" if all_sources_ok else ("partial" if sync_partial else "failed")
 
-    # Log de conclusão + grupo (painel de Sincronizações)
+    # Log de conclusão + grupo (painel de Sincronizações).
+    # Fire-and-forget: não bloqueamos a resposta por escritas de auditoria.
     if ciclo_id:
         try:
+            import threading as _thr_log_end
             from ...services.sync_log_service import log_evento as _log_ev_end
             _duracao_ms_inner = int((_time_inner.time() - _t_start_inner) * 1000)
             _status_ciclo = "concluido" if all_sources_ok else ("parcial" if sync_partial else "falha")
             _status_grupo = "ok" if all_sources_ok else ("parcial" if sync_partial else "falha")
             _motivo_grupo = None if all_sources_ok else ("magento_indisponivel" if not magento_ok else "ativo_indisponivel")
-            _log_ev_end(
-                ciclo_id, "atualizar_hoje", _status_grupo,
-                nivel="grupo", grupo=grupo_nome,
-                qtd_antes=None, qtd_depois=hoje_total,
-                motivo=_motivo_grupo,
-                duracao_ms=_duracao_ms_inner,
+            _detalhes_log = (
+                f"ativo={hoje_ativo} magento={hoje_magento} total={hoje_total}"
+                + (f" | indisponível: {', '.join(sources_failed)}" if sources_failed else "")
             )
-            _log_ev_end(
-                ciclo_id, "atualizar_hoje", _status_ciclo,
-                nivel="ciclo", grupo=grupo_nome,
-                duracao_ms=_duracao_ms_inner,
-                detalhes=(
-                    f"ativo={hoje_ativo} magento={hoje_magento} total={hoje_total}"
-                    + (f" | indisponível: {', '.join(sources_failed)}" if sources_failed else "")
-                ),
-            )
+            def _write_end_logs(
+                _cid=ciclo_id, _sg=_status_grupo, _gn=grupo_nome, _ht=hoje_total,
+                _mg=_motivo_grupo, _dm=_duracao_ms_inner, _sc=_status_ciclo, _det=_detalhes_log,
+            ):
+                try:
+                    _log_ev_end(_cid, "atualizar_hoje", _sg, nivel="grupo", grupo=_gn,
+                                qtd_antes=None, qtd_depois=_ht, motivo=_mg, duracao_ms=_dm)
+                    _log_ev_end(_cid, "atualizar_hoje", _sc, nivel="ciclo", grupo=_gn,
+                                duracao_ms=_dm, detalhes=_det)
+                except Exception:
+                    pass
+            _thr_log_end.Thread(target=_write_end_logs, daemon=True).start()
         except Exception:
             pass
 

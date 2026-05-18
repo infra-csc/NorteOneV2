@@ -218,8 +218,9 @@ const EventOpsView: React.FC = () => {
       });
       setRefreshOk(true);
       setTimeout(() => setRefreshOk(false), 3500);
-      // Delay o primeiro re-fetch para dar tempo ao recompute em background
-      // (disparado pelo backend) de concluir antes de sobrescrever os dados.
+      // Aguarda o patch leve do snapshot (background thread no backend, <200ms).
+      // 1.5s é suficiente para garantir que o EventoDetailSnapshot já foi remendado
+      // com os dados de hoje antes do frontend fazer o re-fetch.
       if (bgRefreshTimerRef.current) clearTimeout(bgRefreshTimerRef.current);
       bgRefreshTimerRef.current = setTimeout(() => {
         bgRefreshTimerRef.current = null;
@@ -227,8 +228,8 @@ const EventOpsView: React.FC = () => {
         bgRefreshTimerRef.current = setTimeout(() => {
           bgRefreshTimerRef.current = null;
           loadEvent(false);
-        }, 12000);
-      }, 4000);
+        }, 10000);
+      }, 1500);
     } catch (err: any) {
       console.error('Falha ao atualizar hoje (ops):', err);
       let errMsg = 'Não foi possível atualizar agora. Tente de novo em instantes.';
