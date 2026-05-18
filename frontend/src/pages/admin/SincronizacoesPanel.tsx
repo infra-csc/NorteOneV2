@@ -219,6 +219,12 @@ const SincronizacoesPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {interruptResult && (
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${isDark ? 'bg-red-900/20 border-red-700/50 text-red-300' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          <StopCircle className="w-4 h-4 flex-shrink-0" />
+          <span className="text-sm">{interruptResult}</span>
+        </div>
+      )}
       {paused && (
         <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${isDark ? 'bg-orange-900/20 border-orange-700/50 text-orange-300' : 'bg-orange-50 border-orange-200 text-orange-800'}`}>
           <PauseCircle className="w-5 h-5 flex-shrink-0" />
@@ -274,8 +280,8 @@ const SincronizacoesPanel: React.FC = () => {
             </select>
             <button
               onClick={handleTogglePause}
-              disabled={pauseLoading}
-              title={paused ? 'Retomar execuções' : 'Pausar execuções'}
+              disabled={pauseLoading || interruptLoading}
+              title={paused ? 'Retomar execuções' : 'Pausar execuções entre grupos'}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
                 paused
                   ? isDark ? 'bg-emerald-700 hover:bg-emerald-600 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'
@@ -289,6 +295,20 @@ const SincronizacoesPanel: React.FC = () => {
                   : <PauseCircle className="w-4 h-4" />
               }
               {paused ? 'Retomar' : 'Pausar'}
+            </button>
+            <button
+              onClick={handleInterrupt}
+              disabled={pauseLoading || interruptLoading}
+              title="Interromper imediatamente — marca ciclos em execução como interrompido no banco"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                isDark ? 'bg-red-700/80 hover:bg-red-600 text-white' : 'bg-red-500 hover:bg-red-600 text-white'
+              }`}
+            >
+              {interruptLoading
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <StopCircle className="w-4 h-4" />
+              }
+              Interromper
             </button>
             <button
               onClick={fetchCycles}
