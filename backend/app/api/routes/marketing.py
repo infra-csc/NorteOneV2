@@ -10934,11 +10934,12 @@ def _atualizar_hoje_inner(
             "fontes_indisponiveis": [],
         }
 
-    # --- Fetch today's data from both sources (fast — date-filtered queries) ---
-    # Track per-source health so we never overwrite a healthy snapshot row with
-    # 0 when one of the upstream DBs (Ativo / Magento) is timing out or down.
-    # Wrapped through circuit breakers so a sick upstream DB doesn't get
-    # hammered by retries while it is already saturated.
+    # --- Fetch today's data from both sources IN PARALLEL ---
+    # Ativo and Magento are independent upstream systems — run concurrently
+    # so total latency ≈ max(t_ativo, t_magento) instead of t_ativo + t_magento.
+    # Circuit breakers are checked before submitting each task so an open
+    # breaker never blocks a thread unnecessarily.
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _as_completed
     hoje_ativo = 0
     hoje_magento = 0
     hoje_receita = 0.0
@@ -10946,47 +10947,68 @@ def _atualizar_hoje_inner(
     magento_ok = True
     sources_failed: list = []
 
-    if ativo_ids:
+    def _run_ativo():
+        _qtd, _rec = 0, 0.0
+        if not ativo_ids:
+            return _qtd, _rec, True
         if ativo_breaker.is_open():
+            logger.warning(f"atualizar-hoje: Ativo circuit aberto — pulando fetch para {evento_id}")
+            return _qtd, _rec, False
+        try:
+            _rows = ativo_breaker.call(
+                _fetch_today_sales_ativo_grouped, ativo_ids, raise_on_error=True
+            )
+            for _entry in _rows.values():
+                _qtd += _entry["qtd"]
+                _rec += _entry["receita"]
+            return _qtd, _rec, True
+        except CircuitOpenError:
+            return _qtd, _rec, False
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
+            return _qtd, _rec, False
+
+    def _run_magento():
+        _qtd, _rec = 0, 0.0
+        if not magento_ids:
+            return _qtd, _rec, True
+        if magento_breaker.is_open():
+            logger.warning(f"atualizar-hoje: Magento circuit aberto — pulando fetch para {evento_id}")
+            return _qtd, _rec, False
+        try:
+            _rows = magento_breaker.call(
+                _fetch_today_sales_magento_grouped, magento_ids, raise_on_error=True
+            )
+            for _entry in _rows.values():
+                _qtd += _entry["qtd"]
+                _rec += _entry["receita"]
+            return _qtd, _rec, True
+        except CircuitOpenError:
+            return _qtd, _rec, False
+        except Exception as _e:
+            logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
+            return _qtd, _rec, False
+
+    with _TPE(max_workers=2) as _pool:
+        _fut_ativo   = _pool.submit(_run_ativo)
+        _fut_magento = _pool.submit(_run_magento)
+        _a_qtd, _a_rec, _a_ok = _fut_ativo.result()
+        _m_qtd, _m_rec, _m_ok = _fut_magento.result()
+
+    if ativo_ids:
+        if _a_ok:
+            hoje_ativo   += _a_qtd
+            hoje_receita += _a_rec
+        else:
             ativo_ok = False
             sources_failed.append("ativo")
-            logger.warning(f"atualizar-hoje: Ativo circuit aberto — pulando fetch para {evento_id}")
-        else:
-            try:
-                ativo_today = ativo_breaker.call(
-                    _fetch_today_sales_ativo_grouped, ativo_ids, raise_on_error=True
-                )
-                for _entry in ativo_today.values():
-                    hoje_ativo += _entry["qtd"]
-                    hoje_receita += _entry["receita"]
-            except CircuitOpenError:
-                ativo_ok = False
-                sources_failed.append("ativo")
-            except Exception as _e:
-                ativo_ok = False
-                sources_failed.append("ativo")
-                logger.warning(f"atualizar-hoje: erro Ativo para {evento_id}: {_e}")
-
     if magento_ids:
-        if magento_breaker.is_open():
+        if _m_ok:
+            hoje_magento += _m_qtd
+            hoje_receita += _m_rec
+        else:
             magento_ok = False
             sources_failed.append("magento")
-            logger.warning(f"atualizar-hoje: Magento circuit aberto — pulando fetch para {evento_id}")
-        else:
-            try:
-                magento_today = magento_breaker.call(
-                    _fetch_today_sales_magento_grouped, magento_ids, raise_on_error=True
-                )
-                for _entry in magento_today.values():
-                    hoje_magento += _entry["qtd"]
-                    hoje_receita += _entry["receita"]
-            except CircuitOpenError:
-                magento_ok = False
-                sources_failed.append("magento")
-            except Exception as _e:
-                magento_ok = False
-                sources_failed.append("magento")
-                logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
 
     hoje_total = hoje_ativo + hoje_magento
 

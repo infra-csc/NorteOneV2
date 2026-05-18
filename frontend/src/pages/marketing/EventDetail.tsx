@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import AtualizarHojeModal, { SyncStatus, SyncResult } from '../../components/marketing/AtualizarHojeModal';
 import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import ConnectionAlert from '../../components/common/ConnectionAlert';
 import { 
@@ -302,6 +303,10 @@ const EventDetail: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [syncErrorMsg, setSyncErrorMsg] = useState<string | null>(null);
   const [chartPeriod, setChartPeriod] = useState<number | null>(null);
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
@@ -682,13 +687,22 @@ const EventDetail: React.FC = () => {
     if (!id || refreshing) return;
     setRefreshing(true);
     setRefreshError(null);
+    setSyncResult(null);
+    setSyncErrorMsg(null);
+    setSyncStatus('loading');
+    setShowSyncModal(true);
     try {
       const result = await marketingService.atualizarHoje(id, anoParam);
-      // Partial sync (uma fonte externa lenta/fora): o backend já fez UPSERT
-      // com GREATEST() — o total nunca abaixa. Mostramos os dados que vieram
-      // (snapshot + o que a fonte saudável trouxe) e sinalizamos com um aviso
-      // informativo, em vez de bloquear a UI com "erro de conexão".
       const partial = result.status === 'partial' || result.ativo_ok === false || result.magento_ok === false;
+      const newStatus: SyncStatus = result.status === 'frozen'
+        ? 'frozen'
+        : partial
+          ? 'partial'
+          : result.status === 'failed'
+            ? 'failed'
+            : 'success';
+      setSyncResult(result as SyncResult);
+      setSyncStatus(newStatus);
       if (partial) {
         const fontes = (result.fontes_indisponiveis || []).join(' e ').toUpperCase() || 'a fonte';
         setRefreshError(
@@ -718,8 +732,6 @@ const EventDetail: React.FC = () => {
             dailySales: finalDailySales
           };
         });
-        // Don't clear dashboard cache here — let the next dashboard visit serve the
-        // cached snapshot instantly while it revalidates in the background.
         setIsStaleData(false);
         setRefreshSuccess(true);
         setTimeout(() => setRefreshSuccess(false), 4000);
@@ -727,12 +739,7 @@ const EventDetail: React.FC = () => {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
-        // 1ª busca (imediata): visível ao usuário, força bypass de cache e
-        // aplica today-overlay (atualiza Controle Diário, currentSales, etc).
-        // Também dispara recompute completo em background no servidor.
         fetchEventRef.current?.(true, false, true);
-        // 2ª busca (silenciosa, 15s depois): captura o recompute completo do
-        // backend (ISC, curvas, comparativo anual) que termina em ~5-30s.
         staleRetryTimerRef.current = setTimeout(() => {
           staleRetryTimerRef.current = null;
           fetchEventRef.current?.(true, true);
@@ -740,19 +747,22 @@ const EventDetail: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Erro ao atualizar vendas de hoje:', err);
+      let errMsg = 'Não foi possível atualizar as vendas de hoje agora. Tente novamente em alguns instantes.';
+      let errStatus: SyncStatus = 'error';
       if (err?.isBusy) {
-        setRefreshError(err.message || 'Sincronização já em andamento. Os dados serão atualizados em instantes.');
+        errMsg = err.message || 'Sincronização já em andamento. Os dados serão atualizados em instantes.';
+        errStatus = 'busy';
       } else if (err?.isRateLimit) {
         const mins = Math.floor((err.retryAfter ?? 0) / 60);
         const secs = (err.retryAfter ?? 0) % 60;
         const quem = err.blockedBy ? ` por ${err.blockedBy}` : '';
         const tempo = mins > 0 ? `${mins}min ${secs}s` : `${secs}s`;
-        setRefreshError(
-          `Atualização já solicitada recentemente${quem}. Disponível novamente em ${tempo}.`
-        );
-      } else {
-        setRefreshError('Não foi possível atualizar as vendas de hoje agora. Tente novamente em alguns instantes.');
+        errMsg = `Atualização já solicitada recentemente${quem}. Disponível novamente em ${tempo}.`;
+        errStatus = 'cooldown';
       }
+      setSyncErrorMsg(errMsg);
+      setSyncStatus(errStatus);
+      setRefreshError(errMsg);
       setTimeout(() => setRefreshError(null), 10000);
     } finally {
       setRefreshing(false);
@@ -1336,6 +1346,13 @@ const EventDetail: React.FC = () => {
 
   return (
     <div className="min-h-screen">
+      <AtualizarHojeModal
+        open={showSyncModal}
+        status={syncStatus}
+        result={syncResult}
+        errorMsg={syncErrorMsg}
+        onClose={() => setShowSyncModal(false)}
+      />
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className={`absolute top-0 left-1/4 w-96 h-96 ${isDark ? 'bg-blue-500/10' : 'bg-blue-400/20'} rounded-full blur-3xl animate-pulse`} />
         <div className={`absolute bottom-0 right-1/4 w-96 h-96 ${isDark ? 'bg-purple-500/10' : 'bg-purple-400/20'} rounded-full blur-3xl animate-pulse`} style={{ animationDelay: '1s' }} />
