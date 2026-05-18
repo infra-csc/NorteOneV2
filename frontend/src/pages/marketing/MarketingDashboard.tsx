@@ -224,6 +224,7 @@ const MarketingDashboard: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const cacheStatusIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const refreshResultRef = useRef<'success' | 'error' | 'timeout' | null>(null);
+  const preparingRetryCountRef = useRef<number>(0);
   const AUTO_REFRESH_INTERVAL = 60 * 60 * 1000;
 
   const applyResponse = useCallback((response: any) => {
@@ -293,9 +294,20 @@ const MarketingDashboard: React.FC = () => {
           if (staleRefetchTimerRef.current) {
             clearTimeout(staleRefetchTimerRef.current);
           }
-          staleRefetchTimerRef.current = setTimeout(() => {
-            fetchData(true);
-          }, 5000);
+          preparingRetryCountRef.current += 1;
+          // Após 4 tentativas (~2 min), para de tentar e mostra dado em cache ou aviso.
+          // Isso evita o loop infinito de loading quando o backend está travado no Magento.
+          if (preparingRetryCountRef.current <= 4) {
+            staleRefetchTimerRef.current = setTimeout(() => {
+              fetchData(true);
+            }, 30000);
+          } else {
+            preparingRetryCountRef.current = 0;
+            setServerStale(false);
+            if (!hasCachedData) {
+              setAvisos(['Os dados estão demorando mais que o esperado. Tente atualizar manualmente em alguns minutos.']);
+            }
+          }
           // Mantém estado anterior se já tiver; senão mostra avisos do payload.
           if (!hasCachedData) {
             setAvisos((response as any).avisos || ['Estamos preparando os eventos.']);

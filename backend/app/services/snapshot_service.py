@@ -1395,7 +1395,11 @@ def sincronizar_hoje_batch(db: Session) -> int:
 
     # Invalidate event_detail and ISC caches so next dashboard request gets fresh
     # snapshot data without waiting for the 22h/5min SmartCache TTL to expire.
-    if synced > 0 or partial_synced > 0:
+    # Only invalidate when Magento actually returned real data (synced > 0).
+    # Partial-only runs mean Magento was unavailable; blowing the cache in that
+    # case causes a MISS loop where every subsequent request tries Magento live
+    # and also fails, leaving users with a perpetual loading screen.
+    if synced > 0:
         try:
             from ..core.cache import event_detail_cache, isc_cache
             from ..api.routes.marketing import eventos_list_cache
