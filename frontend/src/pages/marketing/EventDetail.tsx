@@ -242,6 +242,10 @@ const EventDetail: React.FC = () => {
     _detailCacheFresh ? _detailCached!.event : (previewEvent ? { ...previewEvent } : null)
   );
   const [loading, setLoading] = useState(!_detailCacheFresh && !previewEvent);
+  // Rastreia se o primeiro fetch completo (com dailySales) já chegou.
+  // false quando previewEvent é usado como estado inicial (sem dailySales),
+  // true quando cache fresco existe ou após o primeiro fetch bem-sucedido.
+  const [isFirstFetchDone, setIsFirstFetchDone] = useState(_detailCacheFresh);
   // Banner "Atualizando dados em tempo real..." aparece somente se a requisição
   // demorar mais que DETAILS_LOADING_DELAY_MS (caminho lento). Para respostas
   // rápidas (snapshot fresco em ~100ms), o banner nunca chega a aparecer e a
@@ -529,6 +533,7 @@ const EventDetail: React.FC = () => {
                 : eventWithData.dailySales);
 
         hasEventDataRef.current = true;
+        setIsFirstFetchDone(true);
         setEvent({
           ...eventWithData,
           currentSales: _guardedCurrentSales,
@@ -1758,6 +1763,7 @@ const EventDetail: React.FC = () => {
                 salesGoal={event.salesGoal}
                 showNormalized={showNormalized}
                 onAtualizarHoje={() => setShowSyncModal(true)}
+                isLoading={!isFirstFetchDone}
               />
             ) : (
               <div>

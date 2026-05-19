@@ -26,6 +26,7 @@ interface DailySalesTableProps {
   salesGoal?: number;
   showNormalized?: boolean;
   onAtualizarHoje?: () => void;
+  isLoading?: boolean;
 }
 
 const fmtInt = (v: number | undefined | null): string => {
@@ -49,7 +50,7 @@ const colorClass = (v: number | undefined | null, isDark: boolean): string => {
   return v > 0 ? 'text-emerald-400' : 'text-red-400';
 };
 
-const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false, onAtualizarHoje }) => {
+const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false, onAtualizarHoje, isLoading = false }) => {
   const [sortAsc, setSortAsc] = useState(false);
 
   const dailySales = useMemo(() => {
@@ -140,6 +141,16 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
   };
 
   if (!dailySales.length) {
+    if (isLoading) {
+      return (
+        <div className="space-y-2 py-2 animate-pulse">
+          <div className={`h-6 rounded ${isDark ? 'bg-gray-700' : 'bg-gray-200'} w-1/3 mb-4`} />
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className={`h-8 rounded ${isDark ? 'bg-gray-700/60' : 'bg-gray-100'} w-full`} />
+          ))}
+        </div>
+      );
+    }
     return (
       <div className={`flex flex-col items-center justify-center py-10 gap-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
         <svg className={`w-8 h-8 ${isDark ? 'text-gray-600' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -147,10 +158,10 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
         </svg>
         <div className="text-center space-y-1">
           <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-            Carregando histórico de vendas...
+            Sem histórico de vendas
           </p>
           <p className="text-xs">
-            Aguardando dados do servidor. Use "Atualizar Hoje" para sincronizar.
+            Use "Atualizar Hoje" para sincronizar os dados deste evento.
           </p>
         </div>
         {onAtualizarHoje && (
