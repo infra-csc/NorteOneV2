@@ -29,7 +29,7 @@ _SYNC_HOJE_RUNNING_BY: Optional[str] = None
 
 
 def try_acquire_sync_hoje(caller: str = "sistema") -> bool:
-    """Tenta adquirir o lock global de sync-hoje.
+    """Tenta adquirir o lock global de sync-hoje (batch/sistema).
     Retorna True se o lock foi adquirido, False se já está em uso."""
     global _SYNC_HOJE_RUNNING_BY
     acquired = _SYNC_HOJE_GLOBAL_LOCK.acquire(blocking=False)
@@ -49,13 +49,73 @@ def release_sync_hoje() -> None:
 
 
 def is_sync_hoje_running() -> bool:
-    """Retorna True se uma sincronização de hoje está em andamento."""
+    """Retorna True se uma sincronização de hoje (batch) está em andamento."""
     return _SYNC_HOJE_GLOBAL_LOCK.locked()
 
 
 def get_sync_hoje_running_by() -> Optional[str]:
     """Retorna o identificador de quem está rodando o sync-hoje atual."""
     return _SYNC_HOJE_RUNNING_BY
+
+
+# ---------------------------------------------------------------------------
+# Lock global para sincronizações forçadas por usuário ("Atualizar Hoje")
+# Garante que apenas UMA requisição manual rode por vez, independente de
+# qual evento ou usuário. Enquanto este lock estiver ativo, qualquer outro
+# pedido de sync recebe 409 com a mensagem de quem está ocupado.
+# ---------------------------------------------------------------------------
+_USER_SYNC_LOCK = threading.Lock()
+_USER_SYNC_RUNNING_BY: Optional[str] = None
+_USER_SYNC_EVENTO: Optional[str] = None
+_USER_SYNC_STARTED_AT: Optional[float] = None
+_USER_SYNC_MAX_S = 120  # auto-expira em 2 min como safety net
+
+
+def try_acquire_user_sync(caller: str, evento: str = "") -> bool:
+    """Tenta adquirir o lock global de sync manual.
+    Retorna True se adquirido, False se já em uso por outra requisição."""
+    global _USER_SYNC_RUNNING_BY, _USER_SYNC_EVENTO, _USER_SYNC_STARTED_AT
+    import time as _t
+    # Safety net: se o lock expirou (processo morreu sem liberar), força reset.
+    if _USER_SYNC_LOCK.locked() and _USER_SYNC_STARTED_AT is not None:
+        if _t.time() - _USER_SYNC_STARTED_AT > _USER_SYNC_MAX_S:
+            try:
+                _USER_SYNC_LOCK.release()
+            except RuntimeError:
+                pass
+    acquired = _USER_SYNC_LOCK.acquire(blocking=False)
+    if acquired:
+        _USER_SYNC_RUNNING_BY = caller
+        _USER_SYNC_EVENTO = evento
+        _USER_SYNC_STARTED_AT = _t.time()
+    return acquired
+
+
+def release_user_sync() -> None:
+    """Libera o lock global de sync manual."""
+    global _USER_SYNC_RUNNING_BY, _USER_SYNC_EVENTO, _USER_SYNC_STARTED_AT
+    _USER_SYNC_RUNNING_BY = None
+    _USER_SYNC_EVENTO = None
+    _USER_SYNC_STARTED_AT = None
+    try:
+        _USER_SYNC_LOCK.release()
+    except RuntimeError:
+        pass
+
+
+def is_user_sync_running() -> bool:
+    """Retorna True se alguma sincronização manual está em andamento."""
+    return _USER_SYNC_LOCK.locked()
+
+
+def get_user_sync_info() -> dict:
+    """Retorna informações sobre o sync manual em andamento."""
+    return {
+        "running": _USER_SYNC_LOCK.locked(),
+        "by": _USER_SYNC_RUNNING_BY,
+        "evento": _USER_SYNC_EVENTO,
+        "started_at": _USER_SYNC_STARTED_AT,
+    }
 
 
 # ---------------------------------------------------------------------------

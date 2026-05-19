@@ -4152,7 +4152,7 @@ def get_detalhe_vendas_ativo(
 _isc_cache = {}
 _isc_cache_timestamp = None
 
-from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL, get_last_sync_hoje, try_acquire_sync_hoje, release_sync_hoje, is_sync_hoje_running, get_sync_hoje_running_by
+from ...core.cache import isc_cache as _smart_isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, CURRENT_YEAR_TTL, get_last_sync_hoje, try_acquire_sync_hoje, release_sync_hoje, is_sync_hoje_running, get_sync_hoje_running_by, try_acquire_user_sync, release_user_sync, is_user_sync_running, get_user_sync_info
 from ...core.resilience import CircuitBreaker, CircuitOpenError, CoalescingCache
 
 # Circuit breakers protect the upstream MySQL pools from being hammered when
@@ -4174,10 +4174,7 @@ _atualizar_hoje_cache = CoalescingCache(ttl_s=20.0, name="atualizar_hoje")
 _atualizar_hoje_cooldown: dict = {}
 _ATUALIZAR_HOJE_COOLDOWN_S = 1800  # 30 minutos
 
-# Flag de execução em andamento por evento.
-# Tupla: (timestamp_float, user_email, user_nome)
-# Setado ao iniciar o fetch; limpo ao terminar (sucesso ou falha).
-_atualizar_hoje_in_progress: dict = {}
+# Lock global de sync manual gerenciado em cache.py (try_acquire_user_sync / release_user_sync).
 
 # Trust the persisted snapshot for "today" if the background batch ran within
 # this many seconds. Slightly larger than the batch interval so we always
@@ -10793,23 +10790,21 @@ def atualizar_vendas_hoje(
     _user_nome_ah = getattr(current_user, 'nome', None) or getattr(current_user, 'email', '') or 'usuário'
     _user_email_ah = getattr(current_user, 'email', '') or ''
 
-    # ── 2. Bloqueia se OUTRO usuário está sincronizando ESTE evento agora ────
-    _ip_entry = _atualizar_hoje_in_progress.get(evento_id)
-    if _ip_entry:
-        _ip_ts, _ip_email, _ip_nome = _ip_entry
-        # Considera "em andamento" por no máximo 90s — evita lock permanente
-        # caso o processo tenha sido interrompido de forma inesperada.
-        if _now_ah - _ip_ts < 90:
-            _quem_ip = _ip_nome or _ip_email or 'outro usuário'
-            from fastapi.responses import JSONResponse as _JR_ip
-            return _JR_ip(status_code=409, content={
-                "status": "busy",
-                "message": f"Atualização já em andamento por {_quem_ip}. Os dados estarão disponíveis em instantes.",
-                "blocked_by": _quem_ip,
-            })
-        else:
-            # Expirou — limpa entrada travada
-            _atualizar_hoje_in_progress.pop(evento_id, None)
+    # ── 2. Bloqueia se QUALQUER sync manual já está rodando (lock global) ────
+    if is_user_sync_running():
+        _ui = get_user_sync_info()
+        _quem_ip = _ui.get("by") or 'outro usuário'
+        _ev_ip = _ui.get("evento") or ''
+        _msg_ip = f"Atualização já em andamento por {_quem_ip}"
+        if _ev_ip:
+            _msg_ip += f" ({_ev_ip})"
+        _msg_ip += ". Aguarde a conclusão antes de solicitar outra atualização."
+        from fastapi.responses import JSONResponse as _JR_ip
+        return _JR_ip(status_code=409, content={
+            "status": "busy",
+            "message": _msg_ip,
+            "blocked_by": _quem_ip,
+        })
 
     # ── 3. Verifica cooldown de 30 min (só aplicado após sucesso) ────────────
     _cool = _atualizar_hoje_cooldown.get(evento_id)
@@ -10837,17 +10832,23 @@ def atualizar_vendas_hoje(
                 "blocked_by": _quem_ah,
             })
 
-    # ── 4. Marca este evento como "em andamento" ──────────────────────────────
-    _atualizar_hoje_in_progress[evento_id] = (_now_ah, _user_email_ah, _user_nome_ah)
+    # ── 4. Adquire o lock global de sync manual ───────────────────────────────
+    _caller_ah = f"{_user_nome_ah} ({_user_email_ah})" if _user_email_ah else _user_nome_ah
+    if not try_acquire_user_sync(caller=_caller_ah, evento=grupo_nome or evento_id):
+        # Raro: outra thread adquiriu o lock entre a checagem acima e aqui.
+        _ui2 = get_user_sync_info()
+        _quem2 = _ui2.get("by") or 'outro usuário'
+        from fastapi.responses import JSONResponse as _JR_race
+        return _JR_race(status_code=409, content={
+            "status": "busy",
+            "message": f"Atualização já em andamento por {_quem2}. Aguarde a conclusão.",
+            "blocked_by": _quem2,
+        })
 
     # Gera ciclo_id para o log de sincronização (aparece no painel).
     from ...services.sync_log_service import new_ciclo_id as _new_ciclo_ah
     _ciclo_id_ah = _new_ciclo_ah()
 
-    # Single-flight: if many users click "Atualizar Hoje" for the same event
-    # within a short window, only the first request actually runs the fetch +
-    # snapshot UPSERT. All other concurrent requests wait briefly and reuse
-    # the same response. Caps upstream DB load regardless of concurrent users.
     _sf_key = (evento_id, ano, hoje.isoformat())
 
     def _do_atualizar_hoje():
@@ -10865,8 +10866,8 @@ def atualizar_vendas_hoje(
     try:
         _ah_result = _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
     finally:
-        # ── 5. Libera o flag de in-progress sempre (sucesso ou exceção) ───────
-        _atualizar_hoje_in_progress.pop(evento_id, None)
+        # ── 5. Libera o lock global sempre (sucesso ou exceção) ───────────────
+        release_user_sync()
 
     # ── 6. Aplica cooldown SOMENTE após sucesso pleno ─────────────────────────
     # Falha ou parcial: sem cooldown — permite nova tentativa imediata.
