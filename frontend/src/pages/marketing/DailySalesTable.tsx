@@ -25,6 +25,7 @@ interface DailySalesTableProps {
   eventName?: string;
   salesGoal?: number;
   showNormalized?: boolean;
+  onAtualizarHoje?: () => void;
 }
 
 const fmtInt = (v: number | undefined | null): string => {
@@ -48,7 +49,7 @@ const colorClass = (v: number | undefined | null, isDark: boolean): string => {
   return v > 0 ? 'text-emerald-400' : 'text-red-400';
 };
 
-const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false }) => {
+const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false, onAtualizarHoje }) => {
   const [sortAsc, setSortAsc] = useState(false);
 
   const dailySales = useMemo(() => {
@@ -140,8 +141,26 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
 
   if (!dailySales.length) {
     return (
-      <div className={`text-center py-12 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-        Nenhum dado de vendas diárias disponível.
+      <div className={`flex flex-col items-center justify-center py-12 gap-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+        <div className="text-center space-y-1">
+          <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+            Dados de vendas ainda não carregados
+          </p>
+          <p className="text-xs">
+            Os dados estarão disponíveis após a primeira sincronização.
+          </p>
+        </div>
+        {onAtualizarHoje && (
+          <button
+            onClick={onAtualizarHoje}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Atualizar Hoje
+          </button>
+        )}
       </div>
     );
   }

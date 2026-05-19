@@ -1701,6 +1701,7 @@ const EventDetail: React.FC = () => {
                 eventName={event.name}
                 salesGoal={event.salesGoal}
                 showNormalized={showNormalized}
+                onAtualizarHoje={() => setShowSyncModal(true)}
               />
             ) : (
               <div>

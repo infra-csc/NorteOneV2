@@ -9698,6 +9698,76 @@ def get_marketing_event_by_id(
             except Exception as _e_norm_daily:
                 logger.warning(f"Falha ao obter hist_pattern normalizado p/ daily curve: {_e_norm_daily}")
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=_detail_hist_for_daily, data_evento_real=projeto_data_evento, force_magento_refresh=force_magento_refresh)
+
+        # ── Fallback: se daily_sales_list veio vazio mas existe snapshot, reconstrói diretamente ──
+        if not daily_sales_list and grupo_nome:
+            try:
+                from ...services.snapshot_service import get_snapshot_vendas as _gsv_fallback
+                _fb_snap = _gsv_fallback(db, grupo_nome, data_fim=today_brazil())
+                if _fb_snap:
+                    logger.warning(f"[DailySales] Fallback: daily_sales_list vazio para '{grupo_nome}' mas snapshot tem {len(_fb_snap)} dias — reconstruindo do snapshot")
+                    _fb_today = today_brazil()
+                    _fb_earliest = min(_fb_snap.keys())
+                    _fb_latest = max(_fb_snap.keys())
+                    _fb_end = _fb_today if (_fb_today - _fb_latest).days <= 30 else _fb_latest
+                    _fb_start = _fb_earliest
+                    _fb_dates = [_fb_start + timedelta(days=i) for i in range((_fb_end - _fb_start).days + 1)]
+                    _fb_cum = 0
+                    _fb_goal = sales_goal or 1000
+                    _fb_total = len(_fb_dates)
+                    _fb_result = []
+                    for _fd in _fb_dates:
+                        _fs = _fb_snap.get(_fd, 0)
+                        _fb_cum += _fs
+                        _fb_exp = round(_fb_goal / _fb_total, 1) if _fb_total > 0 else 0
+                        _fb_dm = (data_fim_inscricoes - _fd).days if data_fim_inscricoes else None
+                        _fb_result.append({
+                            "date": _fd.isoformat(),
+                            "sales": _fs,
+                            "expected": _fb_exp,
+                            "cumulativeSales": _fb_cum,
+                            "cumulativeExpected": round(_fb_exp * (_fb_dates.index(_fd) + 1), 1),
+                            "dMinus": _fb_dm,
+                            "curvaAnoAnterior": None,
+                            "dif": round(_fb_cum - _fb_exp * (_fb_dates.index(_fd) + 1), 1),
+                            "atingimentoAcumulado": 0.0,
+                            "atingimentoDiario": 0.0,
+                            "normalizedSales": _fs,
+                            "cumulativeNormalized": _fb_cum,
+                            "localMedian": None,
+                            "outlierLimit": None,
+                            "isOutlier": False,
+                            "excessRemoved": 0,
+                            "excessReceived": 0,
+                        })
+                    daily_sales_list = _fb_result
+                else:
+                    # Sem snapshot algum — garante pelo menos a linha de hoje com 0
+                    logger.warning(f"[DailySales] Sem snapshot e sem daily_sales para '{grupo_nome}' — injetando linha de hoje com 0")
+                    _fb_today = today_brazil()
+                    _fb_exp = round((sales_goal or 1000) / 1, 1)
+                    daily_sales_list = [{
+                        "date": _fb_today.isoformat(),
+                        "sales": 0,
+                        "expected": _fb_exp,
+                        "cumulativeSales": 0,
+                        "cumulativeExpected": _fb_exp,
+                        "dMinus": (data_fim_inscricoes - _fb_today).days if data_fim_inscricoes else None,
+                        "curvaAnoAnterior": None,
+                        "dif": round(-_fb_exp, 1),
+                        "atingimentoAcumulado": -100.0,
+                        "atingimentoDiario": -100.0,
+                        "normalizedSales": 0,
+                        "cumulativeNormalized": 0,
+                        "localMedian": None,
+                        "outlierLimit": None,
+                        "isOutlier": False,
+                        "excessRemoved": 0,
+                        "excessReceived": 0,
+                    }]
+            except Exception as _fb_e:
+                logger.warning(f"[DailySales] Fallback de snapshot falhou para '{grupo_nome}': {_fb_e}")
+
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
         _today_detail = today_brazil()
