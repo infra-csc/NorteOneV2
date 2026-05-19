@@ -217,7 +217,7 @@ export const OperationLogPanel: React.FC<Props> = ({ operation, onDismiss }) => 
           {operation.logs.length > 0 && (
             <Stat
               icon={<Layers className="w-3 h-3" />}
-              label="Eventos"
+              label="Etapas"
               value={String(operation.logs.length)}
             />
           )}
