@@ -141,19 +141,22 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
 
   if (!dailySales.length) {
     return (
-      <div className={`flex flex-col items-center justify-center py-12 gap-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+      <div className={`flex flex-col items-center justify-center py-10 gap-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+        <svg className={`w-8 h-8 ${isDark ? 'text-gray-600' : 'text-gray-300'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
         <div className="text-center space-y-1">
           <p className={`text-sm font-medium ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
-            Dados de vendas ainda não carregados
+            Carregando histórico de vendas...
           </p>
           <p className="text-xs">
-            Os dados estarão disponíveis após a primeira sincronização.
+            Aguardando dados do servidor. Use "Atualizar Hoje" para sincronizar.
           </p>
         </div>
         {onAtualizarHoje && (
           <button
             onClick={onAtualizarHoje}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-sm"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

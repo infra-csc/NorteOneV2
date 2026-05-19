@@ -9375,6 +9375,17 @@ def get_marketing_event_by_id(
                         f"— bypassing snapshot. payload_keys={_dbg_pl_keys}"
                     )
                     _persisted = None
+        # Descarta snapshot se dailySales está vazio mesmo com versão correta —
+        # snapshots salvos antes do fallback podiam persistir [] e travar o Controle Diário.
+        if _persisted is not None:
+            _pl_check = _persisted.get("payload") if isinstance(_persisted, dict) else None
+            _ds_check = _pl_check.get("dailySales") if isinstance(_pl_check, dict) else None
+            if isinstance(_ds_check, list) and len(_ds_check) == 0:
+                logger.warning(
+                    f"[Persist] '{_ano_for_persist}_{evento_id}' snapshot tem dailySales=[] "
+                    f"— descartando para forçar recompute com fallback de snapshot."
+                )
+                _persisted = None
         if _persisted is not None:
             # Stale se: (a) usuário pediu refresh, (b) versão do schema mudou,
             # (c) evento ativo e snapshot mais antigo que último warmup ou >30 min.
