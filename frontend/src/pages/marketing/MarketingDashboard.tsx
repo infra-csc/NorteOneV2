@@ -855,15 +855,9 @@ const MarketingDashboard: React.FC = () => {
                     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
                     const syncTimeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                    const nextSync = new Date(d.getTime() + 30 * 60 * 1000);
-                    const nextStr = nextSync.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                    const prefix = d >= todayStart
-                      ? `Sinc. hoje às ${syncTimeStr}`
-                      : d >= yesterdayStart
-                        ? `Sinc. ontem às ${syncTimeStr}`
-                        : `Sinc. ${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${syncTimeStr}`;
-                    const nextLabel = nextSync > now ? ` · próx. ${nextStr}` : '';
-                    return prefix + nextLabel;
+                    if (d >= todayStart) return `Sinc. hoje às ${syncTimeStr}`;
+                    if (d >= yesterdayStart) return `Sinc. ontem às ${syncTimeStr}`;
+                    return `Sinc. ${d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} às ${syncTimeStr}`;
                   })()}
                 </span>
               </>
