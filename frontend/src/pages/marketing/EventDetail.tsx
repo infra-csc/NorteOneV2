@@ -693,6 +693,7 @@ const EventDetail: React.FC = () => {
     setSyncStartTime(Date.now());
     setSyncStatus('loading');
     setShowSyncModal(true);
+    const _hadNoDailySales = !event?.dailySales || event.dailySales.length === 0;
     try {
       const result = await marketingService.atualizarHoje(id, anoParam);
       const partial = result.status === 'partial' || result.ativo_ok === false || result.magento_ok === false;
@@ -800,6 +801,15 @@ const EventDetail: React.FC = () => {
           staleRetryTimerRef.current = setTimeout(() => {
             staleRetryTimerRef.current = null;
             fetchEventRef.current?.(true, true);
+            // Terceira rodada: apenas quando o evento não tinha histórico antes do sync.
+            // O backend dispara consolidar_vendas_grupo em background (pode levar 30-60s)
+            // para popular o histórico completo no Controle Diário.
+            if (_hadNoDailySales) {
+              staleRetryTimerRef.current = setTimeout(() => {
+                staleRetryTimerRef.current = null;
+                fetchEventRef.current?.(true, true);
+              }, 30000);
+            }
           }, 12000);
         }, 4000);
       }

@@ -11440,42 +11440,79 @@ def _atualizar_hoje_inner(
     except Exception as _ci:
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
+    # Check whether this event has historical data in VendasDiariaSnapshot (excluding today).
+    # If it has < 3 days of history, we trigger a full consolidar in background so that
+    # the Controle Diário tab populates with the complete historical curve after the first sync.
+    _has_history = False
+    try:
+        _hist_count = db.query(func.count(_VDS.id)).filter(
+            _VDS.evento_grupo == grupo_nome,
+            _VDS.fonte == 'CONSOLIDADO',
+            _VDS.data_venda < hoje,
+        ).scalar() or 0
+        _has_history = _hist_count >= 3
+    except Exception:
+        _has_history = True  # assume has history on error to avoid unnecessary consolidar
+
     # Patch the persisted EventoDetailSnapshot in background using apply_today_overlay.
     # This is a lightweight operation (<100ms, zero Magento queries) that updates
     # dailySales[today] and currentSales directly in the PostgreSQL snapshot so that
     # the "Controle Diário" tab and event detail page reflect fresh data immediately.
-    # NOTE: intentionally NOT triggering a full get_marketing_event_by_id recompute here —
-    # that would issue heavy Magento queries (90s timeout) while competing with the
-    # already-strained Magento connection, causing cascade timeouts.
+    # When the event has NO historical data (first sync ever), we skip the patch and
+    # run a full consolidar_vendas_grupo instead, which builds the complete history.
     if all_sources_ok or sync_partial:
-        try:
-            import threading as _thread_patch_ah
-            def _bg_patch_snapshot_ah():
-                from ...core.database import SessionLocal as _PS_SL
-                _ps_db = _PS_SL()
-                try:
-                    from ...services.event_detail_snapshot_service import (
-                        get_persisted_detail as _gpd_patch,
-                        save_persisted_detail as _spd_patch,
-                        apply_today_overlay as _ov_patch,
-                    )
-                    _ps_persisted = _gpd_patch(_ps_db, evento_id, ano)
-                    if _ps_persisted:
-                        _ps_payload = _ps_persisted.get("payload") or {}
-                        _ps_patched = _ov_patch(_ps_db, _ps_payload, evento_id)
-                        _spd_patch(
-                            _ps_db, evento_id, ano, _ps_patched,
-                            data_evento=_ps_persisted.get("data_evento"),
-                            is_completed=_ps_persisted.get("is_completed", False),
+        if not _has_history:
+            # First-time sync: build full historical snapshot so Controle Diário populates
+            try:
+                import threading as _thread_consolidar_ah
+                def _bg_consolidar_ah():
+                    from ...core.database import SessionLocal as _CG_SL
+                    _cg_db = _CG_SL()
+                    try:
+                        from ...services.snapshot_service import consolidar_vendas_grupo as _cvg
+                        _cvg(_cg_db, grupo_nome, ano)
+                        logger.info(f"atualizar-hoje: consolidar completo para '{grupo_nome}' (sem histórico) — Controle Diário populado")
+                        # Invalidate caches so next re-fetch picks up the full history
+                        event_detail_cache.invalidate(f"{ano}_{evento_id}_detail")
+                        _smart_isc_cache.invalidate()
+                    except Exception as _cg_e:
+                        logger.warning(f"atualizar-hoje: consolidar falhou para '{grupo_nome}': {_cg_e}")
+                    finally:
+                        _cg_db.close()
+                _thread_consolidar_ah.Thread(target=_bg_consolidar_ah, daemon=True).start()
+                logger.info(f"atualizar-hoje: sem histórico para '{grupo_nome}' — consolidar agendado em background")
+            except Exception as _cg_start_e:
+                logger.warning(f"atualizar-hoje: erro ao enfileirar consolidar: {_cg_start_e}")
+        else:
+            # Has history: lightweight patch of today's entry only
+            try:
+                import threading as _thread_patch_ah
+                def _bg_patch_snapshot_ah():
+                    from ...core.database import SessionLocal as _PS_SL
+                    _ps_db = _PS_SL()
+                    try:
+                        from ...services.event_detail_snapshot_service import (
+                            get_persisted_detail as _gpd_patch,
+                            save_persisted_detail as _spd_patch,
+                            apply_today_overlay as _ov_patch,
                         )
-                        logger.info(f"atualizar-hoje: snapshot patched for {evento_id}")
-                except Exception as _ps_e:
-                    logger.warning(f"atualizar-hoje: snapshot patch falhou para {evento_id}: {_ps_e}")
-                finally:
-                    _ps_db.close()
-            _thread_patch_ah.Thread(target=_bg_patch_snapshot_ah, daemon=True).start()
-        except Exception as _ps_start_e:
-            logger.warning(f"atualizar-hoje: erro ao enfileirar snapshot patch: {_ps_start_e}")
+                        _ps_persisted = _gpd_patch(_ps_db, evento_id, ano)
+                        if _ps_persisted:
+                            _ps_payload = _ps_persisted.get("payload") or {}
+                            _ps_patched = _ov_patch(_ps_db, _ps_payload, evento_id)
+                            _spd_patch(
+                                _ps_db, evento_id, ano, _ps_patched,
+                                data_evento=_ps_persisted.get("data_evento"),
+                                is_completed=_ps_persisted.get("is_completed", False),
+                            )
+                            logger.info(f"atualizar-hoje: snapshot patched for {evento_id}")
+                    except Exception as _ps_e:
+                        logger.warning(f"atualizar-hoje: snapshot patch falhou para {evento_id}: {_ps_e}")
+                    finally:
+                        _ps_db.close()
+                _thread_patch_ah.Thread(target=_bg_patch_snapshot_ah, daemon=True).start()
+            except Exception as _ps_start_e:
+                logger.warning(f"atualizar-hoje: erro ao enfileirar snapshot patch: {_ps_start_e}")
 
     # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do evento
     # para refletir a hora do clique. Faz isso quando pelo menos uma fonte
