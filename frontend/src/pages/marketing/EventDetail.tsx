@@ -436,10 +436,12 @@ const EventDetail: React.FC = () => {
           if (!event) setLoading(true);
         }
         // Banner com delay: só mostra se o request demorar mais que o threshold.
-        // Para o caminho do snapshot (200ms típico), nunca chega a aparecer.
-        // Em visitas subsequentes (_detailCacheFresh=true) o evento já foi carregado
-        // com dados completos — a atualização acontece silenciosamente sem banner.
-        if (!silent && (forceRefresh || (previewEvent && !_detailCacheFresh))) {
+        // Só aparece em force_refresh explícito (botão Atualizar) ou quando não há
+        // nenhum dado prévio (abertura direta sem previewEvent e sem cache).
+        // Quando previewEvent existe (vindo do dashboard), os dados básicos já estão
+        // na tela — o carregamento dos gráficos acontece silenciosamente em background.
+        const _hasAnyData = !!previewEvent || _detailCacheFresh;
+        if (!silent && (forceRefresh || !_hasAnyData)) {
           if (detailsLoadingTimerRef.current) clearTimeout(detailsLoadingTimerRef.current);
           detailsLoadingTimerRef.current = setTimeout(() => {
             if (!controller.signal.aborted) setDetailsLoading(true);
