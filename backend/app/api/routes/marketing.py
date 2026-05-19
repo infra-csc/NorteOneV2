@@ -654,11 +654,28 @@ def _get_ticket_atual_map(db: Session) -> dict:
             return dict(_ticket_atual_cache)
 
     result = _fetch_ticket_atual_map(db)
+
     with _ticket_atual_cache_lock:
-        _ticket_atual_cache.clear()
-        _ticket_atual_cache.update(result)
-        _ticket_atual_cache_ts = _time.time()
-    return result
+        if result:
+            # Resultado válido: atualiza normalmente.
+            _ticket_atual_cache.clear()
+            _ticket_atual_cache.update(result)
+            _ticket_atual_cache_ts = _time.time()
+        else:
+            # Fetch retornou vazio (Magento indisponível): preserva cache anterior
+            # para não mostrar "Não encontrado" enquanto a fonte está instável.
+            # Só atualiza o timestamp se o cache já estava vazio (nada a preservar).
+            if not _ticket_atual_cache:
+                _ticket_atual_cache_ts = _time.time()
+            else:
+                logger.warning(
+                    "[ticket_atual] Fetch retornou vazio (Magento indisponível?) — "
+                    f"mantendo cache anterior com {len(_ticket_atual_cache)} entradas (stale-on-error)"
+                )
+                # Não atualiza _ticket_atual_cache_ts: na próxima chamada vai tentar de novo
+                # sem esperar o TTL completo, assim que o Magento voltar.
+
+    return result if result else dict(_ticket_atual_cache)
 
 
 def _get_ticket_atual_for_event(ticket_map: dict, projeto_ids) -> float:
