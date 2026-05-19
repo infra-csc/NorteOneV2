@@ -716,15 +716,50 @@ const EventDetail: React.FC = () => {
         const todayStr = new Date().toISOString().split('T')[0];
         setEvent(prev => {
           if (!prev) return prev;
+
+          // Helper: given a dailySales array sorted by date, find the cumulative
+          // sales of the day immediately before todayStr.
+          const getPrevCumSales = (arr: typeof prev.dailySales): number => {
+            if (!arr) return 0;
+            const sorted = [...arr]
+              .filter(d => d.date < todayStr)
+              .sort((a, b) => a.date.localeCompare(b.date));
+            const prev = sorted[sorted.length - 1];
+            return prev?.cumulativeSales ?? 0;
+          };
+
+          const todayExists = prev.dailySales?.some(d => d.date === todayStr);
+
+          // Case 1 — today's row already exists (snapshot had a stale/zero value).
+          // Recalculate cumulativeSales AND atingimentoDiario with the fresh total.
           const updatedDailySales = prev.dailySales ? prev.dailySales.map(d => {
             if (d.date === todayStr) {
-              return { ...d, sales: result.hoje_total };
+              const prevCum = getPrevCumSales(prev.dailySales);
+              const newCum = prevCum + result.hoje_total;
+              const exp = d.expected ?? 0;
+              const newAtingDia = exp > 0
+                ? Math.round(((result.hoje_total - exp) / exp) * 1000) / 10
+                : 0;
+              return {
+                ...d,
+                sales: result.hoje_total,
+                cumulativeSales: newCum,
+                atingimentoDiario: newAtingDia,
+              };
             }
             return d;
           }) : prev.dailySales;
-          const todayExists = prev.dailySales?.some(d => d.date === todayStr);
+
+          // Case 2 — today not yet in the array: add a new row with correct cumulative.
           const finalDailySales = (!todayExists && result.hoje_total > 0 && prev.dailySales)
-            ? [...prev.dailySales, { date: todayStr, sales: result.hoje_total, expected: 0, cumulativeSales: result.hoje_total, cumulativeExpected: 0 }]
+            ? [...prev.dailySales, {
+                date: todayStr,
+                sales: result.hoje_total,
+                expected: 0,
+                cumulativeSales: getPrevCumSales(prev.dailySales) + result.hoje_total,
+                cumulativeExpected: 0,
+                atingimentoDiario: 0,
+              }]
             : updatedDailySales;
           return {
             ...prev,
