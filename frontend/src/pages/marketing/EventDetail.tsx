@@ -303,6 +303,11 @@ const EventDetail: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  // Piso de currentSales confirmado pelo último atualizarHoje bem-sucedido.
+  // Garante que re-fetches subsequentes nunca baixem o valor abaixo do que
+  // o sync confirmou, mesmo que o backend recompute com dado parcial do Magento.
+  // Expira em 2 min para não congelar o valor indefinidamente.
+  const postSyncFloorRef = useRef<{ value: number; until: number } | null>(null);
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
@@ -498,7 +503,31 @@ const EventDetail: React.FC = () => {
           })),
           commercialActions: mapEventResponseToActions(response.commercialActions ?? [])
         };
-        setEvent(eventWithData);
+
+        // ── Guardas pós-sync ──────────────────────────────────────────────────
+        // 1. Nunca baixar currentSales abaixo do piso confirmado por atualizarHoje.
+        //    Cobre o caso de recompute com dado parcial do Magento retornando valor
+        //    menor do que o sync acabou de confirmar.
+        const _floor = postSyncFloorRef.current;
+        const _guardedCurrentSales =
+          _floor && Date.now() < _floor.until && typeof eventWithData.currentSales === 'number'
+            ? Math.max(eventWithData.currentSales, _floor.value)
+            : eventWithData.currentSales;
+
+        // 2. Preservar dailySales existentes se o re-fetch retornar array vazio.
+        //    Evita gráficos sumindo enquanto o backend ainda está recomputando.
+        const _guardedDailySales =
+          eventWithData.dailySales && eventWithData.dailySales.length > 0
+            ? eventWithData.dailySales
+            : (event?.dailySales && event.dailySales.length > 0
+                ? event.dailySales
+                : eventWithData.dailySales);
+
+        setEvent({
+          ...eventWithData,
+          currentSales: _guardedCurrentSales,
+          dailySales: _guardedDailySales,
+        });
         const cacheTime: string | undefined = (response as any).ultima_atualizacao;
         const systemRefresh: string | undefined = (response as any).ultima_atualizacao_completa;
         const inscricoesSync: string | undefined = (response as any).ultima_atualizacao_inscricoes;
@@ -785,17 +814,22 @@ const EventDetail: React.FC = () => {
         setIsStaleData(false);
         setRefreshSuccess(true);
         setTimeout(() => setRefreshSuccess(false), 4000);
+        // Grava piso de currentSales confirmado por este sync (válido por 2 min).
+        // Re-fetches seguintes não podem baixar o valor abaixo desse piso.
+        if (result.total_acumulado > 0) {
+          postSyncFloorRef.current = { value: result.total_acumulado, until: Date.now() + 120000 };
+        }
         if (staleRetryTimerRef.current) {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
         // Delay o primeiro re-fetch para dar tempo ao recompute em background
         // (disparado pelo backend imediatamente após o sync) de concluir.
-        // O re-fetch imediato devolvia o snapshot stale e sobrescrevia "Vendas Hoje"
-        // com 0, anulando a atualização manual correta feita acima.
+        // silent=true: evita banner de loading e preserva gráficos existentes
+        // enquanto os dados novos chegam em background.
         staleRetryTimerRef.current = setTimeout(() => {
           staleRetryTimerRef.current = null;
-          fetchEventRef.current?.(true, false, true);
+          fetchEventRef.current?.(true, true, true);
           // Segunda rodada silenciosa após mais 12s (total ~16s) para pegar
           // qualquer dado que o recompute completo tenha atualizado.
           staleRetryTimerRef.current = setTimeout(() => {
