@@ -88,6 +88,15 @@ def _is_retryable_magento_error(exc: BaseException) -> bool:
     """Return True if ``exc`` looks like a transient Magento DB error."""
     # SQLAlchemy / DB-API errors that are usually transient
     if isinstance(exc, (OperationalError, InterfaceError, SATimeoutError)):
+        # Error 3024 = MAX_EXECUTION_TIME exceeded — the server processed the
+        # query but killed it because it was too slow.  Retrying immediately
+        # will produce the same result and wastes another full timeout window.
+        # Treat it as non-retryable so we fail fast.
+        _orig = getattr(exc, "orig", None)
+        if _orig is not None:
+            _code = getattr(_orig, "args", (None,))[0]
+            if _code == 3024:
+                return False
         return True
     if isinstance(exc, DBAPIError):
         # ``connection_invalidated`` is set by SQLAlchemy when it had to

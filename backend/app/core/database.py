@@ -564,7 +564,7 @@ def init_mysql_connections():
                 max_overflow=12,
                 pool_timeout=20,
                 pool_use_lifo=True,
-                connect_args={'connect_timeout': 15, 'read_timeout': 300, 'write_timeout': 30}
+                connect_args={'connect_timeout': 15, 'read_timeout': 35, 'write_timeout': 30}
             )
             SessionLocalMagento = sessionmaker(autocommit=False, autoflush=False, bind=engine_magento)
             print(f"MySQL Magento connection configured for database '{settings.MYSQL_MAGENTO_DATABASE}'")

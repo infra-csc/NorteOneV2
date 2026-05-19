@@ -22,6 +22,8 @@ export interface SyncResult {
   ultima_atualizacao?: string;
   snapshot_bridge?: boolean;
   snapshot_atualizado_em?: string | null;
+  magento_ultimo_conhecido?: number | null;
+  magento_ultimo_data?: string | null;
 }
 
 interface Props {
@@ -79,6 +81,7 @@ function ScanBar({ color = 'blue' }: { color?: 'blue' | 'amber' | 'red' }) {
 
 function SourceCard({
   label, subtitle, icon, phase, value, ok, viaSnapshot, elapsedMs, timeout,
+  lastKnown, lastKnownDate,
 }: {
   label: string;
   subtitle: string;
@@ -89,6 +92,8 @@ function SourceCard({
   viaSnapshot?: boolean;
   elapsedMs?: number;
   timeout?: number;
+  lastKnown?: number | null;
+  lastKnownDate?: string | null;
 }) {
   const isRunning = phase === 'running';
   const isDone = phase === 'done';
@@ -183,8 +188,20 @@ function SourceCard({
       )}
 
       {isError && !viaSnapshot && (
-        <div className="text-xs text-red-600 dark:text-red-400 font-medium">
-          Indisponível
+        <div className="space-y-1">
+          <div className="text-xs text-red-600 dark:text-red-400 font-medium">
+            Indisponível
+          </div>
+          {lastKnown != null && (
+            <div className="text-xs text-gray-500 dark:text-gray-400">
+              Último registrado: <span className="font-semibold text-gray-700 dark:text-gray-300">{lastKnown.toLocaleString('pt-BR')}</span>
+              {lastKnownDate && (
+                <span className="ml-1 text-gray-400">
+                  ({new Date(lastKnownDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
       {viaSnapshot && (
@@ -503,6 +520,8 @@ export default function AtualizarHojeModal({
                 viaSnapshot={result?.snapshot_bridge === true && result?.magento_ok === false}
                 elapsedMs={sourcesPhase === 'active' ? (sourcesTs ?? elapsedMs) : undefined}
                 timeout={28}
+                lastKnown={result?.magento_ultimo_conhecido}
+                lastKnownDate={result?.magento_ultimo_data}
               />
             </div>
           </div>

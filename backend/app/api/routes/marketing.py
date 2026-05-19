@@ -11057,6 +11057,10 @@ def _atualizar_hoje_inner(
         else:
             ativo_ok = False
             sources_failed.append("ativo")
+    # Último valor Magento conhecido (snapshot local) — usado quando Magento está indisponível
+    _magento_ultimo_conhecido: Optional[int] = None
+    _magento_ultimo_data: Optional[str] = None
+
     if magento_ids:
         if _m_ok:
             hoje_magento += _m_qtd
@@ -11064,6 +11068,23 @@ def _atualizar_hoje_inner(
         else:
             magento_ok = False
             sources_failed.append("magento")
+            # Busca último registro Magento no VendasDiariaSnapshot para exibir no modal
+            try:
+                _ult = (
+                    db.query(_VDS.data_venda, _VDS.quantidade)
+                    .filter(
+                        _VDS.evento_grupo == grupo_nome,
+                        _VDS.fonte == "magento",
+                        _VDS.quantidade > 0,
+                    )
+                    .order_by(_VDS.data_venda.desc())
+                    .first()
+                )
+                if _ult:
+                    _magento_ultimo_conhecido = int(_ult.quantidade)
+                    _magento_ultimo_data = _ult.data_venda.isoformat()
+            except Exception as _ue:
+                logger.debug(f"atualizar-hoje: falha ao buscar último Magento para {grupo_nome}: {_ue}")
 
     hoje_total = hoje_ativo + hoje_magento
     _pre_greatest_total = hoje_total  # save before any GREATEST() UPSERT may raise it
@@ -11373,6 +11394,8 @@ def _atualizar_hoje_inner(
         "ativo_ok": ativo_ok,
         "magento_ok": magento_ok,
         "fontes_indisponiveis": sources_failed,
+        "magento_ultimo_conhecido": _magento_ultimo_conhecido,
+        "magento_ultimo_data": _magento_ultimo_data,
         "snapshot_bridge": _snapshot_bridge,
         "snapshot_atualizado_em": (
             _snapshot_updated_at.astimezone(ZoneInfo('America/Sao_Paulo')).isoformat()
