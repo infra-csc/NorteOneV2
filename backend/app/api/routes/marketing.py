@@ -3102,8 +3102,12 @@ def get_margem_por_kit(
                                     if _bf_oldest_ts is not None:
                                         _bf_age_h = (_time.time() - _bf_oldest_ts) / 3600
                                     _aviso_bf = _format_snapshot_warning(_bf_age_h)
-                                    if avisos_out is not None and _aviso_bf not in avisos_out:
-                                        avisos_out.append(_aviso_bf)
+                                    if avisos_out is not None:
+                                        _generic_aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                                        if _generic_aviso in avisos_out:
+                                            avisos_out.remove(_generic_aviso)
+                                        if _aviso_bf not in avisos_out:
+                                            avisos_out.append(_aviso_bf)
                                     _bf_age_msg = (
                                         f" (idade {_bf_age_h:.1f}h)"
                                         if _bf_age_h is not None else ""
@@ -3129,14 +3133,18 @@ def get_margem_por_kit(
                             # NÃO grava no cache de TTL: queremos voltar a tentar ao vivo
                             # assim que o cooldown expirar.
                             _aviso_stale = _format_snapshot_warning(_stale_age_h)
-                            if avisos_out is not None and _aviso_stale not in avisos_out:
-                                avisos_out.append(_aviso_stale)
+                            if avisos_out is not None:
+                                _generic_aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                                if _generic_aviso in avisos_out:
+                                    avisos_out.remove(_generic_aviso)
+                                if _aviso_stale not in avisos_out:
+                                    avisos_out.append(_aviso_stale)
                             logger.info(
                                 f"[Margem] revenue_query STALE SNAPSHOT FALLBACK: "
                                 f"{len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_stale_age_h:.1f}h)"
                             )
                         else:
-                            _aviso_cooldown = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                            _aviso_cooldown = "Magento indisponível e nenhum snapshot encontrado — valores de receita podem estar zerados ou incompletos."
                             if avisos_out is not None and _aviso_cooldown not in avisos_out:
                                 avisos_out.append(_aviso_cooldown)
 
