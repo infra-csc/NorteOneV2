@@ -731,20 +731,27 @@ const EventDetail: React.FC = () => {
           const todayExists = prev.dailySales?.some(d => d.date === todayStr);
 
           // Case 1 — today's row already exists (snapshot had a stale/zero value).
-          // Recalculate cumulativeSales AND atingimentoDiario with the fresh total.
+          // Recalculate cumulativeSales, atingimentoDiario, atingimentoAcumulado and dif.
           const updatedDailySales = prev.dailySales ? prev.dailySales.map(d => {
             if (d.date === todayStr) {
               const prevCum = getPrevCumSales(prev.dailySales);
               const newCum = prevCum + result.hoje_total;
-              const exp = d.expected ?? 0;
-              const newAtingDia = exp > 0
-                ? Math.round(((result.hoje_total - exp) / exp) * 1000) / 10
+              const expDay = d.expected ?? 0;
+              const expCum = d.cumulativeExpected ?? 0;
+              const newAtingDia = expDay > 0
+                ? Math.round(((result.hoje_total - expDay) / expDay) * 1000) / 10
+                : 0;
+              const newDif = Math.round((newCum - expCum) * 10) / 10;
+              const newAtingAcum = expCum > 0
+                ? Math.round(((newCum - expCum) / expCum) * 1000) / 10
                 : 0;
               return {
                 ...d,
                 sales: result.hoje_total,
                 cumulativeSales: newCum,
                 atingimentoDiario: newAtingDia,
+                atingimentoAcumulado: newAtingAcum,
+                dif: newDif,
               };
             }
             return d;
@@ -759,6 +766,8 @@ const EventDetail: React.FC = () => {
                 cumulativeSales: getPrevCumSales(prev.dailySales) + result.hoje_total,
                 cumulativeExpected: 0,
                 atingimentoDiario: 0,
+                atingimentoAcumulado: 0,
+                dif: getPrevCumSales(prev.dailySales) + result.hoje_total,
               }]
             : updatedDailySales;
           return {
@@ -769,6 +778,9 @@ const EventDetail: React.FC = () => {
             dailySales: finalDailySales
           };
         });
+        if (result.ultima_atualizacao) {
+          setUltimaAtualizacaoInscricoes(result.ultima_atualizacao);
+        }
         setIsStaleData(false);
         setRefreshSuccess(true);
         setTimeout(() => setRefreshSuccess(false), 4000);
