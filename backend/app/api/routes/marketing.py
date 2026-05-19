@@ -10973,8 +10973,11 @@ def atualizar_vendas_hoje(
         })
 
     # ── 3. Verifica cooldown de 30 min (só aplicado após sucesso) ────────────
+    # Admin bypassa o cooldown e pode sincronizar a qualquer momento.
+    from app.core.security import is_user_admin as _is_user_admin
+    _is_admin_user = _is_user_admin(current_user)
     _cool = _atualizar_hoje_cooldown.get(evento_id)
-    if _cool:
+    if _cool and not _is_admin_user:
         _cool_ts, _cool_email, _cool_nome = _cool
         _elapsed_ah = _now_ah - _cool_ts
         if _elapsed_ah < _ATUALIZAR_HOJE_COOLDOWN_S:
