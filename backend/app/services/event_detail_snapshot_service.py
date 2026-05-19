@@ -15,7 +15,7 @@ Uso:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -30,15 +30,19 @@ logger = logging.getLogger(__name__)
 
 
 def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
-    """Sobrepõe campos voláteis de HOJE no payload do snapshot.
+    """Sobrepõe campos voláteis recentes no payload do snapshot.
 
-    Apenas para eventos agrupados (prefixo 'grp_'). Lê hoje de vendas_diaria_snapshot
-    (atualizado por sincronizar_hoje_batch a cada 30 min + ao clicar em Sincronizar Hoje).
+    Apenas para eventos agrupados (prefixo 'grp_'). Lê os últimos OVERLAY_LOOKBACK_DAYS
+    dias de vendas_diaria_snapshot (atualizado pelo job noturno + "Atualizar Hoje").
+
+    Isso garante que, mesmo quando o Magento está indisponível para recompute completo,
+    o gráfico de vendas exibe dados recentes que já estão no PostgreSQL local — populados
+    pelo job noturno incremental (last N days) e pelo botão "Atualizar Hoje" (hoje).
 
     Substitui no payload (sem mutar o snapshot persistido):
-      - dailySales: garante linha de hoje com qty/receita atualizadas
-      - evento.currentSales: incrementado pelas vendas de hoje
-      - evento.averageTicket: recomputado se houver receita
+      - dailySales: sobrepõe os últimos OVERLAY_LOOKBACK_DAYS dias com dados do PG local
+      - evento.currentSales: ajustado pelo delta total dos dias sobrepostos
+      - evento.averageTicket: recomputado a partir do delta de hoje
       - ultima_atualizacao_inscricoes: timestamp do último sync_hoje
       - ultima_atualizacao: timestamp do último sync_hoje (compat. frontend antigo)
 
@@ -80,72 +84,103 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     today_str = today.isoformat()
 
+    # Janela de sobreposição: últimos N dias do VendasDiariaSnapshot (PostgreSQL local).
+    # Isso garante que dados recentes (preenchidos pelo job noturno e "Atualizar Hoje")
+    # sejam exibidos mesmo quando o Magento está indisponível para recompute completo.
+    OVERLAY_LOOKBACK_DAYS = 90
+    lookback_start = today - timedelta(days=OVERLAY_LOOKBACK_DAYS)
+
     try:
-        row = (
+        recent_rows = (
             db.query(VendasDiariaSnapshot)
             .filter(
                 VendasDiariaSnapshot.evento_grupo == grupo_nome,
                 VendasDiariaSnapshot.fonte == "CONSOLIDADO",
-                VendasDiariaSnapshot.data_venda == today,
+                VendasDiariaSnapshot.data_venda >= lookback_start,
+                VendasDiariaSnapshot.data_venda <= today,
             )
-            .first()
+            .all()
         )
     except Exception as e:
         logger.warning(f"[Overlay] read vendas_diaria_snapshot falhou para '{grupo_nome}': {e}")
         return payload
 
-    today_qty_db = int(row.quantidade) if row else 0
-    today_rev_db = float(row.receita or 0.0) if row else 0.0
+    # Mapa de dias disponíveis no PG local: {date_str: {qty, revenue}}
+    db_days: dict = {
+        r.data_venda.isoformat(): {
+            "qty": int(r.quantidade or 0),
+            "revenue": float(r.receita or 0.0),
+        }
+        for r in recent_rows
+    }
+    # Dados de hoje para o cálculo do averageTicket (mantém lógica existente).
+    today_qty_db = db_days.get(today_str, {}).get("qty", 0)
+    today_rev_db = db_days.get(today_str, {}).get("revenue", 0.0)
 
     # Cópia rasa para não mutar o dict original (que pode estar referenciado em cache).
     out = dict(payload)
 
-    # --- dailySales overlay (delta-based para preservar consistência) ---
-    daily = list(out.get("dailySales") or [])
-    # Identifica a linha de hoje no payload (se já existir).
-    old_today_qty = 0
-    today_idx = -1
-    if daily:
-        for i in range(len(daily) - 1, max(-1, len(daily) - 4), -1):
-            row_d = daily[i]
-            if isinstance(row_d, dict) and row_d.get("date") == today_str:
-                today_idx = i
-                old_today_qty = int(row_d.get("sales") or 0)
-                break
-    if today_idx >= 0:
-        # Substitui sales preservando campos auxiliares (expected, cumulativeExpected, etc).
-        new_today = dict(daily[today_idx])
-        new_today["sales"] = today_qty_db
-        daily[today_idx] = new_today
-        out["dailySales"] = daily
-    elif row is not None and today_qty_db > 0:
-        daily.append({
-            "date": today_str,
-            "sales": today_qty_db,
-            "expected": 0,
-            "cumulativeExpected": 0,
-        })
+    if db_days:
+        # --- dailySales overlay multi-dia (delta-based para preservar consistência) ---
+        daily = list(out.get("dailySales") or [])
+
+        # Mapa de índice: date_str -> posição na lista daily (para update in-place).
+        daily_idx_map: dict = {}
+        for i, row_d in enumerate(daily):
+            if isinstance(row_d, dict) and row_d.get("date"):
+                daily_idx_map[row_d["date"]] = i
+
+        # old_today_qty para o cálculo de averageTicket (lógica original preservada).
+        old_today_qty = int(
+            daily[daily_idx_map[today_str]].get("sales") or 0
+        ) if today_str in daily_idx_map else 0
+
+        # Aplica sobreposição para cada dia disponível no PG local.
+        # Delta acumulado = soma de (novo - antigo) em todos os dias sobrepostos.
+        total_qty_delta = 0
+        for day_str, db_data in db_days.items():
+            new_qty = db_data["qty"]
+            if day_str in daily_idx_map:
+                idx = daily_idx_map[day_str]
+                old_qty = int(daily[idx].get("sales") or 0)
+                delta = new_qty - old_qty
+                if delta != 0:
+                    updated = dict(daily[idx])
+                    updated["sales"] = new_qty
+                    daily[idx] = updated
+                    total_qty_delta += delta
+            elif new_qty > 0:
+                # Dia ausente no snapshot: adiciona como nova entrada.
+                daily.append({
+                    "date": day_str,
+                    "sales": new_qty,
+                    "expected": 0,
+                    "cumulativeExpected": 0,
+                })
+                total_qty_delta += new_qty
+
         out["dailySales"] = daily
 
-    # --- evento.currentSales / averageTicket (delta-based, sempre consistente
-    # com o valor atualizado de hoje em vendas_diaria_snapshot) ---
-    qty_delta = today_qty_db - old_today_qty
-    evt = out.get("evento")
-    if isinstance(evt, dict) and qty_delta != 0:
-        evt = dict(evt)
-        base_qty = int(evt.get("currentSales") or 0)
-        new_qty = max(0, base_qty + qty_delta)
-        evt["currentSales"] = new_qty
-        # Estima receita anterior pelo ticket médio do payload.
-        base_avg = float(evt.get("averageTicket") or 0.0)
-        base_rev = base_avg * base_qty if base_qty > 0 else 0.0
-        # Aproxima delta de receita: usa receita real do row de hoje vs receita
-        # estimada anterior pelo ticket médio para os old_today_qty.
-        old_today_rev_est = base_avg * old_today_qty if (base_avg > 0 and old_today_qty > 0) else 0.0
-        new_rev = max(0.0, base_rev - old_today_rev_est + today_rev_db)
-        if new_qty > 0 and new_rev > 0:
-            evt["averageTicket"] = round(new_rev / new_qty, 2)
-        out["evento"] = evt
+        # --- evento.currentSales / averageTicket (delta-based) ---
+        evt = out.get("evento")
+        if isinstance(evt, dict) and total_qty_delta != 0:
+            evt = dict(evt)
+            base_qty = int(evt.get("currentSales") or 0)
+            new_qty = max(0, base_qty + total_qty_delta)
+            evt["currentSales"] = new_qty
+            # averageTicket: usa delta de receita de HOJE especificamente
+            # (mantém lógica original — receitas de dias anteriores já estão
+            # capturadas no ticket médio base do snapshot).
+            base_avg = float(evt.get("averageTicket") or 0.0)
+            base_rev = base_avg * base_qty if base_qty > 0 else 0.0
+            old_today_rev_est = (
+                base_avg * old_today_qty
+                if (base_avg > 0 and old_today_qty > 0) else 0.0
+            )
+            new_rev = max(0.0, base_rev - old_today_rev_est + today_rev_db)
+            if new_qty > 0 and new_rev > 0:
+                evt["averageTicket"] = round(new_rev / new_qty, 2)
+            out["evento"] = evt
 
     # --- dMinus / dMinusInscricoes overlay ---
     # O snapshot persiste D- calculado no dia em que foi gravado. Sem este
