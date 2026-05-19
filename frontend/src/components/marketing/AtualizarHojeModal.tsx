@@ -491,7 +491,7 @@ export default function AtualizarHojeModal({
                 value={result?.hoje_ativo}
                 ok={result?.ativo_ok}
                 elapsedMs={sourcesPhase === 'active' ? (sourcesTs ?? elapsedMs) : undefined}
-                timeout={20}
+                timeout={24}
               />
               <SourceCard
                 label="MAGENTO"
@@ -502,7 +502,7 @@ export default function AtualizarHojeModal({
                 ok={result?.magento_ok}
                 viaSnapshot={result?.snapshot_bridge === true && result?.magento_ok === false}
                 elapsedMs={sourcesPhase === 'active' ? (sourcesTs ?? elapsedMs) : undefined}
-                timeout={12}
+                timeout={28}
               />
             </div>
           </div>
@@ -533,7 +533,7 @@ export default function AtualizarHojeModal({
                   Previsão: {est}
                 </span>
                 <span className="text-xs text-gray-300 dark:text-gray-600">
-                  (limite Magento 12s · Ativo 20s)
+                  (limite Magento 28s · Ativo 24s)
                 </span>
               </div>
             ) : null;

@@ -11025,11 +11025,27 @@ def _atualizar_hoje_inner(
             logger.warning(f"atualizar-hoje: erro Magento para {evento_id}: {_e}")
             return _qtd, _rec, False
 
-    with _TPE(max_workers=2) as _pool:
-        _fut_ativo   = _pool.submit(_run_ativo)
-        _fut_magento = _pool.submit(_run_magento)
-        _a_qtd, _a_rec, _a_ok = _fut_ativo.result()
-        _m_qtd, _m_rec, _m_ok = _fut_magento.result()
+    # Timeouts de aplicação: garantem que o endpoint retorna mesmo se o MySQL
+    # ignorar o hint MAX_EXECUTION_TIME (query na fila, SSH congestionado, etc.).
+    # Ativo: SQL 20s → Python 24s. Magento: SQL 12s × 2 tentativas → Python 28s.
+    # shutdown(wait=False) libera o pool sem bloquear; threads daemon concluem sozinhas.
+    import concurrent.futures as _cf_ah
+    _ATIVO_TIMEOUT_S = 24
+    _MAGENTO_TIMEOUT_S = 28
+    _pool_ah = _TPE(max_workers=2)
+    _fut_ativo   = _pool_ah.submit(_run_ativo)
+    _fut_magento = _pool_ah.submit(_run_magento)
+    try:
+        _a_qtd, _a_rec, _a_ok = _fut_ativo.result(timeout=_ATIVO_TIMEOUT_S)
+    except _cf_ah.TimeoutError:
+        _a_qtd, _a_rec, _a_ok = 0, 0.0, False
+        logger.warning(f"atualizar-hoje: Ativo timeout ({_ATIVO_TIMEOUT_S}s) para {evento_id}")
+    try:
+        _m_qtd, _m_rec, _m_ok = _fut_magento.result(timeout=_MAGENTO_TIMEOUT_S)
+    except _cf_ah.TimeoutError:
+        _m_qtd, _m_rec, _m_ok = 0, 0.0, False
+        logger.warning(f"atualizar-hoje: Magento timeout ({_MAGENTO_TIMEOUT_S}s) para {evento_id}")
+    _pool_ah.shutdown(wait=False)
 
     if ativo_ids:
         if _a_ok:
