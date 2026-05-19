@@ -6571,12 +6571,18 @@ SELECT
             ELSE 0 END
         + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
         - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE((SELECT MAX(soiaa.price) FROM sales_order_item soiaa WHERE soiaa.parent_item_id = soi.item_id AND soiaa.name LIKE '%%persona%%'), 0) = 14.90 THEN 14.90
+            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE(soi_persona.persona_price, 0) = 14.90 THEN 14.90
             ELSE 0 END)
     ELSE 0 END) AS receita
 FROM sales_order AS so
 LEFT JOIN sales_order_item AS soi ON soi.order_id = so.entity_id
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS persona_price
+    FROM sales_order_item
+    WHERE name LIKE '%%persona%%'
+    GROUP BY parent_item_id
+) soi_persona ON soi_persona.parent_item_id = soi.item_id
 WHERE
     YEAR(so.created_at) IN (:ano_atual, :ano_anterior)
     AND so.increment_id NOT LIKE "%%-1%%"
@@ -6773,7 +6779,7 @@ SELECT
             ELSE 0 END
         + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
         - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE((SELECT MAX(soiaa.price) FROM sales_order_item soiaa WHERE soiaa.parent_item_id = soi.item_id AND soiaa.name LIKE '%%persona%%'), 0) = 14.90 THEN 14.90
+            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE(soi_persona.persona_price, 0) = 14.90 THEN 14.90
             ELSE 0 END)
     ELSE 0 END) AS receita
 FROM sales_order AS so
@@ -6781,6 +6787,12 @@ INNER JOIN sales_order_item AS soi ON soi.order_id = so.entity_id AND soi.produc
 INNER JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = soi.product_id AND cpev1.attribute_id = 321 AND cpev1.store_id = 0
 LEFT JOIN customer_group AS cg ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS persona_price
+    FROM sales_order_item
+    WHERE name LIKE '%%persona%%'
+    GROUP BY parent_item_id
+) soi_persona ON soi_persona.parent_item_id = soi.item_id
 WHERE
     so.increment_id NOT REGEXP '-[0-9]'
     AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
@@ -7303,7 +7315,7 @@ SELECT /*+ MAX_EXECUTION_TIME(12000) */
             ELSE 0 END
         + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
         - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE((SELECT MAX(soiaa.price) FROM sales_order_item soiaa WHERE soiaa.parent_item_id = soi.item_id AND soiaa.name LIKE '%%persona%%'), 0) = 14.90 THEN 14.90
+            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE(soi_persona.persona_price, 0) = 14.90 THEN 14.90
             ELSE 0 END
     ELSE 0 END) AS receita
 FROM sales_order so
@@ -7316,6 +7328,12 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.store_id = 0
 LEFT JOIN customer_group cg
        ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS persona_price
+    FROM sales_order_item
+    WHERE name LIKE '%%persona%%'
+    GROUP BY parent_item_id
+) soi_persona ON soi_persona.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
@@ -7447,7 +7465,7 @@ SELECT /*+ MAX_EXECUTION_TIME(25000) */
             ELSE 0 END
         + COALESCE(so.base_discount_invoiced, 0) * (soi.price / NULLIF(so.base_subtotal, 1))
         - CASE WHEN cg.customer_group_id = 4 THEN 0
-            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE((SELECT MAX(soiaa.price) FROM sales_order_item soiaa WHERE soiaa.parent_item_id = soi.item_id AND soiaa.name LIKE '%%persona%%'), 0) = 14.90 THEN 14.90
+            WHEN cg.customer_group_id IN (0, 1, 2, 3, 5, 7) AND COALESCE(soi_persona.persona_price, 0) = 14.90 THEN 14.90
             ELSE 0 END
     ELSE 0 END) AS receita
 FROM sales_order so
@@ -7460,6 +7478,12 @@ INNER JOIN catalog_product_entity_varchar cpev1
       AND cpev1.store_id = 0
 LEFT JOIN customer_group cg
        ON cg.customer_group_id = so.customer_group_id
+LEFT JOIN (
+    SELECT parent_item_id, MAX(price) AS persona_price
+    FROM sales_order_item
+    WHERE name LIKE '%%persona%%'
+    GROUP BY parent_item_id
+) soi_persona ON soi_persona.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
     AND so.state != 'canceled'
