@@ -697,23 +697,37 @@ def _get_ticket_atual_map(db: Session) -> dict:
 
     with _ticket_atual_cache_lock:
         if result:
-            # Resultado válido: atualiza normalmente.
-            _ticket_atual_cache.clear()
-            _ticket_atual_cache.update(result)
+            # Merge inteligente: preserva entradas do cache antigo que NÃO vieram
+            # no fetch atual. Cobre o caso em que o Magento devolve bundle_data
+            # parcial (alguns kits inativos/sem preço ficam de fora do result),
+            # evitando que o ticket de um evento suma após TTL mesmo que estivesse
+            # correto antes. Entradas novas/atualizadas do fetch sobrescrevem o stale.
+            stale_keys_kept = 0
+            if _ticket_atual_cache:
+                merged = dict(_ticket_atual_cache)   # começa com valores antigos
+                merged.update(result)                # novos sobrescrevem
+                stale_keys_kept = len(merged) - len(result)
+                if stale_keys_kept > 0:
+                    logger.debug(
+                        f"[ticket_atual] Merge: {len(result)} novos + "
+                        f"{stale_keys_kept} preservados do cache anterior"
+                    )
+                _ticket_atual_cache.clear()
+                _ticket_atual_cache.update(merged)
+            else:
+                _ticket_atual_cache.update(result)
             _ticket_atual_cache_ts = _time.time()
         else:
-            # Fetch retornou vazio (Magento indisponível): preserva cache anterior
-            # para não mostrar "Não encontrado" enquanto a fonte está instável.
-            # Só atualiza o timestamp se o cache já estava vazio (nada a preservar).
+            # Fetch retornou vazio (Magento + snapshot indisponíveis): preserva cache
+            # anterior por completo para não mostrar "Não encontrado".
+            # Não atualiza o timestamp → retry imediato na próxima chamada.
             if not _ticket_atual_cache:
                 _ticket_atual_cache_ts = _time.time()
             else:
                 logger.warning(
-                    "[ticket_atual] Fetch retornou vazio (Magento indisponível?) — "
+                    "[ticket_atual] Fetch retornou vazio — "
                     f"mantendo cache anterior com {len(_ticket_atual_cache)} entradas (stale-on-error)"
                 )
-                # Não atualiza _ticket_atual_cache_ts: na próxima chamada vai tentar de novo
-                # sem esperar o TTL completo, assim que o Magento voltar.
 
     return result if result else dict(_ticket_atual_cache)
 
