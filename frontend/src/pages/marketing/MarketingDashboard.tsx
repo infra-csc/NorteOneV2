@@ -206,9 +206,6 @@ const MarketingDashboard: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [fullRefreshing, setFullRefreshing] = useState(false);
   const [syncingHoje, setSyncingHoje] = useState(false);
-  const [syncingFaltantes, setSyncingFaltantes] = useState(false);
-  const [syncFaltantesResult, setSyncFaltantesResult] = useState<'success' | 'error' | 'none' | null>(null);
-  const [syncFaltantesCount, setSyncFaltantesCount] = useState<number | null>(null);
   const [rebuildingSnapshots, setRebuildingSnapshots] = useState(false);
 
   const [opLog, setOpLog] = useState<OperationLog | null>(null);
@@ -521,50 +518,6 @@ const MarketingDashboard: React.FC = () => {
     } finally {
       setSyncingHoje(false);
       setTimeout(() => setSyncHojeResult(null), 5000);
-    }
-  };
-
-  const handleSyncFaltantes = async () => {
-    if (syncingFaltantes || fullRefreshing) return;
-    setSyncingFaltantes(true);
-    setSyncFaltantesResult(null);
-    setSyncFaltantesCount(null);
-
-    opStart('Sync Faltantes');
-    opLog_add('info', 'Detectando grupos sem snapshot no ano corrente...');
-    opLog_progress(5, 'Verificando banco de dados...');
-
-    try {
-      const result = await marketingService.syncFaltantes();
-      if (result.status === 'ok' && result.synced === 0) {
-        opLog_add('success', 'Todos os grupos já possuem snapshot. Nenhuma ação necessária.');
-        opLog_progress(100, 'Todos OK', 0);
-        opLog_finish('success');
-        setSyncFaltantesResult('none');
-        setSyncFaltantesCount(0);
-      } else if (result.status === 'started' || result.status === 'ok') {
-        const grupos = result.faltantes ?? [];
-        const etaS = grupos.length * 180;
-        opLog_add('info', `${grupos.length} grupo(s) sem snapshot detectado(s):`);
-        grupos.forEach((g: string) => opLog_add('info', `  → ${g}`));
-        opLog_add('info', `Reconstrução iniciada em background. ETA estimado: ~${Math.round(etaS / 60)} min.`);
-        opLog_add('warning', 'Esta janela pode ser fechada — a sincronização continua no servidor.');
-        opLog_progress(15, `Processando ${grupos.length} grupo(s) em background...`, etaS);
-        opLog_finish('success');
-        setSyncFaltantesResult('success');
-        setSyncFaltantesCount(result.synced);
-      } else {
-        opLog_add('error', `Resposta inesperada: ${result.status}`);
-        opLog_finish('error');
-        setSyncFaltantesResult('error');
-      }
-    } catch (err: any) {
-      opLog_add('error', `Falha: ${err?.message || 'Erro de conexão com o servidor.'}`);
-      opLog_finish('error');
-      setSyncFaltantesResult('error');
-    } finally {
-      setSyncingFaltantes(false);
-      setTimeout(() => { setSyncFaltantesResult(null); setSyncFaltantesCount(null); }, 8000);
     }
   };
 
@@ -1018,41 +971,6 @@ const MarketingDashboard: React.FC = () => {
                         : syncingHoje
                           ? 'Sincronizando...'
                           : 'Sincronizar Hoje'}
-                </span>
-              </button>
-              <button
-                onClick={handleSyncFaltantes}
-                disabled={syncingFaltantes || fullRefreshing || loading}
-                title="Detecta e sincroniza apenas os eventos sem snapshot no ano corrente"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm ${
-                  syncFaltantesResult === 'success'
-                    ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                    : syncFaltantesResult === 'none'
-                      ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400'
-                      : syncFaltantesResult === 'error'
-                        ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                        : 'bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 hover:bg-teal-200 dark:hover:bg-teal-900/50'
-                } ${(syncingFaltantes || fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {syncFaltantesResult === 'success' ? (
-                  <CheckCircle className="w-3.5 h-3.5" />
-                ) : syncFaltantesResult === 'none' ? (
-                  <CheckCircle className="w-3.5 h-3.5" />
-                ) : syncFaltantesResult === 'error' ? (
-                  <XCircle className="w-3.5 h-3.5" />
-                ) : (
-                  <Database className={`w-3.5 h-3.5 ${syncingFaltantes ? 'animate-pulse' : ''}`} />
-                )}
-                <span className="font-medium">
-                  {syncFaltantesResult === 'success'
-                    ? `${syncFaltantesCount} iniciado${syncFaltantesCount !== 1 ? 's' : ''}!`
-                    : syncFaltantesResult === 'none'
-                      ? 'Todos OK'
-                      : syncFaltantesResult === 'error'
-                        ? 'Falha'
-                        : syncingFaltantes
-                          ? 'Verificando...'
-                          : 'Sync Faltantes'}
                 </span>
               </button>
               {fullRefreshing && refreshProgress && refreshProgress.elapsed_seconds != null && (
