@@ -4168,10 +4168,16 @@ ativo_breaker = CircuitBreaker("ativo", failure_threshold=3, cooldown_s=60.0, wi
 # upstream load no matter how many concurrent users we have.
 _atualizar_hoje_cache = CoalescingCache(ttl_s=20.0, name="atualizar_hoje")
 
-# Cooldown por evento: 30 min entre chamadas de "Atualizar Hoje".
+# Cooldown por evento: 30 min após SUCESSO de "Atualizar Hoje".
 # Tupla: (timestamp_float, user_email, user_nome)
+# Só é gravado após status == "ok". Falha/parcial não bloqueia nova tentativa.
 _atualizar_hoje_cooldown: dict = {}
 _ATUALIZAR_HOJE_COOLDOWN_S = 1800  # 30 minutos
+
+# Flag de execução em andamento por evento.
+# Tupla: (timestamp_float, user_email, user_nome)
+# Setado ao iniciar o fetch; limpo ao terminar (sucesso ou falha).
+_atualizar_hoje_in_progress: dict = {}
 
 # Trust the persisted snapshot for "today" if the background batch ran within
 # this many seconds. Slightly larger than the batch interval so we always
@@ -10773,9 +10779,7 @@ def atualizar_vendas_hoje(
             detail="Este evento não possui grupo mapeado. A atualização de hoje requer um grupo para persistir o snapshot."
         )
 
-    # Bloqueia se uma sincronização global (sync-hoje ou loop automático) já está
-    # em execução. Evita que múltiplos usuários disparem queries ao Magento/Ativo
-    # simultaneamente — o sync global já vai atualizar todos os eventos de uma vez.
+    # ── 1. Bloqueia se o batch global de sync-hoje está rodando ──────────────
     if is_sync_hoje_running():
         quem = get_sync_hoje_running_by() or "sistema"
         from fastapi.responses import JSONResponse as _JR_ah
@@ -10784,9 +10788,30 @@ def atualizar_vendas_hoje(
             "message": f"Sincronização global em andamento (por {quem}). Os dados serão atualizados em instantes — tente novamente em alguns segundos.",
         })
 
-    # Cooldown de 30 min por evento — apenas uma requisição por janela.
     import time as _time_ah
     _now_ah = _time_ah.time()
+    _user_nome_ah = getattr(current_user, 'nome', None) or getattr(current_user, 'email', '') or 'usuário'
+    _user_email_ah = getattr(current_user, 'email', '') or ''
+
+    # ── 2. Bloqueia se OUTRO usuário está sincronizando ESTE evento agora ────
+    _ip_entry = _atualizar_hoje_in_progress.get(evento_id)
+    if _ip_entry:
+        _ip_ts, _ip_email, _ip_nome = _ip_entry
+        # Considera "em andamento" por no máximo 90s — evita lock permanente
+        # caso o processo tenha sido interrompido de forma inesperada.
+        if _now_ah - _ip_ts < 90:
+            _quem_ip = _ip_nome or _ip_email or 'outro usuário'
+            from fastapi.responses import JSONResponse as _JR_ip
+            return _JR_ip(status_code=409, content={
+                "status": "busy",
+                "message": f"Atualização já em andamento por {_quem_ip}. Os dados estarão disponíveis em instantes.",
+                "blocked_by": _quem_ip,
+            })
+        else:
+            # Expirou — limpa entrada travada
+            _atualizar_hoje_in_progress.pop(evento_id, None)
+
+    # ── 3. Verifica cooldown de 30 min (só aplicado após sucesso) ────────────
     _cool = _atualizar_hoje_cooldown.get(evento_id)
     if _cool:
         _cool_ts, _cool_email, _cool_nome = _cool
@@ -10805,18 +10830,15 @@ def atualizar_vendas_hoje(
                 "status": "cooldown",
                 "retry_after": _remaining_ah,
                 "detail": (
-                    f"Atualização já solicitada por {_quem_ah}. "
+                    f"Atualização já realizada por {_quem_ah}. "
                     f"Disponível novamente em {_min_ah}min {_sec_ah}s."
                 ),
                 "next_allowed_at": _next_ah,
                 "blocked_by": _quem_ah,
             })
 
-    # Registra cooldown ANTES de disparar o fetch — garante que outros usuários
-    # que clicarem durante a execução também sejam bloqueados.
-    _user_nome_ah = getattr(current_user, 'nome', None) or getattr(current_user, 'email', '') or 'usuário'
-    _user_email_ah = getattr(current_user, 'email', '') or ''
-    _atualizar_hoje_cooldown[evento_id] = (_now_ah, _user_email_ah, _user_nome_ah)
+    # ── 4. Marca este evento como "em andamento" ──────────────────────────────
+    _atualizar_hoje_in_progress[evento_id] = (_now_ah, _user_email_ah, _user_nome_ah)
 
     # Gera ciclo_id para o log de sincronização (aparece no painel).
     from ...services.sync_log_service import new_ciclo_id as _new_ciclo_ah
@@ -10829,8 +10851,6 @@ def atualizar_vendas_hoje(
     _sf_key = (evento_id, ano, hoje.isoformat())
 
     def _do_atualizar_hoje():
-        # All the expensive work (Magento/Ativo fetch + snapshot UPSERT) lives
-        # inside this closure so the single-flight cache can coalesce it.
         return _atualizar_hoje_inner(
             db=db,
             evento_id=evento_id,
@@ -10842,33 +10862,25 @@ def atualizar_vendas_hoje(
             ciclo_id=_ciclo_id_ah,
         )
 
-    _ah_result = _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
+    try:
+        _ah_result = _atualizar_hoje_cache.get_or_compute(_sf_key, _do_atualizar_hoje)
+    finally:
+        # ── 5. Libera o flag de in-progress sempre (sucesso ou exceção) ───────
+        _atualizar_hoje_in_progress.pop(evento_id, None)
 
-    # Ajusta o cooldown de acordo com o resultado real do sync.
-    # Se falhou ou foi parcial, encurta o cooldown para 5 min (em vez de 30 min)
-    # para não bloquear desnecessariamente uma nova tentativa quando o Magento
-    # ou Ativo se recuperar. Em caso de sucesso pleno, o cooldown de 30 min é mantido.
+    # ── 6. Aplica cooldown SOMENTE após sucesso pleno ─────────────────────────
+    # Falha ou parcial: sem cooldown — permite nova tentativa imediata.
     try:
         _ah_status = (_ah_result or {}).get("status") if isinstance(_ah_result, dict) else None
-        if _ah_status == "failed":
-            # Ambas as fontes falharam — permite nova tentativa em 5 min.
-            _SHORT_COOLDOWN_FAIL = 300
-            _atualizar_hoje_cooldown[evento_id] = (
-                _now_ah - _ATUALIZAR_HOJE_COOLDOWN_S + _SHORT_COOLDOWN_FAIL,
-                _user_email_ah,
-                _user_nome_ah,
-            )
-        elif _ah_status == "partial":
-            # Uma fonte falhou — permite nova tentativa em 10 min.
-            _SHORT_COOLDOWN_PARTIAL = 600
-            _atualizar_hoje_cooldown[evento_id] = (
-                _now_ah - _ATUALIZAR_HOJE_COOLDOWN_S + _SHORT_COOLDOWN_PARTIAL,
-                _user_email_ah,
-                _user_nome_ah,
-            )
-        # status == "ok": cooldown completo de 30 min permanece.
+        if _ah_status == "ok":
+            # Sucesso: bloqueia por 30 min.
+            _atualizar_hoje_cooldown[evento_id] = (_now_ah, _user_email_ah, _user_nome_ah)
+        elif _ah_status in ("failed", "partial"):
+            # Falha/parcial: remove qualquer cooldown residual para liberar nova tentativa.
+            _atualizar_hoje_cooldown.pop(evento_id, None)
+        # status desconhecido: mantém estado anterior sem alterar.
     except Exception as _cd_e:
-        logger.debug(f"atualizar-hoje: erro ao ajustar cooldown adaptativo: {_cd_e}")
+        logger.debug(f"atualizar-hoje: erro ao ajustar cooldown: {_cd_e}")
 
     return _ah_result
 
