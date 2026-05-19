@@ -519,32 +519,45 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
                 "nome_kit": row_dict.get("nome_kit"),
             }
 
-        # Fallback quando Magento está indisponível: usa MargemBundleRevSnapshot
-        # (populado pelo job das 4h) para estimar receita_liquida / qtd_inscricoes
-        # dos bundles que não vieram do Magento.  Evita "Não encontrado" durante
-        # quedas do Magento.  Marcados com fonte="snapshot" para distinção em logs.
-        if not bundle_data:
-            try:
-                from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBRS
-                all_bundle_ids = [c.bundle_entity_id for c in magento_configs if c.bundle_entity_id is not None and c.bundle_entity_id >= 0]
-                if all_bundle_ids:
-                    snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(all_bundle_ids)).all()
-                    for sr in snap_rows:
-                        if sr.qtd_inscricoes and sr.qtd_inscricoes > 0 and sr.receita_liquida:
-                            ticket_estimado = round(float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2)
-                            bundle_data[sr.bundle_entity_id] = {
-                                "sp_base": ticket_estimado,
-                                "status_kit": "ativo",   # assume ativo — snapshot só guarda bundles com vendas
-                                "nome_kit": None,
-                                "fonte": "snapshot",
-                            }
-                    if bundle_data:
-                        logger.warning(
-                            f"[ticket_atual] Magento indisponível — usando snapshot p/ {len(bundle_data)} bundles "
-                            f"(ticket estimado = receita/qtd do job 4h)"
-                        )
-            except Exception as _fb_e:
-                logger.warning(f"[ticket_atual] Fallback snapshot falhou: {_fb_e}")
+        # Fallback via MargemBundleRevSnapshot para bundles com sp_base ausente/nulo.
+        # Cobre dois casos:
+        #   1. Magento completamente fora → bundle_data vazio
+        #   2. Bundle retornado pelo Magento mas com special_price=NULL e price=NULL/0
+        #      (kit inativo ou não indexado) → sp_base=None dentro de bundle_data
+        # Em ambos os casos, usa receita_liquida / qtd_inscricoes do snapshot das 4h
+        # como estimativa.  Só preenche bundles que ainda não têm sp_base válido.
+        try:
+            from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBRS
+            # Bundles que precisam de fallback: ausentes em bundle_data OU sp_base None
+            all_bundle_ids = [
+                c.bundle_entity_id for c in magento_configs
+                if c.bundle_entity_id is not None and c.bundle_entity_id >= 0
+            ]
+            missing_ids = [
+                bid for bid in all_bundle_ids
+                if bid not in bundle_data or bundle_data[bid].get("sp_base") is None
+            ]
+            if missing_ids:
+                snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(missing_ids)).all()
+                filled = 0
+                for sr in snap_rows:
+                    if sr.qtd_inscricoes and sr.qtd_inscricoes > 0 and sr.receita_liquida:
+                        ticket_estimado = round(float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2)
+                        existing = bundle_data.get(sr.bundle_entity_id, {})
+                        bundle_data[sr.bundle_entity_id] = {
+                            "sp_base": ticket_estimado,
+                            "status_kit": existing.get("status_kit") or "ativo",
+                            "nome_kit": existing.get("nome_kit"),
+                            "fonte": "snapshot",
+                        }
+                        filled += 1
+                if filled:
+                    logger.warning(
+                        f"[ticket_atual] {filled} bundle(s) sem preço no Magento — "
+                        f"usando snapshot (receita/qtd do job 4h) como fallback"
+                    )
+        except Exception as _fb_e:
+            logger.warning(f"[ticket_atual] Fallback snapshot falhou: {_fb_e}")
 
         basico_by_evento, promo_principal_by_evento, promo_by_evento = _bucket_configs_by_evento(magento_configs)
         evento_tickets: dict = {}
