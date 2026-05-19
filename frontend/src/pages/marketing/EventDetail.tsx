@@ -713,7 +713,7 @@ const EventDetail: React.FC = () => {
         setTimeout(() => setRefreshError(null), 8000);
       }
       {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
         setEvent(prev => {
           if (!prev) return prev;
 
@@ -1165,7 +1165,7 @@ const EventDetail: React.FC = () => {
     ? cumulativeData.slice(-chartPeriod)
     : cumulativeData;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
 
   const parsedEventDate = event.date ? new Date(event.date + 'T12:00:00') : null;
   const hasValidEventDate = parsedEventDate && !isNaN(parsedEventDate.getTime());
