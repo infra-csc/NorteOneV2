@@ -198,8 +198,8 @@ const SincronizacoesPanel: React.FC = () => {
     setLoading(true);
     fetchCycles();
     fetchPauseStatus();
-    // Poll every 10s for better real-time feel (was 30s)
-    const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 10000);
+    // Poll every 5s for near-real-time feel
+    const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 5000);
     return () => clearInterval(it);
   }, [fetchCycles, fetchPauseStatus]);
 

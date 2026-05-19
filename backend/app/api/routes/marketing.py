@@ -11310,10 +11310,11 @@ def _atualizar_hoje_inner(
     _response_status = "ok" if all_sources_ok else ("partial" if sync_partial else "failed")
 
     # Log de conclusão + grupo (painel de Sincronizações).
-    # Fire-and-forget: não bloqueamos a resposta por escritas de auditoria.
+    # O log do ciclo é síncrono: o frontend faz re-fetch logo após receber a
+    # resposta e precisa encontrar o status 'concluido' já gravado no banco.
+    # O log do grupo é fire-and-forget (não afeta o status exibido na tabela).
     if ciclo_id:
         try:
-            import threading as _thr_log_end
             from ...services.sync_log_service import log_evento as _log_ev_end
             _duracao_ms_inner = int((_time_inner.time() - _t_start_inner) * 1000)
             _status_ciclo = "concluido" if all_sources_ok else ("parcial" if sync_partial else "falha")
@@ -11323,18 +11324,18 @@ def _atualizar_hoje_inner(
                 f"ativo={hoje_ativo} magento={hoje_magento} total={hoje_total}"
                 + (f" | indisponível: {', '.join(sources_failed)}" if sources_failed else "")
             )
-            def _write_end_logs(
-                _cid=ciclo_id, _sg=_status_grupo, _gn=grupo_nome, _ht=hoje_total,
-                _mg=_motivo_grupo, _dm=_duracao_ms_inner, _sc=_status_ciclo, _det=_detalhes_log,
-            ):
-                try:
-                    _log_ev_end(_cid, "atualizar_hoje", _sg, nivel="grupo", grupo=_gn,
-                                qtd_antes=None, qtd_depois=_ht, motivo=_mg, duracao_ms=_dm)
-                    _log_ev_end(_cid, "atualizar_hoje", _sc, nivel="ciclo", grupo=_gn,
-                                duracao_ms=_dm, detalhes=_det)
-                except Exception:
-                    pass
-            _thr_log_end.Thread(target=_write_end_logs, daemon=True).start()
+            # Ciclo terminal: síncrono — deve estar no banco antes do return.
+            _log_ev_end(ciclo_id, "atualizar_hoje", _status_ciclo, nivel="ciclo",
+                        grupo=grupo_nome, duracao_ms=_duracao_ms_inner, detalhes=_detalhes_log)
+            # Grupo: fire-and-forget (não afeta status do ciclo na UI).
+            import threading as _thr_log_grp
+            _thr_log_grp.Thread(
+                target=_log_ev_end,
+                args=(ciclo_id, "atualizar_hoje", _status_grupo),
+                kwargs=dict(nivel="grupo", grupo=grupo_nome, qtd_antes=None,
+                            qtd_depois=hoje_total, motivo=_motivo_grupo, duracao_ms=_duracao_ms_inner),
+                daemon=True,
+            ).start()
         except Exception:
             pass
 
