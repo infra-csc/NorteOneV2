@@ -716,7 +716,7 @@ def _startup_tier1_gap_warmup():
 
     GAP_STALE_SECONDS = 25 * 3600
     GAP_TIER1_THRESHOLD = 60
-    GAP_WORKERS = 2
+    GAP_WORKERS = 1   # 1 worker: evita saturar o tunnel SSH do Magento no startup
     GAP_TIMEOUT = 180
 
     db = None
@@ -802,7 +802,11 @@ def _startup_tier1_gap_warmup():
             _db = None
             try:
                 _db = SessionLocal()
-                get_marketing_event_by_id(evento_id=eid, ano=ano, force_refresh=True, db=_db, current_user=None, response=None)
+                # force_refresh=False: usa snapshot-first (PostgreSQL) se disponível.
+                # Isso evita hits desnecessários ao Magento durante o warmup de startup.
+                # Snapshots válidos são carregados em memória imediatamente (< 1s).
+                # Apenas eventos sem snapshot fazem o recompute completo via Magento.
+                get_marketing_event_by_id(evento_id=eid, ano=ano, force_refresh=False, db=_db, current_user=None, response=None)
                 return eid, "ok"
             except _HTTPEx as _he:
                 _detail = str(getattr(_he, 'detail', '')).lower()

@@ -7435,7 +7435,7 @@ def _fetch_daily_sales_magento_by_ids(
         AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')
         AND soi.price > 0 THEN"""
         query = text(f"""
-SELECT /*+ MAX_EXECUTION_TIME(90000) */
+SELECT /*+ MAX_EXECUTION_TIME(25000) */
     DATE(so.created_at) AS dia,
     COUNT({_cort_qtd_cond}) AS qtd,
     SUM({_cort_rev_cond}
@@ -7480,7 +7480,10 @@ ORDER BY dia
         query = query.bindparams(*bp)
         def _daily_by_ids_work(conn):
             return conn.execute(query, params).fetchall()
-        profile = "background" if raise_on_error else "request"
+        # "request" profile (2 tentativas) mesmo para background: evita bloquear o
+        # tunnel SSH do Magento por até 270s (90s × 3) quando o servidor está lento.
+        # Se 2 tentativas de 25s falharem, o snapshot existente é preservado.
+        profile = "request"
         rows = magento_run(_daily_by_ids_work, label="daily-sales-by-ids", profile=profile)
         # Mescla snapshot (frozen) + Magento (ativos) por dia.
         merged: dict = {}
