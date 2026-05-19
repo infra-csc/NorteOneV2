@@ -603,20 +603,22 @@ interface DetailTableProps {
 function DetailTable({ cycle, events, isDark, textPrimary, textSecondary, onRefresh }: DetailTableProps) {
   const cycleFinished = cycle.status !== 'iniciado';
 
-  // For completed cycles: hide ciclo-level "iniciado" entries — they're redundant
-  // (the cycle status is shown in the parent row) and confuse the status column
-  // by showing "Em execução" after the cycle is already done.
+  // For completed cycles: hide ciclo-level "iniciado" entries (they're just
+  // start markers — the real result is the terminal ciclo event).
   const visibleEvents = cycleFinished
     ? events.filter(ev => !(ev.nivel === 'ciclo' && ev.status === 'iniciado'))
     : events;
 
-  // For running cycles that have a ciclo-level "iniciado" entry, normalize its
-  // display to avoid duplicate "Em execução" — we use a softer "inicio" status
-  const displayEvents = visibleEvents.map(ev =>
-    (ev.nivel === 'ciclo' && ev.status === 'iniciado' && !cycleFinished)
-      ? { ...ev, status: 'inicio' }
-      : ev
-  );
+  // Safety net: any remaining 'iniciado' event must never show "Em execução"
+  // when the cycle is finished (guards against timing edge cases where the
+  // filter above doesn't fire before the re-render). Also softens the ciclo
+  // "iniciado" start-marker for still-running cycles.
+  const displayEvents = visibleEvents.map(ev => {
+    if (ev.status !== 'iniciado') return ev;
+    if (cycleFinished) return { ...ev, status: 'inicio' };          // cycle done → neutral
+    if (ev.nivel === 'ciclo') return { ...ev, status: 'inicio' };   // running, ciclo start-marker → neutral
+    return ev;
+  });
 
   return (
     <div className="overflow-x-auto">
