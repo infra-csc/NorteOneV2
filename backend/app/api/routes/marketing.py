@@ -5457,6 +5457,25 @@ def get_marketing_events(
                 _snap_list = dict(_snap_list)
                 _snap_list["avisos"] = list(get_isc_warnings())
                 return _refresh_d_minus_in_cached_eventos(_snap_list, cache_key)
+            # Cobertura de snapshots insuficiente (ex: snapshot de um evento foi
+            # apagado pelo kit_config e o rebuild ainda está em andamento). Antes
+            # de cair em "preparing" com lista vazia, tenta servir um stale do
+            # eventos_list_cache — ele não é invalidado pelo kit_config e pode
+            # conter a lista completa do último build bem-sucedido.
+            if _snap_list is None:
+                _stale_fallback = eventos_list_cache.get(cache_key, stale_ok=True)
+                if _stale_fallback and (_stale_fallback.get("eventos") or []):
+                    _kick_bg_refresh()
+                    if response is not None:
+                        response.headers["X-Data-Stale"] = "true"
+                        response.headers["X-Data-Source"] = "stale-fallback"
+                    logger.info(
+                        f"[EventosList] cobertura snapshot baixa — servindo stale cache "
+                        f"({len(_stale_fallback.get('eventos') or [])} eventos) enquanto rebuild ocorre"
+                    )
+                    _stale_fallback = dict(_stale_fallback)
+                    _stale_fallback["avisos"] = list(get_isc_warnings())
+                    return _refresh_d_minus_in_cached_eventos(_stale_fallback, cache_key)
         # Sem cache e sem cobertura de snapshot: dispara refresh em background
         # (deduplicado) e retorna preparing. O frontend faz polling.
         _kick_bg_refresh()
