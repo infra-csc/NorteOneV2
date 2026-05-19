@@ -329,6 +329,10 @@ const EventDetail: React.FC = () => {
   const [preparingGaveUp, setPreparingGaveUp] = useState(false);
   const silentRefetchDoneRef = useRef(false);
   const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean, forceMagentoRefresh?: boolean) => void) | null>(null);
+  // Rastreia se algum dado de evento já foi exibido na tela. Persistido como ref
+  // para que fetchEvent (closure do useEffect) acesse o valor atualizado mesmo
+  // após re-fetches subsequentes, sem precisar recriar a função.
+  const hasEventDataRef = useRef<boolean>(!!_detailCacheFresh || !!previewEvent);
   const [magentoRefreshing, setMagentoRefreshing] = useState(false);
   const preparingStartedAtRef = useRef<number | null>(null);
   const PREPARING_GIVE_UP_MS = 3 * 60 * 1000;
@@ -435,13 +439,12 @@ const EventDetail: React.FC = () => {
         if (!forceRefresh) {
           if (!event) setLoading(true);
         }
-        // Banner com delay: só mostra se o request demorar mais que o threshold.
-        // Só aparece em force_refresh explícito (botão Atualizar) ou quando não há
-        // nenhum dado prévio (abertura direta sem previewEvent e sem cache).
-        // Quando previewEvent existe (vindo do dashboard), os dados básicos já estão
-        // na tela — o carregamento dos gráficos acontece silenciosamente em background.
-        const _hasAnyData = !!previewEvent || _detailCacheFresh;
-        if (!silent && (forceRefresh || !_hasAnyData)) {
+        // Banner com delay: só aparece quando não há absolutamente nenhum dado
+        // na tela (acesso direto pela URL sem cache e sem previewEvent).
+        // Durante forceRefresh ou quando já temos dados, o carregamento é sempre
+        // silencioso — gráficos permanecem visíveis e só são substituídos quando
+        // a nova resposta chega.
+        if (!silent && !hasEventDataRef.current) {
           if (detailsLoadingTimerRef.current) clearTimeout(detailsLoadingTimerRef.current);
           detailsLoadingTimerRef.current = setTimeout(() => {
             if (!controller.signal.aborted) setDetailsLoading(true);
@@ -525,6 +528,7 @@ const EventDetail: React.FC = () => {
                 ? event.dailySales
                 : eventWithData.dailySales);
 
+        hasEventDataRef.current = true;
         setEvent({
           ...eventWithData,
           currentSales: _guardedCurrentSales,
@@ -763,24 +767,30 @@ const EventDetail: React.FC = () => {
           const todayExists = prev.dailySales?.some(d => d.date === todayStr);
 
           // Case 1 — today's row already exists (snapshot had a stale/zero value).
+          // Usa total_acumulado (soma real do banco) como cumulativeSales de hoje.
+          // Evita duplicação que ocorreria se prevCum + hoje_total fosse calculado
+          // com um prevCum incorreto. Fallback para prevCum + hoje_total caso
+          // total_acumulado não esteja disponível (ex: evento frozen).
+          const _trueCum = result.total_acumulado > 0
+            ? result.total_acumulado
+            : getPrevCumSales(prev.dailySales) + result.hoje_total;
+
           // Recalculate cumulativeSales, atingimentoDiario, atingimentoAcumulado and dif.
           const updatedDailySales = prev.dailySales ? prev.dailySales.map(d => {
             if (d.date === todayStr) {
-              const prevCum = getPrevCumSales(prev.dailySales);
-              const newCum = prevCum + result.hoje_total;
               const expDay = d.expected ?? 0;
               const expCum = d.cumulativeExpected ?? 0;
               const newAtingDia = expDay > 0
                 ? Math.round(((result.hoje_total - expDay) / expDay) * 1000) / 10
                 : 0;
-              const newDif = Math.round((newCum - expCum) * 10) / 10;
+              const newDif = Math.round((_trueCum - expCum) * 10) / 10;
               const newAtingAcum = expCum > 0
-                ? Math.round(((newCum - expCum) / expCum) * 1000) / 10
+                ? Math.round(((_trueCum - expCum) / expCum) * 1000) / 10
                 : 0;
               return {
                 ...d,
                 sales: result.hoje_total,
-                cumulativeSales: newCum,
+                cumulativeSales: _trueCum,
                 atingimentoDiario: newAtingDia,
                 atingimentoAcumulado: newAtingAcum,
                 dif: newDif,
@@ -795,11 +805,11 @@ const EventDetail: React.FC = () => {
                 date: todayStr,
                 sales: result.hoje_total,
                 expected: 0,
-                cumulativeSales: getPrevCumSales(prev.dailySales) + result.hoje_total,
+                cumulativeSales: _trueCum,
                 cumulativeExpected: 0,
                 atingimentoDiario: 0,
                 atingimentoAcumulado: 0,
-                dif: getPrevCumSales(prev.dailySales) + result.hoje_total,
+                dif: _trueCum,
               }]
             : updatedDailySales;
           return {
