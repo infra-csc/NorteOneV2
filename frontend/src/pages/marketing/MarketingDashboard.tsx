@@ -942,15 +942,19 @@ const MarketingDashboard: React.FC = () => {
                 onClick={handleSyncHoje}
                 disabled={syncingHoje || fullRefreshing || loading}
                 title="Sincroniza apenas os dados de hoje do MySQL para todos os eventos (~1 min)"
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-sm ${
-                  syncHojeResult === 'success'
-                    ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                    : syncHojeResult === 'busy'
-                      ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-                      : syncHojeResult === 'error'
-                        ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'
-                } ${(syncingHoje || fullRefreshing || loading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-sm font-medium ${
+                  syncingHoje
+                    ? 'bg-blue-500 dark:bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-blue-900/40 cursor-not-allowed'
+                    : syncHojeResult === 'success'
+                      ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
+                      : syncHojeResult === 'busy'
+                        ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                        : syncHojeResult === 'error'
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                          : (fullRefreshing || loading)
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-400 dark:text-blue-500 opacity-50 cursor-not-allowed'
+                            : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+                }`}
               >
                 {syncHojeResult === 'success' ? (
                   <CheckCircle className="w-3.5 h-3.5" />
@@ -958,10 +962,12 @@ const MarketingDashboard: React.FC = () => {
                   <Clock className="w-3.5 h-3.5" />
                 ) : syncHojeResult === 'error' ? (
                   <XCircle className="w-3.5 h-3.5" />
+                ) : syncingHoje ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 ) : (
-                  <Zap className={`w-3.5 h-3.5 ${syncingHoje ? 'animate-pulse' : ''}`} />
+                  <Zap className="w-3.5 h-3.5" />
                 )}
-                <span className="font-medium">
+                <span>
                   {syncHojeResult === 'success'
                     ? 'Sincronizado!'
                     : syncHojeResult === 'busy'
