@@ -7344,8 +7344,15 @@ WHERE
 GROUP BY cpev1.value
 """).bindparams(bindparam("magento_event_ids", expanding=True))
         def _today_grouped_work(conn):
+            # Enforce session-level execution timeout as a hard backstop in case
+            # the optimizer hint MAX_EXECUTION_TIME is ignored (e.g. the query is
+            # waiting for a lock rather than actually executing).
+            try:
+                conn.execute(text("SET SESSION MAX_EXECUTION_TIME=12000"))
+            except Exception:
+                pass
             return conn.execute(query, {"magento_event_ids": safe_ids}).fetchall()
-        rows = magento_run(_today_grouped_work, label="today-sales-grouped", profile="request")
+        rows = magento_run(_today_grouped_work, label="today-sales-grouped", profile="once")
         grouped = {}
         for r in rows:
             grouped[str(r[0])] = {"qtd": int(r[1] or 0), "receita": float(r[2] or 0.0)}
@@ -11054,25 +11061,41 @@ def _atualizar_hoje_inner(
 
     # Timeouts de aplicação: garantem que o endpoint retorna mesmo se o MySQL
     # ignorar o hint MAX_EXECUTION_TIME (query na fila, SSH congestionado, etc.).
-    # Ativo: SQL 20s → Python 24s. Magento: SQL 12s × 2 tentativas → Python 28s.
+    # Ativo:   SQL 20s  → Python 24s (SSH tunnel pode ser instável).
+    # Magento: SQL 12s, profile="once" (sem retry) → Python 14s (12s + 2s buffer).
+    #          "once" elimina a segunda tentativa que antes podia somar 70s na thread.
     # shutdown(wait=False) libera o pool sem bloquear; threads daemon concluem sozinhas.
     import concurrent.futures as _cf_ah
     _ATIVO_TIMEOUT_S = 24
-    _MAGENTO_TIMEOUT_S = 28
+    _MAGENTO_TIMEOUT_S = 14
+    _t_parallel_start = _time_inner.time()
     _pool_ah = _TPE(max_workers=2)
     _fut_ativo   = _pool_ah.submit(_run_ativo)
     _fut_magento = _pool_ah.submit(_run_magento)
     try:
         _a_qtd, _a_rec, _a_ok = _fut_ativo.result(timeout=_ATIVO_TIMEOUT_S)
+        logger.info(
+            f"atualizar-hoje: Ativo OK em {_time_inner.time()-_t_parallel_start:.1f}s "
+            f"para {evento_id} (qtd={_a_qtd})"
+        )
     except _cf_ah.TimeoutError:
         _a_qtd, _a_rec, _a_ok = 0, 0.0, False
         logger.warning(f"atualizar-hoje: Ativo timeout ({_ATIVO_TIMEOUT_S}s) para {evento_id}")
     try:
         _m_qtd, _m_rec, _m_ok = _fut_magento.result(timeout=_MAGENTO_TIMEOUT_S)
+        logger.info(
+            f"atualizar-hoje: Magento OK em {_time_inner.time()-_t_parallel_start:.1f}s "
+            f"para {evento_id} (qtd={_m_qtd})"
+        )
     except _cf_ah.TimeoutError:
         _m_qtd, _m_rec, _m_ok = 0, 0.0, False
         logger.warning(f"atualizar-hoje: Magento timeout ({_MAGENTO_TIMEOUT_S}s) para {evento_id}")
     _pool_ah.shutdown(wait=False)
+    logger.info(
+        f"atualizar-hoje: bloco paralelo concluído em "
+        f"{_time_inner.time()-_t_parallel_start:.1f}s para {evento_id} "
+        f"(ativo_ok={_a_ok} magento_ok={_m_ok})"
+    )
 
     if ativo_ids:
         if _a_ok:
