@@ -85,37 +85,72 @@ def _scheduled_sincronizar_hoje():
 
 
 # ────────────────────────────────────────────────────────────────
-# Loop dedicado: sincroniza inscritos de hoje a cada N minutos.
+# Loop dedicado: sincroniza inscritos de hoje de forma inteligente.
 #
-# O scheduler principal usa CURRENT_YEAR_TTL (22 h) — adequado para
-# dados históricos mas longe demais para o dia corrente.  Os ganchos
-# das 05:00 e 17:00 BRT cobrem apenas dois momentos fixos do dia;
-# entre eles podem passar até 12 h sem atualização.
-#
-# Este loop roda em thread daemon separada e garante que, a cada
-# HOJE_SYNC_INTERVAL_MINUTES (padrão 20), os inscritos de hoje sejam
-# buscados nas fontes (Ativo + Magento) e gravados no snapshot.
+# Acorda a cada HOJE_SYNC_CHECK_INTERVAL_MINUTES (padrão 30 min)
+# para verificar se é hora de executar. Só dispara o sync se o
+# último sync — automático OU manual pelo usuário via "Atualizar
+# Hoje" — foi há mais de HOJE_SYNC_MIN_INTERVAL_HOURS horas
+# (padrão 2 h). Isso evita bater no Magento/Ativo logo após uma
+# atualização recente, reduzindo carga nos sistemas externos.
 # ────────────────────────────────────────────────────────────────
 def _start_hoje_sync_loop():
+    """Loop dedicado que sincroniza inscritos de hoje de forma inteligente.
+
+    Comportamento:
+    - Acorda a cada HOJE_SYNC_CHECK_INTERVAL_MINUTES (padrão 30 min) para verificar.
+    - Só executa o sync se o último sync (seja batch automático OU atualização manual
+      pelo usuário via botão "Atualizar Hoje") foi há mais de HOJE_SYNC_MIN_INTERVAL_HOURS
+      horas (padrão 2 h).
+    - Se o lock global já está ativo (outro job rodando), pula o tick silenciosamente.
+    - Loga quanto tempo falta para o próximo sync elegível quando skipa por intervalo.
+    """
     import os as _os
     import time as _time
     import threading as _thr
-    from app.core.cache import try_acquire_sync_hoje, release_sync_hoje
+    from app.core.cache import try_acquire_sync_hoje, release_sync_hoje, get_last_sync_hoje
 
-    interval_min = max(5, int(_os.getenv("HOJE_SYNC_INTERVAL_MINUTES", "20")))
-    interval_sec = interval_min * 60
+    # Intervalo de "acordar e verificar" (check leve, padrão 30 min).
+    check_min  = max(5,  int(_os.getenv("HOJE_SYNC_CHECK_INTERVAL_MINUTES", "30")))
+    check_sec  = check_min * 60
+
+    # Intervalo mínimo entre execuções efetivas (padrão 2 h).
+    # Conta tanto runs automáticos quanto atualizações manuais do usuário.
+    min_hours  = max(1,  int(_os.getenv("HOJE_SYNC_MIN_INTERVAL_HOURS", "2")))
+    min_sec    = min_hours * 3600
 
     def _loop():
-        # Aguarda um pouco para o startup terminar antes do primeiro tick
+        # Aguarda o startup terminar antes do primeiro tick.
         _time.sleep(30)
-        logger.info(f"[HojeSyncLoop] Loop iniciado — intervalo: {interval_min} min")
+        logger.info(
+            f"[HojeSyncLoop] Loop iniciado — verifica a cada {check_min} min, "
+            f"executa se último sync > {min_hours}h atrás "
+            f"(envs: HOJE_SYNC_CHECK_INTERVAL_MINUTES / HOJE_SYNC_MIN_INTERVAL_HOURS)"
+        )
         while True:
-            _time.sleep(interval_sec)
+            _time.sleep(check_sec)
+
+            # Verifica se o intervalo mínimo desde o último sync (auto ou manual) foi atingido.
+            _last = get_last_sync_hoje()
+            if _last is not None:
+                _elapsed = _time.time() - _last
+                if _elapsed < min_sec:
+                    _falta_min = int((min_sec - _elapsed) / 60)
+                    logger.debug(
+                        f"[HojeSyncLoop] Último sync há {int(_elapsed/60)} min — "
+                        f"próximo elegível em ~{_falta_min} min. Pulando tick."
+                    )
+                    continue
+
+            # Lock global: evita concorrência com outro job em andamento.
             if not try_acquire_sync_hoje("loop-automático"):
-                logger.debug("[HojeSyncLoop] Sync já em execução (manual ou outro tick) — pulando tick")
+                logger.debug("[HojeSyncLoop] Sync já em execução — pulando tick")
                 continue
+
             try:
-                logger.info("[HojeSyncLoop] Iniciando sync de inscritos de hoje...")
+                logger.info(
+                    f"[HojeSyncLoop] Intervalo mínimo atingido — iniciando sync de inscritos de hoje..."
+                )
                 _run_sincronizar_hoje_com_warmup()
             except Exception as _loop_e:
                 logger.error(f"[HojeSyncLoop] Erro inesperado: {_loop_e}")
@@ -124,7 +159,10 @@ def _start_hoje_sync_loop():
 
     t = _thr.Thread(target=_loop, daemon=True, name="hoje-sync-loop")
     t.start()
-    logger.info(f"[HojeSyncLoop] Thread daemon iniciada (intervalo={interval_min}min, env=HOJE_SYNC_INTERVAL_MINUTES)")
+    logger.info(
+        f"[HojeSyncLoop] Thread daemon iniciada "
+        f"(check={check_min}min, intervalo_min={min_hours}h)"
+    )
 
 
 def _scheduled_margem_rev_safety_check():
@@ -1803,8 +1841,10 @@ async def lifespan(app: FastAPI):
         _margem_thread = threading.Thread(target=_maybe_sync_margem_rev, daemon=True, name="startup-margem-rev-sync")
         _margem_thread.start()
 
-        # Loop dedicado: re-sincroniza inscritos de hoje a cada HOJE_SYNC_INTERVAL_MINUTES
-        # (padrão 20 min). Independente do scheduler de 22 h e dos ganchos das 05/17h.
+        # Loop dedicado: re-sincroniza inscritos de hoje somente se o intervalo mínimo
+        # (HOJE_SYNC_MIN_INTERVAL_HOURS, padrão 2 h) foi atingido desde o último sync
+        # — automático ou manual pelo usuário. Verifica a cada
+        # HOJE_SYNC_CHECK_INTERVAL_MINUTES (padrão 30 min).
         _start_hoje_sync_loop()
 
         # Decide whether to run a full warmup on startup.
