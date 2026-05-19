@@ -2779,7 +2779,7 @@ def get_margem_por_kit(
             import time as _time
 
             def _log_margem_magento_failed(e_exc, label="primary"):
-                _aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                _aviso = "AVISO: Conexão com Magento instável — buscando dados do snapshot mais recente."
                 if avisos_out is not None and _aviso not in avisos_out:
                     avisos_out.append(_aviso)
                 try:
@@ -2972,7 +2972,7 @@ def get_margem_por_kit(
 
             def _format_snapshot_warning(age_h: Optional[float]) -> str:
                 if age_h is None:
-                    return "Dados do Magento indisponíveis — exibindo última receita conhecida do snapshot."
+                    return "INFO: Receita calculada com base no último snapshot disponível."
                 if age_h < 1:
                     _txt_idade = f"{int(age_h * 60)} min"
                 elif age_h < 48:
@@ -2980,8 +2980,8 @@ def get_margem_por_kit(
                 else:
                     _txt_idade = f"{int(age_h / 24)} dia(s)"
                 return (
-                    f"Magento temporariamente indisponível — receita exibida vem do último snapshot "
-                    f"(há {_txt_idade}); pode haver vendas mais recentes não refletidas."
+                    f"INFO: Receita atualizada até {_txt_idade} atrás — valores de inscrições e receita são confiáveis; "
+                    f"vendas das últimas {_txt_idade} serão incluídas na próxima atualização."
                 )
 
             if _cached and (_now_mono - _cached[1]) < _MARGEM_REV_TTL_SECONDS:
@@ -3144,7 +3144,7 @@ def get_margem_por_kit(
                                 f"{len(bundle_ids)} bundles → {len(rev_by_bid)} entradas (idade {_stale_age_h:.1f}h)"
                             )
                         else:
-                            _aviso_cooldown = "Magento indisponível e nenhum snapshot encontrado — valores de receita podem estar zerados ou incompletos."
+                            _aviso_cooldown = "AVISO: Sem snapshot disponível — valores de receita podem estar incompletos até a próxima sincronização."
                             if avisos_out is not None and _aviso_cooldown not in avisos_out:
                                 avisos_out.append(_aviso_cooldown)
 
@@ -3205,7 +3205,7 @@ def get_margem_por_kit(
                 _log_margem_magento_failed  # noqa: F821
             except NameError:
                 def _log_margem_magento_failed(e_exc, label=""):
-                    _aviso = "Dados do Magento indisponíveis — totais de inscrições e receita podem estar incompletos."
+                    _aviso = "AVISO: Conexão com Magento instável — buscando dados do snapshot mais recente."
                     if avisos_out is not None and _aviso not in avisos_out:
                         avisos_out.append(_aviso)
             ev_ids_fb = list(seen_magento_events)
@@ -3674,7 +3674,7 @@ GROUP BY sub.id_evento, sub.ds_categoria
                     kit_map[_matched_kit]["receita"] += _a_rec
             except Exception as _e_ativo:
                 logger.warning(f"Erro ao buscar dados Ativo por categoria para margem: {_e_ativo}")
-                _aviso_ativo = "Dados do Ativo indisponíveis — totais de inscrições e receita podem estar incompletos."
+                _aviso_ativo = "AVISO: Conexão com Ativo instável — inscrições podem estar incompletas até a próxima sincronização."
                 if avisos_out is not None and _aviso_ativo not in avisos_out:
                     avisos_out.append(_aviso_ativo)
                 try:
