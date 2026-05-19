@@ -9680,8 +9680,11 @@ def get_marketing_event_by_id(
             if _should_rebuild:
                 try:
                     from ...services.snapshot_service import consolidar_vendas_grupo
-                    consolidar_vendas_grupo(db, grupo_nome, ano)
-                    logger.info(f"Snapshot reconstruído (force_refresh) para '{grupo_nome}' ano={ano}")
+                    # incremental=True: busca apenas dias novos desde o último snapshot,
+                    # evitando rebuild completo síncrono que bloqueia a resposta por 1-2min.
+                    # O serviço cai automaticamente para full rebuild se não houver snapshot prévio.
+                    consolidar_vendas_grupo(db, grupo_nome, ano, incremental=True)
+                    logger.info(f"Snapshot atualizado incremental (force_refresh) para '{grupo_nome}' ano={ano}")
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
         elif detail_regime == "consolidated" and ano == current_year:
@@ -9690,7 +9693,8 @@ def get_marketing_event_by_id(
                 logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated sem snapshot — construindo")
                 try:
                     from ...services.snapshot_service import consolidar_vendas_grupo
-                    consolidar_vendas_grupo(db, grupo_nome, ano)
+                    # Sem snapshot prévio: incremental=True cai para full rebuild automaticamente.
+                    consolidar_vendas_grupo(db, grupo_nome, ano, incremental=True)
                     logger.info(f"Snapshot construído (consolidated, sem snapshot) para '{grupo_nome}' ano={ano}")
                 except Exception as _e:
                     logger.warning(f"Falha ao construir snapshot consolidated para '{grupo_nome}': {_e}")
@@ -10449,8 +10453,10 @@ def get_marketing_event_by_id(
         if _should_rebuild_standalone:
             try:
                 from ...services.snapshot_service import consolidar_vendas_grupo
-                consolidar_vendas_grupo(db, standalone_evento_grupo, ano)
-                logger.info(f"Snapshot reconstruído (force_refresh standalone) para '{standalone_evento_grupo}' ano={ano}")
+                # incremental=True: apenas dias novos — evita rebuild síncrono de 1-2min.
+                # Cai para full rebuild automaticamente se não houver snapshot prévio.
+                consolidar_vendas_grupo(db, standalone_evento_grupo, ano, incremental=True)
+                logger.info(f"Snapshot atualizado incremental (force_refresh standalone) para '{standalone_evento_grupo}' ano={ano}")
             except Exception as _e:
                 logger.warning(f"Falha ao reconstruir snapshot standalone para '{standalone_evento_grupo}': {_e}")
     elif standalone_detail_regime == "consolidated":
