@@ -510,25 +510,21 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         for row in rows:
             row_dict = dict(zip(columns, row))
             bundle_id = int(row_dict["bundle_entity_id"])
-            sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
+            # current_price = lote corrente (MAX record_id) — fonte primária para ticket ISC.
+            # price = soma dos componentes (atributo 77) — fallback se lote ausente.
+            # special_price = MIN lote = "preço de entrada" exibido no Kit Mapeamento (não usar aqui).
+            current_price_val = float(row_dict["current_price"]) if row_dict.get("current_price") is not None else None
             price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
-            # Usa special_price apenas se > 0 (Magento retorna 0.0 para bundles
-            # com preço dinâmico não indexado, que não é o preço real do kit).
-            # Fallback: price = soma dos preços dos filhos (atributo 77).
-            sp_base = sp if (sp is not None and sp > 0) else price_val
+            sp_base = (
+                current_price_val if (current_price_val is not None and current_price_val > 0)
+                else price_val if (price_val is not None and price_val > 0)
+                else None
+            )
             bundle_data[bundle_id] = {
                 "sp_base": sp_base,
                 "status_kit": row_dict.get("status_kit"),
                 "nome_kit": row_dict.get("nome_kit"),
             }
-            # DIAGNÓSTICO TEMPORÁRIO — bundle 57592 (Kit Night Run + Porta-tênis Joinville)
-            if bundle_id == 57592:
-                logger.warning(
-                    f"[DIAG-57592-mktg] id_evento={row_dict.get('id_evento')!r} "
-                    f"nome_kit={row_dict.get('nome_kit')!r} "
-                    f"price={price_val} special_price={sp} sp_base={sp_base} "
-                    f"lote_atual={row_dict.get('lote_atual')!r}"
-                )
 
         # Fallback via MargemBundleRevSnapshot para bundles com sp_base ausente/nulo.
         # Cobre dois casos:

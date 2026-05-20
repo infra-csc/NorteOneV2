@@ -142,36 +142,25 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- lote_atual: nome do lote (por bundle → fallback por evento)
+    -- lote_atual: nome do lote corrente (por bundle → fallback por evento)
     COALESCE(lote_b.lot_name, lote_e.lot_name) AS lote_atual,
 
-    -- special_price: preço do componente de mercadoria física add-on do kit
-    -- (ex: Porta-tênis, Tênis, Bag, Luva, etc.), quando presente e MAIS BARATO que
-    -- o componente principal de distância/modalidade (limiar anti-falso-positivo).
-    -- Fallback: lote por bundle → lote por evento (para kits sem mercadoria física).
-    --
-    -- O preço efetivo usa selection_price_value (override de preço no bundle) com
-    -- fallback em catalog_product_entity_decimal.attribute_id=77 (preço standalone).
+    -- current_price: preço do lote corrente — usado pelo ticket_atual no ISC dashboard.
+    -- MAX(record_id) garante o lote mais recente (já resolvido via joins lote_b/lote_e).
+    COALESCE(lote_b.lot_value, lote_e.lot_value) AS current_price,
+
+    -- special_price: menor preço de lote cadastrado para este kit.
+    -- Prioridade: lote específico do bundle → lote do evento.
+    -- Representa o "preço de entrada" / primeiro lote mais barato.
     COALESCE(
-        NULLIF(MAX(CASE
-            WHEN (
-                 cpev_simple.value LIKE '%Porta%'
-              OR cpev_simple.value LIKE '%Luva%'
-              OR cpev_simple.value LIKE '%Toalha%'
-              OR cpev_simple.value LIKE '%Bag%'
-              OR cpev_simple.value LIKE '%Pochete%'
-              OR cpev_simple.value LIKE '%Tênis%'
-              OR cpev_simple.value LIKE '%Tenis%'
-             )
-             AND COALESCE(NULLIF(cpeos.selection_price_value, 0), cpep.value, 0) > 0
-             -- só é add-on se custar MENOS que o componente principal de distância
-             AND COALESCE(NULLIF(cpeos.selection_price_value, 0), cpep.value, 0)
-                 < COALESCE(part1.part1_price, 999999)
-            THEN COALESCE(NULLIF(cpeos.selection_price_value, 0), cpep.value)
-            ELSE NULL
-        END), 0),
-        lote_b.lot_value,
-        lote_e.lot_value
+        (SELECT MIN(lot_value)
+         FROM catalog_product_entity_event_lot_price
+         WHERE entity_id = cpe_parent.entity_id
+           AND lot_value > 0),
+        (SELECT MIN(lot_value)
+         FROM catalog_product_entity_event_lot_price
+         WHERE entity_id = cpev1.value
+           AND lot_value > 0)
     )                                           AS special_price,
 
     CASE cpei_status.value
@@ -251,24 +240,6 @@ LEFT JOIN catalog_product_entity_event_lot_price lote_e
               FROM catalog_product_entity_event_lot_price
               WHERE entity_id = cpev1.value
           )
-
--- Preço máximo do componente Distância/Modalidade por bundle (para limiar anti-falso-positivo)
--- Usa selection_price_value quando disponível, fallback em attribute_id=77.
-LEFT JOIN (
-    SELECT cpeo2.parent_id                                        AS bundle_id,
-           MAX(COALESCE(NULLIF(cpeos2.selection_price_value, 0),
-                        cpep2.value))                             AS part1_price
-    FROM   catalog_product_bundle_option     cpeo2
-    JOIN   catalog_product_bundle_selection  cpeos2 ON cpeos2.option_id   = cpeo2.option_id
-    JOIN   catalog_product_entity_varchar    cpev2  ON cpev2.entity_id    = cpeos2.product_id
-                                                   AND cpev2.attribute_id = 73
-    LEFT JOIN catalog_product_entity_decimal cpep2  ON cpep2.entity_id    = cpeos2.product_id
-                                                   AND cpep2.attribute_id = 77
-    WHERE (    cpev2.value LIKE '%Distancia%'
-            OR cpev2.value LIKE '%Distância%'
-            OR cpev2.value LIKE '%Modalidade%' )
-    GROUP BY cpeo2.parent_id
-) part1 ON part1.bundle_id = cpe_parent.entity_id
 
 -- status do bundle: attribute_id pré-computado
 LEFT JOIN catalog_product_entity_int cpei_status
@@ -489,43 +460,6 @@ def get_kits_with_config(
 
     try:
         magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
-        # DIAGNÓSTICO TEMPORÁRIO — inspecionar seleções brutas do bundle 57592
-        def _diag_work(conn):
-            _diag_q = text("""
-                SELECT
-                    cpeos.selection_id,
-                    cpeos.option_id,
-                    cpeos.product_id,
-                    cpeos.selection_price_type,
-                    cpeos.selection_price_value,
-                    cpev_s.value AS component_name,
-                    cpep_s.value AS price_value,
-                    cpep_s.store_id AS price_store_id,
-                    cpbsp.website_id AS ws_price_website,
-                    cpbsp.selection_price_value AS ws_price_value,
-                    cpbsp.selection_price_type  AS ws_price_type
-                FROM catalog_product_bundle_option cpeo
-                JOIN catalog_product_bundle_selection cpeos ON cpeos.option_id = cpeo.option_id
-                LEFT JOIN catalog_product_entity_varchar cpev_s
-                       ON cpev_s.entity_id = cpeos.product_id AND cpev_s.attribute_id = 73
-                LEFT JOIN catalog_product_entity_decimal cpep_s
-                       ON cpep_s.entity_id = cpeos.product_id AND cpep_s.attribute_id = 77
-                LEFT JOIN catalog_product_bundle_selection_price cpbsp
-                       ON cpbsp.selection_id = cpeos.selection_id
-                WHERE cpeo.parent_id = 57592
-            """)
-            return conn.execute(_diag_q).fetchall()
-        try:
-            _diag_rows = magento_run(_diag_work, label="diag-57592", profile="request")
-            for _dr in _diag_rows:
-                logger.warning(
-                    f"[DIAG-57592-sel] sel={_dr[0]} prod={_dr[2]} name={_dr[5]!r} "
-                    f"sel_price_type={_dr[3]} sel_price_val={_dr[4]} "
-                    f"attr77_val={_dr[6]} attr77_store={_dr[7]} "
-                    f"ws_price_val={_dr[9]} ws_price_type={_dr[10]} ws={_dr[8]}"
-                )
-        except Exception as _de:
-            logger.warning(f"[DIAG-57592-sel] Falha na query diagnóstica: {_de}")
     except MagentoEngineUnavailable:
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] Magento indisponível — retornando cache stale")
