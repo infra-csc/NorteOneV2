@@ -4330,7 +4330,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "19"  # v19: special_price fallback 4: catalog_product_index_price.min_price
+_DETAIL_CACHE_VERSION = "20"  # v20: fallback 3 (lote evento) só ativa quando bundle não tem lotes próprios
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
