@@ -143,12 +143,13 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: valor do atributo 'special_price' do bundle pai.
-    -- Dois LEFT JOINs: store_id=1 (nível de loja) tem prioridade sobre store_id=0 (global).
-    -- COALESCE escolhe o mais específico; NULL = sem promoção configurada.
+    -- special_price: atributo EAV 'special_price' do bundle pai quando configurado;
+    -- senão, usa lote.lot_value (preço do lote vigente) como preço promocional.
+    -- Dois LEFT JOINs: store_id=1 tem prioridade sobre store_id=0 (global).
     COALESCE(
-        MAX(cpedsp_s1.value),
-        MAX(cpedsp_s0.value)
+        NULLIF(MAX(cpedsp_s1.value), 0),
+        NULLIF(MAX(cpedsp_s0.value), 0),
+        lote.lot_value
     )                                       AS special_price,
 
     CASE cpei_status.value
@@ -214,31 +215,29 @@ LEFT JOIN catalog_product_index_price pi_pai
       AND pi_pai.website_id = 1
       AND pi_pai.customer_group_id = 0
 
+-- Resolve o attribute_id de special_price uma única vez (evita subquery repetida)
+CROSS JOIN (
+    SELECT attribute_id AS sp_attr_id
+    FROM eav_attribute
+    WHERE attribute_code = 'special_price'
+      AND entity_type_id = (
+            SELECT entity_type_id FROM eav_entity_type
+            WHERE entity_type_code = 'catalog_product'
+      )
+    LIMIT 1
+) sp_attr
+
 -- special_price global (store_id=0)
 LEFT JOIN catalog_product_entity_decimal cpedsp_s0
-       ON cpedsp_s0.entity_id   = cpe_parent.entity_id
-      AND cpedsp_s0.store_id    = 0
-      AND cpedsp_s0.attribute_id = (
-            SELECT attribute_id FROM eav_attribute
-            WHERE attribute_code = 'special_price'
-              AND entity_type_id = (
-                    SELECT entity_type_id FROM eav_entity_type
-                    WHERE entity_type_code = 'catalog_product'
-              )
-          )
+       ON cpedsp_s0.entity_id    = cpe_parent.entity_id
+      AND cpedsp_s0.store_id     = 0
+      AND cpedsp_s0.attribute_id = sp_attr.sp_attr_id
 
 -- special_price por loja (store_id=1) — sobrescreve o global quando presente
 LEFT JOIN catalog_product_entity_decimal cpedsp_s1
-       ON cpedsp_s1.entity_id   = cpe_parent.entity_id
-      AND cpedsp_s1.store_id    = 1
-      AND cpedsp_s1.attribute_id = (
-            SELECT attribute_id FROM eav_attribute
-            WHERE attribute_code = 'special_price'
-              AND entity_type_id = (
-                    SELECT entity_type_id FROM eav_entity_type
-                    WHERE entity_type_code = 'catalog_product'
-              )
-          )
+       ON cpedsp_s1.entity_id    = cpe_parent.entity_id
+      AND cpedsp_s1.store_id     = 1
+      AND cpedsp_s1.attribute_id = sp_attr.sp_attr_id
 
 LEFT JOIN catalog_product_entity_event_lot_price lote
        ON lote.entity_id = cpev1.value
@@ -475,7 +474,9 @@ def get_kits_with_config(
 
     def _kits_work(conn):
         result = conn.execute(text(MAGENTO_KITS_QUERY))
-        return result.fetchall(), list(result.keys())
+        rows = result.fetchall()
+        cols = list(result.keys())
+        return rows, cols
 
     try:
         magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
