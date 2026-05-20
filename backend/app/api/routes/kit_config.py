@@ -149,18 +149,36 @@ SELECT
     -- MAX(record_id) garante o lote mais recente (já resolvido via joins lote_b/lote_e).
     COALESCE(lote_b.lot_value, lote_e.lot_value) AS current_price,
 
-    -- special_price: menor preço de lote cadastrado para este kit.
-    -- Prioridade: lote específico do bundle → lote do evento.
-    -- Representa o "preço de entrada" / primeiro lote mais barato.
+    -- special_price: preço de entrada do kit.
+    -- Prioridade:
+    --   1. Preço especial EAV cadastrado no bundle (catalog_product_entity_decimal,
+    --      attribute_code='special_price') — caso o operador tenha definido um preço
+    --      especial manual no produto.
+    --   2. Menor lot_value entre lotes ativos do bundle
+    --      (lot_sell_ends >= NOW() OU lot_sell_ends IS NULL e lot_value > 0).
+    --   3. Menor lot_value entre lotes ativos do evento (fallback).
     COALESCE(
+        -- 1. special_price EAV do bundle
+        (SELECT cped_sp.value
+         FROM catalog_product_entity_decimal cped_sp
+         JOIN eav_attribute ea_sp
+               ON ea_sp.attribute_id = cped_sp.attribute_id
+              AND ea_sp.attribute_code = 'special_price'
+         WHERE cped_sp.entity_id = cpe_parent.entity_id
+           AND cped_sp.value > 0
+         LIMIT 1),
+        -- 2. MIN lote ativo — bundle-level
         (SELECT MIN(lot_value)
          FROM catalog_product_entity_event_lot_price
          WHERE entity_id = cpe_parent.entity_id
-           AND lot_value > 0),
+           AND lot_value > 0
+           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
+        -- 3. MIN lote ativo — event-level fallback
         (SELECT MIN(lot_value)
          FROM catalog_product_entity_event_lot_price
          WHERE entity_id = cpev1.value
-           AND lot_value > 0)
+           AND lot_value > 0
+           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW()))
     )                                           AS special_price,
 
     CASE cpei_status.value

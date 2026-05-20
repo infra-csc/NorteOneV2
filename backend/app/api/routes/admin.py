@@ -683,3 +683,4 @@ def test_alert(
         daemon=True,
     ).start()
     return {"status": "ok", "message": "Alerta de teste enviado (ignora filtro de severidade)"}
+
