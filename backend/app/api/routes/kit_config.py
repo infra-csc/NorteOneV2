@@ -143,14 +143,9 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: atributo EAV 'special_price' do bundle pai quando configurado;
-    -- senão, usa lote.lot_value (preço do lote vigente) como preço promocional.
-    -- Dois LEFT JOINs: store_id=1 tem prioridade sobre store_id=0 (global).
-    COALESCE(
-        NULLIF(MAX(cpedsp_s1.value), 0),
-        NULLIF(MAX(cpedsp_s0.value), 0),
-        lote.lot_value
-    )                                       AS special_price,
+    -- special_price: preço do lote vigente (preço real pago pelo atleta no período atual).
+    -- Fonte: catalog_product_entity_event_lot_price (tabela customizada de lotes).
+    lote.lot_value                          AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
@@ -158,6 +153,19 @@ SELECT
     END                                     AS status_kit
 
 FROM catalog_product_entity cpe_parent
+
+-- Pré-computa attribute_ids de tipo_categoria e status em um único scan de eav_attribute
+CROSS JOIN (
+    SELECT
+        MAX(CASE WHEN attribute_code = 'tipo_categoria' THEN attribute_id END) AS tipo_cat_id,
+        MAX(CASE WHEN attribute_code = 'status'         THEN attribute_id END) AS status_id
+    FROM eav_attribute
+    WHERE attribute_code IN ('tipo_categoria', 'status')
+      AND entity_type_id = (
+          SELECT entity_type_id FROM eav_entity_type
+          WHERE entity_type_code = 'catalog_product'
+      )
+) attrs
 
 JOIN catalog_product_entity_varchar cpev1
        ON cpev1.entity_id = cpe_parent.entity_id
@@ -175,16 +183,10 @@ JOIN catalog_product_entity_datetime cped_date
        ON cped_date.entity_id = cpev1.value
       AND cped_date.attribute_id = 195
 
+-- tipo_categoria: attribute_id pré-computado (sem subquery correlacionada por linha)
 LEFT JOIN catalog_product_entity_int cpei_tipo
-       ON cpei_tipo.entity_id = cpe_parent.entity_id
-      AND cpei_tipo.attribute_id = (
-            SELECT attribute_id FROM eav_attribute 
-            WHERE attribute_code = 'tipo_categoria'
-            AND entity_type_id = (
-                SELECT entity_type_id FROM eav_entity_type 
-                WHERE entity_type_code = 'catalog_product'
-            )
-      )
+       ON cpei_tipo.entity_id    = cpe_parent.entity_id
+      AND cpei_tipo.attribute_id = attrs.tipo_cat_id
 
 LEFT JOIN eav_attribute_option_value eaov_tipo
        ON eaov_tipo.option_id = cpei_tipo.value
@@ -203,64 +205,20 @@ LEFT JOIN catalog_product_entity_decimal cpep
        ON cpep.entity_id = cpeos.product_id
       AND cpep.attribute_id = 77
 
--- Preço dos filhos simples: fallback para kits inativos
-LEFT JOIN catalog_product_index_price pi_filho
-       ON pi_filho.entity_id = cpeos.product_id
-      AND pi_filho.website_id = 1
-      AND pi_filho.customer_group_id = 0
-
--- Preço do bundle pai no índice (mantido para compatibilidade futura)
-LEFT JOIN catalog_product_index_price pi_pai
-       ON pi_pai.entity_id = cpe_parent.entity_id
-      AND pi_pai.website_id = 1
-      AND pi_pai.customer_group_id = 0
-
--- Resolve o attribute_id de special_price uma única vez (evita subquery repetida)
-CROSS JOIN (
-    SELECT attribute_id AS sp_attr_id
-    FROM eav_attribute
-    WHERE attribute_code = 'special_price'
-      AND entity_type_id = (
-            SELECT entity_type_id FROM eav_entity_type
-            WHERE entity_type_code = 'catalog_product'
-      )
-    LIMIT 1
-) sp_attr
-
--- special_price global (store_id=0)
-LEFT JOIN catalog_product_entity_decimal cpedsp_s0
-       ON cpedsp_s0.entity_id    = cpe_parent.entity_id
-      AND cpedsp_s0.store_id     = 0
-      AND cpedsp_s0.attribute_id = sp_attr.sp_attr_id
-
--- special_price por loja (store_id=1) — sobrescreve o global quando presente
-LEFT JOIN catalog_product_entity_decimal cpedsp_s1
-       ON cpedsp_s1.entity_id    = cpe_parent.entity_id
-      AND cpedsp_s1.store_id     = 1
-      AND cpedsp_s1.attribute_id = sp_attr.sp_attr_id
-
+-- Pré-computa o lote mais recente por evento (evita subquery correlacionada N vezes)
+LEFT JOIN (
+    SELECT entity_id, MAX(record_id) AS max_rid
+    FROM catalog_product_entity_event_lot_price
+    GROUP BY entity_id
+) lote_max ON lote_max.entity_id = cpev1.value
 LEFT JOIN catalog_product_entity_event_lot_price lote
-       ON lote.entity_id = cpev1.value
-      AND lote.lot_id = (
-            SELECT lot_id
-            FROM catalog_product_entity_event_lot_price
-            WHERE entity_id = cpev1.value
-            ORDER BY record_id DESC
-            LIMIT 1
-      )
+       ON lote.entity_id = lote_max.entity_id
+      AND lote.record_id = lote_max.max_rid
 
+-- status do bundle: attribute_id pré-computado
 LEFT JOIN catalog_product_entity_int cpei_status
-       ON cpei_status.entity_id = cpe_parent.entity_id
-      AND cpei_status.attribute_id = (
-            SELECT attribute_id 
-            FROM eav_attribute 
-            WHERE attribute_code = 'status'
-              AND entity_type_id = (
-                    SELECT entity_type_id 
-                    FROM eav_entity_type 
-                    WHERE entity_type_code = 'catalog_product'
-              )
-      )
+       ON cpei_status.entity_id    = cpe_parent.entity_id
+      AND cpei_status.attribute_id = attrs.status_id
 
 WHERE cpe_parent.type_id = 'bundle'
   AND cped_date.value >= DATE_FORMAT(CURDATE(), '%Y-01-01')
@@ -273,13 +231,11 @@ GROUP BY
     cpev_kit_name.value,
     eaov_tipo.value,
     lote.lot_name,
-    lote.lot_value,
-    lote.lot_sell_ends,
-    pi_pai.min_price
+    lote.lot_value
 
 ORDER BY
     cpev1.value,
-    special_price
+    lote.lot_value
 """
 
 
