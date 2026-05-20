@@ -510,13 +510,16 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         for row in rows:
             row_dict = dict(zip(columns, row))
             bundle_id = int(row_dict["bundle_entity_id"])
-            # current_price = lote corrente (MAX record_id) — fonte primária para ticket ISC.
-            # price = soma dos componentes (atributo 77) — fallback se lote ausente.
-            # special_price = MIN lote = "preço de entrada" exibido no Kit Mapeamento (não usar aqui).
+            # Prioridade para ticket ISC:
+            # 1. special_price = MIN lote ativo (+ addon kit) — preço de entrada, fonte primária.
+            # 2. current_price = lote corrente (MAX record_id) — fallback se special_price ausente.
+            # 3. price = soma dos componentes (atributo 77) — último recurso.
+            special_price_val = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
             current_price_val = float(row_dict["current_price"]) if row_dict.get("current_price") is not None else None
             price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
             sp_base = (
-                current_price_val if (current_price_val is not None and current_price_val > 0)
+                special_price_val if (special_price_val is not None and special_price_val > 0)
+                else current_price_val if (current_price_val is not None and current_price_val > 0)
                 else price_val if (price_val is not None and price_val > 0)
                 else None
             )
