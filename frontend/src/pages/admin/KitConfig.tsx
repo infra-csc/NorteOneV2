@@ -39,12 +39,16 @@ const isParticipacaoOuMeia = (nome: string | null): boolean => {
   return n.includes('participação') || n.includes('participacao') || n.includes('meia');
 };
 
+// Cache em memória — persiste entre navegações na SPA, limpo ao clicar "Atualizar"
+let _kitsCache: KitRow[] | null = null;
+let _kitsMagentoFallback = false;
+
 const KitConfig: React.FC = () => {
   const { isDark } = useTheme();
-  const [kits, setKits] = useState<KitRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [kits, setKits] = useState<KitRow[]>(_kitsCache ?? []);
+  const [loading, setLoading] = useState(_kitsCache === null);
   const [error, setError] = useState<string | null>(null);
-  const [magentoFallback, setMagentoFallback] = useState(false);
+  const [magentoFallback, setMagentoFallback] = useState(_kitsMagentoFallback);
   const [editValues, setEditValues] = useState<Record<number, number>>({});
   const [basicoValues, setBasicoValues] = useState<Record<number, boolean>>({});
   const [promoValues, setPromoValues] = useState<Record<number, boolean>>({});
@@ -104,63 +108,68 @@ const KitConfig: React.FC = () => {
     return Array.from(unique).sort();
   }, [kits]);
 
+  const applyKitsData = useCallback((data: KitRow[]) => {
+    setKits(data);
+    const edits: Record<number, number> = {};
+    const basicos: Record<number, boolean> = {};
+    const promos: Record<number, boolean> = {};
+    const tipoKits: Record<number, string> = {};
+    const custoKits: Record<number, string> = {};
+    const ativoCats: Record<number, string> = {};
+    const cenarioCics: Record<number, string> = {};
+    const ignorados: Record<number, boolean> = {};
+
+    data.forEach((k: KitRow) => {
+      edits[k.bundle_entity_id] = k.multiplicador;
+      basicos[k.bundle_entity_id] = k.is_kit_basico;
+      promos[k.bundle_entity_id] = k.is_promo_principal;
+      tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
+      custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
+      ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
+      cenarioCics[k.bundle_entity_id] = k.cenario_ciclismo || '';
+      ignorados[k.bundle_entity_id] = !!k.ignorado;
+    });
+
+    // Custo do Kit Básico por evento (para auto-preenchimento)
+    const basicoCostByEvento: Record<string, number> = {};
+    data.forEach((k: KitRow) => {
+      if (k.is_kit_basico && k.id_evento) {
+        const cost = k.custo_cadastro ?? k.custo_kit ?? null;
+        if (cost != null) basicoCostByEvento[k.id_evento] = cost;
+      }
+    });
+
+    // Auto-preenchimento: kits sem custo definido
+    data.forEach((k: KitRow) => {
+      if (k.custo_kit != null || k.custo_cadastro != null) return;
+      if (isParticipacaoOuMeia(k.nome_kit)) {
+        custoKits[k.bundle_entity_id] = '10';
+      } else if (k.id_evento && basicoCostByEvento[k.id_evento] != null) {
+        custoKits[k.bundle_entity_id] = String(basicoCostByEvento[k.id_evento]);
+      }
+    });
+
+    setEditValues(edits);
+    setBasicoValues(basicos);
+    setPromoValues(promos);
+    setTipoKitValues(tipoKits);
+    setCustoKitValues(custoKits);
+    setAtivoCategValues(ativoCats);
+    setCenarioCicValues(cenarioCics);
+    setIgnoradoValues(ignorados);
+  }, []);
+
   const fetchKits = async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
     setMagentoFallback(false);
     try {
       const res = await api.get('/kit-config/kits', { params: forceRefresh ? { force_refresh: true } : {} });
-      if (res.headers?.['x-kit-source'] === 'local') {
-        setMagentoFallback(true);
-      }
-      setKits(res.data);
-      const edits: Record<number, number> = {};
-      const basicos: Record<number, boolean> = {};
-      const promos: Record<number, boolean> = {};
-      const tipoKits: Record<number, string> = {};
-      const custoKits: Record<number, string> = {};
-      const ativoCats: Record<number, string> = {};
-      const cenarioCics: Record<number, string> = {};
-      const ignorados: Record<number, boolean> = {};
-
-      res.data.forEach((k: KitRow) => {
-        edits[k.bundle_entity_id] = k.multiplicador;
-        basicos[k.bundle_entity_id] = k.is_kit_basico;
-        promos[k.bundle_entity_id] = k.is_promo_principal;
-        tipoKits[k.bundle_entity_id] = k.tipo_kit || '';
-        custoKits[k.bundle_entity_id] = k.custo_kit != null ? String(k.custo_kit) : '';
-        ativoCats[k.bundle_entity_id] = k.ativo_categoria || '';
-        cenarioCics[k.bundle_entity_id] = k.cenario_ciclismo || '';
-        ignorados[k.bundle_entity_id] = !!k.ignorado;
-      });
-
-      // Custo do Kit Básico por evento (para auto-preenchimento)
-      const basicoCostByEvento: Record<string, number> = {};
-      res.data.forEach((k: KitRow) => {
-        if (k.is_kit_basico && k.id_evento) {
-          const cost = k.custo_cadastro ?? k.custo_kit ?? null;
-          if (cost != null) basicoCostByEvento[k.id_evento] = cost;
-        }
-      });
-
-      // Auto-preenchimento: kits sem custo definido
-      res.data.forEach((k: KitRow) => {
-        if (k.custo_kit != null || k.custo_cadastro != null) return;
-        if (isParticipacaoOuMeia(k.nome_kit)) {
-          custoKits[k.bundle_entity_id] = '10';
-        } else if (k.id_evento && basicoCostByEvento[k.id_evento] != null) {
-          custoKits[k.bundle_entity_id] = String(basicoCostByEvento[k.id_evento]);
-        }
-      });
-
-      setEditValues(edits);
-      setBasicoValues(basicos);
-      setPromoValues(promos);
-      setTipoKitValues(tipoKits);
-      setCustoKitValues(custoKits);
-      setAtivoCategValues(ativoCats);
-      setCenarioCicValues(cenarioCics);
-      setIgnoradoValues(ignorados);
+      const isFallback = res.headers?.['x-kit-source'] === 'local';
+      if (isFallback) setMagentoFallback(true);
+      _kitsCache = res.data;
+      _kitsMagentoFallback = isFallback;
+      applyKitsData(res.data);
     } catch (err) {
       const axiosErr = err as { response?: { data?: { detail?: string } } };
       setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
@@ -170,8 +179,14 @@ const KitConfig: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchKits();
-  }, []);
+    if (_kitsCache !== null) {
+      // Cache disponível — restaura estados derivados sem ir ao banco
+      applyKitsData(_kitsCache);
+      setMagentoFallback(_kitsMagentoFallback);
+    } else {
+      fetchKits();
+    }
+  }, [applyKitsData]);
 
   const handleSave = async (bundleId: number) => {
     const mult = editValues[bundleId] ?? 1;
