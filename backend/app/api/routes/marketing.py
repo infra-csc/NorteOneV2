@@ -4277,7 +4277,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "15"  # v15: currentSales nunca rebaixado por kit_table parcial; qtd_inscricoes lida de snapshot
+_DETAIL_CACHE_VERSION = "16"  # v16: sp_base=0 do Magento agora dispara snapshot fallback no ticket_atual
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
