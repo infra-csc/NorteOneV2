@@ -152,15 +152,15 @@ SELECT
         NULLIF(MAX(CASE
             WHEN cpep.value > 0
              AND (
-                 cpev_simple.value LIKE '%%Porta%%'
-              OR cpev_simple.value LIKE '%%Luva%%'
-              OR cpev_simple.value LIKE '%%Toalha%%'
-              OR cpev_simple.value LIKE '%%Tênis%%'
-              OR cpev_simple.value LIKE '%%Tenis%%'
-              OR cpev_simple.value LIKE '%%Bike%%'
-              OR cpev_simple.value LIKE '%%Biciclet%%'
-              OR cpev_simple.value LIKE '%%Bag%%'
-              OR cpev_simple.value LIKE '%%Pochete%%'
+                 cpev_simple.value LIKE '%Porta%'
+              OR cpev_simple.value LIKE '%Luva%'
+              OR cpev_simple.value LIKE '%Toalha%'
+              OR cpev_simple.value LIKE '%Tênis%'
+              OR cpev_simple.value LIKE '%Tenis%'
+              OR cpev_simple.value LIKE '%Bike%'
+              OR cpev_simple.value LIKE '%Biciclet%'
+              OR cpev_simple.value LIKE '%Bag%'
+              OR cpev_simple.value LIKE '%Pochete%'
              )
             THEN cpep.value ELSE NULL
         END), 0),
