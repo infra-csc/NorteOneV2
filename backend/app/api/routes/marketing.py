@@ -512,7 +512,10 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             bundle_id = int(row_dict["bundle_entity_id"])
             sp = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
             price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
-            sp_base = sp if sp is not None else price_val
+            # Usa special_price apenas se > 0 (Magento retorna 0.0 para bundles
+            # com preço dinâmico não indexado, que não é o preço real do kit).
+            # Fallback: price = soma dos preços dos filhos (atributo 77).
+            sp_base = sp if (sp is not None and sp > 0) else price_val
             bundle_data[bundle_id] = {
                 "sp_base": sp_base,
                 "status_kit": row_dict.get("status_kit"),
@@ -4277,7 +4280,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "16"  # v16: sp_base=0 do Magento agora dispara snapshot fallback no ticket_atual
+_DETAIL_CACHE_VERSION = "17"  # v17: special_price=0 cai no price (soma filhos) antes do snapshot fallback
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
