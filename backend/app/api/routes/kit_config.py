@@ -15,6 +15,7 @@ import logging
 import time as _time
 import unicodedata
 import hashlib
+import threading as _threading
 
 
 def _normalize_kit_name(s: Optional[str]) -> str:
@@ -1202,6 +1203,31 @@ def _invalidate_event_detail_for_bundle(
     return False
 
 
+def _prewarm_ticket_cache_background():
+    """Reconstrói o cache do ticket_atual em background após um Salvar.
+
+    Abre uma sessão PG própria (não reutiliza a do request), chama
+    _get_ticket_atual_map e fecha. Dessa forma, quando o usuário navegar
+    para o evento segundos após salvar, o cache já está quente.
+    """
+    from .marketing import _get_ticket_atual_map
+
+    def _work():
+        if db_module.SessionLocal is None:
+            return
+        db = db_module.SessionLocal()
+        try:
+            _get_ticket_atual_map(db)
+            logger.info("[KitConfig] Pre-warm ticket_atual cache concluído em background")
+        except Exception as e:
+            logger.warning(f"[KitConfig] Pre-warm ticket_atual cache falhou: {e}")
+        finally:
+            db.close()
+
+    t = _threading.Thread(target=_work, daemon=True, name="ticket-prewarm")
+    t.start()
+
+
 @router.post("/bulk", response_model=KitConfigBulkResult)
 def upsert_kit_config_bulk(
     body: KitConfigBulkUpsert,
@@ -1415,6 +1441,7 @@ def upsert_kit_config(
             _unconfigured_cache["data"] = None
             _unconfigured_cache["ts"] = 0.0
             clear_ticket_atual_cache()
+            _prewarm_ticket_cache_background()
             _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
             return existing
 
@@ -1439,6 +1466,7 @@ def upsert_kit_config(
         _unconfigured_cache["data"] = None
         _unconfigured_cache["ts"] = 0.0
         clear_ticket_atual_cache()
+        _prewarm_ticket_cache_background()
         _invalidate_event_detail_for_bundle(db, bundle_entity_id, body.id_evento)
         return new_config
     except IntegrityError:
