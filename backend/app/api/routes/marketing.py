@@ -4333,7 +4333,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "22"  # v22: special_price = min_lote_evento + kit_addon (componente físico do kit)
+_DETAIL_CACHE_VERSION = "23"  # v23: ticket_atual usa special_price (preço de entrada) como prioridade sobre current_price
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
