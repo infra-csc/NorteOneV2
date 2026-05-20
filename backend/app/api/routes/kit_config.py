@@ -143,9 +143,10 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: usa min_price do bundle pai (já reflete catalog price rules ativas)
-    -- Fallback para pi_filho quando kit inativo (não indexado pelo Magento)
-    COALESCE(pi_pai.min_price, (
+    -- special_price: final_price já reflete promoções/special price ativas no bundle pai.
+    -- NULLIF(..., 0) evita aceitar 0 quando Magento indexa bundle com preço dinâmico zerado.
+    -- Fallback pi_filho quando bundle não indexado (kit inativo).
+    COALESCE(NULLIF(pi_pai.final_price, 0), NULLIF(pi_pai.min_price, 0), (
         MAX(CASE 
             WHEN (
                 cpev_simple.value LIKE '%Distancia%'
@@ -289,6 +290,7 @@ GROUP BY
     lote.lot_name,
     lote.lot_value,
     lote.lot_sell_ends,
+    pi_pai.final_price,
     pi_pai.min_price
 
 ORDER BY
@@ -1470,7 +1472,7 @@ def get_kit_configs_by_grupo(
                 ids_csv = ",".join(str(b) for b in bundle_ids)
                 _price_sql = f"""
                     SELECT entity_id,
-                           COALESCE(min_price, price) AS sp_base
+                           COALESCE(NULLIF(final_price, 0), NULLIF(min_price, 0), price) AS sp_base
                     FROM   catalog_product_index_price
                     WHERE  entity_id IN ({ids_csv})
                       AND  customer_group_id = 0
