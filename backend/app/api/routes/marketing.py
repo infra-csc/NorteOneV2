@@ -521,6 +521,14 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
                 "status_kit": row_dict.get("status_kit"),
                 "nome_kit": row_dict.get("nome_kit"),
             }
+            # DIAGNÓSTICO TEMPORÁRIO — bundle 57592 (Kit Night Run + Porta-tênis Joinville)
+            if bundle_id == 57592:
+                logger.warning(
+                    f"[DIAG-57592-mktg] id_evento={row_dict.get('id_evento')!r} "
+                    f"nome_kit={row_dict.get('nome_kit')!r} "
+                    f"price={price_val} special_price={sp} sp_base={sp_base} "
+                    f"lote_atual={row_dict.get('lote_atual')!r}"
+                )
 
         # Fallback via MargemBundleRevSnapshot para bundles com sp_base ausente/nulo.
         # Cobre dois casos:

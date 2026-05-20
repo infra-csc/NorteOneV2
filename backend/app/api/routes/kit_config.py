@@ -233,24 +233,23 @@ LEFT JOIN catalog_product_entity_decimal cpep
       AND cpep.attribute_id = 77
 
 -- Lote keyed pelo bundle entity_id (preço específico por kit; prioridade)
--- Correlated subquery garante 1 linha por bundle (lote mais recente por record_id)
+-- MAX(record_id) garante exatamente 1 linha por bundle; sem múltiplas rows por lot_id.
 LEFT JOIN catalog_product_entity_event_lot_price lote_b
        ON lote_b.entity_id = cpe_parent.entity_id
-      AND lote_b.lot_id = (
-              SELECT lot_id
+      AND lote_b.record_id = (
+              SELECT MAX(record_id)
               FROM catalog_product_entity_event_lot_price
               WHERE entity_id = cpe_parent.entity_id
-              ORDER BY record_id DESC LIMIT 1
           )
 
 -- Lote keyed pelo event entity_id (fallback; padrão original)
+-- MAX(record_id) garante exatamente 1 linha por evento; sem múltiplas rows por lot_id.
 LEFT JOIN catalog_product_entity_event_lot_price lote_e
        ON lote_e.entity_id = cpev1.value
-      AND lote_e.lot_id = (
-              SELECT lot_id
+      AND lote_e.record_id = (
+              SELECT MAX(record_id)
               FROM catalog_product_entity_event_lot_price
               WHERE entity_id = cpev1.value
-              ORDER BY record_id DESC LIMIT 1
           )
 
 -- Preço máximo do componente Distância/Modalidade por bundle (para limiar anti-falso-positivo)
@@ -285,11 +284,7 @@ GROUP BY
     cpev_kit.value,
     cpe_parent.entity_id,
     cpev_kit_name.value,
-    eaov_tipo.value,
-    lote_b.lot_name,
-    lote_b.lot_value,
-    lote_e.lot_name,
-    lote_e.lot_value
+    eaov_tipo.value
 
 ORDER BY
     cpev1.value,
@@ -494,6 +489,43 @@ def get_kits_with_config(
 
     try:
         magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
+        # DIAGNÓSTICO TEMPORÁRIO — inspecionar seleções brutas do bundle 57592
+        def _diag_work(conn):
+            _diag_q = text("""
+                SELECT
+                    cpeos.selection_id,
+                    cpeos.option_id,
+                    cpeos.product_id,
+                    cpeos.selection_price_type,
+                    cpeos.selection_price_value,
+                    cpev_s.value AS component_name,
+                    cpep_s.value AS price_value,
+                    cpep_s.store_id AS price_store_id,
+                    cpbsp.website_id AS ws_price_website,
+                    cpbsp.selection_price_value AS ws_price_value,
+                    cpbsp.selection_price_type  AS ws_price_type
+                FROM catalog_product_bundle_option cpeo
+                JOIN catalog_product_bundle_selection cpeos ON cpeos.option_id = cpeo.option_id
+                LEFT JOIN catalog_product_entity_varchar cpev_s
+                       ON cpev_s.entity_id = cpeos.product_id AND cpev_s.attribute_id = 73
+                LEFT JOIN catalog_product_entity_decimal cpep_s
+                       ON cpep_s.entity_id = cpeos.product_id AND cpep_s.attribute_id = 77
+                LEFT JOIN catalog_product_bundle_selection_price cpbsp
+                       ON cpbsp.selection_id = cpeos.selection_id
+                WHERE cpeo.parent_id = 57592
+            """)
+            return conn.execute(_diag_q).fetchall()
+        try:
+            _diag_rows = magento_run(_diag_work, label="diag-57592", profile="request")
+            for _dr in _diag_rows:
+                logger.warning(
+                    f"[DIAG-57592-sel] sel={_dr[0]} prod={_dr[2]} name={_dr[5]!r} "
+                    f"sel_price_type={_dr[3]} sel_price_val={_dr[4]} "
+                    f"attr77_val={_dr[6]} attr77_store={_dr[7]} "
+                    f"ws_price_val={_dr[9]} ws_price_type={_dr[10]} ws={_dr[8]}"
+                )
+        except Exception as _de:
+            logger.warning(f"[DIAG-57592-sel] Falha na query diagnóstica: {_de}")
     except MagentoEngineUnavailable:
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] Magento indisponível — retornando cache stale")
