@@ -149,16 +149,15 @@ SELECT
     -- quando existe, pois este é o diferencial de preço do kit em relação ao registro básico.
     -- Fallback: lote por bundle → lote por evento (para kits sem mercadoria física).
     COALESCE(
+        -- Preço de componentes que são inequivocamente mercadoria física (add-on do kit).
+        -- Padrões ambíguos como 'Tênis', 'Bike', 'Biciclet' foram removidos pois
+        -- podem coincidir com nomes de opções de distância/modalidade em eventos.
         NULLIF(MAX(CASE
             WHEN cpep.value > 0
              AND (
                  cpev_simple.value LIKE '%Porta%'
               OR cpev_simple.value LIKE '%Luva%'
               OR cpev_simple.value LIKE '%Toalha%'
-              OR cpev_simple.value LIKE '%Tênis%'
-              OR cpev_simple.value LIKE '%Tenis%'
-              OR cpev_simple.value LIKE '%Bike%'
-              OR cpev_simple.value LIKE '%Biciclet%'
               OR cpev_simple.value LIKE '%Bag%'
               OR cpev_simple.value LIKE '%Pochete%'
              )
@@ -227,24 +226,25 @@ LEFT JOIN catalog_product_entity_decimal cpep
       AND cpep.attribute_id = 77
 
 -- Lote keyed pelo bundle entity_id (preço específico por kit; prioridade)
-LEFT JOIN (
-    SELECT entity_id, MAX(record_id) AS max_rid
-    FROM catalog_product_entity_event_lot_price
-    GROUP BY entity_id
-) lote_max_b ON lote_max_b.entity_id = cpe_parent.entity_id
+-- Correlated subquery garante 1 linha por bundle (lote mais recente por record_id)
 LEFT JOIN catalog_product_entity_event_lot_price lote_b
-       ON lote_b.entity_id = lote_max_b.entity_id
-      AND lote_b.record_id = lote_max_b.max_rid
+       ON lote_b.entity_id = cpe_parent.entity_id
+      AND lote_b.lot_id = (
+              SELECT lot_id
+              FROM catalog_product_entity_event_lot_price
+              WHERE entity_id = cpe_parent.entity_id
+              ORDER BY record_id DESC LIMIT 1
+          )
 
--- Lote keyed pelo event entity_id (fallback quando bundle não tem lote próprio)
-LEFT JOIN (
-    SELECT entity_id, MAX(record_id) AS max_rid
-    FROM catalog_product_entity_event_lot_price
-    GROUP BY entity_id
-) lote_max_e ON lote_max_e.entity_id = cpev1.value
+-- Lote keyed pelo event entity_id (fallback; padrão original)
 LEFT JOIN catalog_product_entity_event_lot_price lote_e
-       ON lote_e.entity_id = lote_max_e.entity_id
-      AND lote_e.record_id = lote_max_e.max_rid
+       ON lote_e.entity_id = cpev1.value
+      AND lote_e.lot_id = (
+              SELECT lot_id
+              FROM catalog_product_entity_event_lot_price
+              WHERE entity_id = cpev1.value
+              ORDER BY record_id DESC LIMIT 1
+          )
 
 -- status do bundle: attribute_id pré-computado
 LEFT JOIN catalog_product_entity_int cpei_status
