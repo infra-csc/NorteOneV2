@@ -283,6 +283,26 @@ const EventDetail: React.FC = () => {
   const [faixasPrecoSite, setFaixasPrecoSite] = useState<{ kit_basico: { faixa: string; qtd: number; tkt_medio: number; total: number }[]; kit_participacao: { faixa: string; qtd: number; tkt_medio: number; total: number }[] } | null>(_detailCacheFresh ? _detailCached!.faixasPrecoSite : null);
   const [simuladorFaixas, setSimuladorFaixas] = useState(false);
   const [projetadoFaixas, setProjetadoFaixas] = useState<{ id: string; nome: string; preco: string; qtd: string }[]>([]);
+
+  interface KitPanelItem {
+    bundle_entity_id: number;
+    kit_nome: string | null;
+    tipo_kit: string | null;
+    is_kit_basico: boolean;
+    is_promo_principal: boolean;
+    custo_kit: number | null;
+    multiplicador: number;
+    ativo_categoria: string | null;
+    cenario_ciclismo: string | null;
+    ignorado: boolean;
+    id_evento: number | null;
+    _dirty: boolean;
+  }
+  const [showKitPanel, setShowKitPanel] = useState(false);
+  const [kitPanelItems, setKitPanelItems] = useState<KitPanelItem[]>([]);
+  const [kitPanelLoading, setKitPanelLoading] = useState(false);
+  const [kitPanelSaving, setKitPanelSaving] = useState(false);
+  const [kitPanelError, setKitPanelError] = useState<string | null>(null);
   const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number; custo_kit?: number; margem_orcada?: number; margem_realizada?: number } } | null>(_detailCacheFresh ? _detailCached!.cenariosCiclismo : null);
   const [avisos, setAvisos] = useState<string[]>(_detailCacheFresh ? _detailCached!.avisos : []);
   const [curvaData, setCurvaData] = useState<any[]>([]);
@@ -915,6 +935,69 @@ const EventDetail: React.FC = () => {
     }
     setOverrideSearch('');
     setShowOverrideModal(true);
+  };
+
+  const canEditKitConfig = permissions?.is_admin || permissions?.permissoes?.['admin_kit_config']?.pode_editar;
+
+  const loadKitPanel = async () => {
+    if (!id) return;
+    const grupoNome = id.startsWith('grp_') ? id.slice(4) : id;
+    setKitPanelLoading(true);
+    setKitPanelError(null);
+    try {
+      const res = await api.get(`/kit-config/by-grupo?grupo_nome=${encodeURIComponent(grupoNome)}`);
+      setKitPanelItems((res.data as any[]).map((item: any) => ({ ...item, _dirty: false })));
+    } catch {
+      setKitPanelError('Erro ao carregar kits. Tente novamente.');
+    } finally {
+      setKitPanelLoading(false);
+    }
+  };
+
+  const toggleKitFlag = (bundleId: number, flag: 'is_promo_principal' | 'is_kit_basico') => {
+    setKitPanelItems(prev => {
+      const target = prev.find(i => i.bundle_entity_id === bundleId);
+      if (!target) return prev;
+      const newValue = !target[flag];
+      return prev.map(item => {
+        if (item.bundle_entity_id === bundleId) {
+          return { ...item, [flag]: newValue, _dirty: true };
+        }
+        if (newValue && item[flag]) {
+          return { ...item, [flag]: false, _dirty: true };
+        }
+        return item;
+      });
+    });
+  };
+
+  const saveKitPanel = async () => {
+    const dirtyItems = kitPanelItems.filter(i => i._dirty);
+    if (!dirtyItems.length) { setShowKitPanel(false); return; }
+    setKitPanelSaving(true);
+    setKitPanelError(null);
+    try {
+      for (const item of dirtyItems) {
+        await api.post(`/kit-config/${item.bundle_entity_id}`, {
+          multiplicador: item.multiplicador,
+          is_kit_basico: item.is_kit_basico,
+          is_promo_principal: item.is_promo_principal,
+          id_evento: item.id_evento,
+          tipo_kit: item.tipo_kit,
+          custo_kit: item.custo_kit,
+          ativo_categoria: item.ativo_categoria,
+          cenario_ciclismo: item.cenario_ciclismo,
+          ignorado: item.ignorado,
+        });
+      }
+      setShowKitPanel(false);
+      setKitPanelItems([]);
+      if (fetchEventRef.current) fetchEventRef.current(true, true);
+    } catch {
+      setKitPanelError('Erro ao salvar. Tente novamente.');
+    } finally {
+      setKitPanelSaving(false);
+    }
   };
 
   const handleSetOverride = async (curvaGrupo: string | null) => {
@@ -3303,8 +3386,94 @@ const EventDetail: React.FC = () => {
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
               <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Atual (Kit)</span>
-              <span className={`text-lg font-bold ${ticketRef > 0 ? 'text-gray-900 dark:text-white' : 'text-amber-500 dark:text-amber-400'}`}>{ticketRef > 0 ? formatCurrency(ticketRef) : 'Não encontrado'}</span>
+              <div className="flex items-center gap-2">
+                <span className={`text-lg font-bold ${ticketRef > 0 ? 'text-gray-900 dark:text-white' : 'text-amber-500 dark:text-amber-400'}`}>
+                  {ticketRef > 0 ? formatCurrency(ticketRef) : 'Não encontrado'}
+                </span>
+                {canEditKitConfig && (
+                  <button
+                    onClick={() => {
+                      if (showKitPanel) {
+                        setShowKitPanel(false);
+                        setKitPanelItems([]);
+                        setKitPanelError(null);
+                      } else {
+                        setShowKitPanel(true);
+                        loadKitPanel();
+                      }
+                    }}
+                    title="Configurar kit de referência"
+                    className="p-1 rounded-md text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:text-indigo-400 dark:hover:bg-indigo-900/30 transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
+            {showKitPanel && canEditKitConfig && (
+              <div className="border border-indigo-200 dark:border-indigo-700 rounded-lg overflow-hidden">
+                <div className="bg-indigo-50 dark:bg-indigo-900/30 px-3 py-2 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">Configurar kit de referência</span>
+                  <button onClick={() => { setShowKitPanel(false); setKitPanelItems([]); setKitPanelError(null); }} className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-200">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {kitPanelLoading ? (
+                  <div className="flex items-center justify-center py-4 gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Carregando kits…
+                  </div>
+                ) : kitPanelError ? (
+                  <div className="px-3 py-3 text-xs text-red-600 dark:text-red-400">{kitPanelError}</div>
+                ) : kitPanelItems.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-gray-500 dark:text-gray-400">Nenhum kit configurado para este evento.</div>
+                ) : (
+                  <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                    {kitPanelItems.map(item => (
+                      <div key={item.bundle_entity_id} className={`flex items-center gap-2 px-3 py-2.5 ${item._dirty ? 'bg-yellow-50 dark:bg-yellow-900/10' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{item.kit_nome || `Bundle ${item.bundle_entity_id}`}</p>
+                          {item.tipo_kit && <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{item.tipo_kit}</p>}
+                        </div>
+                        <button
+                          onClick={() => toggleKitFlag(item.bundle_entity_id, 'is_promo_principal')}
+                          title="Kit promo principal (⚡ Ticket Atual)"
+                          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                            item.is_promo_principal
+                              ? 'bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-900/40 dark:border-amber-500 dark:text-amber-300'
+                              : 'bg-gray-100 border-gray-200 text-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-500 hover:border-amber-400 hover:text-amber-600'
+                          }`}
+                        >
+                          ⚡ Promo
+                        </button>
+                        <button
+                          onClick={() => toggleKitFlag(item.bundle_entity_id, 'is_kit_basico')}
+                          title="Kit básico (⭐ fallback)"
+                          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                            item.is_kit_basico
+                              ? 'bg-blue-100 border-blue-400 text-blue-700 dark:bg-blue-900/40 dark:border-blue-500 dark:text-blue-300'
+                              : 'bg-gray-100 border-gray-200 text-gray-400 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-500 hover:border-blue-400 hover:text-blue-600'
+                          }`}
+                        >
+                          ⭐ Básico
+                        </button>
+                      </div>
+                    ))}
+                    <div className="px-3 py-2.5 flex items-center justify-between bg-gray-50 dark:bg-gray-700/30">
+                      {kitPanelError && <span className="text-xs text-red-500 dark:text-red-400">{kitPanelError}</span>}
+                      {!kitPanelError && <span className="text-[10px] text-gray-400 dark:text-gray-500">⚡ define o Ticket Atual · ⭐ define o fallback</span>}
+                      <button
+                        onClick={saveKitPanel}
+                        disabled={kitPanelSaving || !kitPanelItems.some(i => i._dirty)}
+                        className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {kitPanelSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                        {kitPanelSaving ? 'Salvando…' : 'Salvar'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {ticketMedioRealizado > 0 && (
               <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <span className="text-xs text-gray-500 dark:text-gray-400">Ticket Médio Realizado</span>

@@ -1369,3 +1369,49 @@ def get_all_configs(
     current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
     return db.query(KitConfig).all()
+
+
+@router.get("/by-grupo", response_model=List[KitConfigResponse])
+def get_kit_configs_by_grupo(
+    grupo_nome: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
+):
+    nome = grupo_nome.strip()
+    projs = db.query(DimProjeto).filter(DimProjeto.nome.ilike(nome)).all()
+    if not projs:
+        return []
+
+    proj_ids = [p.id for p in projs]
+
+    sku_maps = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.ativo == True,
+        SkuMapping.projeto_id.in_(proj_ids),
+        SkuMapping.id_externo.isnot(None),
+    ).all()
+
+    mev_ids = []
+    for sm in sku_maps:
+        try:
+            mev_ids.append(int(sm.id_externo))
+        except (ValueError, TypeError):
+            pass
+
+    if not mev_ids:
+        return []
+
+    configs = (
+        db.query(KitConfig)
+        .filter(
+            KitConfig.id_evento.in_(mev_ids),
+            KitConfig.ignorado == False,
+        )
+        .order_by(
+            KitConfig.is_promo_principal.desc(),
+            KitConfig.is_kit_basico.desc(),
+            KitConfig.kit_nome,
+        )
+        .all()
+    )
+    return configs
