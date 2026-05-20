@@ -172,18 +172,19 @@ SELECT
            AND lot_value > 0
            AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
         -- fallback 3: lote ativo do EVENTO — apenas quando o bundle não tem
-        -- nenhum lote próprio cadastrado (NOT EXISTS). Evita que o lote base
-        -- do evento (ex.: "Lançamento" R$59,99) contamine bundles de categoria
-        -- superior que simplesmente têm os lotes expirados.
-        (SELECT MIN(elp_ev.lot_value)
-         FROM catalog_product_entity_event_lot_price elp_ev
-         WHERE elp_ev.entity_id = cpev1.value
-           AND elp_ev.lot_value > 0
-           AND (elp_ev.lot_sell_ends IS NULL OR elp_ev.lot_sell_ends >= NOW())
-           AND NOT EXISTS (
-               SELECT 1 FROM catalog_product_entity_event_lot_price
-               WHERE entity_id = cpe_parent.entity_id
-           )),
+        -- nenhum lote próprio cadastrado. Usa CASE para evitar problemas de
+        -- correlated subquery duplamente aninhada no MySQL.
+        CASE
+            WHEN (SELECT COUNT(*)
+                  FROM catalog_product_entity_event_lot_price
+                  WHERE entity_id = cpe_parent.entity_id) = 0
+            THEN (SELECT MIN(lot_value)
+                  FROM catalog_product_entity_event_lot_price
+                  WHERE entity_id = cpev1.value
+                    AND lot_value > 0
+                    AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW()))
+            ELSE NULL
+        END,
         (SELECT MIN(pip.min_price)
          FROM catalog_product_index_price pip
          WHERE pip.entity_id = cpe_parent.entity_id

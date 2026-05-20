@@ -4330,7 +4330,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "20"  # v20: fallback 3 (lote evento) só ativa quando bundle não tem lotes próprios
+_DETAIL_CACHE_VERSION = "21"  # v21: fallback 3 usa CASE em vez de NOT EXISTS aninhado (compatibilidade MySQL)
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
