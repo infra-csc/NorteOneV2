@@ -143,23 +143,12 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: atributo 'special_price' do bundle pai via subquery correlacionada.
-    -- Busca em qualquer store_id (ORDER BY store_id DESC prefere nível de loja ao global).
-    -- NULL quando não há promoção configurada no admin do Magento para esse bundle.
-    (
-        SELECT d.value
-        FROM   catalog_product_entity_decimal d
-        WHERE  d.entity_id     = cpe_parent.entity_id
-          AND  d.attribute_id  = (
-                   SELECT attribute_id FROM eav_attribute
-                   WHERE  attribute_code = 'special_price'
-                     AND  entity_type_id = (
-                              SELECT entity_type_id FROM eav_entity_type
-                              WHERE  entity_type_code = 'catalog_product'
-                          )
-               )
-        ORDER  BY d.store_id DESC
-        LIMIT  1
+    -- special_price: valor do atributo 'special_price' do bundle pai.
+    -- Dois LEFT JOINs: store_id=1 (nível de loja) tem prioridade sobre store_id=0 (global).
+    -- COALESCE escolhe o mais específico; NULL = sem promoção configurada.
+    COALESCE(
+        MAX(cpedsp_s1.value),
+        MAX(cpedsp_s0.value)
     )                                       AS special_price,
 
     CASE cpei_status.value
@@ -224,6 +213,32 @@ LEFT JOIN catalog_product_index_price pi_pai
        ON pi_pai.entity_id = cpe_parent.entity_id
       AND pi_pai.website_id = 1
       AND pi_pai.customer_group_id = 0
+
+-- special_price global (store_id=0)
+LEFT JOIN catalog_product_entity_decimal cpedsp_s0
+       ON cpedsp_s0.entity_id   = cpe_parent.entity_id
+      AND cpedsp_s0.store_id    = 0
+      AND cpedsp_s0.attribute_id = (
+            SELECT attribute_id FROM eav_attribute
+            WHERE attribute_code = 'special_price'
+              AND entity_type_id = (
+                    SELECT entity_type_id FROM eav_entity_type
+                    WHERE entity_type_code = 'catalog_product'
+              )
+          )
+
+-- special_price por loja (store_id=1) — sobrescreve o global quando presente
+LEFT JOIN catalog_product_entity_decimal cpedsp_s1
+       ON cpedsp_s1.entity_id   = cpe_parent.entity_id
+      AND cpedsp_s1.store_id    = 1
+      AND cpedsp_s1.attribute_id = (
+            SELECT attribute_id FROM eav_attribute
+            WHERE attribute_code = 'special_price'
+              AND entity_type_id = (
+                    SELECT entity_type_id FROM eav_entity_type
+                    WHERE entity_type_code = 'catalog_product'
+              )
+          )
 
 LEFT JOIN catalog_product_entity_event_lot_price lote
        ON lote.entity_id = cpev1.value
@@ -459,36 +474,6 @@ def get_kits_with_config(
     from app.core.db_retry import magento_run, MagentoEngineUnavailable
 
     def _kits_work(conn):
-        # [DIAG-SPRICE] Check where special_price is stored for bundle 57592
-        try:
-            _d1 = conn.execute(text(
-                "SELECT attribute_id, store_id, value FROM catalog_product_entity_decimal"
-                " WHERE entity_id IN (57592, 51675) ORDER BY entity_id, attribute_id, store_id"
-            ))
-            _d1_rows = _d1.fetchall()
-            logger.info(f"[DIAG-SPRICE] entity_decimal 57592/51675: {_d1_rows[:20]}")
-            _d2 = conn.execute(text(
-                "SELECT attribute_id, store_id, value FROM catalog_product_entity_percent"
-                " WHERE entity_id IN (57592, 51675) ORDER BY entity_id, attribute_id, store_id"
-            ))
-            _d2_rows = _d2.fetchall()
-            logger.info(f"[DIAG-SPRICE] entity_percent 57592/51675: {_d2_rows}")
-            _d3 = conn.execute(text(
-                "SELECT attribute_id, attribute_code, backend_type FROM eav_attribute"
-                " WHERE attribute_code IN ('special_price','price')"
-                " AND entity_type_id=(SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code='catalog_product')"
-            ))
-            _d3_rows = _d3.fetchall()
-            logger.info(f"[DIAG-SPRICE] eav_attribute: {_d3_rows}")
-            _d4 = conn.execute(text(
-                "SELECT entity_id, customer_group_id, price, final_price, min_price"
-                " FROM catalog_product_index_price WHERE entity_id IN (57592, 51675)"
-                " AND customer_group_id=0 AND website_id=1"
-            ))
-            _d4_rows = _d4.fetchall()
-            logger.info(f"[DIAG-SPRICE] index_price: {_d4_rows}")
-        except Exception as _de:
-            logger.warning(f"[DIAG-SPRICE] erro: {_de}")
         result = conn.execute(text(MAGENTO_KITS_QUERY))
         return result.fetchall(), list(result.keys())
 
