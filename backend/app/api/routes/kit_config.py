@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +41,48 @@ logger = logging.getLogger(__name__)
 
 _kits_cache: dict = {"data": None, "ts": 0.0}
 _KITS_TTL = 120
+
+
+def _build_local_fallback_kits(db: Session) -> List[KitRow]:
+    all_configs = db.query(KitConfig).filter(KitConfig.ignorado == False).all()
+    sku_maps = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.ativo == True,
+    ).all()
+    id_evento_to_nome: dict = {}
+    for sm in sku_maps:
+        if sm.id_externo and sm.nome_evento:
+            id_evento_to_nome[int(sm.id_externo)] = sm.nome_evento
+    kits = []
+    for cfg in all_configs:
+        id_ev = cfg.id_evento
+        nome_ev = id_evento_to_nome.get(id_ev) if id_ev else None
+        kits.append(KitRow(
+            id_evento=str(id_ev) if id_ev else None,
+            nome_evento=nome_ev,
+            bundle_entity_id=cfg.bundle_entity_id,
+            nome_kit=cfg.kit_nome,
+            tipo_kit=cfg.tipo_kit,
+            tipo_categoria=None,
+            lote_atual=None,
+            multiplicador_sugerido=cfg.multiplicador,
+            multiplicador=cfg.multiplicador,
+            price_base=None,
+            special_price_base=None,
+            price=None,
+            special_price=None,
+            is_configured=True,
+            is_kit_basico=cfg.is_kit_basico,
+            is_promo_principal=cfg.is_promo_principal,
+            custo_cadastro=None,
+            custo_kit=float(cfg.custo_kit) if cfg.custo_kit is not None else None,
+            ativo_categoria=cfg.ativo_categoria,
+            cenario_ciclismo=cfg.cenario_ciclismo,
+            status_kit=None,
+            fonte="local",
+            ignorado=cfg.ignorado,
+        ))
+    return sorted(kits, key=lambda k: (k.nome_evento or '', k.nome_kit or ''))
 
 _unconfigured_cache: dict = {"data": None, "ts": 0.0}
 _UNCONFIGURED_TTL = 300  # 5 minutes
@@ -423,6 +465,7 @@ def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
 
 @router.get("/kits", response_model=List[KitRow])
 def get_kits_with_config(
+    response: Response,
     db: Session = Depends(get_db),
     force_refresh: bool = False,
     current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
@@ -436,10 +479,10 @@ def get_kits_with_config(
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] engine_magento indisponível — retornando cache stale")
             return _kits_cache["data"]
-        raise HTTPException(
-            status_code=503,
-            detail="Conexão Magento não configurada. Verifique as credenciais MAGENTO_DB_*",
-        )
+        logger.warning("[KitConfig] engine_magento indisponível — retornando fallback local (sem preços)")
+        fallback = _build_local_fallback_kits(db)
+        response.headers["X-Kit-Source"] = "local"
+        return fallback
 
     from app.core.db_retry import magento_run, MagentoEngineUnavailable
 
@@ -453,13 +496,19 @@ def get_kits_with_config(
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] Magento indisponível — retornando cache stale")
             return _kits_cache["data"]
-        raise HTTPException(status_code=503, detail="Conexão Magento indisponível")
+        logger.warning("[KitConfig] Magento indisponível — retornando fallback local (sem preços)")
+        fallback = _build_local_fallback_kits(db)
+        response.headers["X-Kit-Source"] = "local"
+        return fallback
     except Exception as e:
         logger.error(f"Erro ao buscar kits do Magento: {e}")
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] Erro no Magento — retornando cache stale")
             return _kits_cache["data"]
-        raise HTTPException(status_code=500, detail="Erro ao consultar dados do Magento")
+        logger.warning("[KitConfig] Erro Magento — retornando fallback local (sem preços)")
+        fallback = _build_local_fallback_kits(db)
+        response.headers["X-Kit-Source"] = "local"
+        return fallback
 
     all_configs = db.query(KitConfig).all()
     config_map = {c.bundle_entity_id: c for c in all_configs}

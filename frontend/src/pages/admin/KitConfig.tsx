@@ -44,6 +44,7 @@ const KitConfig: React.FC = () => {
   const [kits, setKits] = useState<KitRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [magentoFallback, setMagentoFallback] = useState(false);
   const [editValues, setEditValues] = useState<Record<number, number>>({});
   const [basicoValues, setBasicoValues] = useState<Record<number, boolean>>({});
   const [promoValues, setPromoValues] = useState<Record<number, boolean>>({});
@@ -106,8 +107,12 @@ const KitConfig: React.FC = () => {
   const fetchKits = async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
+    setMagentoFallback(false);
     try {
       const res = await api.get('/kit-config/kits', { params: forceRefresh ? { force_refresh: true } : {} });
+      if (res.headers?.['x-kit-source'] === 'local') {
+        setMagentoFallback(true);
+      }
       setKits(res.data);
       const edits: Record<number, number> = {};
       const basicos: Record<number, boolean> = {};
@@ -749,12 +754,18 @@ const KitConfig: React.FC = () => {
         )}
       </div>
 
+      {magentoFallback && (
+        <div className={`p-3 rounded-lg mb-4 border flex items-center gap-2 text-sm ${
+          isDark ? 'bg-amber-900/20 border-amber-700 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'
+        }`}>
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Magento indisponível — exibindo dados do cadastro local. Colunas de preço e status do site não disponíveis. Configurações de ⭐ Básico, ⚡ Promo, Tipo e Custo funcionam normalmente.
+        </div>
+      )}
       {error && (
-        <div
-          className={`p-4 rounded-lg mb-4 border ${
-            isDark ? 'bg-red-900/20 border-red-700 text-red-300' : 'bg-red-50 border-red-200 text-red-700'
-          }`}
-        >
+        <div className={`p-4 rounded-lg mb-4 border ${
+          isDark ? 'bg-red-900/20 border-red-700 text-red-300' : 'bg-red-50 border-red-200 text-red-700'
+        }`}>
           {error}
         </div>
       )}
