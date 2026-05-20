@@ -428,7 +428,7 @@ def _resolve_ticket_for_event(
     # 1. Promo principal explícito
     if promo_principal_cfg:
         bd = bundle_data.get(promo_principal_cfg.bundle_entity_id)
-        if bd and bd.get("sp_base") is not None:
+        if bd and (bd.get("sp_base") or 0) > 0:
             return {
                 "value": round(bd["sp_base"] * promo_principal_cfg.multiplicador, 2),
                 "nome_kit": bd.get("nome_kit"),
@@ -437,7 +437,7 @@ def _resolve_ticket_for_event(
     # 2. Kit promo (fallback)
     for promo_cfg in promo_configs or []:
         bd = bundle_data.get(promo_cfg.bundle_entity_id)
-        if not bd or bd.get("sp_base") is None:
+        if not bd or not (bd.get("sp_base") or 0) > 0:
             continue
         if require_status_active and bd.get("status_kit") != "ativo":
             continue
@@ -449,7 +449,7 @@ def _resolve_ticket_for_event(
     # 3. Kit básico (fallback final)
     if basico_cfg:
         bd = bundle_data.get(basico_cfg.bundle_entity_id)
-        if bd and bd.get("sp_base") is not None:
+        if bd and (bd.get("sp_base") or 0) > 0:
             return {
                 "value": round(bd["sp_base"] * basico_cfg.multiplicador, 2),
                 "nome_kit": bd.get("nome_kit"),
@@ -535,7 +535,9 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             ]
             missing_ids = [
                 bid for bid in all_bundle_ids
-                if bid not in bundle_data or bundle_data[bid].get("sp_base") is None
+                if bid not in bundle_data
+                or bundle_data[bid].get("sp_base") is None
+                or bundle_data[bid].get("sp_base") <= 0
             ]
             if missing_ids:
                 snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(missing_ids)).all()
@@ -562,6 +564,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         basico_by_evento, promo_principal_by_evento, promo_by_evento = _bucket_configs_by_evento(magento_configs)
         evento_tickets: dict = {}
         all_evt_keys = set(basico_by_evento) | set(promo_principal_by_evento) | set(promo_by_evento)
+
         for evt_key in all_evt_keys:
             ticket = _resolve_ticket_for_event(
                 bundle_data,
