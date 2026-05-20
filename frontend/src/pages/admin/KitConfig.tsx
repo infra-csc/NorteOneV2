@@ -103,11 +103,11 @@ const KitConfig: React.FC = () => {
     return Array.from(unique).sort();
   }, [kits]);
 
-  const fetchKits = async () => {
+  const fetchKits = async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/kit-config/kits');
+      const res = await api.get('/kit-config/kits', { params: forceRefresh ? { force_refresh: true } : {} });
       setKits(res.data);
       const edits: Record<number, number> = {};
       const basicos: Record<number, boolean> = {};
@@ -580,7 +580,7 @@ const KitConfig: React.FC = () => {
             Exportar CSV
           </button>
           <button
-            onClick={fetchKits}
+            onClick={() => fetchKits(true)}
             disabled={loading}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
               isDark
