@@ -96,7 +96,6 @@ SELECT
     cpe_parent.entity_id                    AS bundle_entity_id,
     cpev_kit_name.value                     AS nome_kit,
     eaov_tipo.value                         AS tipo_categoria,
-    lote.lot_name                           AS lote_atual,
 
     (
         MAX(CASE 
@@ -143,9 +142,10 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: preço do lote vigente (preço real pago pelo atleta no período atual).
-    -- Fonte: catalog_product_entity_event_lot_price (tabela customizada de lotes).
-    lote.lot_value                          AS special_price,
+    -- special_price: preço do lote vigente por bundle (keyed em cpe_parent.entity_id);
+    -- se não existir, fallback no lote do evento (keyed em cpev1.value = id_evento).
+    COALESCE(lote_b.lot_name, lote_e.lot_name)   AS lote_atual,
+    COALESCE(lote_b.lot_value, lote_e.lot_value) AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
@@ -205,15 +205,25 @@ LEFT JOIN catalog_product_entity_decimal cpep
        ON cpep.entity_id = cpeos.product_id
       AND cpep.attribute_id = 77
 
--- Pré-computa o lote mais recente por evento (evita subquery correlacionada N vezes)
+-- Lote keyed pelo bundle entity_id (preço específico por kit; prioridade)
 LEFT JOIN (
     SELECT entity_id, MAX(record_id) AS max_rid
     FROM catalog_product_entity_event_lot_price
     GROUP BY entity_id
-) lote_max ON lote_max.entity_id = cpev1.value
-LEFT JOIN catalog_product_entity_event_lot_price lote
-       ON lote.entity_id = lote_max.entity_id
-      AND lote.record_id = lote_max.max_rid
+) lote_max_b ON lote_max_b.entity_id = cpe_parent.entity_id
+LEFT JOIN catalog_product_entity_event_lot_price lote_b
+       ON lote_b.entity_id = lote_max_b.entity_id
+      AND lote_b.record_id = lote_max_b.max_rid
+
+-- Lote keyed pelo event entity_id (fallback quando bundle não tem lote próprio)
+LEFT JOIN (
+    SELECT entity_id, MAX(record_id) AS max_rid
+    FROM catalog_product_entity_event_lot_price
+    GROUP BY entity_id
+) lote_max_e ON lote_max_e.entity_id = cpev1.value
+LEFT JOIN catalog_product_entity_event_lot_price lote_e
+       ON lote_e.entity_id = lote_max_e.entity_id
+      AND lote_e.record_id = lote_max_e.max_rid
 
 -- status do bundle: attribute_id pré-computado
 LEFT JOIN catalog_product_entity_int cpei_status
@@ -230,12 +240,14 @@ GROUP BY
     cpe_parent.entity_id,
     cpev_kit_name.value,
     eaov_tipo.value,
-    lote.lot_name,
-    lote.lot_value
+    lote_b.lot_name,
+    lote_b.lot_value,
+    lote_e.lot_name,
+    lote_e.lot_value
 
 ORDER BY
     cpev1.value,
-    lote.lot_value
+    COALESCE(lote_b.lot_value, lote_e.lot_value)
 """
 
 
