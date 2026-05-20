@@ -564,21 +564,6 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         except Exception as _fb_e:
             logger.warning(f"[ticket_atual] Fallback snapshot falhou: {_fb_e}")
 
-        # Enriquecimento final: ticket_manual do KitConfig como override para bundles ainda sem preço.
-        # Permite que o usuário informe manualmente o valor do ticket quando Magento e snapshot não têm dados.
-        for cfg in magento_configs:
-            if cfg.ticket_manual and float(cfg.ticket_manual) > 0:
-                bid = cfg.bundle_entity_id
-                existing = bundle_data.get(bid, {})
-                if not (existing.get("sp_base") or 0) > 0:
-                    bundle_data[bid] = {
-                        **existing,
-                        "sp_base": float(cfg.ticket_manual),
-                        "status_kit": existing.get("status_kit") or "ativo",
-                        "nome_kit": existing.get("nome_kit"),
-                        "fonte": "manual",
-                    }
-
         basico_by_evento, promo_principal_by_evento, promo_by_evento = _bucket_configs_by_evento(magento_configs)
         evento_tickets: dict = {}
         all_evt_keys = set(basico_by_evento) | set(promo_principal_by_evento) | set(promo_by_evento)

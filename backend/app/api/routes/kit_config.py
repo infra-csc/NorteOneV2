@@ -1371,10 +1371,6 @@ def upsert_kit_config(
                 existing.kit_nome = body.kit_nome
             if body.custo_kit is not None:
                 existing.custo_kit = body.custo_kit
-            if body.ticket_manual is not None:
-                existing.ticket_manual = body.ticket_manual
-            elif body.ticket_manual is None and "ticket_manual" in body.model_fields_set:
-                existing.ticket_manual = None
             existing.ativo_categoria = body.ativo_categoria or None
             existing.cenario_ciclismo = body.cenario_ciclismo if body.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None
             existing.ignorado = body.ignorado
@@ -1397,7 +1393,6 @@ def upsert_kit_config(
             kit_nome=body.kit_nome,
             tipo_kit=body.tipo_kit,
             custo_kit=body.custo_kit,
-            ticket_manual=body.ticket_manual,
             ativo_categoria=body.ativo_categoria or None,
             cenario_ciclismo=body.cenario_ciclismo if body.cenario_ciclismo in {'participacao', 'sem_bike', 'com_bike'} else None,
             ignorado=body.ignorado,

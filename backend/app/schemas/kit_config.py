@@ -11,7 +11,6 @@ class KitConfigUpsert(BaseModel):
     tipo_kit: Optional[str] = None
     kit_nome: Optional[str] = None
     custo_kit: Optional[float] = None
-    ticket_manual: Optional[float] = None
     ativo_categoria: Optional[str] = None
     cenario_ciclismo: Optional[str] = None
     ignorado: bool = False
@@ -49,7 +48,6 @@ class KitConfigResponse(BaseModel):
     is_kit_basico: bool = False
     is_promo_principal: bool = False
     custo_kit: Optional[float] = None
-    ticket_manual: Optional[float] = None
     ativo_categoria: Optional[str] = None
     cenario_ciclismo: Optional[str] = None
     ignorado: bool = False

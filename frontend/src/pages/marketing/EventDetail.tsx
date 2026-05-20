@@ -291,7 +291,6 @@ const EventDetail: React.FC = () => {
     is_kit_basico: boolean;
     is_promo_principal: boolean;
     custo_kit: number | null;
-    ticket_manual: number | null;
     multiplicador: number;
     ativo_categoria: string | null;
     cenario_ciclismo: string | null;
@@ -973,13 +972,6 @@ const EventDetail: React.FC = () => {
     });
   };
 
-  const setKitTicketManual = (bundleId: number, raw: string) => {
-    const value = raw === '' ? null : parseFloat(raw.replace(',', '.'));
-    setKitPanelItems(prev =>
-      prev.map(it => it.bundle_entity_id === bundleId ? { ...it, ticket_manual: isNaN(value as number) ? it.ticket_manual : value, _dirty: true } : it)
-    );
-  };
-
   const saveKitPanel = async () => {
     const dirtyItems = kitPanelItems.filter(i => i._dirty);
     if (!dirtyItems.length) { setShowKitPanel(false); return; }
@@ -995,7 +987,6 @@ const EventDetail: React.FC = () => {
           kit_nome: item.kit_nome,
           tipo_kit: item.tipo_kit,
           custo_kit: item.custo_kit,
-          ticket_manual: item.ticket_manual,
           ativo_categoria: item.ativo_categoria,
           cenario_ciclismo: item.cenario_ciclismo,
           ignorado: item.ignorado,
@@ -3449,25 +3440,9 @@ const EventDetail: React.FC = () => {
                               <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">
                                 {item.sp_snapshot.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </span>
-                            ) : item.ticket_manual != null && item.ticket_manual > 0 ? (
-                              <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">
-                                {item.ticket_manual.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (manual)
-                              </span>
                             ) : (
                               <span className="text-[10px] text-amber-500 dark:text-amber-400">sem preço</span>
                             )}
-                            {item.sp_snapshot == null || item.sp_snapshot <= 0 ? (
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="R$ manual"
-                                value={item.ticket_manual ?? ''}
-                                onChange={e => setKitTicketManual(item.bundle_entity_id, e.target.value)}
-                                className="ml-1 w-24 text-[10px] px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                                title="Ticket manual (usado quando Magento não tem preço)"
-                              />
-                            ) : null}
                           </div>
                         </div>
                         <button
