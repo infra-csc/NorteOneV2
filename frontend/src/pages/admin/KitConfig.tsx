@@ -1013,7 +1013,7 @@ const KitConfig: React.FC = () => {
                             : textPrimary
                         }`}
                       >
-                        {fmtBRL(computedSpecialPrice)}
+                        {computedSpecialPrice != null ? fmtBRL(computedSpecialPrice) : <span className="text-gray-400">—</span>}
                       </td>
 
                       {/* Custo (R$) */}
