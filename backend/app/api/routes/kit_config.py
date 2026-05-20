@@ -142,10 +142,31 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: preço do lote vigente por bundle (keyed em cpe_parent.entity_id);
-    -- se não existir, fallback no lote do evento (keyed em cpev1.value = id_evento).
-    COALESCE(lote_b.lot_name, lote_e.lot_name)   AS lote_atual,
-    COALESCE(lote_b.lot_value, lote_e.lot_value) AS special_price,
+    -- lote_atual: nome do lote (por bundle → fallback por evento)
+    COALESCE(lote_b.lot_name, lote_e.lot_name) AS lote_atual,
+
+    -- special_price: preço do componente de mercadoria física do kit (Porta-tênis, Bag, etc.),
+    -- quando existe, pois este é o diferencial de preço do kit em relação ao registro básico.
+    -- Fallback: lote por bundle → lote por evento (para kits sem mercadoria física).
+    COALESCE(
+        NULLIF(MAX(CASE
+            WHEN cpep.value > 0
+             AND (
+                 cpev_simple.value LIKE '%%Porta%%'
+              OR cpev_simple.value LIKE '%%Luva%%'
+              OR cpev_simple.value LIKE '%%Toalha%%'
+              OR cpev_simple.value LIKE '%%Tênis%%'
+              OR cpev_simple.value LIKE '%%Tenis%%'
+              OR cpev_simple.value LIKE '%%Bike%%'
+              OR cpev_simple.value LIKE '%%Biciclet%%'
+              OR cpev_simple.value LIKE '%%Bag%%'
+              OR cpev_simple.value LIKE '%%Pochete%%'
+             )
+            THEN cpep.value ELSE NULL
+        END), 0),
+        lote_b.lot_value,
+        lote_e.lot_value
+    )                                           AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
