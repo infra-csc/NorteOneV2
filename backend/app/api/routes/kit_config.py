@@ -154,7 +154,12 @@ SELECT
     --   1. Atributo EAV 'special_price' do bundle (override manual no produto).
     --   2. MIN lot_value entre lotes ativos do bundle
     --      (lot_sell_ends >= NOW() OU NULL, lot_value > 0).
-    --   3. MIN lot_value entre lotes ativos do evento (fallback).
+    --   3. MIN lote ativo do evento + addon do kit (apenas quando bundle sem lotes).
+    --      Fórmula: min_lote_evento + MAX(preço do componente não-Distância/Modalidade).
+    --      Garante que Kit Plus, Kit Vip etc. reflitam corretamente o preço de entrada
+    --      (lote mais barato ativo) somado ao custo do item físico do kit.
+    --      Bundles sem addon (ex.: Kit Night Run + Porta-tênis, que é filtrado) resultam
+    --      em addon=0 → special_price = apenas o lote mínimo.
     --   4. catalog_product_index_price.min_price (preço mínimo calculado pelo Magento).
     -- "Lote ativo" = lot_sell_ends ainda no futuro (ou sem data definida).
     COALESCE(
@@ -171,18 +176,51 @@ SELECT
          WHERE entity_id = cpe_parent.entity_id
            AND lot_value > 0
            AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
-        -- fallback 3: lote ativo do EVENTO — apenas quando o bundle não tem
-        -- nenhum lote próprio cadastrado. Usa CASE para evitar problemas de
-        -- correlated subquery duplamente aninhada no MySQL.
+        -- fallback 3: min_lote_ativo_evento + kit_addon
+        -- só ativa quando bundle não tem nenhum lote próprio cadastrado.
         CASE
             WHEN (SELECT COUNT(*)
                   FROM catalog_product_entity_event_lot_price
                   WHERE entity_id = cpe_parent.entity_id) = 0
-            THEN (SELECT MIN(lot_value)
-                  FROM catalog_product_entity_event_lot_price
-                  WHERE entity_id = cpev1.value
-                    AND lot_value > 0
-                    AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW()))
+            THEN COALESCE(
+                     (SELECT MIN(lot_value)
+                      FROM catalog_product_entity_event_lot_price
+                      WHERE entity_id = cpev1.value
+                        AND lot_value > 0
+                        AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
+                     0
+                 ) + COALESCE(MAX(CASE
+                     WHEN cpep.value > 0
+                      AND cpev_simple.value NOT LIKE '%Distancia%'
+                      AND cpev_simple.value NOT LIKE '%Distância%'
+                      AND cpev_simple.value NOT LIKE '%Modalidade%'
+                      AND cpev_simple.value NOT LIKE '%Personaliz%'
+                      AND cpev_simple.value NOT LIKE '%Aceite%'
+                      AND cpev_simple.value NOT LIKE '%aceito%'
+                      AND cpev_simple.value NOT LIKE '%Treinão%'
+                      AND cpev_simple.value NOT LIKE '%Horário%'
+                      AND cpev_simple.value NOT LIKE '%Bateria%'
+                      AND cpev_simple.value NOT LIKE '%Doar%'
+                      AND cpev_simple.value NOT LIKE '%Tênis%'
+                      AND cpev_simple.value NOT LIKE '%Tenis%'
+                      AND cpev_simple.value NOT LIKE '%Bike%'
+                      AND cpev_simple.value NOT LIKE '%Biciclet%'
+                      AND cpev_simple.value NOT LIKE '%Festival%'
+                      AND cpev_simple.value NOT LIKE '%Bag%'
+                      AND cpev_simple.value NOT LIKE '%Inscrição%'
+                      AND cpev_simple.value NOT LIKE '%Declaro%'
+                      AND cpev_simple.value NOT LIKE '%Pochete%'
+                      AND cpev_simple.value NOT LIKE '%Tarifa%'
+                      AND cpev_simple.value NOT LIKE '%Skate%'
+                      AND cpev_simple.value NOT LIKE '%Obstáculo%'
+                      AND cpev_simple.value NOT LIKE '%Bravinhos%'
+                      AND cpev_simple.value NOT LIKE '%teste%'
+                      AND cpev_simple.value NOT LIKE '%Porta%'
+                      AND cpev_simple.value NOT LIKE '%Luva%'
+                      AND cpev_simple.value NOT LIKE '%Toalha%'
+                      AND cpev_simple.value NOT LIKE '%Corrida +%'
+                     THEN cpep.value ELSE NULL
+                 END), 0)
             ELSE NULL
         END,
         (SELECT MIN(pip.min_price)
