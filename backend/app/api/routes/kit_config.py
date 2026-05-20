@@ -1457,21 +1457,49 @@ def get_kit_configs_by_grupo(
         .all()
     )
 
-    # Enrich with snapshot ticket estimate (receita/qtd das 4h) so the panel
-    # can show which kits have known prices and which don't.
+    # Enrich with actual Magento price (catalog_product_index_price.min_price).
+    # Primary: query leve ao Magento — min_price reflete o preço real atual do bundle.
+    # Fallback: receita/qtd do MargemBundleRevSnapshot (média histórica) se Magento indisponível.
     bundle_ids = [cfg.bundle_entity_id for cfg in configs if cfg.bundle_entity_id is not None]
     snap_prices: dict = {}
     if bundle_ids:
-        try:
-            from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBRS
-            snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(bundle_ids)).all()
-            for sr in snap_rows:
-                if sr.qtd_inscricoes and int(sr.qtd_inscricoes) > 0 and sr.receita_liquida:
-                    snap_prices[sr.bundle_entity_id] = round(
-                        float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2
-                    )
-        except Exception as e:
-            logger.warning(f"[by-grupo] Falha ao buscar snapshot prices: {e}")
+        magento_price_ok = False
+        if db_module.engine_magento is not None:
+            try:
+                from app.core.db_retry import magento_run as _magento_run
+                ids_csv = ",".join(str(b) for b in bundle_ids)
+                _price_sql = f"""
+                    SELECT entity_id,
+                           COALESCE(min_price, price) AS sp_base
+                    FROM   catalog_product_index_price
+                    WHERE  entity_id IN ({ids_csv})
+                      AND  customer_group_id = 0
+                      AND  website_id = 1
+                """
+                def _price_work(conn):
+                    r = conn.execute(text(_price_sql))
+                    return r.fetchall(), list(r.keys())
+                p_rows, p_cols = _magento_run(_price_work, label="by-grupo:prices", profile="request")
+                for row in p_rows:
+                    d = dict(zip(p_cols, row))
+                    sp = d.get("sp_base")
+                    if sp is not None and float(sp) > 0:
+                        snap_prices[int(d["entity_id"])] = round(float(sp), 2)
+                magento_price_ok = True
+            except Exception as e:
+                logger.warning(f"[by-grupo] Preço Magento indisponível, usando fallback snapshot: {e}")
+
+        if not magento_price_ok:
+            try:
+                from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBRS
+                snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(bundle_ids)).all()
+                for sr in snap_rows:
+                    if sr.qtd_inscricoes and int(sr.qtd_inscricoes) > 0 and sr.receita_liquida:
+                        snap_prices[sr.bundle_entity_id] = round(
+                            float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2
+                        )
+            except Exception as e:
+                logger.warning(f"[by-grupo] Fallback snapshot também falhou: {e}")
 
     result = []
     for cfg in configs:
