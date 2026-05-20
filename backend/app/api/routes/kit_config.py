@@ -1378,25 +1378,15 @@ def get_kit_configs_by_grupo(
     current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
     nome = grupo_nome.strip()
-    projs = db.query(DimProjeto).filter(DimProjeto.nome.ilike(nome)).all()
-    if not projs:
-        return []
-
-    proj_ids = [p.id for p in projs]
 
     sku_maps = db.query(SkuMapping).filter(
         SkuMapping.fonte == 'MAGENTO',
         SkuMapping.ativo == True,
-        SkuMapping.projeto_id.in_(proj_ids),
+        SkuMapping.evento_grupo.ilike(nome),
         SkuMapping.id_externo.isnot(None),
     ).all()
 
-    mev_ids = []
-    for sm in sku_maps:
-        try:
-            mev_ids.append(int(sm.id_externo))
-        except (ValueError, TypeError):
-            pass
+    mev_ids = list({sm.id_externo for sm in sku_maps if sm.id_externo is not None})
 
     if not mev_ids:
         return []
