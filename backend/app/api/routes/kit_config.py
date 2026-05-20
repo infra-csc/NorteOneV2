@@ -145,23 +145,30 @@ SELECT
     -- lote_atual: nome do lote (por bundle → fallback por evento)
     COALESCE(lote_b.lot_name, lote_e.lot_name) AS lote_atual,
 
-    -- special_price: preço do componente de mercadoria física do kit (Porta-tênis, Bag, etc.),
-    -- quando existe, pois este é o diferencial de preço do kit em relação ao registro básico.
+    -- special_price: preço do componente de mercadoria física add-on do kit
+    -- (ex: Porta-tênis, Tênis, Bag, Luva, etc.), quando presente e MAIS BARATO que
+    -- o componente principal de distância/modalidade (limiar anti-falso-positivo).
     -- Fallback: lote por bundle → lote por evento (para kits sem mercadoria física).
+    --
+    -- O preço efetivo usa selection_price_value (override de preço no bundle) com
+    -- fallback em catalog_product_entity_decimal.attribute_id=77 (preço standalone).
     COALESCE(
-        -- Preço de componentes que são inequivocamente mercadoria física (add-on do kit).
-        -- Padrões ambíguos como 'Tênis', 'Bike', 'Biciclet' foram removidos pois
-        -- podem coincidir com nomes de opções de distância/modalidade em eventos.
         NULLIF(MAX(CASE
-            WHEN cpep.value > 0
-             AND (
+            WHEN (
                  cpev_simple.value LIKE '%Porta%'
               OR cpev_simple.value LIKE '%Luva%'
               OR cpev_simple.value LIKE '%Toalha%'
               OR cpev_simple.value LIKE '%Bag%'
               OR cpev_simple.value LIKE '%Pochete%'
+              OR cpev_simple.value LIKE '%Tênis%'
+              OR cpev_simple.value LIKE '%Tenis%'
              )
-            THEN cpep.value ELSE NULL
+             AND COALESCE(NULLIF(cpeos.selection_price_value, 0), cpep.value, 0) > 0
+             -- só é add-on se custar MENOS que o componente principal de distância
+             AND COALESCE(NULLIF(cpeos.selection_price_value, 0), cpep.value, 0)
+                 < COALESCE(part1.part1_price, 999999)
+            THEN COALESCE(NULLIF(cpeos.selection_price_value, 0), cpep.value)
+            ELSE NULL
         END), 0),
         lote_b.lot_value,
         lote_e.lot_value
@@ -245,6 +252,24 @@ LEFT JOIN catalog_product_entity_event_lot_price lote_e
               WHERE entity_id = cpev1.value
               ORDER BY record_id DESC LIMIT 1
           )
+
+-- Preço máximo do componente Distância/Modalidade por bundle (para limiar anti-falso-positivo)
+-- Usa selection_price_value quando disponível, fallback em attribute_id=77.
+LEFT JOIN (
+    SELECT cpeo2.parent_id                                        AS bundle_id,
+           MAX(COALESCE(NULLIF(cpeos2.selection_price_value, 0),
+                        cpep2.value))                             AS part1_price
+    FROM   catalog_product_bundle_option     cpeo2
+    JOIN   catalog_product_bundle_selection  cpeos2 ON cpeos2.option_id   = cpeo2.option_id
+    JOIN   catalog_product_entity_varchar    cpev2  ON cpev2.entity_id    = cpeos2.product_id
+                                                   AND cpev2.attribute_id = 73
+    LEFT JOIN catalog_product_entity_decimal cpep2  ON cpep2.entity_id    = cpeos2.product_id
+                                                   AND cpep2.attribute_id = 77
+    WHERE (    cpev2.value LIKE '%Distancia%'
+            OR cpev2.value LIKE '%Distância%'
+            OR cpev2.value LIKE '%Modalidade%' )
+    GROUP BY cpeo2.parent_id
+) part1 ON part1.bundle_id = cpe_parent.entity_id
 
 -- status do bundle: attribute_id pré-computado
 LEFT JOIN catalog_product_entity_int cpei_status
