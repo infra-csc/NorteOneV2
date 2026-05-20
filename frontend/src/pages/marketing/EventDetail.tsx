@@ -296,6 +296,7 @@ const EventDetail: React.FC = () => {
     cenario_ciclismo: string | null;
     ignorado: boolean;
     id_evento: number | null;
+    sp_snapshot: number | null;
     _dirty: boolean;
   }
   const [showKitPanel, setShowKitPanel] = useState(false);
@@ -3432,7 +3433,16 @@ const EventDetail: React.FC = () => {
                       <div key={item.bundle_entity_id} className={`flex items-center gap-2 px-3 py-2.5 ${item._dirty ? 'bg-yellow-50 dark:bg-yellow-900/10' : ''}`}>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{item.kit_nome || `Bundle ${item.bundle_entity_id}`}</p>
-                          {item.tipo_kit && <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{item.tipo_kit}</p>}
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {item.tipo_kit && <span className="text-[10px] text-gray-400 dark:text-gray-500">{item.tipo_kit}</span>}
+                            {item.sp_snapshot != null && item.sp_snapshot > 0 ? (
+                              <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">
+                                {item.sp_snapshot.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-amber-500 dark:text-amber-400">sem preço</span>
+                            )}
+                          </div>
                         </div>
                         <button
                           onClick={() => toggleKitFlag(item.bundle_entity_id, 'is_promo_principal')}

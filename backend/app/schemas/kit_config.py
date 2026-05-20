@@ -52,6 +52,7 @@ class KitConfigResponse(BaseModel):
     ignorado: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    sp_snapshot: Optional[float] = None
 
     class Config:
         from_attributes = True

@@ -1453,4 +1453,26 @@ def get_kit_configs_by_grupo(
         )
         .all()
     )
-    return configs
+
+    # Enrich with snapshot ticket estimate (receita/qtd das 4h) so the panel
+    # can show which kits have known prices and which don't.
+    bundle_ids = [cfg.bundle_entity_id for cfg in configs if cfg.bundle_entity_id is not None]
+    snap_prices: dict = {}
+    if bundle_ids:
+        try:
+            from ...models.vendas_snapshot import MargemBundleRevSnapshot as _MBRS
+            snap_rows = db.query(_MBRS).filter(_MBRS.bundle_entity_id.in_(bundle_ids)).all()
+            for sr in snap_rows:
+                if sr.qtd_inscricoes and int(sr.qtd_inscricoes) > 0 and sr.receita_liquida:
+                    snap_prices[sr.bundle_entity_id] = round(
+                        float(sr.receita_liquida) / int(sr.qtd_inscricoes), 2
+                    )
+        except Exception as e:
+            logger.warning(f"[by-grupo] Falha ao buscar snapshot prices: {e}")
+
+    result = []
+    for cfg in configs:
+        resp = KitConfigResponse.model_validate(cfg)
+        resp.sp_snapshot = snap_prices.get(cfg.bundle_entity_id)
+        result.append(resp)
+    return result

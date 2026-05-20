@@ -579,6 +579,21 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             if ticket is not None:
                 evento_tickets[evt_key] = ticket
 
+        # Diagnóstico: Básico configurado mas sem preço resolvido
+        for evt_key, cfg in basico_by_evento.items():
+            if evt_key not in evento_tickets:
+                bd = bundle_data.get(cfg.bundle_entity_id, {})
+                sp = bd.get("sp_base")
+                promo_p = promo_principal_by_evento.get(evt_key)
+                promo_list = promo_by_evento.get(evt_key, [])
+                logger.warning(
+                    f"[ticket_atual] Básico sem preço: bundle={cfg.bundle_entity_id}, "
+                    f"id_evento={evt_key}, sp_base={sp}, "
+                    f"status={bd.get('status_kit')}, fonte={bd.get('fonte', 'magento')}, "
+                    f"promo_principal={promo_p.bundle_entity_id if promo_p else None}, "
+                    f"promos={[p.bundle_entity_id for p in promo_list]}"
+                )
+
         if evento_tickets:
             magento_evt_ids = [int(k) for k in evento_tickets if k.isdigit()]
             magento_sms = db.query(SkuMapping.sku, SkuMapping.id_externo).filter(
