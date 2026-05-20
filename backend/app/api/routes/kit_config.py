@@ -433,6 +433,9 @@ def get_kits_with_config(
         return _kits_cache["data"]
 
     if db_module.engine_magento is None:
+        if _kits_cache["data"] is not None:
+            logger.warning("[KitConfig] engine_magento indisponível — retornando cache stale")
+            return _kits_cache["data"]
         raise HTTPException(
             status_code=503,
             detail="Conexão Magento não configurada. Verifique as credenciais MAGENTO_DB_*",
@@ -447,9 +450,15 @@ def get_kits_with_config(
     try:
         magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
     except MagentoEngineUnavailable:
+        if _kits_cache["data"] is not None:
+            logger.warning("[KitConfig] Magento indisponível — retornando cache stale")
+            return _kits_cache["data"]
         raise HTTPException(status_code=503, detail="Conexão Magento indisponível")
     except Exception as e:
         logger.error(f"Erro ao buscar kits do Magento: {e}")
+        if _kits_cache["data"] is not None:
+            logger.warning("[KitConfig] Erro no Magento — retornando cache stale")
+            return _kits_cache["data"]
         raise HTTPException(status_code=500, detail="Erro ao consultar dados do Magento")
 
     all_configs = db.query(KitConfig).all()
