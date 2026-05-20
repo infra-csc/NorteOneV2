@@ -155,6 +155,7 @@ SELECT
     --   2. MIN lot_value entre lotes ativos do bundle
     --      (lot_sell_ends >= NOW() OU NULL, lot_value > 0).
     --   3. MIN lot_value entre lotes ativos do evento (fallback).
+    --   4. catalog_product_index_price.min_price (preço mínimo calculado pelo Magento).
     -- "Lote ativo" = lot_sell_ends ainda no futuro (ou sem data definida).
     COALESCE(
         (SELECT cped_sp.value
@@ -174,7 +175,11 @@ SELECT
          FROM catalog_product_entity_event_lot_price
          WHERE entity_id = cpev1.value
            AND lot_value > 0
-           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW()))
+           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
+        (SELECT MIN(pip.min_price)
+         FROM catalog_product_index_price pip
+         WHERE pip.entity_id = cpe_parent.entity_id
+           AND pip.min_price > 0)
     )                                           AS special_price,
 
     CASE cpei_status.value
