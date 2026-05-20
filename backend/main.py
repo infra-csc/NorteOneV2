@@ -1247,6 +1247,7 @@ def _run_column_migrations():
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_com_bike_pago INTEGER DEFAULT 0",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_com_bike_tkt_medio NUMERIC(10,2) DEFAULT 0",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS cenario_ciclismo VARCHAR(50)",
+            "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS ticket_manual DECIMAL(10,2)",
             # nori_insights table (idempotent — create_all handles new installs; this covers existing DBs)
             """
             CREATE TABLE IF NOT EXISTS nori_insights (

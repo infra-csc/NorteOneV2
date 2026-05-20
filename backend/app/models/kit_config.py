@@ -15,6 +15,7 @@ class KitConfig(Base):
     is_kit_basico = Column(Boolean, default=False, nullable=False)
     is_promo_principal = Column(Boolean, default=False, nullable=False)
     custo_kit = Column(Numeric(10, 2), nullable=True)
+    ticket_manual = Column(Numeric(10, 2), nullable=True)
     ativo_categoria = Column(String(500), nullable=True)
     cenario_ciclismo = Column(String(50), nullable=True)
     ignorado = Column(Boolean, default=False, nullable=False)
