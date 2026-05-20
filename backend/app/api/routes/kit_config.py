@@ -149,17 +149,33 @@ SELECT
     -- MAX(record_id) garante o lote mais recente (já resolvido via joins lote_b/lote_e).
     COALESCE(lote_b.lot_value, lote_e.lot_value) AS current_price,
 
-    -- special_price: atributo 'special_price' EAV do bundle (preço especial
-    -- cadastrado diretamente no produto — independente de lote).
-    -- NULL quando não há preço especial definido no produto.
-    (SELECT cped_sp.value
-     FROM catalog_product_entity_decimal cped_sp
-     JOIN eav_attribute ea_sp
-           ON ea_sp.attribute_id   = cped_sp.attribute_id
-          AND ea_sp.attribute_code = 'special_price'
-     WHERE cped_sp.entity_id = cpe_parent.entity_id
-       AND cped_sp.value > 0
-     LIMIT 1)                                   AS special_price,
+    -- special_price: preço promocional/entrada do kit.
+    -- Prioridade:
+    --   1. Atributo EAV 'special_price' do bundle (override manual no produto).
+    --   2. MIN lot_value entre lotes ativos do bundle
+    --      (lot_sell_ends >= NOW() OU NULL, lot_value > 0).
+    --   3. MIN lot_value entre lotes ativos do evento (fallback).
+    -- "Lote ativo" = lot_sell_ends ainda no futuro (ou sem data definida).
+    COALESCE(
+        (SELECT cped_sp.value
+         FROM catalog_product_entity_decimal cped_sp
+         JOIN eav_attribute ea_sp
+               ON ea_sp.attribute_id   = cped_sp.attribute_id
+              AND ea_sp.attribute_code = 'special_price'
+         WHERE cped_sp.entity_id = cpe_parent.entity_id
+           AND cped_sp.value > 0
+         LIMIT 1),
+        (SELECT MIN(lot_value)
+         FROM catalog_product_entity_event_lot_price
+         WHERE entity_id = cpe_parent.entity_id
+           AND lot_value > 0
+           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
+        (SELECT MIN(lot_value)
+         FROM catalog_product_entity_event_lot_price
+         WHERE entity_id = cpev1.value
+           AND lot_value > 0
+           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW()))
+    )                                           AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
