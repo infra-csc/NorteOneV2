@@ -143,53 +143,11 @@ SELECT
         END), 0)
     )                                       AS price,
 
-    -- special_price: final_price já reflete promoções/special price ativas no bundle pai.
-    -- NULLIF(..., 0) evita aceitar 0 quando Magento indexa bundle com preço dinâmico zerado.
-    -- Fallback pi_filho quando bundle não indexado (kit inativo).
-    COALESCE(NULLIF(pi_pai.final_price, 0), NULLIF(pi_pai.min_price, 0), (
-        MAX(CASE 
-            WHEN (
-                cpev_simple.value LIKE '%Distancia%'
-             OR cpev_simple.value LIKE '%Distância%'
-             OR cpev_simple.value LIKE '%Modalidade%'
-            )
-             AND pi_filho.final_price > 0
-            THEN pi_filho.final_price ELSE NULL 
-        END)
-        +
-        COALESCE(MAX(CASE 
-            WHEN pi_filho.final_price > 0
-             AND cpev_simple.value NOT LIKE '%Distancia%'
-             AND cpev_simple.value NOT LIKE '%Distância%'
-             AND cpev_simple.value NOT LIKE '%Modalidade%'
-             AND cpev_simple.value NOT LIKE '%Personaliz%'
-             AND cpev_simple.value NOT LIKE '%Aceite%'
-             AND cpev_simple.value NOT LIKE '%aceito%'
-             AND cpev_simple.value NOT LIKE '%Treinão%'
-             AND cpev_simple.value NOT LIKE '%Horário%'
-             AND cpev_simple.value NOT LIKE '%Bateria%'
-             AND cpev_simple.value NOT LIKE '%Doar%'
-             AND cpev_simple.value NOT LIKE '%Tênis%'
-             AND cpev_simple.value NOT LIKE '%Tenis%'
-             AND cpev_simple.value NOT LIKE '%Bike%'
-             AND cpev_simple.value NOT LIKE '%Biciclet%'
-             AND cpev_simple.value NOT LIKE '%Festival%'
-             AND cpev_simple.value NOT LIKE '%Bag%'
-             AND cpev_simple.value NOT LIKE '%Inscrição%'
-             AND cpev_simple.value NOT LIKE '%Declaro%'
-             AND cpev_simple.value NOT LIKE '%Pochete%'
-             AND cpev_simple.value NOT LIKE '%Tarifa%'
-             AND cpev_simple.value NOT LIKE '%Skate%'
-             AND cpev_simple.value NOT LIKE '%Obstáculo%'
-             AND cpev_simple.value NOT LIKE '%Bravinhos%'
-             AND cpev_simple.value NOT LIKE '%teste%'
-             AND cpev_simple.value NOT LIKE '%Porta%'
-             AND cpev_simple.value NOT LIKE '%Luva%'
-             AND cpev_simple.value NOT LIKE '%Toalha%'
-             AND cpev_simple.value NOT LIKE '%Corrida +%'
-            THEN pi_filho.final_price ELSE NULL 
-        END), 0)
-    ))                                      AS special_price,
+    -- special_price: atributo 'special_price' configurado diretamente no bundle pai
+    -- (catalog_product_entity_decimal). NULL quando não há promoção configurada no admin.
+    -- Usa store_id=0 (escopo global). Evita confundir com min_price/final_price do índice,
+    -- que para bundles dinâmicos representa o custo mínimo de opção, não o preço promocional.
+    cpedsp_pai.value                        AS special_price,
 
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
@@ -248,11 +206,24 @@ LEFT JOIN catalog_product_index_price pi_filho
       AND pi_filho.website_id = 1
       AND pi_filho.customer_group_id = 0
 
--- Preço do bundle pai: min_price já reflete catalog price rules ativas
+-- Preço do bundle pai no índice (mantido para compatibilidade futura)
 LEFT JOIN catalog_product_index_price pi_pai
        ON pi_pai.entity_id = cpe_parent.entity_id
       AND pi_pai.website_id = 1
       AND pi_pai.customer_group_id = 0
+
+-- Atributo special_price do bundle pai (promoção configurada no admin do Magento)
+LEFT JOIN catalog_product_entity_decimal cpedsp_pai
+       ON cpedsp_pai.entity_id = cpe_parent.entity_id
+      AND cpedsp_pai.store_id = 0
+      AND cpedsp_pai.attribute_id = (
+            SELECT attribute_id FROM eav_attribute
+            WHERE attribute_code = 'special_price'
+              AND entity_type_id = (
+                    SELECT entity_type_id FROM eav_entity_type
+                    WHERE entity_type_code = 'catalog_product'
+              )
+          )
 
 LEFT JOIN catalog_product_entity_event_lot_price lote
        ON lote.entity_id = cpev1.value
@@ -290,8 +261,8 @@ GROUP BY
     lote.lot_name,
     lote.lot_value,
     lote.lot_sell_ends,
-    pi_pai.final_price,
-    pi_pai.min_price
+    pi_pai.min_price,
+    cpedsp_pai.value
 
 ORDER BY
     cpev1.value,
@@ -1472,7 +1443,7 @@ def get_kit_configs_by_grupo(
                 ids_csv = ",".join(str(b) for b in bundle_ids)
                 _price_sql = f"""
                     SELECT entity_id,
-                           COALESCE(NULLIF(final_price, 0), NULLIF(min_price, 0), price) AS sp_base
+                           COALESCE(min_price, price) AS sp_base
                     FROM   catalog_product_index_price
                     WHERE  entity_id IN ({ids_csv})
                       AND  customer_group_id = 0
