@@ -768,9 +768,13 @@ def _get_ticket_atual_map(db: Session) -> dict:
         else:
             # Fetch retornou vazio (Magento + snapshot indisponíveis): preserva cache
             # anterior por completo para não mostrar "Não encontrado".
-            # Não atualiza o timestamp → retry imediato na próxima chamada.
             if not _ticket_atual_cache:
-                _ticket_atual_cache_ts = _time.time()
+                # Cache também vazio (primeiro acesso após restart com Magento indisponível).
+                # Usa TTL de retry curto (10s) para tentar de novo em breve,
+                # evitando que event details sejam computados e persistidos com ticketAtual=None
+                # por até 120s após o Magento voltar.
+                _ticket_atual_cache_ts = _time.time() - (_TICKET_ATUAL_TTL - 10)
+                logger.warning("[ticket_atual] Fetch vazio com cache vazio — retry em 10s")
             else:
                 logger.warning(
                     "[ticket_atual] Fetch retornou vazio — "
