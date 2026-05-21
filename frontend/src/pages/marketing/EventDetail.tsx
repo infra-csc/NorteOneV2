@@ -1354,7 +1354,14 @@ const EventDetail: React.FC = () => {
   const inscritosTotalNorm = totalInscritosRaw;
   const displayedCurrentSales = totalInscritosRaw;
   const totalInscritos = displayedCurrentSales;
-  const completeDailySales = (event.dailySales || []).filter(d => d.date < todayStr);
+  const completeDailySales = (() => {
+    const raw = (event.dailySales || []).filter(d => d.date < todayStr);
+    // Dedup por data (mantém última ocorrência) e garante ordem cronológica ascendente.
+    // Evita que entradas duplicadas de uma mesma data comprometam os slices de "últimos N dias".
+    const map = new Map<string, typeof raw[0]>();
+    for (const d of raw) map.set(d.date, d);
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  })();
   const last30Days = completeDailySales.slice(-30).map(d => ({ ...d, sales: _saleVal(d) }));
   // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
   // Usado nos cards que devem refletir somente inscrições consolidadas até ontem.
@@ -1387,14 +1394,21 @@ const EventDetail: React.FC = () => {
   const dMinusEfetivo = dMinusCalc > 0 ? dMinusCalc : _safeDMinus;
   const mediaDiariaNecessaria = dMinusEfetivo > 0 ? Math.max(volumeParaMeta, 0) / dMinusEfetivo : 0;
   // Média 14d usada como ritmo base no Simulador. Sempre baseada nas vendas reais.
+  // Prefere salesAverages (cache próprio, resiliente a falhas de Magento/snapshot) quando disponível.
   const _last14DaysSim = completeDailySales.slice(-14);
-  const dashMediaDiaria14 = _last14DaysSim.length > 0
-    ? _last14DaysSim.reduce((sum, d) => sum + _saleVal(d), 0) / _last14DaysSim.length
-    : 0;
+  const _avgMedia14 = (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === 14)?.media;
+  const dashMediaDiaria14 = _avgMedia14 != null
+    ? _avgMedia14
+    : (_last14DaysSim.length > 0
+        ? _last14DaysSim.reduce((sum, d) => sum + _saleVal(d), 0) / _last14DaysSim.length
+        : 0);
   const last7DaysSales = completeDailySales.slice(-7);
-  const mediaSemanaAtual = last7DaysSales.length > 0
-    ? last7DaysSales.reduce((sum, d) => sum + _saleVal(d), 0) / last7DaysSales.length
-    : 0;
+  const _avgMedia7 = (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === 7)?.media;
+  const mediaSemanaAtual = _avgMedia7 != null
+    ? _avgMedia7
+    : (last7DaysSales.length > 0
+        ? last7DaysSales.reduce((sum, d) => sum + _saleVal(d), 0) / last7DaysSales.length
+        : 0);
   const pctMedias = mediaDiariaNecessaria > 0
     ? ((mediaSemanaAtual / mediaDiariaNecessaria) * 100) - 100
     : (mediaSemanaAtual > 0 ? 100 : 0);
@@ -1408,9 +1422,18 @@ const EventDetail: React.FC = () => {
     return [3, 7, 14, 30].map(dias => {
       const vendas = completeDailySales.slice(-dias);
       const totalVendas = vendas.reduce((sum, d) => sum + _saleVal(d), 0);
-      const media = vendas.length > 0 ? totalVendas / vendas.length : 0;
+      const mediaLocal = vendas.length > 0 ? totalVendas / vendas.length : 0;
+      // Para 7d, 14d e 30d prefere salesAverages (cache próprio, resiliente a falhas de conexão).
+      // Para 3d não há período correspondente em salesAverages → usa cálculo local.
+      const mediaFromAvg = dias !== 3
+        ? (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === dias)?.media
+        : null;
+      const media = mediaFromAvg != null ? mediaFromAvg : mediaLocal;
       const potencial = media * dMinusEfetivo;
-      const atingimento = totalInscritosConsolidado + potencial;
+      // Usa displayedCurrentSales (fonte primária) em vez de totalInscritosConsolidado,
+      // que pode estar zerado quando o snapshot está desatualizado.
+      const baseVendas = displayedCurrentSales > 0 ? displayedCurrentSales : totalInscritosConsolidado;
+      const atingimento = baseVendas + potencial;
       const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
       const insightMargem = ticketAtualKit > 0 && custoKitBasico > 0 && event.budgetTicket > 0 && event.salesGoal > 0
         ? (margRealizada + (potencial * (ticketAtualKit - custoKitBasico))) - margOrcada
@@ -1420,7 +1443,7 @@ const EventDetail: React.FC = () => {
         media: Math.round(media * 10) / 10,
         dMinus: dMinusEfetivo,
         potencial: Math.round(potencial),
-        vendasAcumuladas: totalInscritosConsolidado,
+        vendasAcumuladas: baseVendas,
         atingimento: Math.round(atingimento),
         meta: event.salesGoal,
         alvo: Math.round(alvo * 1000) / 10,
