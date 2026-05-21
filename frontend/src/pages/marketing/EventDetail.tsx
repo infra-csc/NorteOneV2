@@ -1282,7 +1282,11 @@ const EventDetail: React.FC = () => {
       _totalInscritosConsolidado, salesAverages]);
   // ─────────────────────────────────────────────────────────────────────────────
 
-  if (!event && (loading || error || isPreparing)) {
+  // Show preparing skeleton whenever the backend is computing the snapshot —
+  // regardless of whether we have a previewEvent in state. Without this guard,
+  // the component would render the full UI with event.dailySales = undefined
+  // (from previewEvent) and all charts would be empty while waiting.
+  if (isPreparing || (!event && (loading || error))) {
     return (
       <div className="p-6">
         <div className="flex items-center gap-2 mb-6">
@@ -1294,6 +1298,18 @@ const EventDetail: React.FC = () => {
             Voltar ao Dashboard
           </button>
         </div>
+        {/* Show event identity from previewEvent while waiting, so user knows they're in the right place */}
+        {isPreparing && previewEvent && (
+          <div className="mb-4">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">{previewEvent.name}</h1>
+            {previewEvent.date && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {new Date(previewEvent.date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                {previewEvent.location ? ` · ${previewEvent.location}` : ''}
+              </p>
+            )}
+          </div>
+        )}
         {error ? (
           <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center">
             <p className="text-gray-500 dark:text-gray-400">{error}</p>
