@@ -287,9 +287,17 @@ const KitConfig: React.FC = () => {
       });
     }
     try {
-      const res = await api.get('/kit-config/kits', { params: forceRefresh ? { force_refresh: true } : {} });
+      // Botão "Atualizar": dispara rebuild incremental no servidor (apenas
+      // diff é gravado) e em seguida relê do snapshot persistido.
+      let diffSummary: { novos: number; alterados: number; sem_mudanca: number; removidos: number; status: string; msg?: string } | null = null;
+      if (forceRefresh) {
+        const refresh = await api.post('/kit-config/kits/refresh');
+        if (!isLatest()) return;
+        diffSummary = refresh.data;
+      }
+      const res = await api.get('/kit-config/kits');
       if (!isLatest()) return; // resposta fora de ordem — descartar
-      const isFallback = res.headers?.['x-kit-source'] === 'local';
+      const isFallback = res.headers?.['x-kit-source'] === 'local-fallback' || res.headers?.['x-kit-source'] === 'local';
       if (isFallback) setMagentoFallback(true);
       _kitsCache = res.data;
       _kitsMagentoFallback = isFallback;
@@ -298,10 +306,16 @@ const KitConfig: React.FC = () => {
       const dur = finishedAt - startedAt;
       if (forceRefresh) {
         pushEtaHistory(dur);
+        const summaryText = diffSummary
+          ? `${diffSummary.novos} novo(s), ${diffSummary.alterados} alterado(s), ${diffSummary.sem_mudanca} sem mudança, ${diffSummary.removidos} removido(s).`
+          : null;
+        const isPartial = diffSummary?.status === 'partial' || diffSummary?.status === 'error';
         setUpdateModal((m) => ({
           ...m,
-          status: 'success',
+          status: isPartial ? 'error' : 'success',
           finishedAt,
+          errorTitle: isPartial ? (diffSummary?.status === 'error' ? 'Não foi possível atualizar' : 'Atualização parcial') : null,
+          errorDetail: isPartial ? (diffSummary?.msg || summaryText || null) : summaryText,
         }));
         // Fecha automaticamente após breve confirmação (timer gerenciado via ref).
         autoCloseTimerRef.current = setTimeout(() => {

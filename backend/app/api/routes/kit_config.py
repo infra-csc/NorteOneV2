@@ -435,9 +435,28 @@ ORDER BY
 
 _ativo_kits_cache: dict = {"data": None, "ts": 0.0}
 _ATIVO_KITS_TTL = 120
+# True quando a última execução de fetch_ativo_kits_indexed conseguiu falar com
+# o engine_ssh sem exceção (independente de quantas linhas voltaram). Usado
+# por _build_kit_rows_internal para decidir se a fonte Ativo deve participar
+# da remoção de linhas no snapshot.
+_ativo_kits_last_ok: bool = False
 
 
-def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
+def fetch_ativo_kits_indexed(force_refresh: bool = False, return_status: bool = False):
+    """Wrapper retrocompatível: por padrão retorna apenas o índice (dict).
+    Quando ``return_status=True``, retorna ``(index, ok)`` — onde ``ok``
+    reflete **estritamente esta chamada** (capturado como variável local
+    pelo impl, sem ler nenhuma global compartilhada). Em concorrência
+    entre threads, isso impede que outra execução de Ativo
+    bem-sucedida/falha contamine o flag desta execução.
+    """
+    idx, ok = _fetch_ativo_kits_indexed_impl(force_refresh=force_refresh)
+    if return_status:
+        return idx, ok
+    return idx
+
+
+def _fetch_ativo_kits_indexed_impl(force_refresh: bool = False):
     """Roda ATIVO_KITS_QUERY no banco do Ativo e devolve um índice:
 
         {(id_evento_ativo:int, nome_kit_normalizado:str): [variant_dict, ...]}
@@ -454,22 +473,31 @@ def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
         and _ativo_kits_cache["data"] is not None
         and (now - _ativo_kits_cache["ts"]) < _ATIVO_KITS_TTL
     ):
-        return _ativo_kits_cache["data"]
+        # Cache hit: tratamos como sucesso (dados válidos disponíveis nesta
+        # execução, mesmo que tenham vindo de uma chamada anterior).
+        return _ativo_kits_cache["data"], True
 
     # As tabelas sa_evento/sa_combo/sa_modalidade* ficam no banco "0_transfer"
     # acessado via SSH tunnel (mesma conexão usada por fetch_eventos_ativo).
+    # ``ok_local`` é variável da execução atual — nunca lida de global.
+    global _ativo_kits_last_ok
+    ok_local = False
     if db_module.engine_ssh is None:
         logger.info("[KitConfig] engine_ssh não configurado; pulando ATIVO_KITS_QUERY")
-        return {}
+        _ativo_kits_last_ok = False
+        return {}, False
 
     try:
         with db_module.engine_ssh.connect() as conn:
             result = conn.execute(text(ATIVO_KITS_QUERY))
             rows = result.fetchall()
             columns = list(result.keys())
+        ok_local = True
     except Exception as e:
         logger.error(f"[KitConfig] Erro ao buscar kits do Ativo: {e}")
-        return {}
+        _ativo_kits_last_ok = False
+        return {}, False
+    _ativo_kits_last_ok = True
 
     indexed: dict = {}
     for row in rows:
@@ -493,7 +521,7 @@ def fetch_ativo_kits_indexed(force_refresh: bool = False) -> dict:
     _ativo_kits_cache["data"] = indexed
     _ativo_kits_cache["ts"] = _time.time()
     logger.info(f"[KitConfig] ATIVO_KITS_QUERY indexada: {len(indexed)} chaves (evento, kit)")
-    return indexed
+    return indexed, ok_local
 
 
 @router.get("/kits", response_model=List[KitRow])
@@ -503,19 +531,201 @@ def get_kits_with_config(
     force_refresh: bool = False,
     current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
 ):
+    """Tela /admin/kit-config.
+
+    Caminho rápido: lê do snapshot persistido (kit_mapping_snapshot) e
+    aplica overlay de KitConfig em tempo real. Caminho lento (fallback):
+    quando o snapshot está vazio OU quando force_refresh=true, roda
+    Magento+Ativo ao vivo. Para sincronizar diff sem segurar a request,
+    prefira POST /kits/refresh.
+    """
+    from app.services.kit_snapshot_service import read_kit_snapshot
+
+    if not force_refresh:
+        snapshot_dicts = read_kit_snapshot(db)
+        if snapshot_dicts is not None:
+            rows = _apply_overlay_to_snapshot(db, snapshot_dicts)
+            response.headers["X-Kit-Source"] = "snapshot"
+            return rows
+
+    rows, magento_ok, ativo_ok = _build_kit_rows_internal(db, force_refresh=force_refresh)
+    response.headers["X-Kit-Source"] = (
+        "live" if (magento_ok or ativo_ok) else "local-fallback"
+    )
+    return rows
+
+
+@router.post("/kits/refresh")
+def refresh_kit_snapshot(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("admin_kit_config", "pode_editar")),
+):
+    """Reconstrói o snapshot do Mapeamento de Kits e devolve o diff
+    (novos / alterados / sem mudança / removidos). Linhas de uma fonte
+    indisponível ficam preservadas (não somem em instabilidade temporária).
+    """
+    from app.services.kit_snapshot_service import rebuild_kit_snapshot
+    result = rebuild_kit_snapshot(db)
+    _kits_cache["data"] = None
+    _kits_cache["ts"] = 0.0
+    _unconfigured_cache["data"] = None
+    _unconfigured_cache["ts"] = 0.0
+    return result
+
+
+def _apply_overlay_to_snapshot(db: Session, snapshot_dicts: list) -> List[KitRow]:
+    """Converte linhas do snapshot em KitRow aplicando overlay dinâmico
+    (KitConfig + CadastroKitProduto). Preserva paridade com o caminho
+    legado: calcula ``custo_cadastro`` por evento+tipo_kit e usa
+    ``kp.ativo_categoria`` como fallback quando não há KitConfig.
+
+    Toda a leitura é local (Postgres) — barata, e necessária para que
+    edições do usuário em KitConfig/CadastroKitProduto apareçam
+    imediatamente sem esperar um novo rebuild do snapshot.
+    """
+    all_configs = db.query(KitConfig).all()
+    config_map = {c.bundle_entity_id: c for c in all_configs}
+
+    # Overlay context — espelha exatamente o caminho legado.
+    all_sku_maps_magento = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'MAGENTO',
+        SkuMapping.ativo == True,
+    ).all()
+    externo_to_sku_mag: dict = {sm.id_externo: (sm.sku or "").upper().strip()
+                                for sm in all_sku_maps_magento if sm.id_externo}
+    all_sku_maps_ativo = db.query(SkuMapping).filter(
+        SkuMapping.fonte == 'ATIVO',
+        SkuMapping.ativo == True,
+    ).all()
+    externo_to_sku_ativo: dict = {sm.id_externo: (sm.sku or "").upper().strip()
+                                  for sm in all_sku_maps_ativo if sm.id_externo}
+
+    all_projs = db.query(DimProjeto).all()
+    sku_to_projeto_id: dict = {(p.codigo or "").upper().strip(): p.id for p in all_projs if p.codigo}
+
+    all_cadastros = db.query(CadastroEvento).all()
+    projeto_to_cadastro_id: dict = {c.projeto_id: c.id for c in all_cadastros if c.projeto_id}
+
+    all_kit_produtos = db.query(CadastroKitProduto).all()
+    kp_ids = [kp.id for kp in all_kit_produtos]
+    all_items = (
+        db.query(CadastroKitProdutoItem)
+        .filter(CadastroKitProdutoItem.kit_produto_id.in_(kp_ids))
+        .all()
+    ) if kp_ids else []
+    items_by_kit: dict = {}
+    for item in all_items:
+        items_by_kit.setdefault(item.kit_produto_id, []).append(item)
+
+    cadastro_kit_costs: dict = {}
+    cadastro_kit_ativo_cat: dict = {}  # (cadastro_id, kit_normalizado) → ativo_categoria
+    for kp in all_kit_produtos:
+        kit_name = (kp.kit or "").strip()
+        cost = sum(float(i.valor_unitario or 0) for i in items_by_kit.get(kp.id, []))
+        cadastro_kit_costs.setdefault(kp.cadastro_id, {})[kit_name] = cost
+        # também indexa por nome normalizado (paridade com path Ativo do legado).
+        cadastro_kit_costs.setdefault(kp.cadastro_id, {}).setdefault(
+            _normalize_kit_name(kit_name), cost
+        )
+        if kp.ativo_categoria:
+            cadastro_kit_ativo_cat[(kp.cadastro_id, _normalize_kit_name(kit_name))] = kp.ativo_categoria
+
+    def _custo_for(fonte: str, id_evento_raw, tipo_kit: str | None, nome_kit: str | None):
+        """Custo do kit por evento. Magento usa id_externo→sku→projeto→cadastro.
+        Ativo usa SkuMapping ATIVO com o mesmo encadeamento."""
+        if not id_evento_raw:
+            return None, None
+        try:
+            id_externo = int(id_evento_raw)
+        except (ValueError, TypeError):
+            return None, None
+        sku = (externo_to_sku_mag if (fonte or "").lower() == "magento" else externo_to_sku_ativo).get(id_externo)
+        if not sku:
+            return None, None
+        projeto_id = sku_to_projeto_id.get(sku)
+        if not projeto_id:
+            return None, None
+        cadastro_id = projeto_to_cadastro_id.get(projeto_id)
+        if not cadastro_id:
+            return None, None
+        costs_by_kit = cadastro_kit_costs.get(cadastro_id, {})
+        kit_key_norm = _normalize_kit_name(nome_kit or "")
+        # Prefere bater por tipo_kit; cai pra nome_kit normalizado (path Ativo).
+        cost = None
+        if tipo_kit:
+            cost = costs_by_kit.get(tipo_kit) or costs_by_kit.get(_normalize_kit_name(tipo_kit))
+        if cost is None and kit_key_norm:
+            cost = costs_by_kit.get(kit_key_norm)
+        ativo_cat = cadastro_kit_ativo_cat.get((cadastro_id, kit_key_norm))
+        return (float(cost) if cost else None), ativo_cat
+
+    rows: List[KitRow] = []
+    for d in snapshot_dicts:
+        beid = int(d["bundle_entity_id"])
+        cfg = config_map.get(beid)
+        is_configured = cfg is not None
+        custo_cadastro, kp_ativo_cat = _custo_for(
+            d.get("fonte") or "", d.get("id_evento"),
+            cfg.tipo_kit if cfg else None, d.get("nome_kit"),
+        )
+        rows.append(KitRow(
+            id_evento=d.get("id_evento"),
+            nome_evento=d.get("nome_evento"),
+            bundle_entity_id=beid,
+            nome_kit=d.get("nome_kit"),
+            tipo_kit=cfg.tipo_kit if cfg else None,
+            tipo_categoria=d.get("tipo_categoria"),
+            lote_atual=d.get("lote_atual"),
+            multiplicador_sugerido=1,
+            multiplicador=cfg.multiplicador if cfg else 1,
+            price_base=d.get("price"),
+            special_price_base=d.get("special_price"),
+            price=d.get("price"),
+            special_price=d.get("special_price"),
+            is_configured=is_configured,
+            is_kit_basico=cfg.is_kit_basico if cfg else False,
+            is_promo_principal=cfg.is_promo_principal if cfg else False,
+            custo_cadastro=custo_cadastro,
+            custo_kit=(float(cfg.custo_kit) if (cfg and cfg.custo_kit is not None) else None),
+            ativo_categoria=(cfg.ativo_categoria if cfg else None) or kp_ativo_cat,
+            status_kit=d.get("status_kit"),
+            fonte=d.get("fonte"),
+            cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
+            ignorado=cfg.ignorado if cfg else False,
+        ))
+    return rows
+
+
+def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
+                             local_fallback_allowed: bool = True):
+    """Caminho legado (lento): consulta Magento + Ativo ao vivo e devolve
+    (rows, magento_ok, ativo_ok). Usado pelo POST /kits/refresh para
+    popular o snapshot e como fallback do GET /kits quando o snapshot
+    ainda não existe.
+
+    Quando ``local_fallback_allowed=False`` (caller é o rebuild do
+    snapshot), uma falha do Magento devolve ([], False, ativo_ok) em vez
+    do fallback local — para o snapshot NUNCA persistir linhas que não
+    vieram de Magento/Ativo. As flags refletem APENAS esta execução
+    (Ativo é checado via ``return_status=True`` para evitar acoplamento
+    com chamadas paralelas de outros módulos como ``marketing.py``).
+    """
     now = _time.time()
     if not force_refresh and _kits_cache["data"] is not None and (now - _kits_cache["ts"]) < _KITS_TTL:
         logger.info(f"[KitConfig] Returning cached kit list (age={now - _kits_cache['ts']:.0f}s)")
-        return _kits_cache["data"]
+        return _kits_cache["data"], True, True
 
+    magento_ok = False
     if db_module.engine_magento is None:
+        if not local_fallback_allowed:
+            logger.warning("[KitConfig] engine_magento indisponível — rebuild abortado (sem fallback local)")
+            return [], False, False
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] engine_magento indisponível — retornando cache stale")
-            return _kits_cache["data"]
+            return _kits_cache["data"], False, False
         logger.warning("[KitConfig] engine_magento indisponível — retornando fallback local (sem preços)")
         fallback = _build_local_fallback_kits(db)
-        response.headers["X-Kit-Source"] = "local"
-        return fallback
+        return fallback, False, False
 
     from app.core.db_retry import magento_run, MagentoEngineUnavailable
 
@@ -527,23 +737,28 @@ def get_kits_with_config(
 
     try:
         magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
+        magento_ok = True
     except MagentoEngineUnavailable:
+        if not local_fallback_allowed:
+            logger.warning("[KitConfig] Magento indisponível — rebuild abortado (sem fallback local)")
+            return [], False, False
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] Magento indisponível — retornando cache stale")
-            return _kits_cache["data"]
+            return _kits_cache["data"], False, False
         logger.warning("[KitConfig] Magento indisponível — retornando fallback local (sem preços)")
         fallback = _build_local_fallback_kits(db)
-        response.headers["X-Kit-Source"] = "local"
-        return fallback
+        return fallback, False, False
     except Exception as e:
         logger.error(f"Erro ao buscar kits do Magento: {e}")
+        if not local_fallback_allowed:
+            logger.warning("[KitConfig] Erro no Magento — rebuild abortado (sem fallback local)")
+            return [], False, False
         if _kits_cache["data"] is not None:
             logger.warning("[KitConfig] Erro no Magento — retornando cache stale")
-            return _kits_cache["data"]
+            return _kits_cache["data"], False, False
         logger.warning("[KitConfig] Erro Magento — retornando fallback local (sem preços)")
         fallback = _build_local_fallback_kits(db)
-        response.headers["X-Kit-Source"] = "local"
-        return fallback
+        return fallback, False, False
 
     all_configs = db.query(KitConfig).all()
     config_map = {c.bundle_entity_id: c for c in all_configs}
@@ -683,7 +898,7 @@ def get_kits_with_config(
     # Índice (id_evento_ativo, nome_kit_normalizado) → variantes com preço/lote.
     # Vazio quando o engine_ssh não está configurado ou a query falha — o loop
     # abaixo então mantém o comportamento histórico (preços nulos).
-    ativo_kits_index = fetch_ativo_kits_indexed(force_refresh=force_refresh)
+    ativo_kits_index, ativo_ok_local = fetch_ativo_kits_indexed(force_refresh=force_refresh, return_status=True)
 
     # Diagnóstico temporário: amostra de chaves do índice e quais id_externo de
     # SkuMapping ATIVO estão sendo tentados.
@@ -905,7 +1120,7 @@ def get_kits_with_config(
     _ativo_only_empty = sum(1 for k in kits if k.fonte == "ativo" and not (k.nome_evento or "").strip())
     logger.info(f"[KitConfig][DEBUG] Ativo-only sample names: {_ativo_only_sample}")
     logger.info(f"[KitConfig][DEBUG] Ativo-only com nome_evento vazio: {_ativo_only_empty}")
-    return kits
+    return kits, magento_ok, ativo_ok_local
 
 
 @router.get("/unconfigured-summary")

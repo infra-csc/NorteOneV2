@@ -1899,6 +1899,31 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"Full cache warmup failed: {e}")
 
+        # Mapeamento de Kits: garante snapshot persistido pronto na primeira
+        # abertura da tela /admin/kit-config. Roda em background para não
+        # atrasar startup; respeita ENABLE_BACKGROUND_MAGENTO_SYNC.
+        if ENABLE_BACKGROUND_MAGENTO_SYNC:
+            def _bg_kit_snapshot_warmup():
+                try:
+                    from app.core.database import SessionLocal as _SL
+                    from app.services.kit_snapshot_service import rebuild_kit_snapshot, snapshot_is_stale
+                    _db = _SL()
+                    try:
+                        if snapshot_is_stale(_db, max_age_hours=24):
+                            logger.info("[Startup] kit_mapping_snapshot vazio/stale — rebuild em background")
+                            r = rebuild_kit_snapshot(_db)
+                            logger.info(f"[Startup] kit_snapshot rebuild concluido: status={r['status']} total={r['total_atual']} novos={r['novos']} alterados={r['alterados']} sem_mudanca={r['sem_mudanca']} removidos={r['removidos']}")
+                        else:
+                            logger.info("[Startup] kit_mapping_snapshot fresco — rebuild pulado")
+                    finally:
+                        _db.close()
+                except Exception as e:
+                    logger.warning(f"[Startup] kit_snapshot warmup falhou: {e}")
+            import threading as _kt
+            _kt.Thread(target=_bg_kit_snapshot_warmup, daemon=True, name="startup-kit-snapshot").start()
+        else:
+            logger.info("[Startup] kit_snapshot warmup SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+
         logger.info("=== All background startup tasks completed ===")
 
         # Pré-aquece cache de receita Magento por bundle em background (não bloqueia startup).

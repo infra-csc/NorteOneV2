@@ -12,6 +12,7 @@ from app.models.perfil_acesso import (
     PerfilPermissao as PerfilPermissao,
     PerfilPermissaoCampo as PerfilPermissaoCampo,
 )
+from app.models.kit_mapping_snapshot import KitMappingSnapshot as KitMappingSnapshot
 from app.models.cadastro_evento import (
     CadastroEvento as CadastroEvento,
     CadastroCortesia as CadastroCortesia,

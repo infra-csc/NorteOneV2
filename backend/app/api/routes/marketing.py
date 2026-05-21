@@ -668,7 +668,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
         ).filter(CadastroEvento.id.in_(cadastro_ids)).all() if cadastro_ids else []
         cadastro_to_projeto = {c.id: c.projeto_id for c in cads if c.projeto_id}
 
-        ativo_kits_index = fetch_ativo_kits_indexed()
+        ativo_kits_index = fetch_ativo_kits_indexed()  # marketing usa só o índice — não precisa do flag
 
         # bundle_data sintético para reusar _resolve_ticket_for_event.
         # Para Ativo não temos status_kit, então tratamos como sempre 'ativo'.
