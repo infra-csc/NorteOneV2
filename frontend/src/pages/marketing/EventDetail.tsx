@@ -1331,9 +1331,12 @@ const EventDetail: React.FC = () => {
   );
   const hasValidEventDate = parsedEventDate !== null && !isNaN(parsedEventDate.getTime());
 
+  // Atingimento da Meta por D- vai até D-1: o dia de hoje só entra após o
+  // próximo job noturno (ou Reconsolidar). "Atualizar Hoje" mexe só nos KPIs
+  // do topo, não nos gráficos históricos.
   const goalAttainmentData = useMemo(() =>
     cumulativeData
-      .filter(d => d.cumulativeExpected > 0)
+      .filter(d => d.cumulativeExpected > 0 && d.date < todayStr)
       .map(d => {
         let dMinusInsc = 0;
         if (hasValidEventDate && parsedEventDate) {
@@ -1356,12 +1359,12 @@ const EventDetail: React.FC = () => {
           cumulativeExpected: Math.round(refExpected),
         };
       }),
-    [cumulativeData, hasValidEventDate, parsedEventDate, showNormalized]
+    [cumulativeData, hasValidEventDate, parsedEventDate, showNormalized, todayStr]
   );
 
   const goalAttainmentDailyData = useMemo(() =>
     dailySalesNormExpected
-      .filter(d => d.expected > 0)
+      .filter(d => d.expected > 0 && d.date < todayStr)
       .map(d => {
         let dMinusInsc = 0;
         if (hasValidEventDate && parsedEventDate) {
@@ -1384,7 +1387,7 @@ const EventDetail: React.FC = () => {
           expected: Math.round(refExpected),
         };
       }),
-    [dailySalesNormExpected, hasValidEventDate, parsedEventDate, showNormalized]
+    [dailySalesNormExpected, hasValidEventDate, parsedEventDate, showNormalized, todayStr]
   );
 
   const filteredAttainmentData = useMemo(() => {
