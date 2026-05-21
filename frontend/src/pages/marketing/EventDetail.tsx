@@ -495,6 +495,13 @@ const EventDetail: React.FC = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const curvaAbortRef = useRef<AbortController | null>(null);
   const staleRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Token que força refetch de TODOS os blocos secundários (curva comparativa,
+  // médias de venda, snapshot, insights) em paralelo. Incrementa em:
+  //  - "Atualizar Hoje" (handleForceRefresh) — após o sync ser aplicado.
+  // Garante consistência cruzada — sem isso, os blocos ficavam stale enquanto
+  // só o event/dailySales atualizava.
+  const [secondaryRefreshToken, setSecondaryRefreshToken] = useState(0);
+  const lastSnapshotTokenRef = useRef(-1);
 
   useEffect(() => {
     silentRefetchDoneRef.current = false;
@@ -801,7 +808,7 @@ const EventDetail: React.FC = () => {
 
     fetchCurva();
     return () => { curvaController.abort(); };
-  }, [id, anoParam]);
+  }, [id, anoParam, secondaryRefreshToken]);
 
   useEffect(() => {
     if (!id) return;
@@ -831,11 +838,13 @@ const EventDetail: React.FC = () => {
     
     fetchAverages();
     return () => controller.abort();
-  }, [id, salesAvgPeriod, anoParam]);
+  }, [id, salesAvgPeriod, anoParam, secondaryRefreshToken]);
 
   useEffect(() => {
     if (!id || controleSubTab !== 'curva') return;
-    if (curvaSnapshot !== null) return;
+    // Permite refetch quando o token muda (Atualizar Hoje), mesmo que já haja dado.
+    if (curvaSnapshot !== null && lastSnapshotTokenRef.current === secondaryRefreshToken) return;
+    lastSnapshotTokenRef.current = secondaryRefreshToken;
     const controller = new AbortController();
     const fetchSnapshot = async () => {
       setCurvaSnapshotLoading(true);
@@ -857,7 +866,7 @@ const EventDetail: React.FC = () => {
     };
     fetchSnapshot();
     return () => controller.abort();
-  }, [id, controleSubTab, anoParam]);
+  }, [id, controleSubTab, anoParam, secondaryRefreshToken]);
 
   const handleForceRefresh = async () => {
     if (!id || refreshing) return;
@@ -975,6 +984,24 @@ const EventDetail: React.FC = () => {
           clearTimeout(staleRetryTimerRef.current);
           staleRetryTimerRef.current = null;
         }
+        // ── Sincronização cruzada — força refetch de TODOS os blocos secundários ──
+        // Limpa caches de módulo para evitar SWR servir dado antigo na próxima visita,
+        // bumpa o token (re-dispara curva comparativa, médias, snapshot e insights em
+        // paralelo) e invalida o cache do dashboard pra que a lista de eventos reflita
+        // o novo total quando o usuário voltar.
+        try {
+          _curvaComparativaCache.delete(_detailCacheKey);
+          // Limpa TODAS as entradas de salesAvg do evento/ano (qualquer período),
+          // não só o período ativo — se o usuário trocou pra 7d e voltar à tela
+          // com default 30d, o cache de 30d não pode servir dado stale.
+          const _salesPrefix = `${_detailCacheKey}_`;
+          for (const k of Array.from(_salesAvgCache.keys())) {
+            if (k.startsWith(_salesPrefix)) _salesAvgCache.delete(k);
+          }
+          _curvaSnapshotModCache.delete(_detailCacheKey);
+        } catch { /* ok */ }
+        setSecondaryRefreshToken(t => t + 1);
+        clearMarketingDashboardCache();
         // Delay o primeiro re-fetch para dar tempo ao recompute em background
         // (disparado pelo backend imediatamente após o sync) de concluir.
         // silent=true: evita banner de loading e preserva gráficos existentes
@@ -2478,6 +2505,9 @@ const EventDetail: React.FC = () => {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                     Curva Comparativa: {curvaAnoAnterior} vs {curvaAnoAtual}
                   </h3>
+                  {curvaLoading && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" aria-label="Atualizando" />
+                  )}
                 </div>
                 {curvaModo === 'dias_antes_evento' && (dataEventoAtual || dataEventoAnterior) && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 ml-7">
@@ -2752,7 +2782,7 @@ const EventDetail: React.FC = () => {
           </div>
 
           <Suspense fallback={<div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-blue-400" /></div>}>
-            <EventInsights eventoId={id!} ano={anoParam} />
+            <EventInsights key={`insights-${secondaryRefreshToken}`} eventoId={id!} ano={anoParam} />
           </Suspense>
         </div>
       ) : (
@@ -3584,6 +3614,9 @@ const EventDetail: React.FC = () => {
         <h3 className="font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Activity className="w-5 h-5 text-blue-500" />
           Curva no Tempo
+          {curvaLoading && (
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" aria-label="Atualizando" />
+          )}
         </h3>
         <div className="mb-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Vendas Totais{event.salesGoal > 0 ? ' / Meta Global' : ''}</p>
