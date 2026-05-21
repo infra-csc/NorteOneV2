@@ -72,7 +72,7 @@ const MargemBadge = ({ pct, isDark }: { pct: number; isDark: boolean }) => {
   );
 };
 
-export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas, dashTicketAtual, dashMediaDiaria, normalizedBase }: EventSimulatorProps) {
+function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas, dashTicketAtual, dashMediaDiaria, normalizedBase }: EventSimulatorProps) {
   const _simCacheKey = `${eventoId}_${ano}`;
   const _simCached = _simulacaoCache.get(_simCacheKey);
 
@@ -764,3 +764,5 @@ export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio,
     </div>
   );
 }
+
+export default React.memo(EventSimulator);

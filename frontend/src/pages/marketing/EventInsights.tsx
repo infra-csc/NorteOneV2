@@ -260,4 +260,4 @@ const EventInsights: React.FC<EventInsightsProps> = ({ eventoId, ano, forceRefre
   );
 };
 
-export default EventInsights;
+export default React.memo(EventInsights);

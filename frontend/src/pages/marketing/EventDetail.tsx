@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import AtualizarHojeModal, { SyncStatus, SyncResult } from '../../components/marketing/AtualizarHojeModal';
 import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import ConnectionAlert from '../../components/common/ConnectionAlert';
@@ -54,9 +54,9 @@ import {
 } from '../../types/marketingPerformance';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
-import EventInsights from './EventInsights';
-import EventSimulator from './EventSimulator';
-import DailySalesTable from './DailySalesTable';
+const EventInsights = React.memo(lazy(() => import('./EventInsights')));
+const EventSimulator = React.memo(lazy(() => import('./EventSimulator')));
+const DailySalesTable = React.memo(lazy(() => import('./DailySalesTable')));
 
 interface CommercialAction {
   id: string;
@@ -370,6 +370,8 @@ const EventDetail: React.FC = () => {
     status: string; qtd_antes: number | null; qtd_depois: number | null; duracao_ms: number;
   } | null>(null);
   const [consolidarError, setConsolidarError] = useState<string | null>(null);
+
+  const handleOpenSyncModal = useCallback(() => setShowSyncModal(true), []);
 
   const handleConsolidarEvento = async () => {
     const grupoNome = isConsolidated ? id!.replace(/^grp_/, '') : id!;
@@ -1967,17 +1969,19 @@ const EventDetail: React.FC = () => {
       )}
 
       {activeTab === 'simulator' ? (
-        <EventSimulator
-          eventoId={id!}
-          ano={anoParam ?? new Date().getFullYear()}
-          isDark={isDark}
-          dashTicketMedio={ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined}
-          dashMargem={margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined)}
-          dashTotalVendas={event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined}
-          dashTicketAtual={event?.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : undefined}
-          dashMediaDiaria={undefined}
-          normalizedBase={false}
-        />
+        <Suspense fallback={<div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-blue-400" /></div>}>
+          <EventSimulator
+            eventoId={id!}
+            ano={anoParam ?? new Date().getFullYear()}
+            isDark={isDark}
+            dashTicketMedio={ticketMedioRealizado > 0 ? ticketMedioRealizado : undefined}
+            dashMargem={margemRealizadaKits != null ? margemRealizadaKits : (event?.margemRealizadaTotal ?? undefined)}
+            dashTotalVendas={event?.currentSales && event.currentSales > 0 ? event.currentSales : undefined}
+            dashTicketAtual={event?.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : undefined}
+            dashMediaDiaria={undefined}
+            normalizedBase={false}
+          />
+        </Suspense>
       ) : activeTab === 'controle' ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
           <div className={`flex border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
@@ -2013,15 +2017,17 @@ const EventDetail: React.FC = () => {
 
           <div className="p-6">
             {controleSubTab === 'tabela' ? (
-              <DailySalesTable
-                dailySales={dailySalesNormExpected}
-                isDark={isDark}
-                eventName={event.name}
-                salesGoal={event.salesGoal}
-                showNormalized={showNormalized}
-                onAtualizarHoje={() => setShowSyncModal(true)}
-                isLoading={!isFirstFetchDone}
-              />
+              <Suspense fallback={<div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-blue-400" /></div>}>
+                <DailySalesTable
+                  dailySales={dailySalesNormExpected}
+                  isDark={isDark}
+                  eventName={event.name}
+                  salesGoal={event.salesGoal}
+                  showNormalized={showNormalized}
+                  onAtualizarHoje={handleOpenSyncModal}
+                  isLoading={!isFirstFetchDone}
+                />
+              </Suspense>
             ) : (
               <div>
                 {curvaSnapshotLoading ? (
@@ -2601,7 +2607,9 @@ const EventDetail: React.FC = () => {
             )}
           </div>
 
-          <EventInsights eventoId={id!} ano={anoParam} />
+          <Suspense fallback={<div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-blue-400" /></div>}>
+            <EventInsights eventoId={id!} ano={anoParam} />
+          </Suspense>
         </div>
       ) : (
       <>

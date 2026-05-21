@@ -347,4 +347,4 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
   );
 };
 
-export default DailySalesTable;
+export default React.memo(DailySalesTable);
