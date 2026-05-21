@@ -1168,6 +1168,18 @@ const EventDetail: React.FC = () => {
     const base = attainmentMode === 'acumulado' ? goalAttainmentData : goalAttainmentDailyData;
     return attainmentPeriod ? base.slice(-attainmentPeriod) : base;
   }, [attainmentMode, goalAttainmentData, goalAttainmentDailyData, attainmentPeriod]);
+
+  const completeDailySales = useMemo(() => {
+    const raw = (_eventDailySales || []).filter((d: any) => d.date < todayStr);
+    const map = new Map<string, typeof raw[0]>();
+    for (const d of raw) map.set(d.date, d);
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [_eventDailySales, todayStr]);
+
+  const last30Days = useMemo(
+    () => completeDailySales.slice(-30).map(d => ({ ...d, sales: d.sales })),
+    [completeDailySales]
+  );
   // ─────────────────────────────────────────────────────────────────────────────
 
   if (!event && (loading || error || isPreparing)) {
@@ -1416,15 +1428,7 @@ const EventDetail: React.FC = () => {
   const inscritosTotalNorm = totalInscritosRaw;
   const displayedCurrentSales = totalInscritosRaw;
   const totalInscritos = displayedCurrentSales;
-  const completeDailySales = (() => {
-    const raw = (event.dailySales || []).filter(d => d.date < todayStr);
-    // Dedup por data (mantém última ocorrência) e garante ordem cronológica ascendente.
-    // Evita que entradas duplicadas de uma mesma data comprometam os slices de "últimos N dias".
-    const map = new Map<string, typeof raw[0]>();
-    for (const d of raw) map.set(d.date, d);
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-  })();
-  const last30Days = completeDailySales.slice(-30).map(d => ({ ...d, sales: _saleVal(d) }));
+  // completeDailySales and last30Days are memoized before the early returns above.
   // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
   // Usado nos cards que devem refletir somente inscrições consolidadas até ontem.
   const totalInscritosConsolidado = completeDailySales.reduce((sum, d) => sum + _saleVal(d), 0);
@@ -3461,7 +3465,7 @@ const EventDetail: React.FC = () => {
                 }}
               />
               <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="3 3" />
-              <Bar dataKey="percentual" name="Atingimento vs Esperado" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="percentual" name="Atingimento vs Esperado" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                 {filteredAttainmentData.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={entry.percentual >= 0 ? '#22C55E' : '#EF4444'} />
                 ))}
@@ -3548,6 +3552,7 @@ const EventDetail: React.FC = () => {
                     name="Vendas"
                     fill="#3B82F6" 
                     radius={[4, 4, 0, 0]}
+                    isAnimationActive={false}
                   />
                 </BarChart>
               </ResponsiveContainer>
