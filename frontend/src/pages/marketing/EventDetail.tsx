@@ -382,6 +382,10 @@ const EventDetail: React.FC = () => {
       // Invalida o cache do dashboard (lista de eventos) para que ao voltar
       // à primeira tela os dados reflitam a reconsolidação recém-executada.
       clearMarketingDashboardCache();
+      // Recarrega o detalhe do evento imediatamente em background com force_refresh=true,
+      // bypassing o event_detail_cache do backend. Assim quando o usuário fechar o modal
+      // os dados já estarão atualizados na tela sem precisar clicar em nada.
+      fetchEventRef.current?.(true, true);
     } catch (e: any) {
       setConsolidarError(e?.response?.data?.detail ?? e?.message ?? 'Erro ao consolidar');
     } finally {
@@ -1699,11 +1703,15 @@ const EventDetail: React.FC = () => {
                   <p className={`text-xs text-center opacity-60`}>
                     Duração: {consolidarResult.duracao_ms < 1000 ? `${consolidarResult.duracao_ms}ms` : `${(consolidarResult.duracao_ms / 1000).toFixed(1)}s`}
                   </p>
+                  <div className={`flex items-center justify-center gap-1.5 text-xs ${isDark ? 'text-emerald-400/70' : 'text-emerald-700/70'}`}>
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    <span>Dados sendo atualizados automaticamente…</span>
+                  </div>
                   <button
-                    onClick={() => { setShowConsolidarModal(false); handleForceRefresh(); }}
+                    onClick={() => setShowConsolidarModal(false)}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
                   >
-                    <RefreshCw className="w-4 h-4" /> Fechar e atualizar página
+                    Fechar
                   </button>
                 </div>
               )}
