@@ -961,11 +961,23 @@ const EventDetail: React.FC = () => {
                 dif: _trueCum,
               }]
             : updatedDailySales;
+          // currentSales speculative bump: quando sync não retornou total_acumulado
+          // autoritativo (parcial/frozen), incrementa pelo delta de hoje pra manter
+          // KPI alinhado com o gráfico cumulativo (que recalcula da soma de sales).
+          // Sem isso, o KPI ficaria parado enquanto o gráfico subia → divergência visual.
+          let _nextCurrentSales = prev.currentSales;
+          if (result.total_acumulado > 0 && result.total_acumulado >= (prev.currentSales || 0)) {
+            _nextCurrentSales = result.total_acumulado;
+          } else if (result.hoje_total > 0) {
+            const _prevTodayQty = prev.dailySales?.find(d => d.date === todayStr)?.sales ?? 0;
+            const _delta = result.hoje_total - _prevTodayQty;
+            if (_delta > 0) {
+              _nextCurrentSales = (prev.currentSales || 0) + _delta;
+            }
+          }
           return {
             ...prev,
-            currentSales: (result.total_acumulado > 0 && result.total_acumulado >= (prev.currentSales || 0))
-              ? result.total_acumulado
-              : prev.currentSales,
+            currentSales: _nextCurrentSales,
             dailySales: finalDailySales
           };
         });
@@ -1188,6 +1200,24 @@ const EventDetail: React.FC = () => {
     () => chartPeriod ? cumulativeData.slice(-chartPeriod) : cumulativeData,
     [cumulativeData, chartPeriod]
   );
+
+  // Dev-warning: detecta divergência entre soma dos dailySales e currentSales.
+  // Não muda comportamento — só registra no console pra eu/dev identificar
+  // regressões silenciosas (ex.: backend retornando overlay inconsistente,
+  // sync parcial não compensado). Em produção, console.warn é inofensivo.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (!event?.currentSales || cumulativeData.length === 0) return;
+    const _sumDaily = cumulativeData[cumulativeData.length - 1].cumulative;
+    const _diff = Math.abs(_sumDaily - event.currentSales);
+    // Tolerância de 1 pra arredondamentos; >1 indica divergência real.
+    if (_diff > 1) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[EventDetail] Divergência detectada — sum(dailySales.sales)=${_sumDaily} vs event.currentSales=${event.currentSales} (delta=${_sumDaily - event.currentSales}). Verifique overlay/sync/alinhamento de kit.`
+      );
+    }
+  }, [cumulativeData, event?.currentSales]);
 
   const todayStr = useMemo(
     () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }),
@@ -1637,8 +1667,14 @@ const EventDetail: React.FC = () => {
     ? cumulativeData[cumulativeData.length - 1]
     : null;
   const inscritosTotal = lastCumData ? Math.round(lastCumData.cumulative) : 0;
-  // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
-  const totalInscritosRaw = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
+  // currentSales é a fonte ÚNICA de verdade — backend garante o número correto
+  // (snapshot + apply_today_overlay com proteção contra duplicação). Removido
+  // fallback para `inscritosTotal` (soma de dailySales): a soma pode divergir
+  // legitimamente (ex.: overlay adiciona dias históricos pro gráfico sem somar
+  // ao total) e mostrar fontes diferentes em cards diferentes confunde o usuário.
+  // Se backend retornar currentSales nulo/0, exibimos 0 — preferimos honestidade
+  // a fallback silencioso que mascara o problema de origem.
+  const totalInscritosRaw = event.currentSales ?? 0;
 
   // Inscritos são sempre o número real — nunca substituímos por normalizado.
   const inscritosTotalNorm = totalInscritosRaw;
