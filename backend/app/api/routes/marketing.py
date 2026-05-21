@@ -3585,7 +3585,7 @@ AND    value        IN :ev_ids
                     return conn.execute(_supp_cnt_q, {"supp_bids": _supp_extra_bids}).fetchall()
                 try:
                     _supp_t0 = _time_supp.monotonic()
-                    for _sr in magento_run(_supp_cnt_work, label="margem:supplementary-count", profile="background"):
+                    for _sr in magento_run(_supp_cnt_work, label="margem:supplementary-count", profile="once"):
                         _supp_qtd_by_name[(_sr[0] or "").strip()] = int(_sr[1] or 0)
                     logger.info(f"[Margem] supplementary count: {len(_supp_extra_bids)} bundles extras → {sum(_supp_qtd_by_name.values())} inscrições em {_time_supp.monotonic()-_supp_t0:.2f}s")
                 except Exception as _e_supp1:
@@ -3600,7 +3600,7 @@ AND    value        IN :ev_ids
                         return conn.execute(_supp_rev_q, {"supp_bids": _supp_extra_bids}).fetchall()
                     try:
                         _supp_t1 = _time_supp.monotonic()
-                        for _sr2 in magento_run(_supp_rev_work, label="margem:supplementary-revenue", profile="background"):
+                        for _sr2 in magento_run(_supp_rev_work, label="margem:supplementary-revenue", profile="once"):
                             _supp_rev_by_name[(_sr2[0] or "").strip()] = float(_sr2[1] or 0)
                         _margem_rev_cache[_supp_rev_cache_key] = (dict(_supp_rev_by_name), _time_supp.monotonic())
                         logger.info(f"[Margem] supplementary revenue: {len(_supp_extra_bids)} bundles extras → {len(_supp_rev_by_name)} em {_time_supp.monotonic()-_supp_t1:.2f}s")

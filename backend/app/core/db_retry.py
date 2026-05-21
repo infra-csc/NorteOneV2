@@ -60,8 +60,8 @@ _PROFILES: Dict[str, Dict[str, float]] = {
     },
     # Single-attempt profile for interactive/real-time paths (e.g. "Atualizar Hoje").
     # No retry: if the query fails it fails fast. MAX_EXECUTION_TIME on the SQL side
-    # caps execution at 12s; combined with read_timeout=35s this guarantees the thread
-    # never blocks longer than ~35s regardless of MySQL behaviour.
+    # caps execution at 12s; combined with read_timeout=90s this guarantees the thread
+    # never blocks longer than ~90s regardless of MySQL behaviour.
     "once": {
         "max_attempts": 1,
         "backoff_base": 0.0,
