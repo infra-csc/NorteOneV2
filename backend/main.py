@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 _no_grupo_event_ids: set = set()
 
+# Flag global: quando False, todas as rotinas automaticas que consomem Magento
+# (warmup de startup, scheduler 45min, loop sync-hoje 2h, refresh_active_event_details)
+# ficam desativadas. Snapshots so atualizam quando admin clica em "Reconsolidar".
+# Default: false (pedido do usuario - evitar carga automatica no Magento/SSH).
+ENABLE_BACKGROUND_MAGENTO_SYNC = os.getenv("ENABLE_BACKGROUND_MAGENTO_SYNC", "false").lower() in ("true", "1", "yes")
+if not ENABLE_BACKGROUND_MAGENTO_SYNC:
+    logger.warning("[Config] ENABLE_BACKGROUND_MAGENTO_SYNC=false - warmup de startup, scheduler 45min e loop sync-hoje DESATIVADOS. Use 'Reconsolidar' (admin) para atualizar snapshots.")
+
 def _scheduled_isc_refresh():
     from app.core.database import SessionLocal
     db = None
@@ -1583,14 +1591,17 @@ async def lifespan(app: FastAPI):
         # Phase 3: Tier1 gap detection + targeted warmup
         _gap_warmup_ok = 0
         _gap_warmup_fail = 0
-        try:
-            logger.info("Running Tier1 gap detection...")
-            _gap_result = _startup_tier1_gap_warmup()
-            if isinstance(_gap_result, tuple):
-                _gap_warmup_ok, _gap_warmup_fail = _gap_result
-            logger.info("Tier1 gap detection complete")
-        except Exception as e:
-            logger.error(f"Startup gap detection failed: {e}")
+        if ENABLE_BACKGROUND_MAGENTO_SYNC:
+            try:
+                logger.info("Running Tier1 gap detection...")
+                _gap_result = _startup_tier1_gap_warmup()
+                if isinstance(_gap_result, tuple):
+                    _gap_warmup_ok, _gap_warmup_fail = _gap_result
+                logger.info("Tier1 gap detection complete")
+            except Exception as e:
+                logger.error(f"Startup gap detection failed: {e}")
+        else:
+            logger.info("[Startup] Tier1 gap warmup SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
 
         # After targeted warmup, re-check cache timestamps DIRECTLY rather than
         # relying on the pre-warmup gap result (which reflects state *before* warmup).
@@ -1649,8 +1660,11 @@ async def lifespan(app: FastAPI):
         # upstream MySQL pools (Magento via SSH tunnel). The dashboard list
         # also trusts the snapshot as fresh within 50min, so today's row stays
         # visibly up-to-date between batches.
-        cache_scheduler.start(interval=2700)
-        logger.info("Cache auto-refresh scheduler started (45 min interval + daily 05:00 BRT)")
+        if ENABLE_BACKGROUND_MAGENTO_SYNC:
+            cache_scheduler.start(interval=2700)
+            logger.info("Cache auto-refresh scheduler started (45 min interval + daily 05:00 BRT)")
+        else:
+            logger.info("[Startup] cache_scheduler NOT started (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
 
         # Check if snapshots are fresh enough to skip consolidation at startup.
         # If snapshots were updated within the last 2 hours (e.g. after "Atualizar Tudo" or
@@ -1705,7 +1719,9 @@ async def lifespan(app: FastAPI):
                 logger.error(f"Startup snapshot consolidation failed: {e}")
 
         snapshot_thread = threading.Thread(target=_run_snapshot_consolidation, daemon=True, name="startup-snapshot")
-        if not _snapshot_is_fresh:
+        if not ENABLE_BACKGROUND_MAGENTO_SYNC:
+            logger.info("[Startup] snapshot_consolidation SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+        elif not _snapshot_is_fresh:
             snapshot_thread.start()
         else:
             # Snapshots are fresh — skip the heavy consolidation, but ALWAYS run
@@ -1816,7 +1832,10 @@ async def lifespan(app: FastAPI):
 
         # Loop dedicado: sincroniza inscritos de hoje a cada HOJE_SYNC_INTERVAL_HOURS
         # (padrão 2 h), somente se não houve sync recente — automático ou manual.
-        _start_hoje_sync_loop()
+        if ENABLE_BACKGROUND_MAGENTO_SYNC:
+            _start_hoje_sync_loop()
+        else:
+            logger.info("[Startup] hoje_sync_loop NOT started (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
 
         # Decide whether to run a full warmup on startup.
         # If targeted warmup resolved all gaps (gap count == 0 now), skip the full warmup.
@@ -1826,7 +1845,9 @@ async def lifespan(app: FastAPI):
         _gap_result = get_gap_detection_result()
         _gap_count = len(_gap_result.get("missing_tier1_events", [])) + len(_gap_result.get("stale_tier1_events", []))
 
-        if _gap_count == 0:
+        if not ENABLE_BACKGROUND_MAGENTO_SYNC:
+            logger.info("[Startup] full_cache_warmup + ISC refresh SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+        elif _gap_count == 0:
             logger.info("[Startup] All Tier1 events have fresh cache — skipping full warmup. Snapshot running in background.")
             # Even when skipping full warmup, always rebuild ISC data in background so
             # the in-memory ISC is fresh (the DB-loaded copy may be from a prior run

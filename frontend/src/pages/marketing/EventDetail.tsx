@@ -405,6 +405,12 @@ const EventDetail: React.FC = () => {
   const [snapshotComputedAt, setSnapshotComputedAt] = useState<string | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
   const [preparingGaveUp, setPreparingGaveUp] = useState(false);
+  // Novo: snapshot ausente (sem dados consolidados nem bootstrap)
+  const [noSnapshot, setNoSnapshot] = useState(false);
+  // Novo: dados parciais (cabeçalho do bootstrap, sem dailySales)
+  const [isPartial, setIsPartial] = useState(false);
+  const [partialMessage, setPartialMessage] = useState<string | null>(null);
+  const [partialComputedAt, setPartialComputedAt] = useState<string | null>(null);
   const silentRefetchDoneRef = useRef(false);
   const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean, forceMagentoRefresh?: boolean) => void) | null>(null);
   // Rastreia se algum dado de evento já foi exibido na tela. Persistido como ref
@@ -580,30 +586,34 @@ const EventDetail: React.FC = () => {
         const response = await marketingService.getEventoById(id, controller.signal, anoParam, forceRefresh || undefined, forceMagentoRefresh || undefined);
         if (controller.signal.aborted) return;
 
-        // Backend sinaliza que ainda está preparando o snapshot — retry em 5s.
-        if ((response as any)?.status === 'preparing') {
-          if (!event) setLoading(true);
-          setIsPreparing(true);
-          if (preparingStartedAtRef.current === null) {
-            preparingStartedAtRef.current = Date.now();
+        // Backend sinaliza que não há snapshot consolidado (sem bootstrap).
+        // Não fazemos retry automático — o admin precisa clicar em "Reconsolidar".
+        if ((response as any)?.status === 'no_snapshot') {
+          setNoSnapshot(true);
+          setIsPartial(false);
+          setIsPreparing(false);
+          setLoading(false);
+          if (staleRetryTimerRef.current) {
+            clearTimeout(staleRetryTimerRef.current);
+            staleRetryTimerRef.current = null;
           }
-          const elapsed = Date.now() - (preparingStartedAtRef.current || Date.now());
-          if (elapsed >= PREPARING_GIVE_UP_MS) {
-            setPreparingGaveUp(true);
-            if (staleRetryTimerRef.current) {
-              clearTimeout(staleRetryTimerRef.current);
-              staleRetryTimerRef.current = null;
-            }
-            return;
-          }
-          if (staleRetryTimerRef.current) clearTimeout(staleRetryTimerRef.current);
-          const retrySec = Number((response as any).retry_after_seconds) || 5;
-          staleRetryTimerRef.current = setTimeout(() => {
-            if (!controller.signal.aborted && fetchEventRef.current) {
-              fetchEventRef.current(false, true);
-            }
-          }, retrySec * 1000);
+          setPartialMessage((response as any).message || null);
           return;
+        }
+        // Backend devolve payload parcial (cabeçalho do bootstrap, sem dailySales).
+        // Renderizamos o evento normalmente — gráficos ficam vazios e um banner
+        // amarelo aparece avisando que falta consolidar.
+        if ((response as any)?.status === 'partial') {
+          setIsPartial(true);
+          setNoSnapshot(false);
+          setIsPreparing(false);
+          setPartialMessage((response as any).message || null);
+          setPartialComputedAt((response as any).snapshot_computed_at || null);
+        } else {
+          setIsPartial(false);
+          setNoSnapshot(false);
+          setPartialMessage(null);
+          setPartialComputedAt(null);
         }
         setIsPreparing(false);
         setPreparingGaveUp(false);
@@ -1433,6 +1443,58 @@ const EventDetail: React.FC = () => {
   // regardless of whether we have a previewEvent in state. Without this guard,
   // the component would render the full UI with event.dailySales = undefined
   // (from previewEvent) and all charts would be empty while waiting.
+  if (noSnapshot) {
+    return (
+      <div className="p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <button
+            onClick={() => navigate('/marketing')}
+            className="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            Voltar ao Dashboard
+          </button>
+        </div>
+        {previewEvent && (
+          <div className="mb-4">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">{previewEvent.name}</h1>
+            {previewEvent.date && (
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {new Date(previewEvent.date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                {previewEvent.location ? ` · ${previewEvent.location}` : ''}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-8 text-center">
+          <p className="text-yellow-900 dark:text-yellow-100 font-medium mb-2">
+            Dados deste evento ainda não foram consolidados
+          </p>
+          <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-4">
+            {partialMessage || 'Não há informações armazenadas para este evento.'}
+          </p>
+          {isAdmin ? (
+            <button
+              onClick={() => {
+                setNoSnapshot(false);
+                setLoading(true);
+                if (fetchEventRef.current) fetchEventRef.current(true, false, true);
+              }}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 inline-flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reconsolidar agora
+            </button>
+          ) : (
+            <p className="text-sm text-yellow-700 dark:text-yellow-300 italic">
+              Solicite ao administrador que clique em "Reconsolidar" no painel do evento.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (isPreparing || (!event && (loading || error))) {
     return (
       <div className="p-6">
@@ -2076,6 +2138,35 @@ const EventDetail: React.FC = () => {
         </div>
       )}
 
+      {isPartial && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="text-sm">
+            <p className="text-yellow-900 dark:text-yellow-100 font-medium">
+              Dados parciais — detalhes diários não consolidados
+            </p>
+            <p className="text-yellow-800 dark:text-yellow-200 mt-1">
+              {partialMessage || 'Solicite ao administrador clicar em "Reconsolidar" para buscar os dados completos.'}
+              {partialComputedAt && (
+                <span className="block mt-1 text-yellow-700 dark:text-yellow-300">
+                  Última atualização: {new Date(partialComputedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+                </span>
+              )}
+            </p>
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setIsPartial(false);
+                if (fetchEventRef.current) fetchEventRef.current(true, false, true);
+              }}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 inline-flex items-center gap-2 text-sm whitespace-nowrap"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Reconsolidar agora
+            </button>
+          )}
+        </div>
+      )}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-200 dark:border-gray-700">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>

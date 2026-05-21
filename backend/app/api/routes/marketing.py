@@ -9488,6 +9488,11 @@ def get_marketing_event_by_id(
     _internal_recompute = force_refresh and current_user is None
     _user_refresh_request = force_refresh and current_user is not None
     _USE_SNAPSHOT_FIRST = os.getenv("USE_SNAPSHOT_FIRST_READ", "true").lower() not in ("0", "false", "no")
+    # Bootstrap fallback: quando o snapshot completo for descartado, ainda assim
+    # podemos servir os dados básicos do "evento" (nome, data, local, vendas/meta
+    # da lista) para o usuário ver algo. Capturado abaixo.
+    _bootstrap_evento_partial = None
+    _bootstrap_partial_computed_at = None
     if _USE_SNAPSHOT_FIRST and not _internal_recompute:
         try:
             from ...services.event_detail_snapshot_service import (
@@ -9532,6 +9537,10 @@ def get_marketing_event_by_id(
                         f"({_gpd_payload_version} != {_DETAIL_CACHE_VERSION}) AND {_dbg_reason} "
                         f"— bypassing snapshot. payload_keys={_dbg_pl_keys}"
                     )
+                    # Captura bootstrap evento para servir como payload parcial.
+                    if _has_evt:
+                        _bootstrap_evento_partial = _evt_chk
+                        _bootstrap_partial_computed_at = _gpd_comp
                     _persisted = None
         # Descarta snapshot se dailySales está vazio/ausente/null mesmo com versão correta —
         # snapshots salvos antes do fallback podiam persistir [] e travar o Controle Diário.
@@ -9552,6 +9561,11 @@ def get_marketing_event_by_id(
                     f"vazio/ausente (key_present={_has_ds_key}, type={type(_ds_check).__name__}) "
                     f"— descartando para forçar recompute com fallback de snapshot."
                 )
+                # Captura bootstrap evento para servir como payload parcial.
+                _evt_partial2 = _pl_check.get("evento") if isinstance(_pl_check, dict) else None
+                if isinstance(_evt_partial2, dict) and _evt_partial2:
+                    _bootstrap_evento_partial = _evt_partial2
+                    _bootstrap_partial_computed_at = _persisted.get("computed_at") if isinstance(_persisted, dict) else None
                 _persisted = None
         if _persisted is not None:
             # Stale APENAS se: (a) usuário pediu refresh explícito (botão Atualizar),
@@ -9627,49 +9641,61 @@ def get_marketing_event_by_id(
                     response.headers["X-Schema-Stale"] = "true"
             return _gpd_result
 
-    # ── NUNCA RECOMPUTAR SÍNCRONO PARA REQUEST DE USUÁRIO ─────────────────────
-    # Se chegamos aqui via clique de usuário (current_user is not None) e o
-    # snapshot não estava disponível (não existe ainda, ou foi descartado por
-    # version mismatch sem chaves essenciais), enfileiramos um recompute em
-    # background e retornamos um payload "preparing". O frontend mostra um
-    # skeleton e fica fazendo polling. Apenas chamadas internas
-    # (current_user=None: scheduler, warmup, SWR) seguem para o caminho lento.
+    # ── PAYLOAD PARCIAL OU "SEM SNAPSHOT" PARA REQUEST DE USUÁRIO ─────────────
+    # Não dispara recompute automático (consumiria Magento sem o usuário pedir).
+    # Se tivermos um bootstrap (cabeçalho do evento da lista), servimos como
+    # payload parcial com aviso. Caso contrário, devolvemos status no_snapshot
+    # com erro pedindo que o administrador faça a atualização (clique em
+    # Reconsolidar). O recompute só ocorre quando force_refresh=True (botão
+    # Atualizar / Reconsolidar do admin) — esse caminho cai no fluxo abaixo.
     if (
         _USE_SNAPSHOT_FIRST
         and current_user is not None
         and not _internal_recompute
+        and not _user_refresh_request
     ):
         _prep_key = f"{_ano_for_persist}_{evento_id}_detail"
-        if _prep_key not in _swr_recompute_in_progress:
-            _swr_recompute_in_progress.add(_prep_key)
-            import threading as _prep_threading
-            def _prep_bg():
-                from ...core.database import SessionLocal as _PREP_SL
-                _prep_db = _PREP_SL()
-                try:
-                    get_marketing_event_by_id(
-                        evento_id=evento_id, ano=_ano_for_persist,
-                        force_refresh=True, force_magento_refresh=force_magento_refresh,
-                        db=_prep_db, current_user=None,
-                    )
-                except Exception as _prep_e:
-                    logger.warning(f"[Prepare] bg recompute '{_prep_key}' falhou: {_prep_e}")
-                finally:
-                    _prep_db.close()
-                    _swr_recompute_in_progress.discard(_prep_key)
-            _prep_threading.Thread(target=_prep_bg, daemon=True).start()
-            logger.info(f"[Prepare] '{_prep_key}' sem snapshot — retornando preparing + bg recompute")
-        else:
-            logger.info(f"[Prepare] '{_prep_key}' sem snapshot — bg já em andamento, retornando preparing")
+        _partial_iso = None
+        if _bootstrap_partial_computed_at:
+            try:
+                _bp_aware = (
+                    _bootstrap_partial_computed_at
+                    if _bootstrap_partial_computed_at.tzinfo
+                    else _bootstrap_partial_computed_at.replace(tzinfo=ZoneInfo('America/Sao_Paulo'))
+                )
+                _partial_iso = _bp_aware.isoformat()
+            except Exception:
+                pass
+        if _bootstrap_evento_partial is not None:
+            logger.info(f"[Prepare] '{_prep_key}' sem snapshot completo — servindo dados parciais (bootstrap)")
+            if response is not None:
+                response.headers["X-Data-Stale"] = "true"
+                response.headers["X-Data-Partial"] = "true"
+            return {
+                "status": "partial",
+                "evento_id": evento_id,
+                "ano": _ano_for_persist,
+                "evento": _bootstrap_evento_partial,
+                "dailySales": [],
+                "commercialActions": [],
+                "snapshot_computed_at": _partial_iso,
+                "message": (
+                    "Detalhes diários ainda não foram consolidados para este evento. "
+                    "Solicite ao administrador clicar em 'Reconsolidar' para buscar os dados completos."
+                ),
+            }
+        logger.info(f"[Prepare] '{_prep_key}' sem snapshot e sem bootstrap — retornando no_snapshot")
         if response is not None:
             response.headers["X-Data-Stale"] = "true"
             response.headers["X-Data-Preparing"] = "true"
         return {
-            "status": "preparing",
+            "status": "no_snapshot",
             "evento_id": evento_id,
             "ano": _ano_for_persist,
-            "message": "Estamos preparando este evento. Em alguns segundos os dados aparecem aqui.",
-            "retry_after_seconds": 5,
+            "message": (
+                "Não há dados consolidados para este evento. "
+                "Solicite ao administrador clicar em 'Reconsolidar' para buscar os dados."
+            ),
         }
 
     def _swr_detail_refresh(_swr_key: str):
