@@ -3705,7 +3705,11 @@ const EventDetail: React.FC = () => {
           </div>
 
           <div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Vendas Diárias (Últimos 30 dias)</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+              {last30Days.length >= 30
+                ? 'Vendas Diárias (Últimos 30 dias)'
+                : `Vendas Diárias (Últimos ${last30Days.length} ${last30Days.length === 1 ? 'dia' : 'dias'})`}
+            </p>
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={last30Days}>
