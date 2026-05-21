@@ -968,8 +968,14 @@ const EventDetail: React.FC = () => {
           let _nextCurrentSales = prev.currentSales;
           if (result.total_acumulado > 0 && result.total_acumulado >= (prev.currentSales || 0)) {
             _nextCurrentSales = result.total_acumulado;
-          } else if (result.hoje_total > 0) {
-            const _prevTodayQty = prev.dailySales?.find(d => d.date === todayStr)?.sales ?? 0;
+          } else if (result.hoje_total > 0 && prev.dailySales) {
+            // Guard contra inflação: só aplica bump especulativo se temos
+            // dailySales pra calcular um delta confiável. Se prev.dailySales
+            // for undefined (estado inicial/incompleto), _prevTodayQty=0 não
+            // significa "zero vendas hoje" — significa "não sabemos". Cliques
+            // repetidos com hoje_total constante poderiam somar o mesmo delta
+            // várias vezes. Pular bump nesse caso; o fetch silencioso resolve.
+            const _prevTodayQty = prev.dailySales.find(d => d.date === todayStr)?.sales ?? 0;
             const _delta = result.hoje_total - _prevTodayQty;
             if (_delta > 0) {
               _nextCurrentSales = (prev.currentSales || 0) + _delta;
