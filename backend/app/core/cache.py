@@ -1079,17 +1079,46 @@ class CacheRefreshScheduler:
                  detalhes="Job agendado das 04h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
 
         def _run_step(step_name: str, fn, *, optional: bool = False) -> bool:
-            """Executa um sub-passo logando início/fim no ciclo guarda-chuva."""
+            """Executa um sub-passo logando início/fim no ciclo guarda-chuva.
+
+            Quando o sub-job retorna um `dict` com chave `status`, ela é
+            interpretada para evitar que retornos do tipo `{"status": "skipped"}`
+            ou `{"status": "falha_persistencia"}` apareçam falsamente como `ok`
+            no resumo do ciclo (visto no painel).
+            """
             _t0 = _t_root.time()
             _le_root(_root_ciclo, _root_job, "iniciado", nivel="grupo", grupo=step_name,
                      detalhes=f"Iniciando {step_name}")
             try:
                 _ret = fn()
-                _le_root(_root_ciclo, _root_job, "ok", nivel="grupo", grupo=step_name,
+                _status_log = "ok"
+                _motivo_log = None
+                if isinstance(_ret, dict):
+                    _raw = str(_ret.get("status") or "").lower()
+                    if _raw in ("ok", "concluido", "concluído", "sucesso", "success"):
+                        _status_log = "ok"
+                    elif _raw in ("skipped", "pulado", "ignorado", "sem_dados", "no_data"):
+                        _status_log = "pulado"
+                        _motivo_log = _raw or "sem_dados"
+                    elif _raw.startswith("falha") or _raw in ("erro", "error", "failed", "failure"):
+                        _status_log = "falha"
+                        _motivo_log = _raw or "falha_runtime"
+                    elif _raw == "parcial":
+                        _status_log = "parcial"
+                        _motivo_log = "parcial"
+                _le_root(_root_ciclo, _root_job, _status_log, nivel="grupo", grupo=step_name,
+                         motivo=_motivo_log,
                          detalhes=str(_ret) if _ret is not None else None,
                          duracao_ms=int((_t_root.time() - _t0) * 1000))
-                _root_steps["ok"] += 1
-                return True
+                if _status_log == "ok":
+                    _root_steps["ok"] += 1
+                elif _status_log == "pulado":
+                    _root_steps["pulado"] += 1
+                else:
+                    _root_steps["falha"] += 1
+                    if not optional:
+                        logger.error(f"[Daily 04:00] {step_name} retornou status='{_motivo_log}' (não exceção)")
+                return _status_log == "ok"
             except Exception as _exc:
                 _status = "falha"
                 _motivo = _cm_root(_exc)

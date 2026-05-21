@@ -177,6 +177,9 @@ const SincronizacoesPanel: React.FC = () => {
   const prevCyclesRef = useRef<SyncCycle[]>([]);
   // Use a ref for expanded so fetchCycles can access it without being in deps
   const expandedRef = useRef<Set<string>>(new Set());
+  // Dedupe do auto-fetch do banner 04h: refetch só quando o ciclo (ou sua
+  // última atividade) mudar — evita disparar requisição idêntica a cada poll.
+  const last04hFetchKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     expandedRef.current = expanded;
@@ -190,11 +193,17 @@ const SincronizacoesPanel: React.FC = () => {
   const selectClass = `text-sm rounded-lg px-3 py-1.5 border outline-none ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`;
 
   const refreshDetail = useCallback(async (cicloId: string) => {
+    setLoadingDetail(prev => {
+      if (prev.has(cicloId)) return prev;
+      const s = new Set(prev); s.add(cicloId); return s;
+    });
     try {
       const d = await adminService.getSyncCycleDetail(cicloId);
       setDetails(prev => ({ ...prev, [cicloId]: d.events }));
     } catch (e) {
       console.error('detail refresh failed:', e);
+    } finally {
+      setLoadingDetail(prev => { const s = new Set(prev); s.delete(cicloId); return s; });
     }
   }, []);
 
@@ -226,6 +235,20 @@ const SincronizacoesPanel: React.FC = () => {
           refreshDetail(id);
         }
       });
+
+      // Auto-fetch do detalhe do ciclo 04h mais recente — o banner no topo
+      // depende dele para mostrar quais sub-passos rodaram. Sem isso o usuário
+      // precisaria expandir o ciclo manualmente para ver o resumo. Dedupe pela
+      // chave (ciclo_id + ultima_atividade): só refaz se o ciclo mudou ou ganhou
+      // atividade nova.
+      const last04h = newCycles.find(c => c.job_name === 'consolidacao_diaria_04h');
+      if (last04h) {
+        const key = `${last04h.ciclo_id}:${last04h.ultima_atividade || ''}:${last04h.status}`;
+        if (last04hFetchKeyRef.current !== key) {
+          last04hFetchKeyRef.current = key;
+          refreshDetail(last04h.ciclo_id);
+        }
+      }
 
       prevCyclesRef.current = newCycles;
       setCycles(newCycles);
@@ -706,9 +729,13 @@ const SincronizacoesPanel: React.FC = () => {
         const last04h = cycles.find(c => c.job_name === 'consolidacao_diaria_04h');
         const ref = last04h?.concluido_em || last04h?.iniciado_em || last04h?.ultima_atividade;
         const ageH = ref ? (Date.now() - new Date(ref).getTime()) / 3_600_000 : null;
-        const late = !last04h || (ageH != null && ageH > 26);
+        // Só rotula como "atrasado" depois que o carregamento inicial terminou,
+        // para não exibir falso negativo enquanto `cycles` ainda está vazio.
+        const late = !loading && (!last04h || (ageH != null && ageH > 26));
         const sub = details[last04h?.ciclo_id || ''] || [];
         const subSteps = sub.filter(e => e.nivel === 'grupo' && e.grupo);
+        const detailLoaded = !!last04h && (sub.length > 0 || !loadingDetail.has(last04h.ciclo_id));
+        const detailFetching = !!last04h && loadingDetail.has(last04h.ciclo_id);
         const stepsByName = new Map<string, typeof sub[number]>();
         for (const s of subSteps) {
           const prev = stepsByName.get(s.grupo!);
@@ -765,20 +792,27 @@ const SincronizacoesPanel: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mt-3">
               {ORDER.map(stepName => {
                 const ev = stepsByName.get(stepName);
-                const status = ev?.status ?? (last04h ? 'pulado' : 'pulado');
                 const label = JOB_LABELS[stepName] || stepName;
-                const ran = !!ev;
+                // Tri-state: (a) detalhe ainda não carregado → "Aguardando";
+                // (b) detalhe carregado e sub-passo presente → status real;
+                // (c) detalhe carregado e sub-passo ausente → "Não rodou".
+                const showPending = !last04h || !detailLoaded;
                 return (
                   <div
                     key={stepName}
                     className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs ${
                       isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50/60'
                     }`}
-                    title={ev?.detalhes || (ran ? '' : 'Não executado nesta janela')}
+                    title={ev?.detalhes || (showPending ? 'Carregando detalhe…' : (ev ? '' : 'Não executado nesta janela'))}
                   >
                     <span className={`truncate ${textPrimary}`}>{label}</span>
-                    {ran ? (
-                      <StatusBadge status={status} />
+                    {showPending ? (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-600'}`}>
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Carregando
+                      </span>
+                    ) : ev ? (
+                      <StatusBadge status={ev.status} />
                     ) : (
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-600'}`}>
                         <MinusCircle className="w-3 h-3" />
@@ -789,9 +823,9 @@ const SincronizacoesPanel: React.FC = () => {
                 );
               })}
             </div>
-            {last04h && subSteps.length === 0 && !loadingDetail.has(last04h.ciclo_id) && (
+            {last04h && !detailLoaded && !detailFetching && (
               <p className={`text-[11px] ${textSecondary} mt-2`}>
-                Expanda o ciclo abaixo para carregar o detalhe dos sub-passos.
+                Carregando detalhe dos sub-passos…
               </p>
             )}
           </div>
