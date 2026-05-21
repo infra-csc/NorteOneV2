@@ -105,6 +105,12 @@ const curvaVendasFormatter = (value: any): [string, string] => [formatNumberModu
 const curvaReceitaFormatter = (value: any): [string, string] => [formatCurrencyModule(Number(value || 0)), ''];
 const curvaSemanaLabelFormatter = (label: any) => `${label} (semana)`;
 const last30TooltipFormatter = (value: any) => formatNumberModule(Math.round(Number(value ?? 0)));
+const curvaDailyLabelFormatter = (label: any) => `${label}`;
+
+// Tick objects estáticos — Recharts não recria a ref por render
+const TICK_FS_10 = { fontSize: 10 } as const;
+const TICK_FS_11 = { fontSize: 11 } as const;
+const TICK_FS_12 = { fontSize: 12 } as const;
 
 interface CommercialAction {
   id: string;
@@ -1239,6 +1245,34 @@ const EventDetail: React.FC = () => {
     () => completeDailySales.slice(-30).map(d => ({ ...d, sales: d.sales })),
     [completeDailySales]
   );
+
+  // Curva Diária % meta — pré-cálculo de chaves + chartData enriquecido.
+  // Antes era um IIFE dentro do JSX que rodava .map(curvaData) a cada render.
+  const curvaDailyChart = useMemo(() => {
+    const hasProjecao = curvaData.some((d: any) => d[`projecao_acumulado_${curvaAnoAtual}`] !== undefined);
+    const pctKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAtual}` : `pct_meta_receita_${curvaAnoAtual}`;
+    const pctAntKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAnterior}` : `pct_meta_receita_${curvaAnoAnterior}`;
+    const pctProjKey = curvaMode === 'vendas' ? `pct_meta_projecao_vendas_${curvaAnoAtual}` : `pct_meta_projecao_receita_${curvaAnoAtual}`;
+    const acumKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`;
+    const acumAntKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`;
+    const projAcumKey = `projecao_acumulado_${curvaAnoAtual}`;
+    const projAcumReceitaKey = `projecao_acumulado_receita_${curvaAnoAtual}`;
+    const realizadoKey = `realizado_pct_${curvaAnoAtual}`;
+    const projecaoKey = `projecao_pct_${curvaAnoAtual}`;
+    const chartData = curvaData.map((d: any) => {
+      if (!hasProjecao) return d;
+      const entry: any = { ...d };
+      entry[realizadoKey] = d.is_projecao === true ? undefined : d[pctKey];
+      if (d[pctProjKey] !== undefined) entry[projecaoKey] = d[pctProjKey];
+      return entry;
+    });
+    const strokeColor = curvaMode === 'vendas' ? '#3b82f6' : '#10b981';
+    return {
+      hasProjecao, pctKey, pctAntKey, pctProjKey, acumKey, acumAntKey,
+      projAcumKey, projAcumReceitaKey, realizadoKey, projecaoKey,
+      chartData, strokeColor,
+    };
+  }, [curvaData, curvaMode, curvaAnoAtual, curvaAnoAnterior]);
 
   // ─── Pre-return derived memos ─────────────────────────────────────────────────
   // These sit BEFORE the early returns to obey hook rules. Optional chaining
@@ -2523,8 +2557,8 @@ const EventDetail: React.FC = () => {
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={curvaData} margin={CHART_MARGIN_BAR}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                  <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
-                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
+                  <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={TICK_FS_10} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={TICK_FS_12} />
                   <Tooltip
                     contentStyle={isDark ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT}
                     formatter={curvaVendasFormatter}
@@ -2539,8 +2573,8 @@ const EventDetail: React.FC = () => {
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={curvaData} margin={CHART_MARGIN_BAR}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                  <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
-                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={tickReceitaKMillis} />
+                  <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={TICK_FS_10} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={TICK_FS_12} tickFormatter={tickReceitaKMillis} />
                   <Tooltip
                     contentStyle={isDark ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT}
                     formatter={curvaReceitaFormatter}
@@ -2551,40 +2585,14 @@ const EventDetail: React.FC = () => {
                   <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
-            ) : (() => {
-              const hasProjecao = curvaData.some((d: any) => d[`projecao_acumulado_${curvaAnoAtual}`] !== undefined);
-              const pctKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAtual}` : `pct_meta_receita_${curvaAnoAtual}`;
-              const pctAntKey = curvaMode === 'vendas' ? `pct_meta_vendas_${curvaAnoAnterior}` : `pct_meta_receita_${curvaAnoAnterior}`;
-              const pctProjKey = curvaMode === 'vendas' ? `pct_meta_projecao_vendas_${curvaAnoAtual}` : `pct_meta_projecao_receita_${curvaAnoAtual}`;
-              const acumKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAtual}` : `acumulado_receita_${curvaAnoAtual}`;
-              const acumAntKey = curvaMode === 'vendas' ? `acumulado_${curvaAnoAnterior}` : `acumulado_receita_${curvaAnoAnterior}`;
-
-              let chartData = curvaData.map((d: any) => {
-                const entry = { ...d };
-                const isProj = d.is_projecao === true;
-                if (hasProjecao) {
-                  if (isProj) {
-                    entry[`realizado_pct_${curvaAnoAtual}`] = undefined;
-                  } else {
-                    entry[`realizado_pct_${curvaAnoAtual}`] = d[pctKey];
-                  }
-                  if (d[pctProjKey] !== undefined) {
-                    entry[`projecao_pct_${curvaAnoAtual}`] = d[pctProjKey];
-                  }
-                }
-                return entry;
-              });
-
-              const strokeColor = curvaMode === 'vendas' ? '#3b82f6' : '#10b981';
-
-              return (
+            ) : (
                 <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={chartData} margin={CHART_MARGIN_LINE}>
+                  <LineChart data={curvaDailyChart.chartData} margin={CHART_MARGIN_LINE}>
                     <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                    <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
+                    <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={TICK_FS_10} interval={Math.max(0, Math.floor(curvaDailyChart.chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
                     <YAxis 
                       stroke={isDark ? '#9ca3af' : '#6b7280'} 
-                      tick={{ fontSize: 12 }}
+                      tick={TICK_FS_12}
                       tickFormatter={tickPct}
                       domain={pctDomain}
                     />
@@ -2597,42 +2605,42 @@ const EventDetail: React.FC = () => {
                         let absVal = '';
                         if (d) {
                           if ((name || '').includes(String(curvaAnoAnterior))) {
-                            const abs = d[acumAntKey];
+                            const abs = d[curvaDailyChart.acumAntKey];
                             absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
                           } else {
-                            const abs = d[acumKey] || d[`projecao_acumulado_${curvaAnoAtual}`] || d[`projecao_acumulado_receita_${curvaAnoAtual}`];
+                            const abs = d[curvaDailyChart.acumKey] || d[curvaDailyChart.projAcumKey] || d[curvaDailyChart.projAcumReceitaKey];
                             absVal = abs !== undefined ? ` (${curvaMode === 'receita' ? formatCurrency(abs) : formatNumber(abs)})` : '';
                           }
                         }
                         const suffix = (name || '').includes('Projeção') ? ' (projeção)' : '';
                         return [`${pctFormatted}${absVal}${suffix}`, ''];
                       }}
-                      labelFormatter={(label: any) => `${label}`}
+                      labelFormatter={curvaDailyLabelFormatter}
                     />
                     <Legend />
                     <Line 
                       type="monotone" 
-                      dataKey={pctAntKey}
+                      dataKey={curvaDailyChart.pctAntKey}
                       name={`${curvaAnoAnterior} (% meta)`} 
                       stroke="#94a3b8" 
                       strokeWidth={2} 
                       dot={{ r: 3, fill: '#94a3b8' }} 
                       strokeDasharray="5 5"
                     />
-                    {hasProjecao ? (
+                    {curvaDailyChart.hasProjecao ? (
                       <>
                         <Line 
                           type="monotone" 
-                          dataKey={`realizado_pct_${curvaAnoAtual}`}
+                          dataKey={curvaDailyChart.realizadoKey}
                           name={`${curvaAnoAtual} Realizado`}
-                          stroke={strokeColor}
+                          stroke={curvaDailyChart.strokeColor}
                           strokeWidth={2.5} 
-                          dot={{ r: 3, fill: strokeColor }}
+                          dot={{ r: 3, fill: curvaDailyChart.strokeColor }}
                           connectNulls={false}
                         />
                         <Line 
                           type="monotone" 
-                          dataKey={`projecao_pct_${curvaAnoAtual}`}
+                          dataKey={curvaDailyChart.projecaoKey}
                           name={`${curvaAnoAtual} Projeção`}
                           stroke="#8B5CF6"
                           strokeWidth={2} 
@@ -2644,17 +2652,16 @@ const EventDetail: React.FC = () => {
                     ) : (
                       <Line 
                         type="monotone" 
-                        dataKey={pctKey}
+                        dataKey={curvaDailyChart.pctKey}
                         name={`${curvaAnoAtual} (% meta)`} 
-                        stroke={strokeColor}
+                        stroke={curvaDailyChart.strokeColor}
                         strokeWidth={2.5} 
-                        dot={{ r: 3, fill: strokeColor }} 
+                        dot={{ r: 3, fill: curvaDailyChart.strokeColor }} 
                       />
                     )}
                   </LineChart>
                 </ResponsiveContainer>
-              );
-            })()}
+            )}
 
             {!curvaLoading && curvaData.length > 0 && curvaMeta && (
               <div className="mt-4 space-y-3">
