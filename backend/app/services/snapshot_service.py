@@ -641,6 +641,30 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
 
     yesterday = date.today() - timedelta(days=1)
 
+    # SAFETY GUARD: se as fontes retornaram 0 vendas mas o snapshot já tinha dados,
+    # isso indica uma resposta suspeita/parcial (bug silencioso, conexão degradada).
+    # Abortar preserva os dados antigos; o próximo ciclo tentará novamente.
+    # Exceto em modo incremental onde "sem novos dias" é um resultado legítimo.
+    if not all_daily and not incremental and (_qtd_antes is not None and _qtd_antes > 0):
+        logger.warning(
+            f"[Snapshot] SAFETY GUARD: fontes retornaram 0 vendas para grupo='{evento_grupo}' "
+            f"mas snapshot existente tem {_qtd_antes} inscrições — abortando sem deletar."
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        log_evento(
+            ciclo_id, _job_name, "pulado",
+            grupo=evento_grupo,
+            motivo="safety_guard_zero_retorno",
+            detalhes=f"Fontes retornaram 0 vendas; snapshot com {_qtd_antes} inscrições preservado.",
+            qtd_antes=_qtd_antes, qtd_depois=_qtd_antes,
+            data_floor=data_floor,
+            duracao_ms=int((_t_log.time() - _t0) * 1000),
+        )
+        return 0
+
     # Em modo incremental NUNCA deletamos: o objetivo é exatamente preservar
     # o histórico antigo intacto e só fazer UPSERT dos dias novos.
     if not incremental and data_inicio is None:
