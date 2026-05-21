@@ -441,11 +441,17 @@ SELECT
            AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
         -- fallback 3: min_lote_ativo_evento + kit_addon
         -- só ativa quando bundle não tem nenhum lote próprio cadastrado.
+        -- NULLIF(..., 0) garante que, quando lote_evento E addon são ambos
+        -- zero/NULL, o resultado vire NULL e a COALESCE avance para o
+        -- fallback 4 (index_price). Sem isso, soma 0+0 = 0 bloqueava o
+        -- fallback 4 e causava o bug "special_price R$ 0,00" em kits
+        -- promocionais sem lote próprio (ex.: bundle 57843).
         CASE
             WHEN (SELECT COUNT(*)
                   FROM catalog_product_entity_event_lot_price
                   WHERE entity_id = cpe_parent.entity_id) = 0
-            THEN COALESCE(
+            THEN NULLIF(
+                 COALESCE(
                      (SELECT MIN(lot_value)
                       FROM catalog_product_entity_event_lot_price
                       WHERE entity_id = cpev1.value
@@ -483,7 +489,9 @@ SELECT
                       AND cpev_simple.value NOT LIKE '%Toalha%'
                       AND cpev_simple.value NOT LIKE '%Corrida +%'
                      THEN cpep.value ELSE NULL
-                 END), 0)
+                 END), 0),
+                 0
+            )
             ELSE NULL
         END,
         (SELECT MIN(pip.min_price)
