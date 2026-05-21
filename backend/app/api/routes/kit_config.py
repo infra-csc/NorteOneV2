@@ -90,6 +90,268 @@ _UNCONFIGURED_TTL = 300  # 5 minutes
 
 router = APIRouter(prefix="/api/kit-config", tags=["Kit Config"])
 
+
+@router.get("/diag-special-price")
+def diag_special_price(
+    bundle_id: Optional[int] = None,
+    nome_like: Optional[str] = None,
+    current_user=Depends(require_permission("admin_kit_config", "pode_visualizar")),
+):
+    """Diagnóstico do special_price de um bundle no Magento.
+
+    Devolve o valor que cada nível do COALESCE da query principal está
+    retornando, para identificar por que o special_price exibido está zerado
+    ou diferente do esperado.
+
+    Uso:
+      GET /api/kit-config/diag-special-price?bundle_id=12345
+      GET /api/kit-config/diag-special-price?nome_like=Promocional 50 OFF
+
+    Quando `nome_like` é informado, busca bundles cujo nome contém o termo
+    (até 20 resultados) e devolve o diagnóstico de cada um.
+    """
+    if not bundle_id and not nome_like:
+        raise HTTPException(400, "Informe bundle_id OU nome_like")
+
+    if db_module.engine_magento is None:
+        raise HTTPException(503, "engine_magento indisponível")
+
+    from app.core.db_retry import magento_run
+
+    def _work(conn):
+        results = []
+        if bundle_id:
+            target_ids = [int(bundle_id)]
+        else:
+            rows = conn.execute(text("""
+                SELECT cpe.entity_id, cpev_name.value AS nome_kit, cpev1.value AS id_evento
+                FROM catalog_product_entity cpe
+                JOIN catalog_product_entity_varchar cpev_name
+                      ON cpev_name.entity_id = cpe.entity_id AND cpev_name.attribute_id = 73
+                LEFT JOIN catalog_product_entity_varchar cpev1
+                      ON cpev1.entity_id = cpe.entity_id AND cpev1.attribute_id = 321
+                WHERE cpe.type_id = 'bundle'
+                  AND cpev_name.value LIKE :like
+                LIMIT 5
+            """), {"like": f"%{nome_like}%"}).fetchall()
+            target_ids = [int(r[0]) for r in rows]
+            if not target_ids:
+                return {"matches": [], "msg": "Nenhum bundle bate com nome_like"}
+
+        for eid in target_ids:
+            # Nome do kit e id_evento
+            meta = conn.execute(text("""
+                SELECT
+                    (SELECT value FROM catalog_product_entity_varchar
+                     WHERE entity_id = :eid AND attribute_id = 73 LIMIT 1) AS nome_kit,
+                    (SELECT value FROM catalog_product_entity_varchar
+                     WHERE entity_id = :eid AND attribute_id = 321 LIMIT 1) AS id_evento
+            """), {"eid": eid}).fetchone()
+
+            # Nível 1: EAV special_price (todos os scopes, valor bruto)
+            eav_sp = conn.execute(text("""
+                SELECT cped.store_id, cped.value
+                FROM catalog_product_entity_decimal cped
+                JOIN eav_attribute ea ON ea.attribute_id = cped.attribute_id
+                     AND ea.attribute_code = 'special_price'
+                WHERE cped.entity_id = :eid
+                ORDER BY cped.store_id
+            """), {"eid": eid}).fetchall()
+            # Nível 1 (filtrado): o que a query atual usa (value > 0, LIMIT 1)
+            eav_sp_picked = conn.execute(text("""
+                SELECT cped_sp.value
+                FROM catalog_product_entity_decimal cped_sp
+                JOIN eav_attribute ea_sp
+                      ON ea_sp.attribute_id   = cped_sp.attribute_id
+                     AND ea_sp.attribute_code = 'special_price'
+                WHERE cped_sp.entity_id = :eid
+                  AND cped_sp.value > 0
+                LIMIT 1
+            """), {"eid": eid}).fetchone()
+
+            # EAV price
+            eav_price = conn.execute(text("""
+                SELECT cped.store_id, cped.value
+                FROM catalog_product_entity_decimal cped
+                JOIN eav_attribute ea ON ea.attribute_id = cped.attribute_id
+                     AND ea.attribute_code = 'price'
+                WHERE cped.entity_id = :eid
+                ORDER BY cped.store_id
+            """), {"eid": eid}).fetchall()
+
+            # Nível 2: lotes do próprio bundle
+            lotes_bundle = conn.execute(text("""
+                SELECT lot_value, lot_sell_ends, lot_name
+                FROM catalog_product_entity_event_lot_price
+                WHERE entity_id = :eid
+                ORDER BY lot_value
+            """), {"eid": eid}).fetchall()
+            lvl2 = conn.execute(text("""
+                SELECT MIN(lot_value)
+                FROM catalog_product_entity_event_lot_price
+                WHERE entity_id = :eid
+                  AND lot_value > 0
+                  AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())
+            """), {"eid": eid}).fetchone()
+
+            # Nível 3a: lotes ativos do EVENTO (via cpev1)
+            id_evento = meta[1] if meta else None
+            lotes_evento = []
+            min_lote_evento = None
+            if id_evento:
+                try:
+                    id_evento_int = int(id_evento)
+                    lotes_evento = conn.execute(text("""
+                        SELECT lot_value, lot_sell_ends, lot_name
+                        FROM catalog_product_entity_event_lot_price
+                        WHERE entity_id = :eid
+                          AND lot_value > 0
+                        ORDER BY lot_value
+                        LIMIT 10
+                    """), {"eid": id_evento_int}).fetchall()
+                    r = conn.execute(text("""
+                        SELECT MIN(lot_value)
+                        FROM catalog_product_entity_event_lot_price
+                        WHERE entity_id = :eid
+                          AND lot_value > 0
+                          AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())
+                    """), {"eid": id_evento_int}).fetchone()
+                    min_lote_evento = float(r[0]) if r and r[0] is not None else None
+                except (ValueError, TypeError):
+                    pass
+
+            # Nível 4: index_price (mesmo filtro da query real: min_price > 0)
+            idx = conn.execute(text("""
+                SELECT MIN(min_price), MIN(final_price), MIN(price)
+                FROM catalog_product_index_price
+                WHERE entity_id = :eid
+                  AND min_price > 0
+            """), {"eid": eid}).fetchone()
+            lvl4 = float(idx[0]) if idx and idx[0] is not None else None
+
+            # Addon do kit (para nível 3): MAX(preço componente não-Distância/Modalidade/etc).
+            # Replica a mesma blacklist da MAGENTO_KITS_QUERY.
+            addon_row = conn.execute(text("""
+                SELECT COALESCE(MAX(CASE
+                    WHEN cpep.value > 0
+                     AND cpev_simple.value NOT LIKE '%Distancia%'
+                     AND cpev_simple.value NOT LIKE '%Distância%'
+                     AND cpev_simple.value NOT LIKE '%Modalidade%'
+                     AND cpev_simple.value NOT LIKE '%Personaliz%'
+                     AND cpev_simple.value NOT LIKE '%Aceite%'
+                     AND cpev_simple.value NOT LIKE '%aceito%'
+                     AND cpev_simple.value NOT LIKE '%Treinão%'
+                     AND cpev_simple.value NOT LIKE '%Horário%'
+                     AND cpev_simple.value NOT LIKE '%Bateria%'
+                     AND cpev_simple.value NOT LIKE '%Doar%'
+                     AND cpev_simple.value NOT LIKE '%Tênis%'
+                     AND cpev_simple.value NOT LIKE '%Tenis%'
+                     AND cpev_simple.value NOT LIKE '%Bike%'
+                     AND cpev_simple.value NOT LIKE '%Biciclet%'
+                     AND cpev_simple.value NOT LIKE '%Festival%'
+                     AND cpev_simple.value NOT LIKE '%Bag%'
+                     AND cpev_simple.value NOT LIKE '%Inscrição%'
+                     AND cpev_simple.value NOT LIKE '%Declaro%'
+                     AND cpev_simple.value NOT LIKE '%Pochete%'
+                     AND cpev_simple.value NOT LIKE '%Tarifa%'
+                     AND cpev_simple.value NOT LIKE '%Skate%'
+                     AND cpev_simple.value NOT LIKE '%Obstáculo%'
+                     AND cpev_simple.value NOT LIKE '%Bravinhos%'
+                     AND cpev_simple.value NOT LIKE '%teste%'
+                     AND cpev_simple.value NOT LIKE '%Porta%'
+                     AND cpev_simple.value NOT LIKE '%Luva%'
+                     AND cpev_simple.value NOT LIKE '%Toalha%'
+                     AND cpev_simple.value NOT LIKE '%Corrida +%'
+                    THEN cpep.value ELSE NULL
+                END), 0) AS addon
+                FROM catalog_product_bundle_selection cpbs
+                JOIN catalog_product_entity cpe_simple
+                      ON cpe_simple.entity_id = cpbs.product_id
+                LEFT JOIN catalog_product_entity_decimal cpep
+                      ON cpep.entity_id = cpe_simple.entity_id
+                     AND cpep.attribute_id = (SELECT attribute_id FROM eav_attribute
+                                              WHERE attribute_code='price' AND entity_type_id=4 LIMIT 1)
+                LEFT JOIN catalog_product_entity_varchar cpev_simple
+                      ON cpev_simple.entity_id = cpe_simple.entity_id
+                     AND cpev_simple.attribute_id = 73
+                WHERE cpbs.parent_product_id = :eid
+            """), {"eid": eid}).fetchone()
+            addon_val = float(addon_row[0]) if addon_row and addon_row[0] is not None else 0.0
+
+            # Status do bundle
+            status = conn.execute(text("""
+                SELECT cpei.value
+                FROM catalog_product_entity_int cpei
+                JOIN eav_attribute ea ON ea.attribute_id = cpei.attribute_id
+                     AND ea.attribute_code = 'status'
+                WHERE cpei.entity_id = :eid
+                ORDER BY cpei.store_id
+            """), {"eid": eid}).fetchall()
+
+            # Resolver qual nível ganha (replica fielmente a COALESCE da MAGENTO_KITS_QUERY)
+            lvl1_val = float(eav_sp_picked[0]) if eav_sp_picked and eav_sp_picked[0] is not None else None
+            lvl2_val = float(lvl2[0]) if lvl2 and lvl2[0] is not None else None
+            # Fallback 3 só ativa quando bundle NÃO tem lotes próprios
+            lvl3_val = None
+            if not lotes_bundle:
+                # Mesma fórmula da query real: COALESCE(min_lote_evento,0) + COALESCE(addon,0)
+                lvl3_val = (min_lote_evento or 0.0) + addon_val
+            winner = None
+            if lvl1_val is not None:
+                winner = ("nivel_1_eav_special_price", lvl1_val)
+            elif lvl2_val is not None:
+                winner = ("nivel_2_min_lote_bundle", lvl2_val)
+            elif lvl3_val is not None:
+                # ATENÇÃO: COALESCE retorna o primeiro NÃO-NULL — soma 0+0 = 0 é NÃO-NULL,
+                # então mesmo quando ambos zeram a query real retorna 0 e bloqueia o nível 4.
+                # Este é potencialmente o bug do "R$ 0,00".
+                winner = ("nivel_3_min_lote_evento + addon", lvl3_val)
+            elif lvl4 is not None:
+                winner = ("nivel_4_index_price", lvl4)
+            else:
+                winner = ("NENHUM — retornaria NULL", None)
+
+            results.append({
+                "bundle_entity_id": eid,
+                "nome_kit": meta[0] if meta else None,
+                "id_evento": id_evento,
+                "status_eav": [(s[0], int(s[1])) for s in status],
+                "nivel_1_eav_special_price": {
+                    "todos_scopes": [(s[0], float(s[1]) if s[1] is not None else None) for s in eav_sp],
+                    "valor_escolhido_pela_query": lvl1_val,
+                },
+                "eav_price_todos_scopes": [(s[0], float(s[1]) if s[1] is not None else None) for s in eav_price],
+                "nivel_2_lotes_bundle": {
+                    "todos": [{"valor": float(l[0]), "sell_ends": str(l[1]) if l[1] else None, "name": l[2]} for l in lotes_bundle],
+                    "min_ativo_query": lvl2_val,
+                },
+                "nivel_3_lotes_evento_mais_addon": {
+                    "id_evento_usado": id_evento,
+                    "amostra_lotes_evento": [{"valor": float(l[0]), "sell_ends": str(l[1]) if l[1] else None, "name": l[2]} for l in lotes_evento],
+                    "min_lote_evento_ativo": min_lote_evento,
+                    "addon_max_componente": addon_val,
+                    "soma_que_query_retornaria": lvl3_val,
+                    "fallback_so_ativa_se": "lotes_bundle estiver vazio",
+                },
+                "nivel_4_index_price": {
+                    "min_price": float(idx[0]) if idx and idx[0] is not None else None,
+                    "final_price": float(idx[1]) if idx and idx[1] is not None else None,
+                    "valor_usado_query": lvl4,
+                },
+                "VENCEDOR_DA_COALESCE": {
+                    "nivel": winner[0],
+                    "valor_retornado": winner[1],
+                },
+            })
+        return {"matches": results, "total": len(results)}
+
+    try:
+        return magento_run(_work, label="kit_config:diag-special-price", profile="request")
+    except Exception:
+        logger.exception("diag-special-price failed")
+        raise HTTPException(500, "Diagnóstico falhou — ver logs do servidor")
+
+
 MAGENTO_KITS_QUERY = """
 SELECT 
     cpev1.value                             AS id_evento,
