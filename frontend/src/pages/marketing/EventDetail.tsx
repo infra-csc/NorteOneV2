@@ -379,6 +379,9 @@ const EventDetail: React.FC = () => {
     try {
       const res = await adminService.consolidarEvento(grupoNome, consolidarIncremental);
       setConsolidarResult({ status: res.status, qtd_antes: res.qtd_antes, qtd_depois: res.qtd_depois, duracao_ms: res.duracao_ms });
+      // Invalida o cache do dashboard (lista de eventos) para que ao voltar
+      // à primeira tela os dados reflitam a reconsolidação recém-executada.
+      clearMarketingDashboardCache();
     } catch (e: any) {
       setConsolidarError(e?.response?.data?.detail ?? e?.message ?? 'Erro ao consolidar');
     } finally {
