@@ -9533,28 +9533,36 @@ def get_marketing_event_by_id(
                         f"— bypassing snapshot. payload_keys={_dbg_pl_keys}"
                     )
                     _persisted = None
-        # Descarta snapshot se dailySales está vazio mesmo com versão correta —
+        # Descarta snapshot se dailySales está vazio/ausente/null mesmo com versão correta —
         # snapshots salvos antes do fallback podiam persistir [] e travar o Controle Diário.
+        # Também cobre os casos em que a chave nem existe ou veio como null (None), que
+        # produzem charts vazios no frontend mesmo quando os KPIs do `evento` estão preenchidos.
         if _persisted is not None:
             _pl_check = _persisted.get("payload") if isinstance(_persisted, dict) else None
+            _has_ds_key = isinstance(_pl_check, dict) and "dailySales" in _pl_check
             _ds_check = _pl_check.get("dailySales") if isinstance(_pl_check, dict) else None
-            if isinstance(_ds_check, list) and len(_ds_check) == 0:
+            _ds_empty_or_missing = (
+                not _has_ds_key
+                or _ds_check is None
+                or (isinstance(_ds_check, list) and len(_ds_check) == 0)
+            )
+            if _ds_empty_or_missing:
                 logger.warning(
-                    f"[Persist] '{_ano_for_persist}_{evento_id}' snapshot tem dailySales=[] "
+                    f"[Persist] '{_ano_for_persist}_{evento_id}' snapshot com dailySales "
+                    f"vazio/ausente (key_present={_has_ds_key}, type={type(_ds_check).__name__}) "
                     f"— descartando para forçar recompute com fallback de snapshot."
                 )
                 _persisted = None
         if _persisted is not None:
-            # Stale se: (a) usuário pediu refresh, (b) versão do schema mudou,
-            # (c) evento ativo e snapshot mais antigo que último warmup ou >30 min.
+            # Stale APENAS se: (a) usuário pediu refresh explícito (botão Atualizar),
+            # ou (b) versão do schema mudou. Não dispara bg refresh automático por
+            # idade — a atualização periódica fica a cargo do warmup/scheduler e o
+            # usuário decide quando rebuscar Magento clicando em "Atualizar".
+            # Mantemos _gpd_age só para diagnóstico em logs.
             _gpd_age = (datetime.now() - _gpd_comp.replace(tzinfo=None)).total_seconds() if _gpd_comp else 9999
             _gpd_stale = (
                 _user_refresh_request
                 or _gpd_version_mismatch
-                or (
-                    (not _gpd_completed)
-                    and ((_gpd_lfr_ts and _gpd_comp_ts < _gpd_lfr_ts) or _gpd_age > 1800)
-                )
             )
             _gpd_key = f"{_ano_for_persist}_{evento_id}_detail"
             if _gpd_stale and _gpd_key not in _swr_recompute_in_progress:
@@ -9782,13 +9790,7 @@ def get_marketing_event_by_id(
                     _event_computing_events[detail_cache_key] = _compute_done_event
             _should_compute = True
 
-        # [TIMING] Instrumentação temporária — Fase 1 de análise de perf.
-        # Remover após coletar medições e otimizar gargalos.
-        _t_total = _time.perf_counter()
-        logger.info(f"[TIMING:grouped:{evento_id}] === START recompute ano={ano} ===")
-        _t_step = _time.perf_counter()
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
-        logger.info(f"[TIMING:grouped:{evento_id}] sku_mappings={_time.perf_counter()-_t_step:.2f}s n={len(mappings) if mappings else 0}")
         
         skus = [m.sku for m in mappings]
         
@@ -9823,10 +9825,8 @@ def get_marketing_event_by_id(
         detail_hist_pattern = None
         detail_curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
         _rep_estado = str(rep_projeto.estado) if rep_projeto and rep_projeto.estado else None
-        _t_step = _time.perf_counter()
         try:
             detail_hist_pattern, detail_curva_info = _resolve_hist_pattern(db, grupo_nome, ano, estado=_rep_estado)
-            logger.info(f"[TIMING:grouped:{evento_id}] resolve_hist_pattern={_time.perf_counter()-_t_step:.2f}s")
         except Exception:
             pass
         
@@ -9849,9 +9849,7 @@ def get_marketing_event_by_id(
                     # incremental=True: busca apenas dias novos desde o último snapshot,
                     # evitando rebuild completo síncrono que bloqueia a resposta por 1-2min.
                     # O serviço cai automaticamente para full rebuild se não houver snapshot prévio.
-                    _t_step = _time.perf_counter()
                     consolidar_vendas_grupo(db, grupo_nome, ano, incremental=True)
-                    logger.info(f"[TIMING:grouped:{evento_id}] consolidar_vendas_grupo(incremental)={_time.perf_counter()-_t_step:.2f}s")
                     logger.info(f"Snapshot atualizado incremental (force_refresh) para '{grupo_nome}' ano={ano}")
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
@@ -9880,9 +9878,7 @@ def get_marketing_event_by_id(
                     _detail_hist_for_daily = _norm_pat_daily
             except Exception as _e_norm_daily:
                 logger.warning(f"Falha ao obter hist_pattern normalizado p/ daily curve: {_e_norm_daily}")
-        _t_step = _time.perf_counter()
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=_detail_hist_for_daily, data_evento_real=projeto_data_evento, force_magento_refresh=force_magento_refresh)
-        logger.info(f"[TIMING:grouped:{evento_id}] fetch_real_daily_sales={_time.perf_counter()-_t_step:.2f}s n_days={len(daily_sales_list) if daily_sales_list else 0}")
 
         # ── Fallback: se daily_sales_list veio vazio mas existe snapshot, reconstrói diretamente ──
         if not daily_sales_list and grupo_nome:
@@ -10028,8 +10024,6 @@ def get_marketing_event_by_id(
             grupo_media_30d = 0.0
         
         avg_ticket = round(current_receita / current_sales, 2) if current_sales > 0 else 0.0
-        logger.info(f"[TIMING:grouped:{evento_id}] checkpoint=post_isc_and_avg_ticket elapsed={_time.perf_counter()-_t_total:.2f}s")
-        _t_step = _time.perf_counter()
         detail_bt_total_receita = 0.0
         detail_bt_total_qtd = 0
         for p in projetos:
@@ -10038,8 +10032,6 @@ def get_marketing_event_by_id(
                 detail_bt_total_receita += float(detail_cad.atletas_site_tkt_medio) * int(detail_cad.atletas_site_pago)
                 detail_bt_total_qtd += int(detail_cad.atletas_site_pago)
         detail_budget_ticket = round(detail_bt_total_receita / detail_bt_total_qtd, 2) if detail_bt_total_qtd > 0 else 0.0
-        logger.info(f"[TIMING:grouped:{evento_id}] budget_ticket_loop={_time.perf_counter()-_t_step:.2f}s n_proj={len(projetos)}")
-        _t_step = _time.perf_counter()
         # Use ISC cache medias for the ISC component calculation so that the
         # detail view produces the same ISC value as the list view (consistency).
         # When normalized-ISC mode is ON, the normalized run instead uses
@@ -10144,9 +10136,6 @@ def get_marketing_event_by_id(
         grupo_projeto_ids = [p.id for p in projetos]
         _grupo_incluir_cortesias = bool(getattr(grupo, 'incluir_cortesias', False))
         _detail_margem_avisos: list = []
-        logger.info(f"[TIMING:grouped:{evento_id}] isc_and_kit_weighting={_time.perf_counter()-_t_step:.2f}s elapsed_total={_time.perf_counter()-_t_total:.2f}s")
-        logger.info(f"[TIMING:grouped:{evento_id}] >>> ENTERING get_margem_por_kit force_refresh={force_refresh or force_magento_refresh} n_proj={len(grupo_projeto_ids)} current_sales={current_sales}")
-        _t_step_margem = _time.perf_counter()
         detail_margem_por_kit = get_margem_por_kit(
             db,
             grupo_projeto_ids,
@@ -10230,12 +10219,6 @@ def get_marketing_event_by_id(
         
         daily_sales = daily_sales_list
         
-        # [TIMING] log do get_margem_por_kit (timer iniciado em _t_step_margem)
-        try:
-            logger.info(f"[TIMING:grouped:{evento_id}] get_margem_por_kit={_time.perf_counter()-_t_step_margem:.2f}s n_kits={len(detail_margem_por_kit) if detail_margem_por_kit else 0}")
-        except Exception:
-            pass
-        _t_step_actions = _time.perf_counter()
         from ...models.dimensoes import AcaoComercial
         commercial_actions = []
         projeto_ids = [p.id for p in projetos]
@@ -10514,20 +10497,12 @@ def get_marketing_event_by_id(
             logger.info(f"Event '{grupo_nome}' ({projeto_data_evento}) cached permanently (completed event)")
         else:
             event_detail_cache.set(detail_cache_key, grouped_result)
-        # [TIMING] log do bloco de actions (timer iniciado em _t_step_actions)
-        try:
-            logger.info(f"[TIMING:grouped:{evento_id}] commercial_actions={_time.perf_counter()-_t_step_actions:.2f}s n_actions={len(commercial_actions) if commercial_actions else 0}")
-        except Exception:
-            pass
         # Persiste em PostgreSQL para sobreviver a restarts e cache invalidations
-        _t_step = _time.perf_counter()
         try:
             from ...services.event_detail_snapshot_service import save_persisted_detail as _spd
             _spd(db, evento_id, ano, grouped_result, data_evento=projeto_data_evento, is_completed=_event_is_past)
         except Exception as _spd_e:
             logger.warning(f"[Persist] save grouped '{evento_id}/{ano}' falhou: {_spd_e}")
-        logger.info(f"[TIMING:grouped:{evento_id}] save_persisted_detail={_time.perf_counter()-_t_step:.2f}s")
-        logger.info(f"[TIMING:grouped:{evento_id}] === TOTAL recompute={_time.perf_counter()-_t_total:.2f}s ===")
         # ISC e eventos_list NÃO são invalidados aqui: o STEP 4b em fetch_isc_pricing_data
         # lê EventoDetailSnapshot dinamicamente na próxima reconstrução natural do ISC.
         # Invalidar a cada evento concluído causa cascata de rebuilds durante warm-up.
