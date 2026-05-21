@@ -135,6 +135,14 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
             daily[daily_idx_map[today_str]].get("sales") or 0
         ) if today_str in daily_idx_map else 0
 
+        # Âncora: último dia presente no dailySales do snapshot.
+        # Dias do VendasDiariaSnapshot com date > max_snapshot_date são genuinamente
+        # novos (não contabilizados no currentSales base) e devem incrementar o delta.
+        # Dias <= max_snapshot_date que não estão no daily_idx_map são "buracos"
+        # históricos — já estavam no currentSales do snapshot; inserimos no gráfico
+        # para visualização mas NÃO somamos ao delta (evita duplicação do total).
+        max_snapshot_date = max(daily_idx_map.keys()) if daily_idx_map else ""
+
         # Aplica sobreposição para cada dia disponível no PG local.
         # Delta acumulado = soma de (novo - antigo) em todos os dias sobrepostos.
         total_qty_delta = 0
@@ -150,14 +158,20 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
                     daily[idx] = updated
                     total_qty_delta += delta
             elif new_qty > 0:
-                # Dia ausente no snapshot: adiciona como nova entrada.
+                # Dia ausente no snapshot: adiciona como nova entrada para o gráfico.
                 daily.append({
                     "date": day_str,
                     "sales": new_qty,
                     "expected": 0,
                     "cumulativeExpected": 0,
                 })
-                total_qty_delta += new_qty
+                # Só ajusta currentSales para dias APÓS o último dia do snapshot.
+                # Dias históricos dentro do range do snapshot mas ausentes do dailySales
+                # (ex.: quando a query Magento usa data_floor recente e o dailySales
+                # é truncado) já estão contabilizados no currentSales base — somá-los
+                # novamente causaria duplicação do total exibido.
+                if day_str > max_snapshot_date:
+                    total_qty_delta += new_qty
 
         out["dailySales"] = daily
 
