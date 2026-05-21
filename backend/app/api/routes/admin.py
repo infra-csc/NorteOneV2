@@ -350,7 +350,7 @@ def trigger_consolidar_evento(
     from datetime import date as _date, timedelta
     from app.services.snapshot_service import consolidar_vendas_grupo
     from app.services.sync_log_service import new_ciclo_id, log_evento
-    from app.models.vendas_diaria_snapshot import VendasDiariaSnapshot
+    from app.models.vendas_snapshot import VendasDiariaSnapshot
     from sqlalchemy import func as sa_func2
 
     ciclo_id = new_ciclo_id()
