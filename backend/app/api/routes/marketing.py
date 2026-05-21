@@ -9259,6 +9259,66 @@ def _invalidate_cortesia_cache():
     _cortesia_cache_ts = 0.0
 
 
+# ── TTL cache (60s) para o payload final do detalhe de evento ──────────────
+# Evita reaplicar overlay e re-renderizar o JSON em rajadas de acessos ao mesmo
+# evento. Invalidado automaticamente quando save_persisted_detail grava.
+_detail_final_cache: dict = {}
+_DETAIL_FINAL_TTL: float = 60.0
+
+
+def _detail_final_cache_get(key: str):
+    import time as _t
+    entry = _detail_final_cache.get(key)
+    if entry and (_t.monotonic() - entry[0]) < _DETAIL_FINAL_TTL:
+        return entry[1]
+    return None
+
+
+def _detail_final_cache_set(key: str, payload: dict) -> None:
+    import time as _t
+    _detail_final_cache[key] = (_t.monotonic(), payload)
+
+
+def invalidate_detail_final_cache(evento_id: str | None = None, ano: int | None = None) -> None:
+    """Invalida o cache TTL do payload final. Chamada pelo save_persisted_detail."""
+    if evento_id is None or ano is None:
+        _detail_final_cache.clear()
+        return
+    _detail_final_cache.pop(f"{ano}_{evento_id}_detail_final", None)
+
+
+def _bust_commercial_actions_cache_for_projeto(db: Session, projeto_id: int) -> None:
+    """Após mutação em AcaoComercial, garante que o próximo GET do detalhe
+    recompute commercialActions. Limpa o cache TTL em memória e remove a chave
+    commercialActions dos snapshots que referenciam o projeto, forçando o hot
+    path a re-buscar via _fetch_commercial_actions_from_db (fallback legacy)."""
+    try:
+        _detail_final_cache.clear()
+    except Exception:
+        pass
+    try:
+        from ...models.evento_detail_snapshot import EventoDetailSnapshot
+        from sqlalchemy import text as _sql_text
+
+        db.execute(
+            _sql_text(
+                """
+                UPDATE evento_detail_snapshot
+                SET payload = payload - 'commercialActions'
+                WHERE payload -> 'projetos_vinculados' @> CAST(:p AS jsonb)
+                """
+            ),
+            {"p": f'[{{"id": {int(projeto_id)}}}]'},
+        )
+        db.commit()
+    except Exception as _e:
+        logger.warning(f"[CacheBust] commercialActions snapshot strip falhou projeto={projeto_id}: {_e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def _populate_cenarios_from_bundles(
     db: Session,
     bundle_to_cenario: dict,
@@ -9494,6 +9554,15 @@ def get_marketing_event_by_id(
     _bootstrap_evento_partial = None
     _bootstrap_partial_computed_at = None
     if _USE_SNAPSHOT_FIRST and not _internal_recompute:
+        # TTL cache (60s) do payload final já com overlay: serve eventos populares
+        # em ~5ms sem reabrir o snapshot nem recomputar overlay.
+        _final_key = f"{_ano_for_persist}_{evento_id}_detail_final"
+        _final_cached = _detail_final_cache_get(_final_key)
+        if _final_cached is not None:
+            if response is not None:
+                response.headers["X-Data-Stale"] = "false"
+                response.headers["X-Cache-Hit"] = "memory"
+            return _final_cached
         try:
             from ...services.event_detail_snapshot_service import (
                 get_persisted_detail as _gpd,
@@ -9628,18 +9697,25 @@ def get_marketing_event_by_id(
                     _gpd_pids = [int(evento_id)]
                 except (ValueError, TypeError):
                     pass
-            _gpd_result["commercialActions"] = _fetch_commercial_actions_from_db(db, _gpd_pids)
-            # Sempre injeta faixas_preco_site frescas do banco — o snapshot pode ter valores
-            # desatualizados se o cadastro foi editado após o último recompute.
-            if _gpd_pids:
+            # Snapshot agora persiste commercialActions e faixas_preco_site
+            # (calculados no recompute/reconsolidar). Só refazemos a query
+            # quando o snapshot é legado (não tem o campo).
+            if "commercialActions" not in _gpd_result:
+                _gpd_result["commercialActions"] = _fetch_commercial_actions_from_db(db, _gpd_pids)
+            if "faixas_preco_site" not in _gpd_result and _gpd_pids:
                 try:
                     _gpd_result["faixas_preco_site"] = _get_faixas_preco_site_for_projeto_ids(db, _gpd_pids)
                 except Exception as _fps_e:
-                    logger.warning(f"[Persist] faixas_preco_site refresh falhou: {_fps_e}")
+                    logger.warning(f"[Persist] faixas_preco_site fallback falhou: {_fps_e}")
             if response is not None:
                 response.headers["X-Data-Stale"] = "true" if _gpd_stale else "false"
                 if _gpd_version_mismatch:
                     response.headers["X-Schema-Stale"] = "true"
+            # Guarda no TTL cache (60s) — próximos GETs do mesmo evento batem em memória.
+            try:
+                _detail_final_cache_set(_final_key, _gpd_result)
+            except Exception:
+                pass
             return _gpd_result
 
     # ── PAYLOAD PARCIAL OU "SEM SNAPSHOT" PARA REQUEST DE USUÁRIO ─────────────
@@ -10517,6 +10593,17 @@ def get_marketing_event_by_id(
         except Exception as _mpk_g_e:
             logger.debug(f"[Persist] guard margemPorKit '{evento_id}/{ano}': {_mpk_g_e}")
 
+        # Computa commercialActions ANTES de persistir, para que o snapshot
+        # contenha os impactos já calculados — eliminando N+1 (queries Magento
+        # por ação) no GET subsequente.
+        try:
+            grouped_result["commercialActions"] = _fetch_commercial_actions_from_db(
+                db, [p.id for p in projetos]
+            )
+        except Exception as _ca_e:
+            logger.warning(f"[Persist] grouped commercialActions falhou: {_ca_e}")
+            grouped_result.setdefault("commercialActions", [])
+
         if _event_is_past:
             grouped_result["__is_completed"] = True
             event_detail_cache.set_permanent(detail_cache_key, grouped_result)
@@ -10538,7 +10625,6 @@ def get_marketing_event_by_id(
         if _done_evt is not None:
             _done_evt.set()
         response_result = {k: v for k, v in grouped_result.items() if k != "__is_completed"}
-        response_result["commercialActions"] = _fetch_commercial_actions_from_db(db, [p.id for p in projetos])
         return response_result
     
     projeto = _wq_dim_projeto_by_id(db, int(evento_id))
@@ -10970,6 +11056,16 @@ def get_marketing_event_by_id(
     except Exception as _sa_mpk_g_e:
         logger.debug(f"[Persist] guard margemPorKit standalone '{evento_id}/{ano}': {_sa_mpk_g_e}")
 
+    # Computa commercialActions ANTES de persistir, para que o snapshot já carregue
+    # os impactos calculados — elimina N+1 (queries Magento por ação) no GET.
+    try:
+        standalone_result["commercialActions"] = _fetch_commercial_actions_from_db(
+            db, [int(evento_id)]
+        )
+    except Exception as _ca_sa_e:
+        logger.warning(f"[Persist] standalone commercialActions falhou: {_ca_sa_e}")
+        standalone_result.setdefault("commercialActions", [])
+
     if _sa_event_is_past:
         standalone_result["__is_completed"] = True
         event_detail_cache.set_permanent(standalone_cache_key, standalone_result)
@@ -10983,7 +11079,6 @@ def get_marketing_event_by_id(
     except Exception as _spd_sa_e:
         logger.warning(f"[Persist] save standalone '{evento_id}/{ano}' falhou: {_spd_sa_e}")
     sa_result = {k: v for k, v in standalone_result.items() if k != "__is_completed"}
-    sa_result["commercialActions"] = _fetch_commercial_actions_from_db(db, [int(evento_id)])
     return sa_result
 
 
@@ -12269,6 +12364,7 @@ def create_acao_comercial(
     db.add(nova_acao)
     db.commit()
     db.refresh(nova_acao)
+    _bust_commercial_actions_cache_for_projeto(db, nova_acao.projeto_id)
 
     return {
         "status": "success",
@@ -12308,7 +12404,8 @@ def update_acao_comercial(
     
     db.commit()
     db.refresh(acao)
-    
+    _bust_commercial_actions_cache_for_projeto(db, acao.projeto_id)
+
     return {
         "status": "success",
         "message": "Ação comercial atualizada com sucesso",
@@ -12335,8 +12432,10 @@ def delete_acao_comercial(
     if not acao:
         raise HTTPException(status_code=404, detail="Ação comercial não encontrada")
     
+    _proj_id_for_bust = acao.projeto_id
     db.delete(acao)
     db.commit()
+    _bust_commercial_actions_cache_for_projeto(db, _proj_id_for_bust)
 
     return {
         "status": "success",

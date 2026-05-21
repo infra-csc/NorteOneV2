@@ -91,8 +91,14 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
     lookback_start = today - timedelta(days=OVERLAY_LOOKBACK_DAYS)
 
     try:
+        # `.with_entities()` evita hidratação ORM completa (até ~10x mais rápido em
+        # eventos com janela de 90 dias e tabela grande).
         recent_rows = (
-            db.query(VendasDiariaSnapshot)
+            db.query(
+                VendasDiariaSnapshot.data_venda,
+                VendasDiariaSnapshot.quantidade,
+                VendasDiariaSnapshot.receita,
+            )
             .filter(
                 VendasDiariaSnapshot.evento_grupo == grupo_nome,
                 VendasDiariaSnapshot.fonte == "CONSOLIDADO",
@@ -107,9 +113,9 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
 
     # Mapa de dias disponíveis no PG local: {date_str: {qty, revenue}}
     db_days: dict = {
-        r.data_venda.isoformat(): {
-            "qty": int(r.quantidade or 0),
-            "revenue": float(r.receita or 0.0),
+        r[0].isoformat(): {
+            "qty": int(r[1] or 0),
+            "revenue": float(r[2] or 0.0),
         }
         for r in recent_rows
     }
@@ -547,11 +553,13 @@ def save_persisted_detail(
     """
     try:
         json_safe = _to_jsonable(payload)
-        # Remove campos voláteis que devem ser injetados a cada request
+        # Apenas remove o marker interno; commercialActions e faixas_preco_site
+        # agora são persistidos no snapshot (foram pré-calculados pelo recompute)
+        # para evitar N+1 queries e chamadas a Magento no GET.
         if isinstance(json_safe, dict):
             json_safe = {
                 k: v for k, v in json_safe.items()
-                if k not in ("commercialActions", "__is_completed")
+                if k != "__is_completed"
             }
 
         # ── Salvaguarda para eventos concluídos ─────────────────────────────
@@ -609,6 +617,13 @@ def save_persisted_detail(
         )
         db.execute(stmt)
         db.commit()
+        # Invalida o TTL cache (60s) do payload final em marketing.py para que o
+        # próximo GET veja imediatamente o snapshot recém-gravado.
+        try:
+            from ..api.routes.marketing import invalidate_detail_final_cache as _inv
+            _inv(evento_id, ano)
+        except Exception:
+            pass
         return True
     except Exception as e:
         logger.warning(f"[EventDetailSnapshot] save failed for {evento_id}/{ano}: {e}")
