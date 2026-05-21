@@ -933,12 +933,20 @@ const EventDetail: React.FC = () => {
     setShowConsolidarModal(true);
     try {
       await marketingService.recalcularSnapshot(id);
-      // Limpa flags e recarrega snapshot recém-salvo (sem force, lê do PG).
+      // Limpa flags e recarrega snapshot recém-salvo. forceRefresh=true para
+      // bypass do event_detail_cache do backend — sem isso o cache devolveria
+      // o status 'partial' antigo e o banner amarelo continuaria aparecendo,
+      // além do gráfico "Atingimento da Meta por D-" ficar com dailySales stale.
       setNoSnapshot(false);
       setIsPartial(false);
       setPartialMessage(null);
       setPartialComputedAt(null);
-      if (fetchEventRef.current) fetchEventRef.current(false, false, false);
+      // Também invalida o cache do dashboard (lista geral do ISC).
+      clearMarketingDashboardCache();
+      if (fetchEventRef.current) fetchEventRef.current(true, true, false);
+      // Refaz curva comparativa, médias de venda, snapshot do controle diário
+      // e insights — caso contrário esses blocos permaneceriam stale.
+      setSecondaryRefreshToken(t => t + 1);
       setConsolidarResult({
         status: 'ok',
         qtd_antes: null,
@@ -2039,12 +2047,13 @@ const EventDetail: React.FC = () => {
           )}
           {isAdmin && (
             <button
-              onClick={() => { setConsolidarResult(null); setConsolidarError(null); setShowConsolidarModal(true); }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${isDark ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'}`}
+              onClick={handleReconsolidar}
+              disabled={reconsolidating}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${reconsolidating ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'}`}
               title="Reconstruir o histórico de vendas deste evento consultando Ativo e Magento (apenas admin)"
             >
-              <DatabaseZap className="w-4 h-4" />
-              <span className="text-sm font-medium whitespace-nowrap">Reconsolidar</span>
+              <DatabaseZap className={`w-4 h-4 ${reconsolidating ? 'animate-pulse' : ''}`} />
+              <span className="text-sm font-medium whitespace-nowrap">{reconsolidating ? 'Reconsolidando...' : 'Reconsolidar'}</span>
             </button>
           )}
           <button
