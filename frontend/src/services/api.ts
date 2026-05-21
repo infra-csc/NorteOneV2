@@ -665,6 +665,20 @@ export const adminService = {
       }>;
     };
   },
+  consolidarEvento: async (eventoGrupo: string, incremental: boolean = false) => {
+    const response = await api.post(
+      `/admin/snapshots/consolidar-evento?evento_grupo=${encodeURIComponent(eventoGrupo)}&incremental=${incremental}`
+    );
+    return response.data as {
+      status: string;
+      evento_grupo: string;
+      incremental: boolean;
+      qtd_antes: number | null;
+      qtd_depois: number | null;
+      duracao_ms: number;
+      ciclo_id: string;
+    };
+  },
   getSyncPauseStatus: async () => {
     const response = await api.get('/admin/sync/pause-status');
     return response.data as { paused: boolean; by: string | null; since: string | null };

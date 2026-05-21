@@ -334,6 +334,90 @@ def get_snapshot_consolidation_full_progress(
         return _copy.deepcopy(_consolidation_full_progress)
 
 
+@router.post("/snapshots/consolidar-evento")
+def trigger_consolidar_evento(
+    evento_grupo: str = Query(..., description="Nome do grupo de evento a consolidar"),
+    incremental: bool = Query(default=False, description="Se True, apenas dias novos; se False, reconstrói completo"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Consolida o snapshot de vendas de um único evento específico.
+
+    Executa de forma síncrona e retorna o resultado completo com qtd_antes/depois.
+    Requer permissão admin_monitoramento.
+    """
+    import time as _t
+    from datetime import date as _date, timedelta
+    from app.services.snapshot_service import consolidar_vendas_grupo
+    from app.services.sync_log_service import new_ciclo_id, log_evento
+    from app.models.vendas_diaria_snapshot import VendasDiariaSnapshot
+    from sqlalchemy import func as sa_func2
+
+    ciclo_id = new_ciclo_id()
+    triggered_by = current_user.email if hasattr(current_user, 'email') else str(current_user.id)
+    ano = _date.today().year
+    yesterday = _date.today() - timedelta(days=1)
+
+    # qtd_antes
+    try:
+        qtd_antes = int(
+            db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
+            .filter(
+                VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                VendasDiariaSnapshot.ano == ano,
+            ).scalar() or 0
+        )
+    except Exception:
+        qtd_antes = None
+
+    log_evento(ciclo_id, "consolidar_evento_manual", "iniciado", nivel="ciclo",
+               detalhes=f"grupo={evento_grupo} incremental={incremental} por {triggered_by}")
+
+    t0 = _t.time()
+    try:
+        consolidar_vendas_grupo(
+            db, evento_grupo, ano,
+            data_inicio=None, data_fim=yesterday,
+            incremental=incremental,
+            ciclo_id=ciclo_id,
+            parent_job_name="consolidar_evento_manual",
+        )
+        duracao_ms = int((_t.time() - t0) * 1000)
+
+        try:
+            qtd_depois = int(
+                db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
+                .filter(
+                    VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                    VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                    VendasDiariaSnapshot.ano == ano,
+                ).scalar() or 0
+            )
+        except Exception:
+            qtd_depois = None
+
+        log_evento(ciclo_id, "consolidar_evento_manual", "concluido", nivel="ciclo",
+                   detalhes=f"qtd_antes={qtd_antes} qtd_depois={qtd_depois}",
+                   duracao_ms=duracao_ms)
+
+        return {
+            "status": "ok",
+            "evento_grupo": evento_grupo,
+            "incremental": incremental,
+            "qtd_antes": qtd_antes,
+            "qtd_depois": qtd_depois,
+            "duracao_ms": duracao_ms,
+            "ciclo_id": ciclo_id,
+        }
+    except Exception as exc:
+        duracao_ms = int((_t.time() - t0) * 1000)
+        logger.error(f"consolidar_evento_manual: erro grupo='{evento_grupo}': {exc}")
+        log_evento(ciclo_id, "consolidar_evento_manual", "falha", nivel="ciclo",
+                   grupo=evento_grupo, motivo=str(exc)[:300], duracao_ms=duracao_ms)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/sync-logs/cycles")
 def list_sync_cycles(
     job: Optional[str] = Query(default=None, description="Filtra por job_name"),

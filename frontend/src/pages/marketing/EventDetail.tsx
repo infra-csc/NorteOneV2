@@ -27,7 +27,9 @@ import {
   ChevronDown,
   ChevronUp,
   Archive,
-  Sliders
+  Sliders,
+  DatabaseZap,
+  CheckCheck
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -43,7 +45,7 @@ import {
   ReferenceLine,
   Cell
 } from 'recharts';
-import api, { marketingService, MarketingEvent, clearMarketingDashboardCache } from '../../services/api';
+import api, { marketingService, MarketingEvent, clearMarketingDashboardCache, adminService } from '../../services/api';
 import { 
   getISCColor, 
   getISCEmoji, 
@@ -359,6 +361,32 @@ const EventDetail: React.FC = () => {
   const PREPARING_GIVE_UP_MS = 3 * 60 * 1000;
 
   const isConsolidated = id?.startsWith('grp_') ?? false;
+
+  // ── Consolidação de evento único (admin) ────────────────────────────────────
+  const [showConsolidarModal, setShowConsolidarModal] = useState(false);
+  const [consolidarIncremental, setConsolidarIncremental] = useState(false);
+  const [consolidarLoading, setConsolidarLoading] = useState(false);
+  const [consolidarResult, setConsolidarResult] = useState<{
+    status: string; qtd_antes: number | null; qtd_depois: number | null; duracao_ms: number;
+  } | null>(null);
+  const [consolidarError, setConsolidarError] = useState<string | null>(null);
+
+  const handleConsolidarEvento = async () => {
+    const grupoNome = isConsolidated ? id!.replace(/^grp_/, '') : id!;
+    setConsolidarLoading(true);
+    setConsolidarError(null);
+    setConsolidarResult(null);
+    try {
+      const res = await adminService.consolidarEvento(grupoNome, consolidarIncremental);
+      setConsolidarResult({ status: res.status, qtd_antes: res.qtd_antes, qtd_depois: res.qtd_depois, duracao_ms: res.duracao_ms });
+    } catch (e: any) {
+      setConsolidarError(e?.response?.data?.detail ?? e?.message ?? 'Erro ao consolidar');
+    } finally {
+      setConsolidarLoading(false);
+    }
+  };
+  // ────────────────────────────────────────────────────────────────────────────
+
   const projFaixasHydratedRef = useRef<string | null>(null);
   const projFaixasFetchTokenRef = useRef<number>(0);
   const projFaixasSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1593,6 +1621,16 @@ const EventDetail: React.FC = () => {
               </span>
             </label>
           )}
+          {isAdmin && (
+            <button
+              onClick={() => { setConsolidarResult(null); setConsolidarError(null); setShowConsolidarModal(true); }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${isDark ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'}`}
+              title="Reconstruir o histórico de vendas deste evento consultando Ativo e Magento (apenas admin)"
+            >
+              <DatabaseZap className="w-4 h-4" />
+              <span className="text-sm font-medium whitespace-nowrap">Reconsolidar</span>
+            </button>
+          )}
           <button
             onClick={handleForceRefresh}
             disabled={refreshing}
@@ -1604,6 +1642,134 @@ const EventDetail: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* ── Modal Reconsolidar Evento (admin) ─────────────────────────────────── */}
+      {showConsolidarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!consolidarLoading) setShowConsolidarModal(false); }} />
+          <div className={`relative w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+
+            {/* Header */}
+            <div className={`flex items-center justify-between px-5 py-4 border-b ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-gray-50'}`}>
+              <div className="flex items-center gap-2.5">
+                <DatabaseZap className={`w-5 h-5 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                <div>
+                  <h2 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Reconsolidar Dados do Evento</h2>
+                  <p className={`text-xs mt-0.5 truncate max-w-[260px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {isConsolidated ? id!.replace(/^grp_/, '') : id}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => { if (!consolidarLoading) setShowConsolidarModal(false); }}
+                disabled={consolidarLoading}
+                className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-5 py-5 space-y-4">
+              {/* Resultado OK */}
+              {consolidarResult && !consolidarError && (
+                <div className={`rounded-xl border p-4 space-y-3 ${isDark ? 'bg-emerald-900/20 border-emerald-700/50' : 'bg-emerald-50 border-emerald-200'}`}>
+                  <div className="flex items-center gap-2">
+                    <CheckCheck className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                    <p className={`font-bold text-sm ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>Consolidação concluída!</p>
+                  </div>
+                  <div className={`grid grid-cols-3 gap-3 text-xs ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>
+                    <div className="text-center">
+                      <p className="opacity-70 mb-1">Antes</p>
+                      <p className="text-2xl font-bold">{consolidarResult.qtd_antes ?? '—'}</p>
+                    </div>
+                    <div className="flex items-center justify-center">
+                      <span className="text-lg opacity-50">→</span>
+                    </div>
+                    <div className="text-center">
+                      <p className="opacity-70 mb-1">Depois</p>
+                      <p className={`text-2xl font-bold ${(consolidarResult.qtd_depois ?? 0) > (consolidarResult.qtd_antes ?? 0) ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : ''}`}>
+                        {consolidarResult.qtd_depois ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+                  <p className={`text-xs text-center opacity-60`}>
+                    Duração: {consolidarResult.duracao_ms < 1000 ? `${consolidarResult.duracao_ms}ms` : `${(consolidarResult.duracao_ms / 1000).toFixed(1)}s`}
+                  </p>
+                  <button
+                    onClick={() => { setShowConsolidarModal(false); handleForceRefresh(); }}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                  >
+                    <RefreshCw className="w-4 h-4" /> Fechar e atualizar página
+                  </button>
+                </div>
+              )}
+
+              {/* Erro */}
+              {consolidarError && (
+                <div className={`rounded-xl border p-4 ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-200'}`}>
+                  <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-red-300' : 'text-red-700'}`}>Erro na consolidação</p>
+                  <p className={`text-xs font-mono break-all ${isDark ? 'text-red-400' : 'text-red-600'}`}>{consolidarError}</p>
+                  <button
+                    onClick={() => setConsolidarError(null)}
+                    className={`mt-3 text-xs underline ${isDark ? 'text-red-400' : 'text-red-600'}`}
+                  >Tentar novamente</button>
+                </div>
+              )}
+
+              {/* Configuração (só aparece antes de rodar) */}
+              {!consolidarResult && !consolidarError && (
+                <>
+                  <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
+                    Reconstrói o histórico de vendas deste evento buscando dados diretamente do Ativo e do Magento.
+                    Corrige snapshots desatualizados ou com dados incompletos.
+                  </p>
+
+                  <div className={`rounded-xl border p-3 space-y-2 ${isDark ? 'bg-gray-800/60 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                    <p className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Modo</p>
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer border transition-colors ${!consolidarIncremental ? (isDark ? 'border-indigo-500 bg-indigo-900/20' : 'border-indigo-400 bg-indigo-50') : (isDark ? 'border-gray-700' : 'border-transparent')}`}>
+                      <input type="radio" name="modo_evento" checked={!consolidarIncremental} onChange={() => setConsolidarIncremental(false)} className="mt-0.5 accent-indigo-500" />
+                      <div>
+                        <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Reconstrução completa <span className="ml-1 font-normal text-amber-600 dark:text-amber-400">(recomendado)</span></p>
+                        <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Apaga e regrava todo o histórico do evento.</p>
+                      </div>
+                    </label>
+                    <label className={`flex items-start gap-2.5 p-2.5 rounded-lg cursor-pointer border transition-colors ${consolidarIncremental ? (isDark ? 'border-indigo-500 bg-indigo-900/20' : 'border-indigo-400 bg-indigo-50') : (isDark ? 'border-gray-700' : 'border-transparent')}`}>
+                      <input type="radio" name="modo_evento" checked={consolidarIncremental} onChange={() => setConsolidarIncremental(true)} className="mt-0.5 accent-indigo-500" />
+                      <div>
+                        <p className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Incremental</p>
+                        <p className={`text-xs mt-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Busca apenas dias novos desde o último snapshot.</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div className={`flex items-start gap-2 px-3 py-2.5 rounded-lg border text-xs ${isDark ? 'bg-amber-900/20 border-amber-700/50 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    <span>Pode levar de alguns segundos a 1-2 minutos dependendo do Magento. Os dados anteriores são preservados se a fonte retornar erro.</span>
+                  </div>
+
+                  <button
+                    onClick={handleConsolidarEvento}
+                    disabled={consolidarLoading}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-60 ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+                  >
+                    {consolidarLoading
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Consolidando...</>
+                      : <><DatabaseZap className="w-4 h-4" /> {consolidarIncremental ? 'Iniciar Incremental' : 'Iniciar Reconstrução'}</>
+                    }
+                  </button>
+
+                  {consolidarLoading && (
+                    <p className={`text-xs text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Aguarde, consultando Ativo e Magento…
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {refreshSuccess && (
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-3 flex items-center gap-3">
