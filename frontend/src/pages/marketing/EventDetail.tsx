@@ -29,7 +29,8 @@ import {
   Archive,
   Sliders,
   DatabaseZap,
-  CheckCheck
+  CheckCheck,
+  BarChart3
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -3720,6 +3721,16 @@ const EventDetail: React.FC = () => {
           </div>
         </div>
         <div className="h-80">
+          {filteredAttainmentData.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-6 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
+              <BarChart3 className="w-10 h-10 text-gray-400 dark:text-gray-500 mb-3" />
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Sem dados diários para exibir</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-md">
+                Os indicadores acima estão carregados, mas o detalhamento dia-a-dia ainda não foi consolidado para este evento.
+                {isAdmin && ' Use o botão "Atualizar" no topo para reconsolidar.'}
+              </p>
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={filteredAttainmentData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
@@ -3754,6 +3765,7 @@ const EventDetail: React.FC = () => {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -3816,6 +3828,15 @@ const EventDetail: React.FC = () => {
                 : `Vendas Diárias (Últimos ${last30Days.length} ${last30Days.length === 1 ? 'dia' : 'dias'})`}
             </p>
             <div className="h-56">
+              {last30Days.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center px-6 bg-gray-50 dark:bg-gray-900/30 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
+                  <BarChart3 className="w-8 h-8 text-gray-400 dark:text-gray-500 mb-2" />
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Sem vendas diárias consolidadas</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    {isAdmin ? 'Clique em "Atualizar" para buscar do Magento.' : 'Aguarde a próxima consolidação ou peça ao admin.'}
+                  </p>
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={last30Days}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
@@ -3840,6 +3861,7 @@ const EventDetail: React.FC = () => {
                   />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
