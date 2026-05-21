@@ -60,6 +60,52 @@ const EventInsights = lazy(() => import('./EventInsights'));
 const EventSimulator = lazy(() => import('./EventSimulator'));
 const DailySalesTable = lazy(() => import('./DailySalesTable'));
 
+// ─── Recharts-stable references (hoisted to module level) ──────────────────────
+// Margens, content-styles e tickFormatters definidos uma única vez para
+// que Recharts não detecte mudança de props a cada render do componente pai.
+const CHART_MARGIN_BAR = { top: 5, right: 30, left: 20, bottom: 5 } as const;
+const CHART_MARGIN_LINE = { top: 10, right: 30, left: 20, bottom: 5 } as const;
+const TOOLTIP_STYLE_DARK_CARD = {
+  backgroundColor: '#1F2937',
+  border: 'none',
+  borderRadius: '8px',
+  color: '#fff',
+} as const;
+const TOOLTIP_STYLE_DARK = {
+  backgroundColor: '#1f2937',
+  border: '1px solid #374151',
+  borderRadius: '8px',
+  color: '#fff',
+} as const;
+const TOOLTIP_STYLE_LIGHT = {
+  backgroundColor: '#fff',
+  border: '1px solid #e5e7eb',
+  borderRadius: '8px',
+  color: '#111',
+} as const;
+const tickDateDayMonth = (value: string) =>
+  new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+const tickDateDay = (value: string) =>
+  new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' });
+const tickPct = (v: number) => `${v}%`;
+const tickReceitaKMillis = (v: number) => `R$${(v / 1000).toFixed(0)}k`;
+const labelDateFull = (value: string) =>
+  new Date(value + 'T12:00:00').toLocaleDateString('pt-BR');
+const pctDomain: [number, (dataMax: number) => number] = [
+  0,
+  (dataMax: number) => Math.max(110, Math.ceil(dataMax / 10) * 10 + 10),
+];
+
+// Formatadores puros (sem dependência de estado do componente)
+const _nfBR = new Intl.NumberFormat('pt-BR');
+const _nfBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatNumberModule = (value: number) => _nfBR.format(value);
+const formatCurrencyModule = (value: number) => _nfBRL.format(value);
+const curvaVendasFormatter = (value: any): [string, string] => [formatNumberModule(Number(value || 0)), ''];
+const curvaReceitaFormatter = (value: any): [string, string] => [formatCurrencyModule(Number(value || 0)), ''];
+const curvaSemanaLabelFormatter = (label: any) => `${label} (semana)`;
+const last30TooltipFormatter = (value: any) => formatNumberModule(Math.round(Number(value ?? 0)));
+
 interface CommercialAction {
   id: string;
   tipo?: string;
@@ -1010,8 +1056,8 @@ const EventDetail: React.FC = () => {
       const norm = (s: string) => (s || '').normalize('NFKC').trim().toLowerCase();
       const target = norm(grupoNome);
       const matchedGrupo =
-        gruposRes.data.find((g: any) => g.nome === grupoNome) ||
-        gruposRes.data.find((g: any) => norm(g.nome) === target);
+        gruposRes.data?.find((g: any) => g.nome === grupoNome) ||
+        gruposRes.data?.find((g: any) => norm(g.nome) === target);
       if (!matchedGrupo) {
         console.error('Grupo não encontrado:', grupoNome, 'opções:', gruposRes.data?.map((g: any) => g.nome));
         alert(`Não foi possível salvar: o grupo "${grupoNome}" não foi encontrado no cadastro.`);
@@ -1134,7 +1180,9 @@ const EventDetail: React.FC = () => {
         }
         const realCumul = d.cumulative;
         const refExpected = showNormalized ? d.cumulativeExpectedNormalized : d.cumulativeExpected;
-        const pct = parseFloat((((realCumul / refExpected) * 100) - 100).toFixed(1));
+        const pct = refExpected > 0
+          ? parseFloat((((realCumul / refExpected) * 100) - 100).toFixed(1))
+          : 0;
         return {
           date: d.date,
           dMinus: dMinusInsc,
@@ -1160,7 +1208,9 @@ const EventDetail: React.FC = () => {
         }
         const realDay = d.sales;
         const refExpected = showNormalized ? d.normalizedExpected : d.expected;
-        const pct = parseFloat((((realDay / refExpected) * 100) - 100).toFixed(1));
+        const pct = refExpected > 0
+          ? parseFloat((((realDay / refExpected) * 100) - 100).toFixed(1))
+          : 0;
         return {
           date: d.date,
           dMinus: dMinusInsc,
@@ -1352,16 +1402,8 @@ const EventDetail: React.FC = () => {
     );
   }
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(value);
-  };
-
-  const formatNumber = (value: number) => {
-    return new Intl.NumberFormat('pt-BR').format(value);
-  };
+  const formatCurrency = formatCurrencyModule;
+  const formatNumber = formatNumberModule;
 
   const getActionCutoffInfo = (dMinus: number): { ponto_corte: string; estagio: string } => {
     if (dMinus >= 50) {
@@ -2256,7 +2298,7 @@ const EventDetail: React.FC = () => {
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                     <XAxis 
                       dataKey="date" 
-                      tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      tickFormatter={tickDateDayMonth}
                       stroke="#6B7280"
                       fontSize={12}
                     />
@@ -2354,12 +2396,12 @@ const EventDetail: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {dailySalesNormExpected.map((day, idx) => {
+                        {dailySalesNormExpected.map((day) => {
                           const delta = day.normalizedExpected - day.expected;
                           const deltaColor = delta > 0 ? 'text-green-600 dark:text-green-400' : delta < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400';
                           return (
                             <tr
-                              key={idx}
+                              key={day.date}
                               className={`border-b border-gray-100 dark:border-gray-700/50 ${day.expectedIsOutlier ? 'bg-red-50 dark:bg-red-900/20' : ''}`}
                             >
                               <td className="py-1.5 px-2 text-gray-800 dark:text-gray-200">
@@ -2479,44 +2521,34 @@ const EventDetail: React.FC = () => {
               </div>
             ) : curvaView === 'semanal' && curvaMode === 'vendas' ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <BarChart data={curvaData} margin={CHART_MARGIN_BAR}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
                   <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
                   <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} />
                   <Tooltip
-                    contentStyle={{ 
-                      backgroundColor: isDark ? '#1f2937' : '#fff',
-                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                      borderRadius: '8px',
-                      color: isDark ? '#fff' : '#111'
-                    }}
-                    formatter={(value: any) => [formatNumber(Number(value || 0)), '']}
-                    labelFormatter={(label: any) => `${label} (semana)`}
+                    contentStyle={isDark ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT}
+                    formatter={curvaVendasFormatter}
+                    labelFormatter={curvaSemanaLabelFormatter}
                   />
                   <Legend />
-                  <Bar dataKey={`vendas_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey={`vendas_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={`vendas_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <Bar dataKey={`vendas_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#3b82f6" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             ) : curvaView === 'semanal' && curvaMode === 'receita' ? (
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={curvaData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <BarChart data={curvaData} margin={CHART_MARGIN_BAR}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
                   <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(curvaData.length / 12))} angle={-45} textAnchor="end" height={50} />
-                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} />
+                  <YAxis stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 12 }} tickFormatter={tickReceitaKMillis} />
                   <Tooltip
-                    contentStyle={{ 
-                      backgroundColor: isDark ? '#1f2937' : '#fff',
-                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                      borderRadius: '8px',
-                      color: isDark ? '#fff' : '#111'
-                    }}
-                    formatter={(value: any) => [formatCurrency(Number(value || 0)), '']}
-                    labelFormatter={(label: any) => `${label} (semana)`}
+                    contentStyle={isDark ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT}
+                    formatter={curvaReceitaFormatter}
+                    labelFormatter={curvaSemanaLabelFormatter}
                   />
                   <Legend />
-                  <Bar dataKey={`receita_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey={`receita_${curvaAnoAnterior}`} name={`${curvaAnoAnterior}`} fill="#94a3b8" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  <Bar dataKey={`receita_${curvaAnoAtual}`} name={`${curvaAnoAtual}`} fill="#10b981" radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (() => {
@@ -2547,22 +2579,17 @@ const EventDetail: React.FC = () => {
 
               return (
                 <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 5 }}>
+                  <LineChart data={chartData} margin={CHART_MARGIN_LINE}>
                     <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
                     <XAxis dataKey="label" stroke={isDark ? '#9ca3af' : '#6b7280'} tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(chartData.length / 12))} angle={-45} textAnchor="end" height={50} />
                     <YAxis 
                       stroke={isDark ? '#9ca3af' : '#6b7280'} 
                       tick={{ fontSize: 12 }}
-                      tickFormatter={(v: number) => `${v}%`}
-                      domain={[0, (dataMax: number) => Math.max(110, Math.ceil(dataMax / 10) * 10 + 10)]}
+                      tickFormatter={tickPct}
+                      domain={pctDomain}
                     />
                     <Tooltip
-                      contentStyle={{ 
-                        backgroundColor: isDark ? '#1f2937' : '#fff',
-                        border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                        borderRadius: '8px',
-                        color: isDark ? '#fff' : '#111'
-                      }}
+                      contentStyle={isDark ? TOOLTIP_STYLE_DARK : TOOLTIP_STYLE_LIGHT}
                       formatter={(value: any, name?: string, props?: any) => {
                         if (value === undefined || value === null) return [null, null];
                         const pctFormatted = `${Number(value).toFixed(1)}%`;
@@ -3513,7 +3540,7 @@ const EventDetail: React.FC = () => {
             <BarChart data={filteredAttainmentData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
               <XAxis dataKey="label" stroke="#6B7280" fontSize={11} />
-              <YAxis stroke="#6B7280" fontSize={11} tickFormatter={(v) => `${v}%`} />
+              <YAxis stroke="#6B7280" fontSize={11} tickFormatter={tickPct} />
               <Tooltip 
                 content={({ active, payload }: any) => {
                   if (!active || !payload || !payload.length) return null;
@@ -3603,20 +3630,15 @@ const EventDetail: React.FC = () => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
                   <XAxis 
                     dataKey="date" 
-                    tickFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit' })}
+                    tickFormatter={tickDateDay}
                     stroke="#6B7280"
                     fontSize={11}
                   />
                   <YAxis stroke="#6B7280" fontSize={11} />
                   <Tooltip 
-                    labelFormatter={(value) => new Date(value + 'T12:00:00').toLocaleDateString('pt-BR')}
-                    formatter={(value: any) => formatNumber(Math.round(Number(value ?? 0)))}
-                    contentStyle={{ 
-                      backgroundColor: '#1F2937', 
-                      border: 'none', 
-                      borderRadius: '8px',
-                      color: '#fff'
-                    }}
+                    labelFormatter={labelDateFull}
+                    formatter={last30TooltipFormatter}
+                    contentStyle={TOOLTIP_STYLE_DARK_CARD}
                   />
                   <Bar 
                     dataKey="sales" 
@@ -4073,7 +4095,7 @@ const EventDetail: React.FC = () => {
                               const margemPositiva = displayMargem >= 0;
                               return (
                                 <tr
-                                  key={idx}
+                                  key={`${row.tipoKit ?? 'sem-tipo'}_${idx}`}
                                   className={`border-b border-gray-100 dark:border-gray-700/50 ${
                                     isConsolidado
                                       ? 'bg-purple-50 dark:bg-purple-900/20 font-semibold'
