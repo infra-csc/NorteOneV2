@@ -9747,7 +9747,12 @@ def get_marketing_event_by_id(
             if response is not None:
                 response.headers["X-Data-Stale"] = "true"
                 response.headers["X-Data-Partial"] = "true"
-            return {
+            # Mesmo sem snapshot completo, tentamos popular dailySales lendo o
+            # VendasDiariaSnapshot (PostgreSQL local) via apply_today_overlay.
+            # Isso permite que os gráficos "Atingimento da Meta", "Curva no Tempo"
+            # e a aba "Controle Diário" exibam o histórico diário já disponível,
+            # em vez de aparecerem vazios até o admin clicar em Reconsolidar.
+            _partial_payload = {
                 "status": "partial",
                 "evento_id": evento_id,
                 "ano": _ano_for_persist,
@@ -9760,6 +9765,20 @@ def get_marketing_event_by_id(
                     "Solicite ao administrador clicar em 'Reconsolidar' para buscar os dados completos."
                 ),
             }
+            try:
+                from ...services.event_detail_snapshot_service import (
+                    apply_today_overlay as _apply_overlay_partial,
+                )
+                _partial_payload = _apply_overlay_partial(db, _partial_payload, evento_id)
+                _ds_count = len(_partial_payload.get("dailySales") or [])
+                if _ds_count > 0:
+                    logger.info(
+                        f"[Prepare] '{_prep_key}' partial enriquecido com {_ds_count} dias "
+                        f"de VendasDiariaSnapshot"
+                    )
+            except Exception as _ov_e:
+                logger.warning(f"[Prepare] apply_today_overlay partial '{_prep_key}' falhou: {_ov_e}")
+            return _partial_payload
         logger.info(f"[Prepare] '{_prep_key}' sem snapshot e sem bootstrap — retornando no_snapshot")
         if response is not None:
             response.headers["X-Data-Stale"] = "true"

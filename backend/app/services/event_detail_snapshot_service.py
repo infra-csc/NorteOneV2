@@ -105,6 +105,7 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
                 VendasDiariaSnapshot.data_venda >= lookback_start,
                 VendasDiariaSnapshot.data_venda <= today,
             )
+            .order_by(VendasDiariaSnapshot.data_venda.asc())
             .all()
         )
     except Exception as e:
@@ -179,6 +180,12 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
                 if day_str > max_snapshot_date:
                     total_qty_delta += new_qty
 
+        # Garante ordem cronológica — gráficos e reduções cumulativas no
+        # frontend dependem de dailySales ordenado por data ascendente.
+        try:
+            daily.sort(key=lambda r: (r.get("date") or "") if isinstance(r, dict) else "")
+        except Exception:
+            pass
         out["dailySales"] = daily
 
         # --- evento.currentSales / averageTicket (delta-based) ---
