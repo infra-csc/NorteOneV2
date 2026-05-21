@@ -216,6 +216,16 @@ interface _EventDetailSnapshot {
 }
 const _eventDetailCache = new Map<string, _EventDetailSnapshot>();
 
+// Caches módulo para dados secundários — evitam re-fetch ao navegar de volta ao evento.
+// Padrão SWR: na re-visita usa dado do cache imediatamente e busca atualização em background.
+interface _CurvaComparativaCache {
+  data: any[]; anoAtual: number; anoAnterior: number; modo: string;
+  dataEventoAtual: string | null; dataEventoAnterior: string | null; meta: any; cachedAt: number;
+}
+const _curvaComparativaCache = new Map<string, _CurvaComparativaCache>();
+const _salesAvgCache = new Map<string, { data: any; period: number; cachedAt: number }>();
+const _curvaSnapshotModCache = new Map<string, { data: any; cachedAt: number }>();
+
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -235,6 +245,11 @@ const EventDetail: React.FC = () => {
   // sempre atualizados silenciosamente a cada visita. O "Atualizar Hoje"
   // existe para o usuário forçar a atualização quando quiser.
   const _detailCacheFresh = !!_detailCached;
+  // Lookups dos caches secundários — usados para inicializar estados sem esperar o fetch.
+  const _curvaCached = _curvaComparativaCache.get(_detailCacheKey);
+  const _salesCacheKey = `${_detailCacheKey}_30`;
+  const _salesCached = _salesAvgCache.get(_salesCacheKey);
+  const _snapModCached = _curvaSnapshotModCache.get(_detailCacheKey);
   // Seed instantly with the snapshot the user already saw on the dashboard so the
   // transition is imperceptible. Fresh data overwrites it once the API responds.
   const previewEvent = (location.state as any)?.previewEvent as MarketingEvent | undefined;
@@ -286,24 +301,25 @@ const EventDetail: React.FC = () => {
 
   const [cenariosCiclismo, setCenariosCiclismo] = useState<{ [key: string]: { orcado_pago: number; tkt_medio_orcado: number; real_vendas?: number; real_receita?: number; real_tkt_medio?: number; custo_kit?: number; margem_orcada?: number; margem_realizada?: number } } | null>(_detailCacheFresh ? _detailCached!.cenariosCiclismo : null);
   const [avisos, setAvisos] = useState<string[]>(_detailCacheFresh ? _detailCached!.avisos : []);
-  const [curvaData, setCurvaData] = useState<any[]>([]);
-  const [curvaMeta, setCurvaMeta] = useState<any>(null);
+  const [curvaData, setCurvaData] = useState<any[]>(_curvaCached?.data ?? []);
+  const [curvaMeta, setCurvaMeta] = useState<any>(_curvaCached?.meta ?? null);
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [showCurveInfoModal, setShowCurveInfoModal] = useState(false);
   const [availableCurves, setAvailableCurves] = useState<{grupo: string; anoReferencia: number; pontos: number; origem: string}[]>([]);
   const [overrideSearch, setOverrideSearch] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
-  const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(new Date().getFullYear());
-  const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(new Date().getFullYear() - 1);
+  const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(_curvaCached?.anoAtual ?? new Date().getFullYear());
+  const [curvaAnoAnterior, setCurvaAnoAnterior] = useState<number>(_curvaCached?.anoAnterior ?? new Date().getFullYear() - 1);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'simulator' | 'complementares' | 'controle'>('dashboard');
-  const [curvaLoading, setCurvaLoading] = useState(false);
+  // curvaLoading: começa true apenas se não há cache → evita flash de "sem dados" antes do fetch
+  const [curvaLoading, setCurvaLoading] = useState(!_curvaCached);
   const [curvaMode, setCurvaMode] = useState<'vendas' | 'receita'>('vendas');
   const [curvaView, setCurvaView] = useState<'semanal' | 'acumulado'>('acumulado');
-  const [curvaModo, setCurvaModo] = useState<string>('mensal');
-  const [dataEventoAtual, setDataEventoAtual] = useState<string | null>(null);
-  const [dataEventoAnterior, setDataEventoAnterior] = useState<string | null>(null);
-  const [salesAverages, setSalesAverages] = useState<any>(null);
-  const [salesAvgLoading, setSalesAvgLoading] = useState(false);
+  const [curvaModo, setCurvaModo] = useState<string>(_curvaCached?.modo ?? 'mensal');
+  const [dataEventoAtual, setDataEventoAtual] = useState<string | null>(_curvaCached?.dataEventoAtual ?? null);
+  const [dataEventoAnterior, setDataEventoAnterior] = useState<string | null>(_curvaCached?.dataEventoAnterior ?? null);
+  const [salesAverages, setSalesAverages] = useState<any>(_salesCached?.data ?? null);
+  const [salesAvgLoading, setSalesAvgLoading] = useState(!_salesCached);
   const [salesAvgPeriod, setSalesAvgPeriod] = useState(30);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
@@ -322,7 +338,7 @@ const EventDetail: React.FC = () => {
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
   const [controleSubTab, setControleSubTab] = useState<'tabela' | 'curva'>('tabela');
-  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(null);
+  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(_snapModCached?.data ?? null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
   const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
@@ -648,10 +664,24 @@ const EventDetail: React.FC = () => {
     curvaAbortRef.current = curvaController;
 
     const fetchCurva = async () => {
+      // SWR: se já há dado no cache (estado inicializado), não mostra spinner —
+      // busca em background e atualiza silenciosamente.
+      const hasCurvaCached = curvaData.length > 0;
+      if (!hasCurvaCached) setCurvaLoading(true);
       try {
-        setCurvaLoading(true);
         const response = await marketingService.getCurvaComparativaEvento(id, curvaController.signal, anoParam);
         if (!curvaController.signal.aborted) {
+          const curvaPayload: _CurvaComparativaCache = {
+            data: response.data,
+            anoAtual: response.ano_atual,
+            anoAnterior: response.ano_anterior,
+            modo: response.modo || 'mensal',
+            dataEventoAtual: response.data_evento_atual || null,
+            dataEventoAnterior: response.data_evento_anterior || null,
+            meta: (response as any).meta || null,
+            cachedAt: Date.now(),
+          };
+          _curvaComparativaCache.set(_detailCacheKey, curvaPayload);
           setCurvaData(response.data);
           setCurvaAnoAtual(response.ano_atual);
           setCurvaAnoAnterior(response.ano_anterior);
@@ -679,10 +709,14 @@ const EventDetail: React.FC = () => {
     const controller = new AbortController();
     
     const fetchAverages = async () => {
-      setSalesAvgLoading(true);
+      // SWR: só mostra spinner quando não há dado anterior para o período atual.
+      const hasSalesAvgCached = salesAverages !== null;
+      if (!hasSalesAvgCached) setSalesAvgLoading(true);
       try {
         const data = await marketingService.getSalesAverages(id, salesAvgPeriod, controller.signal, anoParam);
         if (!controller.signal.aborted) {
+          const avCacheKey = `${_detailCacheKey}_${salesAvgPeriod}`;
+          _salesAvgCache.set(avCacheKey, { data, period: salesAvgPeriod, cachedAt: Date.now() });
           setSalesAverages(data);
         }
       } catch (err: any) {
@@ -709,6 +743,7 @@ const EventDetail: React.FC = () => {
       try {
         const data = await marketingService.getCurvaSnapshot(id, controller.signal, anoParam);
         if (!controller.signal.aborted) {
+          _curvaSnapshotModCache.set(_detailCacheKey, { data, cachedAt: Date.now() });
           setCurvaSnapshot(data);
         }
       } catch (err: any) {
@@ -1565,12 +1600,32 @@ const EventDetail: React.FC = () => {
         retrying={refreshing}
       />
 
-      {detailsLoading && !refreshing && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 animate-spin text-blue-600 dark:text-blue-400 flex-shrink-0" />
-          <span className="text-sm text-blue-700 dark:text-blue-300">
-            {previewEvent ? 'Atualizando dados do evento em tempo real...' : 'Carregando dados completos do evento...'}
-          </span>
+      {((detailsLoading || (curvaLoading && curvaData.length === 0) || (salesAvgLoading && salesAverages === null)) && !refreshing) && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400 flex-shrink-0" />
+            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Carregando dados do evento...</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 pl-6">
+            {detailsLoading && (
+              <span className="text-xs text-blue-500 dark:text-blue-400 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+                {previewEvent ? 'Dados em tempo real' : 'Dados principais'}
+              </span>
+            )}
+            {curvaLoading && curvaData.length === 0 && (
+              <span className="text-xs text-blue-500 dark:text-blue-400 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+                Curva comparativa
+              </span>
+            )}
+            {salesAvgLoading && salesAverages === null && (
+              <span className="text-xs text-blue-500 dark:text-blue-400 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+                Médias de vendas
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -2088,10 +2143,19 @@ const EventDetail: React.FC = () => {
               </div>
             </div>
 
-            {curvaLoading ? (
-              <div className="flex items-center justify-center h-64">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-                <span className="ml-3 text-gray-500 dark:text-gray-400">Carregando curva comparativa...</span>
+            {curvaLoading && curvaData.length === 0 ? (
+              /* Skeleton animado — primeira carga sem cache */
+              <div className="h-64 flex flex-col justify-end gap-0 px-4 pb-8 animate-pulse">
+                <div className="flex items-end gap-1 h-48">
+                  {[35, 55, 40, 72, 48, 88, 62, 79, 45, 91, 58, 70, 50, 83, 42, 67].map((h, i) => (
+                    <div
+                      key={i}
+                      className={`flex-1 rounded-t ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}
+                      style={{ height: `${h}%` }}
+                    />
+                  ))}
+                </div>
+                <div className={`h-4 mt-2 rounded ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
               </div>
             ) : curvaData.length === 0 ? (
               <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
