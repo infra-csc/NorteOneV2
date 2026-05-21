@@ -9770,12 +9770,81 @@ def get_marketing_event_by_id(
                     apply_today_overlay as _apply_overlay_partial,
                 )
                 _partial_payload = _apply_overlay_partial(db, _partial_payload, evento_id)
-                _ds_count = len(_partial_payload.get("dailySales") or [])
+                _ds_after = _partial_payload.get("dailySales") or []
+                _ds_count = len(_ds_after)
                 if _ds_count > 0:
                     logger.info(
                         f"[Prepare] '{_prep_key}' partial enriquecido com {_ds_count} dias "
                         f"de VendasDiariaSnapshot"
                     )
+                    # Enriquecimento adicional: como o overlay só preenche `sales` e
+                    # `date`, calculamos `expected`/`cumulativeExpected`/`dMinus`/`dif`
+                    # /`atingimento*` usando distribuição linear da meta sobre a
+                    # janela [primeiro dia com snapshot .. data do evento]. Mesma
+                    # lógica do fallback usado quando daily_sales_list vem vazio
+                    # (L10005+) — assim a aba Atingimento da Meta por D- já mostra
+                    # algo útil no estado parcial.
+                    try:
+                        from datetime import date as _date_cls
+                        _evt_part = _partial_payload.get("evento") or {}
+                        _sales_goal = int(_evt_part.get("salesGoal") or 0)
+                        _evt_date_str = _evt_part.get("date") or ""
+                        _evt_date = None
+                        if _evt_date_str:
+                            try:
+                                _evt_date = _date_cls.fromisoformat(_evt_date_str[:10])
+                            except Exception:
+                                _evt_date = None
+                        if _sales_goal > 0 and _ds_after:
+                            _dates_iso = [r.get("date") for r in _ds_after if isinstance(r, dict) and r.get("date")]
+                            if _dates_iso:
+                                _first_d = _date_cls.fromisoformat(_dates_iso[0][:10])
+                                _last_in_snap = _date_cls.fromisoformat(_dates_iso[-1][:10])
+                                _close_d = _evt_date if _evt_date else _last_in_snap
+                                _total_days = max(1, (_close_d - _first_d).days + 1)
+                                _exp_per_day = round(_sales_goal / _total_days, 1)
+                                _cum_sales = 0
+                                _enriched: list = []
+                                for _i, _row in enumerate(_ds_after):
+                                    if not isinstance(_row, dict):
+                                        _enriched.append(_row)
+                                        continue
+                                    _row_d_str = _row.get("date")
+                                    try:
+                                        _row_d = _date_cls.fromisoformat(_row_d_str[:10]) if _row_d_str else None
+                                    except Exception:
+                                        _row_d = None
+                                    _qty = int(_row.get("sales") or 0)
+                                    _cum_sales += _qty
+                                    _day_index = ((_row_d - _first_d).days + 1) if _row_d else (_i + 1)
+                                    _cum_exp = round(_exp_per_day * _day_index, 1)
+                                    _dm = (_close_d - _row_d).days if _row_d and _close_d else None
+                                    _ating_dia = round(((_qty - _exp_per_day) / _exp_per_day) * 100, 1) if _exp_per_day > 0 else 0.0
+                                    _ating_acum = round(((_cum_sales - _cum_exp) / _cum_exp) * 100, 1) if _cum_exp > 0 else 0.0
+                                    _new_row = dict(_row)
+                                    _new_row.setdefault("expected", _exp_per_day)
+                                    _new_row.setdefault("cumulativeSales", _cum_sales)
+                                    _new_row.setdefault("cumulativeExpected", _cum_exp)
+                                    _new_row.setdefault("dMinus", _dm)
+                                    _new_row.setdefault("curvaAnoAnterior", None)
+                                    _new_row.setdefault("dif", round(_cum_sales - _cum_exp, 1))
+                                    _new_row.setdefault("atingimentoAcumulado", _ating_acum)
+                                    _new_row.setdefault("atingimentoDiario", _ating_dia)
+                                    _new_row.setdefault("normalizedSales", _qty)
+                                    _new_row.setdefault("cumulativeNormalized", _cum_sales)
+                                    _new_row.setdefault("localMedian", None)
+                                    _new_row.setdefault("outlierLimit", None)
+                                    _new_row.setdefault("isOutlier", False)
+                                    _new_row.setdefault("excessRemoved", 0)
+                                    _new_row.setdefault("excessReceived", 0)
+                                    _enriched.append(_new_row)
+                                _partial_payload["dailySales"] = _enriched
+                                logger.info(
+                                    f"[Prepare] '{_prep_key}' partial expected linear: "
+                                    f"meta={_sales_goal}, dias={_total_days}, exp/dia={_exp_per_day}"
+                                )
+                    except Exception as _enrich_e:
+                        logger.warning(f"[Prepare] enriquecimento expected partial '{_prep_key}' falhou: {_enrich_e}")
             except Exception as _ov_e:
                 logger.warning(f"[Prepare] apply_today_overlay partial '{_prep_key}' falhou: {_ov_e}")
             return _partial_payload
