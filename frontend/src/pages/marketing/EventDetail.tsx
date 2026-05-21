@@ -54,9 +54,11 @@ import {
 } from '../../types/marketingPerformance';
 import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
-const EventInsights = React.memo(lazy(() => import('./EventInsights')));
-const EventSimulator = React.memo(lazy(() => import('./EventSimulator')));
-const DailySalesTable = React.memo(lazy(() => import('./DailySalesTable')));
+// These components export React.memo() internally — wrapping lazy() with
+// React.memo() again is incorrect (lazy returns a special object, not a fn).
+const EventInsights = lazy(() => import('./EventInsights'));
+const EventSimulator = lazy(() => import('./EventSimulator'));
+const DailySalesTable = lazy(() => import('./DailySalesTable'));
 
 interface CommercialAction {
   id: string;
@@ -373,6 +375,13 @@ const EventDetail: React.FC = () => {
   const [consolidarError, setConsolidarError] = useState<string | null>(null);
 
   const handleOpenSyncModal = useCallback(() => setShowSyncModal(true), []);
+
+  // Preload lazy tab modules immediately on mount so first tab switch feels instant.
+  useEffect(() => {
+    import('./DailySalesTable');
+    import('./EventSimulator');
+    import('./EventInsights');
+  }, []);
 
   const handleConsolidarEvento = async () => {
     const grupoNome = isConsolidated ? id!.replace(/^grp_/, '') : id!;
@@ -1180,6 +1189,97 @@ const EventDetail: React.FC = () => {
     () => completeDailySales.slice(-30).map(d => ({ ...d, sales: d.sales })),
     [completeDailySales]
   );
+
+  // ─── Pre-return derived memos ─────────────────────────────────────────────────
+  // These sit BEFORE the early returns to obey hook rules. Optional chaining
+  // handles the null-event case; values are only consumed after the early returns
+  // where event is guaranteed non-null.
+
+  // Kit aggregation: filter/reduce over margemPorKit once per event change.
+  const _kitMetrics = useMemo(() => {
+    const rows = (event?.margemPorKit ?? []).filter((r: any) => r.tipoKit !== 'CONSOLIDADO');
+    const totalQtd = rows.reduce((s: number, r: any) => s + (r.qtd || 0), 0);
+    const totalReceita = rows.reduce((s: number, r: any) => s + (r.receitaLiquida || 0), 0);
+    const sumMargem = rows.reduce((s: number, r: any) => s + (r.margemTotal || 0), 0);
+    const consRowMargem = (event?.margemPorKit ?? []).find((r: any) => r.tipoKit === 'CONSOLIDADO')?.margemTotal ?? null;
+    const margem = rows.length > 0 && totalQtd > 0 ? sumMargem : (consRowMargem ?? null);
+    const ticket = totalQtd > 0
+      ? Math.round((totalReceita / totalQtd) * 100) / 100
+      : (event?.averageTicket || 0);
+    return { rows, totalQtd, totalReceita, sumMargem, consRowMargem, margem, ticket };
+  }, [event?.margemPorKit, event?.averageTicket]);
+
+  // Sum of all closed-day sales (completeDailySales is already filtered to < today).
+  const _totalInscritosConsolidado = useMemo(
+    () => completeDailySales.reduce((s, d) => s + d.sales, 0),
+    [completeDailySales]
+  );
+
+  // Last cumulative data point for days before today (used in "Meta Acumulada" card).
+  const _lastCumDataOntem = useMemo(
+    () => cumulativeData.filter(d => d.date < todayStr).at(-1) ?? null,
+    [cumulativeData, todayStr]
+  );
+
+  // Pre-sliced windows — avoids repeated slice(-N) calls on every render.
+  const _dailySlices = useMemo(() => ({
+    last3: completeDailySales.slice(-3),
+    last7: completeDailySales.slice(-7),
+    last14: completeDailySales.slice(-14),
+  }), [completeDailySales]);
+
+  // indicadoresVolume: 4-period projection table. Previously an IIFE that ran on
+  // every render; now memoized and only re-runs when event data or sales change.
+  const indicadoresVolume = useMemo(() => {
+    if (!event) return [] as {
+      periodo: string; media: number; dMinus: number; potencial: number;
+      vendasAcumuladas: number; atingimento: number; meta: number;
+      alvo: number; insightMargem: number | null;
+    }[];
+    const ticketAtualKit = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : 0;
+    const custoKitBasico = event.kitCostPerUnit || 0;
+    const margRealizada = _kitMetrics.margem != null ? _kitMetrics.margem : (event.margemRealizadaTotal || 0);
+    const margOrcada = event.budgetTicket > 0 && custoKitBasico > 0
+      ? (event.budgetTicket - custoKitBasico) * event.salesGoal : 0;
+    const rawDMinus = event.dMinusInscricoes != null ? event.dMinusInscricoes
+      : (event.dMinus != null ? Math.max(0, event.dMinus - 2) : 0);
+    const dMinusCalcLocal = isNaN(rawDMinus) ? 0 : rawDMinus;
+    const safeDMinus = event.dMinus != null && !isNaN(event.dMinus) ? event.dMinus : 0;
+    const dMinusEfetivoLocal = dMinusCalcLocal > 0 ? dMinusCalcLocal : safeDMinus;
+    const baseVendas = (event.currentSales != null && event.currentSales > 0)
+      ? event.currentSales : _totalInscritosConsolidado;
+    const sliceMap: Record<number, typeof completeDailySales> = {
+      3: _dailySlices.last3, 7: _dailySlices.last7,
+      14: _dailySlices.last14, 30: last30Days,
+    };
+    return [3, 7, 14, 30].map(dias => {
+      const vendas = sliceMap[dias];
+      const totalVendas = vendas.reduce((s, d) => s + d.sales, 0);
+      const mediaLocal = vendas.length > 0 ? totalVendas / vendas.length : 0;
+      const mediaFromAvg = dias !== 3
+        ? (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === dias)?.media
+        : null;
+      const media = mediaFromAvg != null ? mediaFromAvg : mediaLocal;
+      const potencial = media * dMinusEfetivoLocal;
+      const atingimento = baseVendas + potencial;
+      const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
+      const insightMargem = ticketAtualKit > 0 && custoKitBasico > 0 && event.budgetTicket > 0 && event.salesGoal > 0
+        ? (margRealizada + (potencial * (ticketAtualKit - custoKitBasico))) - margOrcada
+        : null;
+      return {
+        periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
+        media: Math.round(media * 10) / 10,
+        dMinus: dMinusEfetivoLocal,
+        potencial: Math.round(potencial),
+        vendasAcumuladas: baseVendas,
+        atingimento: Math.round(atingimento),
+        meta: event.salesGoal,
+        alvo: Math.round(alvo * 1000) / 10,
+        insightMargem,
+      };
+    });
+  }, [event, completeDailySales, _dailySlices, last30Days, _kitMetrics,
+      _totalInscritosConsolidado, salesAverages]);
   // ─────────────────────────────────────────────────────────────────────────────
 
   if (!event && (loading || error || isPreparing)) {
@@ -1421,20 +1521,14 @@ const EventDetail: React.FC = () => {
   // currentSales é a fonte única de verdade: backend garante que é sempre >= inscritosTotal
   const totalInscritosRaw = (event.currentSales != null && event.currentSales > 0) ? event.currentSales : inscritosTotal;
 
-  type _SaleLike = { sales: number };
   // Inscritos são sempre o número real — nunca substituímos por normalizado.
-  // A normalização agora se aplica somente à curva (meta).
-  const _saleVal = (d: _SaleLike): number => d.sales;
   const inscritosTotalNorm = totalInscritosRaw;
   const displayedCurrentSales = totalInscritosRaw;
   const totalInscritos = displayedCurrentSales;
-  // completeDailySales and last30Days are memoized before the early returns above.
-  // Total acumulado apenas de dias fechados (exclui o dia atual, que é parcial).
-  // Usado nos cards que devem refletir somente inscrições consolidadas até ontem.
-  const totalInscritosConsolidado = completeDailySales.reduce((sum, d) => sum + _saleVal(d), 0);
 
-  // Card "Meta Acumulada vs Inscritos Total": usa somente dados até ontem (dias fechados).
-  const lastCumDataOntem = cumulativeData.filter(d => d.date < todayStr).at(-1) ?? null;
+  // ── Aliases for pre-return memos (event is guaranteed non-null here) ──────────
+  const totalInscritosConsolidado = _totalInscritosConsolidado;
+  const lastCumDataOntem = _lastCumDataOntem;
   const metaAcumuladaRaw = lastCumDataOntem ? Math.round(lastCumDataOntem.cumulativeExpected) : 0;
   const metaAcumuladaNorm = lastCumDataOntem ? Math.round(lastCumDataOntem.cumulativeExpectedNormalized || lastCumDataOntem.cumulativeExpected) : 0;
   const metaAcumulada = showNormalized ? metaAcumuladaNorm : metaAcumuladaRaw;
@@ -1445,78 +1539,39 @@ const EventDetail: React.FC = () => {
   const dMinusCalc = isNaN(_rawDMinusCalc) ? 0 : _rawDMinusCalc;
   const _safeDMinus = (event.dMinus != null && !isNaN(event.dMinus)) ? event.dMinus : 0;
   const volumeParaMeta = event.salesGoal - totalInscritos;
-  const _kitRowsRealizado = (event.margemPorKit ?? []).filter(r => r.tipoKit !== 'CONSOLIDADO');
-  const _kitTotalReceita = _kitRowsRealizado.reduce((s, r) => s + (r.receitaLiquida || 0), 0);
-  const _kitTotalQtd = _kitRowsRealizado.reduce((s, r) => s + (r.qtd || 0), 0);
-  const ticketMedioRealizado = _kitTotalQtd > 0 ? Math.round((_kitTotalReceita / _kitTotalQtd) * 100) / 100 : (event.averageTicket || 0);
-  // Use individual kits when they have data (qtd > 0), otherwise fall back to CONSOLIDADO row.
-  // This prevents divergence when CONSOLIDADO has real data but individual kits are zeroed out.
-  const _consRowMargem = (event.margemPorKit ?? []).find(r => r.tipoKit === 'CONSOLIDADO')?.margemTotal ?? null;
-  const _kitSumMargem = _kitRowsRealizado.reduce((s, r) => s + (r.margemTotal || 0), 0);
-  const margemRealizadaKits = _kitRowsRealizado.length > 0 && _kitTotalQtd > 0
-    ? _kitSumMargem
-    : _consRowMargem ?? null;
-  // Quando D-Inscrições chega a 0, usa D-Evento como fallback para evitar divisão por zero e campos zerados
+
+  // Kit metrics from pre-return memo — no more inline filter/reduce calls.
+  const _kitRowsRealizado = _kitMetrics.rows;
+  const _kitTotalReceita = _kitMetrics.totalReceita;
+  const _kitTotalQtd = _kitMetrics.totalQtd;
+  const ticketMedioRealizado = _kitMetrics.ticket;
+  const _consRowMargem = _kitMetrics.consRowMargem;
+  const _kitSumMargem = _kitMetrics.sumMargem;
+  const margemRealizadaKits = _kitMetrics.margem;
+
   const dMinusEfetivo = dMinusCalc > 0 ? dMinusCalc : _safeDMinus;
   const mediaDiariaNecessaria = dMinusEfetivo > 0 ? Math.max(volumeParaMeta, 0) / dMinusEfetivo : 0;
-  // Média 14d usada como ritmo base no Simulador. Sempre baseada nas vendas reais.
-  // Prefere salesAverages (cache próprio, resiliente a falhas de Magento/snapshot) quando disponível.
-  const _last14DaysSim = completeDailySales.slice(-14);
+
+  // Daily slices from pre-return memo — no more repeated slice() calls.
+  const _last14DaysSim = _dailySlices.last14;
   const _avgMedia14 = (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === 14)?.media;
   const dashMediaDiaria14 = _avgMedia14 != null
     ? _avgMedia14
     : (_last14DaysSim.length > 0
-        ? _last14DaysSim.reduce((sum, d) => sum + _saleVal(d), 0) / _last14DaysSim.length
+        ? _last14DaysSim.reduce((sum, d) => sum + d.sales, 0) / _last14DaysSim.length
         : 0);
-  const last7DaysSales = completeDailySales.slice(-7);
+  const last7DaysSales = _dailySlices.last7;
   const _avgMedia7 = (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === 7)?.media;
   const mediaSemanaAtual = _avgMedia7 != null
     ? _avgMedia7
     : (last7DaysSales.length > 0
-        ? last7DaysSales.reduce((sum, d) => sum + _saleVal(d), 0) / last7DaysSales.length
+        ? last7DaysSales.reduce((sum, d) => sum + d.sales, 0) / last7DaysSales.length
         : 0);
   const pctMedias = mediaDiariaNecessaria > 0
     ? ((mediaSemanaAtual / mediaDiariaNecessaria) * 100) - 100
     : (mediaSemanaAtual > 0 ? 100 : 0);
-
-  const indicadoresVolume = (() => {
-    const ticketAtualKit = event.ticketAtual && event.ticketAtual > 0 ? event.ticketAtual : 0;
-    const custoKitBasico = event.kitCostPerUnit || 0;
-    const margRealizada = margemRealizadaKits != null ? margemRealizadaKits : (event.margemRealizadaTotal || 0);
-    const margOrcada = event.budgetTicket > 0 && custoKitBasico > 0 ? (event.budgetTicket - custoKitBasico) * event.salesGoal : 0;
-
-    return [3, 7, 14, 30].map(dias => {
-      const vendas = completeDailySales.slice(-dias);
-      const totalVendas = vendas.reduce((sum, d) => sum + _saleVal(d), 0);
-      const mediaLocal = vendas.length > 0 ? totalVendas / vendas.length : 0;
-      // Para 7d, 14d e 30d prefere salesAverages (cache próprio, resiliente a falhas de conexão).
-      // Para 3d não há período correspondente em salesAverages → usa cálculo local.
-      const mediaFromAvg = dias !== 3
-        ? (salesAverages?.medias as any[] | undefined)?.find((m: any) => m.periodo === dias)?.media
-        : null;
-      const media = mediaFromAvg != null ? mediaFromAvg : mediaLocal;
-      const potencial = media * dMinusEfetivo;
-      // Usa displayedCurrentSales (fonte primária) em vez de totalInscritosConsolidado,
-      // que pode estar zerado quando o snapshot está desatualizado.
-      const baseVendas = displayedCurrentSales > 0 ? displayedCurrentSales : totalInscritosConsolidado;
-      const atingimento = baseVendas + potencial;
-      const alvo = event.salesGoal > 0 ? (atingimento / event.salesGoal) - 1 : 0;
-      const insightMargem = ticketAtualKit > 0 && custoKitBasico > 0 && event.budgetTicket > 0 && event.salesGoal > 0
-        ? (margRealizada + (potencial * (ticketAtualKit - custoKitBasico))) - margOrcada
-        : null;
-      return {
-        periodo: dias === 3 ? '3 dias' : dias === 7 ? '1 semana' : dias === 14 ? '14 dias' : '30 dias',
-        media: Math.round(media * 10) / 10,
-        dMinus: dMinusEfetivo,
-        potencial: Math.round(potencial),
-        vendasAcumuladas: baseVendas,
-        atingimento: Math.round(atingimento),
-        meta: event.salesGoal,
-        alvo: Math.round(alvo * 1000) / 10,
-        insightMargem,
-      };
-    });
-  })();
+  // indicadoresVolume is now a pre-return useMemo (see above).
+  // The variable `indicadoresVolume` used below already refers to that memo.
 
   const getRecommendationStyle = () => {
     if (event.iscStatus === 'accelerating') {
