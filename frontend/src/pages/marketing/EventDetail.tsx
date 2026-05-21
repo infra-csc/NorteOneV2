@@ -412,6 +412,8 @@ const EventDetail: React.FC = () => {
   const [isPartial, setIsPartial] = useState(false);
   const [partialMessage, setPartialMessage] = useState<string | null>(null);
   const [partialComputedAt, setPartialComputedAt] = useState<string | null>(null);
+  const [reconsolidating, setReconsolidating] = useState(false);
+  const [userRequestSent, setUserRequestSent] = useState(false);
   const silentRefetchDoneRef = useRef(false);
   const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean, forceMagentoRefresh?: boolean) => void) | null>(null);
   // Rastreia se algum dado de evento já foi exibido na tela. Persistido como ref
@@ -602,23 +604,10 @@ const EventDetail: React.FC = () => {
           return;
         }
         // Backend devolve payload parcial (cabeçalho do bootstrap, sem dailySales).
-        // Para ADMIN: tratamos como no_snapshot — tela cheia com botão "Reconsolidar"
-        // já visível, sem mostrar dados parciais que confundem.
-        // Para usuário comum: renderiza normal + banner amarelo de aviso.
+        // Renderiza a página normalmente — cada seção mostra "sem dados consolidados"
+        // se faltar informação. Banner no topo + botão "Reconsolidar" (admin) ou
+        // "Solicitar atualização" (usuário comum) + carimbo de última atualização.
         if ((response as any)?.status === 'partial') {
-          if (isAdmin) {
-            setNoSnapshot(true);
-            setIsPartial(false);
-            setIsPreparing(false);
-            setLoading(false);
-            if (staleRetryTimerRef.current) {
-              clearTimeout(staleRetryTimerRef.current);
-              staleRetryTimerRef.current = null;
-            }
-            setPartialMessage((response as any).message || null);
-            setPartialComputedAt((response as any).snapshot_computed_at || null);
-            return;
-          }
           setIsPartial(true);
           setNoSnapshot(false);
           setIsPreparing(false);
@@ -892,6 +881,37 @@ const EventDetail: React.FC = () => {
     fetchSnapshot();
     return () => controller.abort();
   }, [id, controleSubTab, anoParam, secondaryRefreshToken]);
+
+  // Reconsolidar (admin): roda o pipeline completo Magento + Ativo + recálculos
+  // e persiste o snapshot. Pode demorar ~30-90s. Após sucesso, recarrega a tela.
+  const handleReconsolidar = async () => {
+    if (!id || reconsolidating) return;
+    setReconsolidating(true);
+    setRefreshError(null);
+    try {
+      await marketingService.recalcularSnapshot(id);
+      // Limpa flags e recarrega snapshot recém-salvo (sem force, lê do PG).
+      setNoSnapshot(false);
+      setIsPartial(false);
+      setPartialMessage(null);
+      setPartialComputedAt(null);
+      if (fetchEventRef.current) fetchEventRef.current(false, false, false);
+    } catch (err: any) {
+      setRefreshError(
+        err?.response?.data?.detail || err?.message ||
+        'Falha ao reconsolidar. Tente novamente em alguns minutos.'
+      );
+    } finally {
+      setReconsolidating(false);
+    }
+  };
+
+  // Solicitar atualização (usuário comum): por ora apenas registra localmente
+  // e mostra feedback. Futuramente pode enviar notificação ao admin.
+  const handleSolicitarAtualizacao = () => {
+    setUserRequestSent(true);
+    setTimeout(() => setUserRequestSent(false), 6000);
+  };
 
   const handleForceRefresh = async () => {
     if (!id || refreshing) return;

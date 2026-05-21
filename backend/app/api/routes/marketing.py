@@ -9574,10 +9574,11 @@ def get_marketing_event_by_id(
             # usuário decide quando rebuscar Magento clicando em "Atualizar".
             # Mantemos _gpd_age só para diagnóstico em logs.
             _gpd_age = (datetime.now() - _gpd_comp.replace(tzinfo=None)).total_seconds() if _gpd_comp else 9999
-            _gpd_stale = (
-                _user_refresh_request
-                or _gpd_version_mismatch
-            )
+            # Snapshot-only mode: pedidos de usuário (incluindo admin com force_refresh)
+            # NÃO disparam recompute Magento aqui. Apenas mudança de versão de schema
+            # justifica refresh em background. Reconsolidação completa só via POST
+            # /eventos/{id}/recalcular-snapshot (admin explícito).
+            _gpd_stale = _gpd_version_mismatch
             _gpd_key = f"{_ano_for_persist}_{evento_id}_detail"
             if _gpd_stale and _gpd_key not in _swr_recompute_in_progress:
                 _reason = (
@@ -9652,7 +9653,6 @@ def get_marketing_event_by_id(
         _USE_SNAPSHOT_FIRST
         and current_user is not None
         and not _internal_recompute
-        and not _user_refresh_request
     ):
         _prep_key = f"{_ano_for_persist}_{evento_id}_detail"
         _partial_iso = None
@@ -11811,12 +11811,15 @@ def recalcular_snapshot_evento(
     ano = datetime.now().year
 
     try:
+        # current_user=None força o caminho de recompute interno: bypassa o early-return
+        # snapshot-only e executa o pipeline completo (Magento + Ativo + recálculos),
+        # que internamente chama save_persisted_detail para persistir no PostgreSQL.
         result = get_marketing_event_by_id(
             evento_id=evento_id,
             ano=ano,
             force_refresh=True,
             db=db,
-            current_user=current_user,
+            current_user=None,
             response=None,
         )
 
