@@ -634,11 +634,11 @@ export const adminService = {
     return response.data as { status: string; message: string };
   },
   triggerSnapshotConsolidationFull: async (incremental: boolean = false) => {
-    const response = await api.post(`/admin/snapshots/consolidar-full?incremental=${incremental}`);
+    const response = await api.post(`/admin/snapshots/consolidar-full?incremental=${incremental}`, null, { timeout: 30000 });
     return response.data as { status: string; message: string };
   },
   getSnapshotConsolidationFullProgress: async () => {
-    const response = await api.get('/admin/snapshots/consolidar-full/progress');
+    const response = await api.get('/admin/snapshots/consolidar-full/progress', { timeout: 10000 });
     return response.data as {
       status: 'idle' | 'running' | 'done' | 'error';
       started_at: number | null;
@@ -666,8 +666,11 @@ export const adminService = {
     };
   },
   consolidarEvento: async (eventoGrupo: string, incremental: boolean = false) => {
+    // Timeout longo (5 min): endpoint é síncrono no backend e pode consultar Magento.
     const response = await api.post(
-      `/admin/snapshots/consolidar-evento?evento_grupo=${encodeURIComponent(eventoGrupo)}&incremental=${incremental}`
+      `/admin/snapshots/consolidar-evento?evento_grupo=${encodeURIComponent(eventoGrupo)}&incremental=${incremental}`,
+      null,
+      { timeout: 300000 }
     );
     return response.data as {
       status: string;

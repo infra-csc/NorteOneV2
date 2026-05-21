@@ -266,7 +266,17 @@ const SincronizacoesPanel: React.FC = () => {
     };
     poll();
     const it = setInterval(poll, 1500);
-    return () => clearInterval(it);
+    // Page Visibility API: dispara re-poll imediato ao retornar ao tab/desbloquear tela.
+    // Sem isso, o browser throttle o setInterval para ~60s em segundo plano e o
+    // progresso fica parado por até 1 minuto após o usuário voltar.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') poll();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(it);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [showFullModal]);
 
   // ── Timer de tempo decorrido (atualiza a cada segundo) ─────────────────────
