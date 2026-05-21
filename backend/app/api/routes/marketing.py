@@ -11586,10 +11586,12 @@ def _atualizar_hoje_inner(
             media_14d = _avg_last_n(14)
             media_30d = _avg_last_n(30)
 
-            # Total acumulado: sum only CONSOLIDADO entries to avoid double-counting.
+            # Total acumulado: filter by ano to avoid cross-year double-counting for
+            # recurring annual events (same evento_grupo reused in 2025 and 2026).
             total_all = db.query(_sa_func.sum(_VDS.quantidade)).filter(
                 _VDS.evento_grupo == grupo_nome,
                 _VDS.fonte == _HOJE_FONTE,
+                _VDS.ano == ano,
             ).scalar() or 0
             total_acumulado = int(total_all)
         except Exception as _e:
