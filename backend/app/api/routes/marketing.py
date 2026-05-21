@@ -404,7 +404,8 @@ def calculate_action_impact(db: Session, acao) -> dict:
 
 _ticket_atual_cache: dict = {}
 _ticket_atual_cache_ts: float = 0.0
-_TICKET_ATUAL_TTL = 120  # segundos — espelha o TTL dos caches de kits Magento/Ativo
+_TICKET_ATUAL_TTL = 1800  # 30 minutos — tickets mudam com muito menos frequência que 2 min;
+                           # TTL curto causava query Magento síncrona (~15s) a cada 2 min na lista ISC
 _ticket_atual_cache_lock = _threading.Lock()
 
 def clear_ticket_atual_cache():
