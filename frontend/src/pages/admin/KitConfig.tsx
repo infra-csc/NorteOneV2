@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { RefreshCw, Save, Search, AlertCircle, AlertTriangle, Package, Check, Star, Zap, Download, Filter, X, EyeOff } from 'lucide-react';
+import { RefreshCw, Save, Search, AlertCircle, AlertTriangle, Package, Check, Star, Zap, Download, Filter, X, EyeOff, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 interface KitRow {
   id_evento: string | null;
@@ -43,6 +43,60 @@ const isParticipacaoOuMeia = (nome: string | null): boolean => {
 let _kitsCache: KitRow[] | null = null;
 let _kitsMagentoFallback = false;
 
+// Histórico de tempos de carregamento (rolling, últimos 5) — usado para estimar
+// a duração da próxima atualização e mostrar uma % aproximada no modal.
+const ETA_STORAGE_KEY = 'kitConfig.updateDurationsMs';
+function readEtaHistory(): number[] {
+  try {
+    const raw = localStorage.getItem(ETA_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((n) => typeof n === 'number' && n > 0).slice(-5) : [];
+  } catch {
+    return [];
+  }
+}
+function pushEtaHistory(ms: number) {
+  try {
+    const hist = readEtaHistory();
+    hist.push(ms);
+    localStorage.setItem(ETA_STORAGE_KEY, JSON.stringify(hist.slice(-5)));
+  } catch { /* ignore */ }
+}
+function avgEtaMs(): number | null {
+  const h = readEtaHistory();
+  if (h.length === 0) return null;
+  return Math.round(h.reduce((a, b) => a + b, 0) / h.length);
+}
+function fmtSecs(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}min ${s - m * 60}s`;
+}
+
+type UpdateModalState = {
+  open: boolean;
+  status: 'running' | 'success' | 'error';
+  startedAt: number | null;
+  finishedAt: number | null;
+  errorTitle: string | null;
+  errorDetail: string | null;
+  errorStatus: number | null;
+  etaMs: number | null;
+};
+
+const initialUpdateModal: UpdateModalState = {
+  open: false,
+  status: 'running',
+  startedAt: null,
+  finishedAt: null,
+  errorTitle: null,
+  errorDetail: null,
+  errorStatus: null,
+  etaMs: null,
+};
+
 const KitConfig: React.FC = () => {
   const { isDark } = useTheme();
   const [kits, setKits] = useState<KitRow[]>(_kitsCache ?? []);
@@ -65,6 +119,53 @@ const KitConfig: React.FC = () => {
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Modal de progresso da atualização (Magento)
+  const [updateModal, setUpdateModal] = useState<UpdateModalState>(initialUpdateModal);
+  const [nowMs, setNowMs] = useState<number>(Date.now());
+  // Refs auxiliares — timer de auto-close + guarda de requisição em voo
+  // para evitar callbacks pendentes após unmount e respostas fora de ordem.
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchSeqRef = useRef(0);
+  const fetchInFlightRef = useRef(false);
+  const updateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!updateModal.open || updateModal.status !== 'running') return;
+    const it = setInterval(() => setNowMs(Date.now()), 250);
+    return () => clearInterval(it);
+  }, [updateModal.open, updateModal.status]);
+
+  // Cleanup de timer de auto-close ao desmontar.
+  useEffect(() => {
+    return () => {
+      if (autoCloseTimerRef.current) {
+        clearTimeout(autoCloseTimerRef.current);
+        autoCloseTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // ESC fecha o modal apenas quando não está em execução; gerencia foco.
+  useEffect(() => {
+    if (!updateModal.open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && updateModal.status !== 'running') {
+        closeUpdateModal();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    // Foco inicial no diálogo
+    const prevActive = document.activeElement as HTMLElement | null;
+    setTimeout(() => modalRef.current?.focus(), 30);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      // Devolve o foco para o botão Atualizar (ou último elemento ativo)
+      if (updateButtonRef.current) updateButtonRef.current.focus();
+      else prevActive?.focus?.();
+    };
+  }, [updateModal.open, updateModal.status]);
 
   const showToast = useCallback((message: string, type: 'error' | 'success' = 'error') => {
     if (toastTimeout.current) clearTimeout(toastTimeout.current);
@@ -160,23 +261,102 @@ const KitConfig: React.FC = () => {
   }, []);
 
   const fetchKits = async (forceRefresh = false) => {
+    // Guard contra cliques múltiplos / retries paralelos no Atualizar.
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+    const mySeq = ++fetchSeqRef.current;
+    const isLatest = () => fetchSeqRef.current === mySeq;
+
     setLoading(true);
     setError(null);
     setMagentoFallback(false);
+    const startedAt = Date.now();
+    // Cancela qualquer auto-close pendente de uma rodada anterior.
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+    // Só abre o modal em refresh manual — primeiro load não deve sobrepor a tela
+    if (forceRefresh) {
+      setUpdateModal({
+        ...initialUpdateModal,
+        open: true,
+        status: 'running',
+        startedAt,
+        etaMs: avgEtaMs(),
+      });
+    }
     try {
       const res = await api.get('/kit-config/kits', { params: forceRefresh ? { force_refresh: true } : {} });
+      if (!isLatest()) return; // resposta fora de ordem — descartar
       const isFallback = res.headers?.['x-kit-source'] === 'local';
       if (isFallback) setMagentoFallback(true);
       _kitsCache = res.data;
       _kitsMagentoFallback = isFallback;
       applyKitsData(res.data);
+      const finishedAt = Date.now();
+      const dur = finishedAt - startedAt;
+      if (forceRefresh) {
+        pushEtaHistory(dur);
+        setUpdateModal((m) => ({
+          ...m,
+          status: 'success',
+          finishedAt,
+        }));
+        // Fecha automaticamente após breve confirmação (timer gerenciado via ref).
+        autoCloseTimerRef.current = setTimeout(() => {
+          autoCloseTimerRef.current = null;
+          if (!isLatest()) return;
+          setUpdateModal((m) => (m.status === 'success' ? { ...m, open: false } : m));
+        }, 1800);
+      }
     } catch (err) {
-      const axiosErr = err as { response?: { data?: { detail?: string } } };
-      setError(axiosErr?.response?.data?.detail || 'Erro ao carregar kits do Magento');
+      if (!isLatest()) return;
+      const axiosErr = err as {
+        response?: { data?: { detail?: string }; status?: number; statusText?: string };
+        message?: string;
+        code?: string;
+      };
+      const httpStatus = axiosErr?.response?.status ?? null;
+      const serverDetail = axiosErr?.response?.data?.detail;
+      const baseMsg = serverDetail || axiosErr?.message || 'Erro ao carregar kits do Magento';
+      setError(baseMsg);
+      if (forceRefresh) {
+        let title = 'Não foi possível atualizar os kits';
+        if (httpStatus === 504 || /timeout/i.test(baseMsg)) {
+          title = 'Tempo esgotado ao consultar o Magento';
+        } else if (httpStatus === 502 || httpStatus === 503) {
+          title = 'Magento indisponível no momento';
+        } else if (httpStatus === 401 || httpStatus === 403) {
+          title = 'Sem permissão para atualizar';
+        } else if (httpStatus && httpStatus >= 500) {
+          title = `Erro no servidor (HTTP ${httpStatus})`;
+        } else if (axiosErr?.code === 'ERR_NETWORK') {
+          title = 'Sem conexão com o servidor';
+        }
+        setUpdateModal((m) => ({
+          ...m,
+          status: 'error',
+          finishedAt: Date.now(),
+          errorTitle: title,
+          errorDetail: baseMsg,
+          errorStatus: httpStatus,
+        }));
+      }
     } finally {
-      setLoading(false);
+      if (isLatest()) setLoading(false);
+      fetchInFlightRef.current = false;
     }
   };
+
+  const closeUpdateModal = () => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+    setUpdateModal((m) => ({ ...m, open: false }));
+  };
+  const retryUpdate = () => { fetchKits(true); };
 
   useEffect(() => {
     if (_kitsCache !== null) {
@@ -600,6 +780,7 @@ const KitConfig: React.FC = () => {
             Exportar CSV
           </button>
           <button
+            ref={updateButtonRef}
             onClick={() => fetchKits(true)}
             disabled={loading}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
@@ -1175,6 +1356,181 @@ const KitConfig: React.FC = () => {
           </div>
         </div>
       )}
+
+      {updateModal.open && (() => {
+        const started = updateModal.startedAt ?? Date.now();
+        const ended = updateModal.finishedAt ?? nowMs;
+        const elapsedMs = Math.max(0, ended - started);
+        const eta = updateModal.etaMs;
+        // Pseudo-% baseado em ETA histórica. Cap em 95% enquanto não terminou
+        // para não dar falsa impressão de "100% travado". Sem histórico → barra
+        // indeterminada (pct=null).
+        let pct: number | null = null;
+        if (updateModal.status === 'success') pct = 100;
+        else if (updateModal.status === 'error') pct = 100;
+        else if (eta) pct = Math.min(95, Math.round((elapsedMs / eta) * 100));
+        const remainingMs = (updateModal.status === 'running' && eta) ? Math.max(0, eta - elapsedMs) : null;
+        const overrunMs = (updateModal.status === 'running' && eta && elapsedMs > eta) ? (elapsedMs - eta) : 0;
+        const isRunning = updateModal.status === 'running';
+        const isSuccess = updateModal.status === 'success';
+        const isErr = updateModal.status === 'error';
+        const headerLabel = isRunning
+          ? 'Atualizando kits do Magento'
+          : isSuccess ? 'Atualização concluída' : 'Falha na atualização';
+        const HeaderIcon = isRunning ? Loader2 : isSuccess ? CheckCircle2 : XCircle;
+        const headerIconCls = isRunning
+          ? (isDark ? 'text-blue-400' : 'text-blue-600')
+          : isSuccess ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
+          : (isDark ? 'text-red-400' : 'text-red-500');
+
+        // Texto de fase aproximada — sem feedback real do backend (endpoint
+        // síncrono), usamos heurística por tempo decorrido para dar contexto.
+        let phaseText = 'Conectando ao Magento via túnel SSH…';
+        const sec = Math.round(elapsedMs / 1000);
+        if (sec >= 3) phaseText = 'Consultando bundles e preços no Magento…';
+        if (sec >= 10) phaseText = 'Cruzando com mapeamentos e cadastro local…';
+        if (sec >= 20) phaseText = 'Finalizando montagem da lista de kits…';
+        if (overrunMs > 0) phaseText = 'Carregamento mais lento que a média — aguarde…';
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={() => { if (!isRunning) closeUpdateModal(); }}
+            />
+            <div
+              ref={modalRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="kit-update-modal-title"
+              aria-describedby="kit-update-modal-desc"
+              aria-busy={isRunning}
+              tabIndex={-1}
+              className={`relative w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden outline-none ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}
+            >
+              <div className={`flex items-center justify-between px-5 py-4 border-b ${isDark ? 'border-gray-700 bg-gray-800/60' : 'border-gray-200 bg-gray-50'}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <HeaderIcon className={`w-5 h-5 ${headerIconCls} ${isRunning ? 'animate-spin' : ''}`} />
+                  <h2 id="kit-update-modal-title" className={`text-base font-bold ${textPrimary} truncate`}>{headerLabel}</h2>
+                </div>
+                {!isRunning && (
+                  <button
+                    onClick={closeUpdateModal}
+                    className={`p-1 rounded-lg transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-200 text-gray-600'}`}
+                    aria-label="Fechar"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+              </div>
+
+              <div id="kit-update-modal-desc" className="px-5 py-4 space-y-4">
+                {isRunning && (
+                  <p className={`text-sm ${textSecondary}`}>{phaseText}</p>
+                )}
+                {isSuccess && (
+                  <p className={`text-sm ${textSecondary}`}>
+                    Lista de kits atualizada com sucesso a partir do Magento.
+                  </p>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5 text-xs">
+                    <span className={textSecondary}>
+                      {isErr ? 'Interrompido em' : 'Tempo decorrido'}
+                    </span>
+                    <span className={`font-mono ${textPrimary}`}>{fmtSecs(elapsedMs)}</span>
+                  </div>
+                  <div className={`h-2.5 rounded-full overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-gray-200'}`}>
+                    {pct == null ? (
+                      <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-pulse" />
+                    ) : (
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          isErr ? 'bg-red-500' : isSuccess ? 'bg-emerald-500' : 'bg-blue-500'
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 text-[11px]">
+                    <span className={textSecondary}>
+                      {pct == null
+                        ? 'Sem histórico — duração ainda desconhecida'
+                        : `${pct}% (estimativa)`}
+                    </span>
+                    {isRunning && remainingMs != null && (
+                      <span className={textSecondary}>
+                        {overrunMs > 0
+                          ? `+${fmtSecs(overrunMs)} acima da média`
+                          : `restam ~${fmtSecs(remainingMs)}`}
+                      </span>
+                    )}
+                    {eta != null && !isRunning && (
+                      <span className={textSecondary}>Média histórica: {fmtSecs(eta)}</span>
+                    )}
+                  </div>
+                </div>
+
+                {isRunning && (
+                  <div className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg ${isDark ? 'bg-gray-800/60 text-gray-400' : 'bg-gray-50 text-gray-600'}`}>
+                    <Clock className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Esta atualização consulta o Magento ao vivo via túnel SSH. Pode levar de alguns segundos a alguns minutos dependendo da janela de eventos. Não feche a aba.
+                    </span>
+                  </div>
+                )}
+
+                {isErr && (
+                  <div className={`rounded-lg border p-3 ${isDark ? 'bg-red-900/20 border-red-700' : 'bg-red-50 border-red-200'}`}>
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isDark ? 'text-red-400' : 'text-red-500'}`} />
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm font-semibold ${isDark ? 'text-red-300' : 'text-red-700'}`}>
+                          {updateModal.errorTitle}
+                          {updateModal.errorStatus != null && (
+                            <span className={`ml-2 text-xs font-mono ${isDark ? 'text-red-400/80' : 'text-red-600/80'}`}>
+                              HTTP {updateModal.errorStatus}
+                            </span>
+                          )}
+                        </p>
+                        {updateModal.errorDetail && (
+                          <p className={`text-xs mt-1 break-words ${isDark ? 'text-red-200/80' : 'text-red-700/90'}`}>
+                            {updateModal.errorDetail}
+                          </p>
+                        )}
+                        <p className={`text-[11px] mt-2 ${isDark ? 'text-red-300/70' : 'text-red-700/70'}`}>
+                          Os dados locais continuam disponíveis. Você pode tentar atualizar novamente ou continuar editando com o que já foi carregado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {!isRunning && (
+                <div className={`flex items-center justify-end gap-2 px-5 py-3 border-t ${isDark ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50'}`}>
+                  <button
+                    onClick={closeUpdateModal}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
+                  >
+                    Fechar
+                  </button>
+                  {isErr && (
+                    <button
+                      onClick={retryUpdate}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${isDark ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Tentar novamente
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
