@@ -312,9 +312,14 @@ def get_dashboard_operacional(
                 sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
             ).filter(
                 VendasDiariaSnapshot.evento_grupo.in_(grupos_relevantes),
+                # Mesma semântica do helper _ano_filter_for_snapshot: ano
+                # preenchido deve bater exatamente; legado NULL só dentro da
+                # janela pré-venda + ano. Evita somar edições diferentes do
+                # mesmo grupo (regressão de duplicação reportada).
                 or_(
                     VendasDiariaSnapshot.ano == ano,
                     and_(
+                        VendasDiariaSnapshot.ano.is_(None),
                         VendasDiariaSnapshot.data_venda >= presale_start,
                         VendasDiariaSnapshot.data_venda <  year_end,
                     )
@@ -375,7 +380,7 @@ def get_dashboard_operacional(
         m30d = 0.0
 
         if regime == "consolidated" and grupo_nome:
-            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
             if snap:
                 current_sales = snap.get("qtd_site", 0)
         else:
@@ -590,7 +595,7 @@ def get_dashboard_financeiro(
         current_sales = 0
         m7d = m14d = m30d = 0.0
         if regime == "consolidated" and grupo_nome:
-            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
             if snap:
                 current_sales = snap.get("qtd_site", 0)
         else:

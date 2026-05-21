@@ -1219,14 +1219,18 @@ def get_data_regime(event_date, dias_encerramento: int = 2) -> str:
     return get_event_regime(real_d_minus)
 
 
-def _get_snapshot_metrics_for_grupo(db: Session, grupo_nome: str) -> Optional[dict]:
+def _get_snapshot_metrics_for_grupo(db: Session, grupo_nome: str, ano: Optional[int] = None) -> Optional[dict]:
     """
     Returns ISC-like metrics from snapshot data for a consolidated event group.
     Returns None if no snapshot data exists (caller should fall back to live data).
+
+    ``ano`` (ano-edição do evento) é OBRIGATÓRIO para grupos recorrentes — sem
+    ele, edições diferentes do mesmo grupo (ex.: 2025 + 2026) são somadas e os
+    totais aparecem dobrados na UI.
     """
     try:
         from ...services.snapshot_service import get_snapshot_vendas_com_receita
-        rows = get_snapshot_vendas_com_receita(db, grupo_nome)
+        rows = get_snapshot_vendas_com_receita(db, grupo_nome, ano=ano)
         if not rows:
             return None
         total_qtd = sum(r['qtd'] for r in rows)
@@ -1771,7 +1775,7 @@ def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_histor
     snapshot_used = False
     today_in_snapshot = False
     if evento_grupo and not force_magento_refresh:
-        snapshot_data = get_snapshot_vendas(db, evento_grupo, data_fim=today)
+        snapshot_data = get_snapshot_vendas(db, evento_grupo, data_fim=today, ano=ano)
         if snapshot_data:
             all_daily.update(snapshot_data)
             snapshot_used = True
@@ -5697,7 +5701,7 @@ def get_marketing_events(
                 current_sales = _ct['qtd_site']
                 current_receita = _ct['receita_liquida_site']
             else:
-                snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+                snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
                 if snap is not None:
                     current_sales = snap['qtd_site']
                     current_receita = snap['receita_liquida_site']
@@ -5867,7 +5871,7 @@ def get_marketing_events(
 
         if standalone_regime == "consolidated":
             snap_eg = standalone_eg or sku_norm
-            snap = _get_snapshot_metrics_for_grupo(db, snap_eg)
+            snap = _get_snapshot_metrics_for_grupo(db, snap_eg, ano=ano)
             if snap is not None:
                 current_sales = snap['qtd_site']
                 current_receita = snap['receita_liquida_site']
@@ -6160,7 +6164,7 @@ def get_sales_averages(
     snapshot_used_medias = False
     if is_consolidated and grupo_nome:
         from ...services.snapshot_service import get_snapshot_vendas as _gsv_medias
-        _snap = _gsv_medias(db, grupo_nome)
+        _snap = _gsv_medias(db, grupo_nome, ano=ano)
         if _snap:
             all_raw_sales.update(_snap)
             snapshot_used_medias = True
@@ -6438,7 +6442,7 @@ def get_event_simulation(
     snapshot_used_sim = False
     if evento_grupo_sim:
         from ...services.snapshot_service import get_snapshot_vendas_com_receita
-        snap_rows = get_snapshot_vendas_com_receita(db, evento_grupo_sim)
+        snap_rows = get_snapshot_vendas_com_receita(db, evento_grupo_sim, ano=ano)
         if snap_rows:
             snapshot_used_sim = True
             for row in snap_rows:
@@ -9676,7 +9680,7 @@ def get_marketing_event_by_id(
             _gpd_payload = _persisted["payload"] if isinstance(_persisted["payload"], dict) else {}
             # Aplica overlay de HOJE (currentSales, dailySales[hoje], averageTicket)
             try:
-                _gpd_payload = _apply_overlay(db, _gpd_payload, evento_id)
+                _gpd_payload = _apply_overlay(db, _gpd_payload, evento_id, ano=_ano_for_persist)
             except Exception as _ov_e:
                 logger.warning(f"[Persist] apply_today_overlay '{_gpd_key}' falhou: {_ov_e}")
             _gpd_result = dict(_gpd_payload)
@@ -9769,7 +9773,7 @@ def get_marketing_event_by_id(
                 from ...services.event_detail_snapshot_service import (
                     apply_today_overlay as _apply_overlay_partial,
                 )
-                _partial_payload = _apply_overlay_partial(db, _partial_payload, evento_id)
+                _partial_payload = _apply_overlay_partial(db, _partial_payload, evento_id, ano=_ano_for_persist)
                 _ds_after = _partial_payload.get("dailySales") or []
                 _ds_count = len(_ds_after)
                 if _ds_count > 0:
@@ -10025,8 +10029,12 @@ def get_marketing_event_by_id(
             _should_rebuild = True
             try:
                 from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
+                # Cooldown restrito ao ano-edição: sem isso, atualizar a edição
+                # anterior do mesmo grupo (ex.: 2025) bloqueia o rebuild da
+                # edição atual (2026) por 10min — cross-edition cooldown.
                 _last_updated = db.query(func.max(_VDS.updated_at)).filter(
-                    _VDS.evento_grupo == grupo_nome
+                    _VDS.evento_grupo == grupo_nome,
+                    _VDS.ano == ano,
                 ).scalar()
                 if _last_updated and (datetime.now() - _last_updated).total_seconds() < 600:
                     _should_rebuild = False
@@ -10044,7 +10052,7 @@ def get_marketing_event_by_id(
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
         elif detail_regime == "consolidated" and ano == current_year:
-            _existing_snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            _existing_snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
             if not _existing_snap:
                 logger.info(f"[Hybrid] Evento '{grupo_nome}' é consolidated sem snapshot — construindo")
                 try:
@@ -10074,7 +10082,7 @@ def get_marketing_event_by_id(
         if not daily_sales_list and grupo_nome:
             try:
                 from ...services.snapshot_service import get_snapshot_vendas as _gsv_fallback
-                _fb_snap = _gsv_fallback(db, grupo_nome, data_fim=today_brazil())
+                _fb_snap = _gsv_fallback(db, grupo_nome, data_fim=today_brazil(), ano=ano)
                 if _fb_snap:
                     logger.warning(f"[DailySales] Fallback: daily_sales_list vazio para '{grupo_nome}' mas snapshot tem {len(_fb_snap)} dias — reconstruindo do snapshot")
                     _fb_today = today_brazil()
@@ -10147,7 +10155,7 @@ def get_marketing_event_by_id(
             current_sales = sum(v for k, v in daily_sales_dict.items() if k <= _today_detail)
         
         if ano == current_year and detail_regime == "consolidated":
-            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome)
+            snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
             if snap is not None:
                 current_receita = snap['receita_liquida_site']
                 if current_sales == 0:
@@ -10781,7 +10789,7 @@ def get_marketing_event_by_id(
 
     if standalone_detail_regime == "consolidated":
         snap_key = standalone_evento_grupo or normalize_sku(sku or "")
-        snap = _get_snapshot_metrics_for_grupo(db, snap_key) if snap_key else None
+        snap = _get_snapshot_metrics_for_grupo(db, snap_key, ano=ano) if snap_key else None
         if snap is not None:
             current_sales = snap['qtd_site']
             current_receita = snap['receita_liquida_site']
@@ -10806,8 +10814,10 @@ def get_marketing_event_by_id(
         _should_rebuild_standalone = True
         try:
             from ...models.vendas_snapshot import VendasDiariaSnapshot as _VDS
+            # Cooldown restrito ao ano-edição (mesmo motivo do bloco grouped acima).
             _last_updated_s = db.query(func.max(_VDS.updated_at)).filter(
-                _VDS.evento_grupo == standalone_evento_grupo
+                _VDS.evento_grupo == standalone_evento_grupo,
+                _VDS.ano == ano,
             ).scalar()
             if _last_updated_s and (datetime.now() - _last_updated_s).total_seconds() < 600:
                 _should_rebuild_standalone = False
@@ -11782,11 +11792,15 @@ def _atualizar_hoje_inner(
             cutoff_30 = hoje - timedelta(days=30)
             # Filter exclusively by CONSOLIDADO to avoid double-counting entries
             # from other fontes (ATIVO, MAGENTO) that may coexist in the same table.
+            # Restringe ao ano-edição: sem isso, grupos recorrentes (mesmo
+            # evento_grupo em 2025 e 2026) somariam vendas de outra edição
+            # quando o cutoff de 30 dias cair próximo de virada de ano.
             snap_rows = db.query(_VDS).filter(
                 _VDS.evento_grupo == grupo_nome,
                 _VDS.fonte == _HOJE_FONTE,
                 _VDS.data_venda >= cutoff_30,
-                _VDS.data_venda <= hoje
+                _VDS.data_venda <= hoje,
+                _VDS.ano == ano,
             ).order_by(_VDS.data_venda).all()
 
             daily_map: dict = {}
@@ -11829,10 +11843,14 @@ def _atualizar_hoje_inner(
     # the Controle Diário tab populates with the complete historical curve after the first sync.
     _has_history = False
     try:
+        # Restringe ao ano-edição: detecção de "primeiro sync" precisa olhar
+        # apenas a edição atual; rows da edição anterior do mesmo grupo não
+        # devem mascarar como "histórico existe" e bloquear o consolidar full.
         _hist_count = db.query(func.count(_VDS.id)).filter(
             _VDS.evento_grupo == grupo_nome,
             _VDS.fonte == 'CONSOLIDADO',
             _VDS.data_venda < hoje,
+            _VDS.ano == ano,
         ).scalar() or 0
         _has_history = _hist_count >= 3
     except Exception:
@@ -11883,7 +11901,7 @@ def _atualizar_hoje_inner(
                         _ps_persisted = _gpd_patch(_ps_db, evento_id, ano)
                         if _ps_persisted:
                             _ps_payload = _ps_persisted.get("payload") or {}
-                            _ps_patched = _ov_patch(_ps_db, _ps_payload, evento_id)
+                            _ps_patched = _ov_patch(_ps_db, _ps_payload, evento_id, ano=ano)
                             _spd_patch(
                                 _ps_db, evento_id, ano, _ps_patched,
                                 data_evento=_ps_persisted.get("data_evento"),

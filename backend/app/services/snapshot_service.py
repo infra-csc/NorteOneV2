@@ -330,10 +330,39 @@ def _load_active_grupos(db: Session, freeze_days: int) -> set:
     return active
 
 
-def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None) -> dict:
+def _ano_filter_for_snapshot(ano: int):
+    """Filtro de ano para leituras de VendasDiariaSnapshot, robusto a linhas
+    legadas onde ``ano`` foi gravado com a regra antiga (ano=d.year, calendário
+    da venda) em vez do ano-edição do evento. Aceita a linha quando:
+
+    - ``ano == ano_edicao`` (escrita pelo job atual), OU
+    - ``ano IS NULL`` E a data_venda cai na janela típica de pré-venda + ano
+      (de 1/set do ano anterior até 31/dez do ano-edição) — equivalente à
+      lógica usada em ``get_metricas_isc_consolidadas_from_snapshot`` para
+      preservar compatibilidade com snapshots antigos.
+
+    Sem esse filtro, grupos recorrentes (ex.: mesma corrida em 2025 e 2026)
+    tinham vendas somadas entre edições, duplicando os totais.
+    """
+    from sqlalchemy import or_, and_
+    year_end      = date(ano + 1, 1, 1)
+    presale_start = date(ano - 1, 9, 1)
+    return or_(
+        VendasDiariaSnapshot.ano == ano,
+        and_(
+            VendasDiariaSnapshot.ano.is_(None),
+            VendasDiariaSnapshot.data_venda >= presale_start,
+            VendasDiariaSnapshot.data_venda <  year_end,
+        ),
+    )
+
+
+def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, ano: Optional[int] = None) -> dict:
     query = db.query(VendasDiariaSnapshot).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo
     )
+    if ano is not None:
+        query = query.filter(_ano_filter_for_snapshot(ano))
     if data_inicio:
         query = query.filter(VendasDiariaSnapshot.data_venda >= data_inicio)
     if data_fim:
@@ -346,10 +375,12 @@ def get_snapshot_vendas(db: Session, evento_grupo: str, data_inicio: Optional[da
     return daily
 
 
-def get_snapshot_vendas_com_receita(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None) -> list:
+def get_snapshot_vendas_com_receita(db: Session, evento_grupo: str, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, ano: Optional[int] = None) -> list:
     query = db.query(VendasDiariaSnapshot).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo
     )
+    if ano is not None:
+        query = query.filter(_ano_filter_for_snapshot(ano))
     if data_inicio:
         query = query.filter(VendasDiariaSnapshot.data_venda >= data_inicio)
     if data_fim:
@@ -375,11 +406,17 @@ def has_snapshot_for_date(db: Session, evento_grupo: str, data: date) -> bool:
     return count > 0
 
 
-def get_latest_snapshot_date(db: Session, evento_grupo: str) -> date:
+def get_latest_snapshot_date(db: Session, evento_grupo: str, ano: Optional[int] = None) -> date:
     from sqlalchemy import func
-    result = db.query(func.max(VendasDiariaSnapshot.data_venda)).filter(
+    # Restringe ao ano-edição quando informado: sem isso, jobs que decidem
+    # backfill ou pular grupos pegariam max(data_venda) de outra edição do
+    # mesmo grupo recorrente e tomariam decisão errada.
+    q = db.query(func.max(VendasDiariaSnapshot.data_venda)).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo
-    ).scalar()
+    )
+    if ano is not None:
+        q = q.filter(VendasDiariaSnapshot.ano == ano)
+    result = q.scalar()
     return result
 
 
@@ -511,9 +548,13 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
     data_floor: Optional[date] = None
     if incremental:
         from sqlalchemy import func as _sa_func
+        # Restringe ao ano-edição: sem isso, grupos recorrentes pegariam o
+        # max(data_venda) de outra edição (ex.: 2025 ao consolidar 2026),
+        # gerando data_floor errado e fetch incompleto.
         max_dia = db.query(_sa_func.max(VendasDiariaSnapshot.data_venda)).filter(
             VendasDiariaSnapshot.evento_grupo == evento_grupo,
             VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+            VendasDiariaSnapshot.ano == ano,
         ).scalar()
         if max_dia:
             # Re-busca a partir do último dia gravado (não +1) pra capturar
@@ -860,7 +901,7 @@ def snapshot_diario_batch(db: Session):
             continue
         grupos_processados.add(grupo)
 
-        latest = get_latest_snapshot_date(db, grupo)
+        latest = get_latest_snapshot_date(db, grupo, ano=ano)
         if latest and latest >= yesterday:
             continue
 
@@ -1192,7 +1233,7 @@ def sincronizar_hoje_batch(db: Session) -> int:
     # --- Step 1: Backfill historical data for groups with no snapshot rows ---
     backfilled = 0
     for grupo in list(grupos.keys()):
-        latest = get_latest_snapshot_date(db, grupo)
+        latest = get_latest_snapshot_date(db, grupo, ano=ano)
         if latest is None:
             try:
                 logger.info(f"sincronizar_hoje_batch: backfill histórico para '{grupo}'")
@@ -1529,9 +1570,15 @@ def get_isc_totals_from_snapshot(db: Session, ano: int) -> dict:
             else_=0
         )).label("qtd_30d"),
     ).filter(
+        # Janela restrita ao ano-edição: rows com ano preenchido devem bater
+        # exatamente (evita misturar 2025 + 2026 do mesmo grupo); legado
+        # ano=NULL só é aceito quando a data_venda cai dentro da janela típica
+        # de pré-venda + ano (sem isso, rows NULL de outra edição também
+        # seriam somadas por estarem dentro da janela ampla).
         or_(
             VendasDiariaSnapshot.ano == ano,
             and_(
+                VendasDiariaSnapshot.ano.is_(None),
                 VendasDiariaSnapshot.data_venda >= presale_start,
                 VendasDiariaSnapshot.data_venda <  year_end,
             )

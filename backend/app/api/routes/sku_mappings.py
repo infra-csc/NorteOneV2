@@ -135,8 +135,13 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
     if not evento_grupo:
         return
 
+    # Cooldown E delete restritos ao ano-edição: sem isso, editar um mapeamento
+    # de 2026 bloqueava rebuild quando a edição 2025 do mesmo grupo havia sido
+    # atualizada recentemente, E o delete apagava o snapshot de TODAS as edições
+    # do grupo (destrutivo cross-year).
     last_updated = db.query(func.max(VendasDiariaSnapshot.updated_at)).filter(
-        VendasDiariaSnapshot.evento_grupo == evento_grupo
+        VendasDiariaSnapshot.evento_grupo == evento_grupo,
+        VendasDiariaSnapshot.ano == ano,
     ).scalar()
     cooldown_ok = (not last_updated) or (datetime.now() - last_updated > timedelta(minutes=10))
 
@@ -146,7 +151,8 @@ def _invalidate_snapshot(db: Session, evento_grupo: str, ano: int):
             CurvaHistoricaSnapshot.ano_referencia == ano
         ).delete()
         deleted_vendas = db.query(VendasDiariaSnapshot).filter(
-            VendasDiariaSnapshot.evento_grupo == evento_grupo
+            VendasDiariaSnapshot.evento_grupo == evento_grupo,
+            VendasDiariaSnapshot.ano == ano,
         ).delete(synchronize_session=False)
         if deleted_curva or deleted_vendas:
             db.commit()

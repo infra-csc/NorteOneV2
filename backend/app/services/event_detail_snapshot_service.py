@@ -29,7 +29,7 @@ from ..models.vendas_snapshot import VendasDiariaSnapshot
 logger = logging.getLogger(__name__)
 
 
-def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
+def apply_today_overlay(db: Session, payload: dict, evento_id: str, ano: int | None = None) -> dict:
     """Sobrepõe campos voláteis recentes no payload do snapshot.
 
     Apenas para eventos agrupados (prefixo 'grp_'). Lê os últimos OVERLAY_LOOKBACK_DAYS
@@ -91,9 +91,10 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
     lookback_start = today - timedelta(days=OVERLAY_LOOKBACK_DAYS)
 
     try:
+        from sqlalchemy import or_, and_
         # `.with_entities()` evita hidratação ORM completa (até ~10x mais rápido em
         # eventos com janela de 90 dias e tabela grande).
-        recent_rows = (
+        q = (
             db.query(
                 VendasDiariaSnapshot.data_venda,
                 VendasDiariaSnapshot.quantidade,
@@ -105,8 +106,20 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str) -> dict:
                 VendasDiariaSnapshot.data_venda >= lookback_start,
                 VendasDiariaSnapshot.data_venda <= today,
             )
-            .order_by(VendasDiariaSnapshot.data_venda.asc())
-            .all()
+        )
+        # Restringe ao ano-edição quando informado: para grupos recorrentes,
+        # sem esse filtro o overlay de "hoje" misturava dias da edição atual
+        # com dias da edição anterior (ex.: 2025 + 2026 do mesmo grupo).
+        # Aceita também legado com ano=NULL para preservar compatibilidade.
+        if ano is not None:
+            q = q.filter(
+                or_(
+                    VendasDiariaSnapshot.ano == ano,
+                    VendasDiariaSnapshot.ano.is_(None),
+                )
+            )
+        recent_rows = (
+            q.order_by(VendasDiariaSnapshot.data_venda.asc()).all()
         )
     except Exception as e:
         logger.warning(f"[Overlay] read vendas_diaria_snapshot falhou para '{grupo_nome}': {e}")
@@ -386,7 +399,7 @@ def aggregate_eventos_list_from_snapshots(
     for r in rows:
         payload = r.payload if isinstance(r.payload, dict) else {}
         try:
-            payload = apply_today_overlay(db, payload, r.evento_id)
+            payload = apply_today_overlay(db, payload, r.evento_id, ano=r.ano)
         except Exception as e:
             logger.debug(f"[EventosListSnap] overlay falhou {r.evento_id}: {e}")
 
