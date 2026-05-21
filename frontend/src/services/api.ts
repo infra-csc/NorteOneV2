@@ -1009,6 +1009,32 @@ interface CacheEntry<T> {
 
 const dashboardCache: Map<string, CacheEntry<MarketingEventsResponse>> = new Map();
 const CACHE_MAX_AGE = 30 * 60 * 1000;
+// sessionStorage permite que os dados sobrevivam a um F5/page-refresh,
+// eliminando o skeleton na maioria das visitas subsequentes.
+const _SS_KEY = 'dw_mkt_cache_v2';
+const _SS_MAX_AGE = 4 * 60 * 60 * 1000; // 4 h — exibe dado antigo sem piscar
+
+// Restaura o cache em memória a partir do sessionStorage na inicialização do módulo.
+try {
+  const _raw = sessionStorage.getItem(_SS_KEY);
+  if (_raw) {
+    const _parsed: Record<string, CacheEntry<MarketingEventsResponse>> = JSON.parse(_raw);
+    const _now = Date.now();
+    for (const [k, v] of Object.entries(_parsed)) {
+      if (_now - v.timestamp < _SS_MAX_AGE) {
+        dashboardCache.set(k, v);
+      }
+    }
+  }
+} catch { /* sessionStorage indisponível ou JSON inválido */ }
+
+function _persistToSessionStorage(): void {
+  try {
+    const obj: Record<string, CacheEntry<MarketingEventsResponse>> = {};
+    dashboardCache.forEach((v, k) => { obj[k] = v; });
+    sessionStorage.setItem(_SS_KEY, JSON.stringify(obj));
+  } catch { /* quota exceeded ou navegador sem sessionStorage */ }
+}
 
 function getCacheKey(params?: {
   ano?: number;
@@ -1024,6 +1050,7 @@ const MAX_CACHE_ENTRIES = 20;
 
 export function clearMarketingDashboardCache(): void {
   dashboardCache.clear();
+  try { sessionStorage.removeItem(_SS_KEY); } catch { /* ok */ }
 }
 
 export function getMarketingDashboardCache(params?: {
@@ -1036,10 +1063,10 @@ export function getMarketingDashboardCache(params?: {
   const entry = dashboardCache.get(key);
   if (!entry) return null;
   const age = Date.now() - entry.timestamp;
-  // Only evict entries that are very stale (2× max age = 60 min).
-  // Between CACHE_MAX_AGE and 2×CACHE_MAX_AGE, return the data with isExpired=true
-  // so the caller can show it while revalidating (stale-while-revalidate).
-  if (age > CACHE_MAX_AGE * 2) {
+  // Serve dado do sessionStorage por até _SS_MAX_AGE (4 h) como stale,
+  // para nunca exibir skeleton quando já existe um resultado anterior.
+  // O componente sempre dispara um fetch em bg e atualiza quando chega.
+  if (age > _SS_MAX_AGE) {
     dashboardCache.delete(key);
     return null;
   }
@@ -1082,6 +1109,7 @@ export const marketingService = {
       if (oldestKey) dashboardCache.delete(oldestKey);
     }
     dashboardCache.set(key, { data, timestamp: Date.now(), key });
+    _persistToSessionStorage();
     return data;
   },
   getResumo: async (ano?: number, signal?: AbortSignal): Promise<{ status: string; resumo: MarketingDashboardSummary; ultima_atualizacao: string }> => {

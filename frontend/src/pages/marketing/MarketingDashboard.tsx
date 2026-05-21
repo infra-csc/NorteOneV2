@@ -192,15 +192,24 @@ const MarketingDashboard: React.FC = () => {
     return sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />;
   };
   
-  const [eventos, setEventos] = useState<MarketingEvent[]>([]);
-  const [summary, setSummary] = useState<MarketingDashboardSummary>({
-    totalActiveEvents: 0,
-    eventsGreen: 0,
-    eventsYellow: 0,
-    eventsRed: 0
-  });
-  const [categories, setCategories] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Lê o cache (memória + sessionStorage) uma única vez na montagem do componente,
+  // inicializando todos os estados de dados de forma síncrona. Isso elimina o
+  // skeleton "sempre" exibido em F5/page-refresh quando já há um resultado anterior.
+  const _initCache = getMarketingDashboardCache({ ano: new Date().getFullYear() });
+  const _initData = _initCache?.data ?? null;
+
+  const [eventos, setEventos] = useState<MarketingEvent[]>(_initData?.eventos ?? []);
+  const [summary, setSummary] = useState<MarketingDashboardSummary>(
+    _initData?.resumo ?? {
+      totalActiveEvents: 0,
+      eventsGreen: 0,
+      eventsYellow: 0,
+      eventsRed: 0
+    }
+  );
+  const [categories, setCategories] = useState<string[]>(_initData?.categorias ?? []);
+  // loading=false quando já há dados em cache — a revalidação ocorre em background.
+  const [loading, setLoading] = useState(!_initData);
   const [loadingTooLong, setLoadingTooLong] = useState(false);
   const loadingTooLongTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [refreshing, setRefreshing] = useState(false);
