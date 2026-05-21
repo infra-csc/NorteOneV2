@@ -601,9 +601,23 @@ const EventDetail: React.FC = () => {
           return;
         }
         // Backend devolve payload parcial (cabeçalho do bootstrap, sem dailySales).
-        // Renderizamos o evento normalmente — gráficos ficam vazios e um banner
-        // amarelo aparece avisando que falta consolidar.
+        // Para ADMIN: tratamos como no_snapshot — tela cheia com botão "Reconsolidar"
+        // já visível, sem mostrar dados parciais que confundem.
+        // Para usuário comum: renderiza normal + banner amarelo de aviso.
         if ((response as any)?.status === 'partial') {
+          if (isAdmin) {
+            setNoSnapshot(true);
+            setIsPartial(false);
+            setIsPreparing(false);
+            setLoading(false);
+            if (staleRetryTimerRef.current) {
+              clearTimeout(staleRetryTimerRef.current);
+              staleRetryTimerRef.current = null;
+            }
+            setPartialMessage((response as any).message || null);
+            setPartialComputedAt((response as any).snapshot_computed_at || null);
+            return;
+          }
           setIsPartial(true);
           setNoSnapshot(false);
           setIsPreparing(false);
