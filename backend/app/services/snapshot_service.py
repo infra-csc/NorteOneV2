@@ -1699,15 +1699,17 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         # static — no f-strings or concatenation inside text(), following SQLAlchemy
         # best practices. :skip_cortesia_filter=True short-circuits the OR, skipping
         # the filter; False enforces it.
+        # OTIMIZAÇÃO (broad fix): lidera com sales_order_item soi_parent
+        # filtrado por product_id IN (índice nativo), depois joina sales_order
+        # pelo PK. STRAIGHT_JOIN força essa ordem para o otimizador não cair
+        # no plano antigo de varrer 2 anos de sales_order primeiro.
         return text(
-            "SELECT /*+ MAX_EXECUTION_TIME(300000) */\n"
+            "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
             "    soi_parent.product_id                                                              AS bundle_entity_id,\n"
             "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
-            "FROM sales_order so\n"
-            "INNER JOIN sales_order_item soi_parent\n"
-            "       ON soi_parent.order_id     = so.entity_id\n"
-            "      AND soi_parent.product_type = 'bundle'\n"
-            "      AND soi_parent.product_id   IN :bundle_ids\n"
+            "FROM sales_order_item soi_parent\n"
+            "INNER JOIN sales_order so\n"
+            "       ON so.entity_id = soi_parent.order_id\n"
             "INNER JOIN sales_order_item soi_child\n"
             "       ON soi_child.parent_item_id = soi_parent.item_id\n"
             "      AND soi_child.product_type   = 'simple'\n"
@@ -1724,7 +1726,9 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
             "         OR soi_child.name LIKE 'Yoga%%'\n"
             "      )\n"
             "WHERE\n"
-            "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+            "    soi_parent.product_type = 'bundle'\n"
+            "AND soi_parent.product_id   IN :bundle_ids\n"
+            "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
             "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
             "AND so.state != 'canceled'\n"
             "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -1745,17 +1749,18 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     def _build_cnt_query(include_cortesias: bool):
         # Mesma lógica do count_query inline em get_margem_por_kit, com timeout
         # elevado para 5 min (background). Retorna {bundle_entity_id: qtd}.
+        # OTIMIZAÇÃO (broad fix): mesma reordem da rev_query.
         return text(
-            "SELECT /*+ MAX_EXECUTION_TIME(300000) */\n"
+            "SELECT /*+ MAX_EXECUTION_TIME(300000) */ STRAIGHT_JOIN\n"
             "    soi_parent.product_id                  AS bundle_entity_id,\n"
             "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
-            "FROM sales_order so\n"
-            "INNER JOIN sales_order_item soi_parent\n"
-            "       ON soi_parent.order_id     = so.entity_id\n"
-            "      AND soi_parent.product_type = 'bundle'\n"
-            "      AND soi_parent.product_id   IN :bundle_ids\n"
+            "FROM sales_order_item soi_parent\n"
+            "INNER JOIN sales_order so\n"
+            "       ON so.entity_id = soi_parent.order_id\n"
             "WHERE\n"
-            "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+            "    soi_parent.product_type = 'bundle'\n"
+            "AND soi_parent.product_id   IN :bundle_ids\n"
+            "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
             "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
             "AND so.state != 'canceled'\n"
             "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -1844,6 +1849,13 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
         finally:
             _s.close()
 
+    # Circuit breaker: se vários batches consecutivos timeoutam, aborta o sync
+    # inteiro para não saturar o Magento / SSH tunnel com tentativas inúteis.
+    # O snapshot persiste tudo que já gravou; a próxima execução continua.
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 3
+    sync_aborted = False
+
     for i in range(0, len(bundle_ids_all), BATCH_SIZE):
         batch = bundle_ids_all[i:i + BATCH_SIZE]
         normal_batch = [b for b in batch if b not in cortesia_bundle_set]
@@ -1893,8 +1905,18 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 f"[MargemRevSync] Batch {i // BATCH_SIZE + 1}: {len(batch)} bundles → "
                 f"{_crev} com receita, {_ccnt} com qtd"
             )
+            consecutive_failures = 0
         except Exception as e:
+            consecutive_failures += 1
             logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                remaining = len(bundle_ids_all) - (i + len(batch))
+                logger.error(
+                    f"[MargemRevSync] ABORTANDO sync após {consecutive_failures} batches consecutivos falhando. "
+                    f"{remaining} bundles não foram processados — Magento/SSH instável. Próxima execução retoma."
+                )
+                sync_aborted = True
+                break
             continue
 
         # Persiste imediatamente (session nova) para que parcial sempre fique.
@@ -1924,9 +1946,11 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     logger.info(
         f"[MargemRevSync] Snapshot atualizado: {upserted_total} bundles gravados "
         f"em margem_bundle_rev_snapshot ({persist_failures} batches com falha de persistência)"
+        + (" — ABORTADO por circuit breaker" if sync_aborted else "")
     )
     return {
-        "status": "ok",
+        "status": "parcial" if sync_aborted else "ok",
+        "aborted": sync_aborted,
         "bundles_processados": len(bundle_ids_all),
         "bundles_com_receita": upserted_total,
         "persist_failures": persist_failures,

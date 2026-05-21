@@ -2249,17 +2249,18 @@ def _build_kit_cost_batch_data(db: Session, all_projeto_ids: List[int], ano: Opt
             return result
 
         all_bundle_ids = list(bundle_custo.keys())
+        # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN (índice).
         _sql_cnt = (
-            "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
+            "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
             "    soi_parent.product_id              AS bundle_entity_id,\n"
             "    COUNT(DISTINCT soi_parent.item_id) AS qtd\n"
-            "FROM sales_order so\n"
-            "INNER JOIN sales_order_item soi_parent\n"
-            "       ON soi_parent.order_id     = so.entity_id\n"
-            "      AND soi_parent.product_type = 'bundle'\n"
-            "      AND soi_parent.product_id   IN :bundle_ids\n"
+            "FROM sales_order_item soi_parent\n"
+            "INNER JOIN sales_order so\n"
+            "       ON so.entity_id = soi_parent.order_id\n"
             "WHERE\n"
-            "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+            "    soi_parent.product_type = 'bundle'\n"
+            "AND soi_parent.product_id   IN :bundle_ids\n"
+            "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
             "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link',\n"
             "                   'reembolso_parcial', 'closed', 'retirado')\n"
             "AND so.state != 'canceled'\n"
@@ -2768,17 +2769,18 @@ def get_margem_por_kit(
             # used inside text(), following SQLAlchemy best practices.
             # :skip_cortesia_filter = True  → OR short-circuits, clause is skipped
             # :skip_cortesia_filter = False → the filter condition is enforced
+            # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
             _sql_count = (
-                "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
+                "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
                 "    soi_parent.product_id                  AS bundle_entity_id,\n"
                 "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
-                "FROM sales_order so\n"
-                "INNER JOIN sales_order_item soi_parent\n"
-                "       ON soi_parent.order_id     = so.entity_id\n"
-                "      AND soi_parent.product_type = 'bundle'\n"
-                "      AND soi_parent.product_id   IN :bundle_ids\n"
+                "FROM sales_order_item soi_parent\n"
+                "INNER JOIN sales_order so\n"
+                "       ON so.entity_id = soi_parent.order_id\n"
                 "WHERE\n"
-                "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                "    soi_parent.product_type = 'bundle'\n"
+                "AND soi_parent.product_id   IN :bundle_ids\n"
+                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state != 'canceled'\n"
                 "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -2799,15 +2801,14 @@ def get_margem_por_kit(
             # Timeout 90s: eventos de alto volume precisam de ~50-55s em pico de carga.
             # Resultado armazenado em cache em memória por 4h (_margem_rev_cache).
             # A segunda chamada (mesmos bundle_ids) é instantânea.
+            # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
             _sql_bundle = (
-                "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
+                "SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN\n"
                 "    soi_parent.product_id                                                              AS bundle_entity_id,\n"
                 "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
-                "FROM sales_order so\n"
-                "INNER JOIN sales_order_item soi_parent\n"
-                "       ON soi_parent.order_id     = so.entity_id\n"
-                "      AND soi_parent.product_type = 'bundle'\n"
-                "      AND soi_parent.product_id   IN :bundle_ids\n"
+                "FROM sales_order_item soi_parent\n"
+                "INNER JOIN sales_order so\n"
+                "       ON so.entity_id = soi_parent.order_id\n"
                 "INNER JOIN sales_order_item soi_child\n"
                 "       ON soi_child.parent_item_id = soi_parent.item_id\n"
                 "      AND soi_child.product_type   = 'simple'\n"
@@ -2824,7 +2825,9 @@ def get_margem_por_kit(
                 "         OR soi_child.name LIKE 'Yoga%%'\n"
                 "      )\n"
                 "WHERE\n"
-                "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                "    soi_parent.product_type = 'bundle'\n"
+                "AND soi_parent.product_id   IN :bundle_ids\n"
+                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state != 'canceled'\n"
                 "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3313,17 +3316,18 @@ AND    value        IN :ev_ids_fb
 
             if fb_bundle_ids:
                 # Reutiliza o mesmo padrão das queries primárias, agrupando por nome do bundle
+                # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
                 fb_count_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(55000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.name                        AS bundle_name,\n"
                     "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
-                    "FROM sales_order so\n"
-                    "INNER JOIN sales_order_item soi_parent\n"
-                    "       ON soi_parent.order_id     = so.entity_id\n"
-                    "      AND soi_parent.product_type = 'bundle'\n"
-                    "      AND soi_parent.product_id   IN :fb_bundle_ids\n"
+                    "FROM sales_order_item soi_parent\n"
+                    "INNER JOIN sales_order so\n"
+                    "       ON so.entity_id = soi_parent.order_id\n"
                     "WHERE\n"
-                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "    soi_parent.product_type = 'bundle'\n"
+                    "AND soi_parent.product_id   IN :fb_bundle_ids\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3338,15 +3342,14 @@ AND    value        IN :ev_ids_fb
                     skip_cortesia_filter=_skip_cortesia_filter,
                 )
 
+                # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
                 fb_rev_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(60000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(60000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.name                                                                    AS bundle_name,\n"
                     "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
-                    "FROM sales_order so\n"
-                    "INNER JOIN sales_order_item soi_parent\n"
-                    "       ON soi_parent.order_id     = so.entity_id\n"
-                    "      AND soi_parent.product_type = 'bundle'\n"
-                    "      AND soi_parent.product_id   IN :fb_bundle_ids\n"
+                    "FROM sales_order_item soi_parent\n"
+                    "INNER JOIN sales_order so\n"
+                    "       ON so.entity_id = soi_parent.order_id\n"
                     "INNER JOIN sales_order_item soi_child\n"
                     "       ON soi_child.parent_item_id = soi_parent.item_id\n"
                     "      AND soi_child.product_type   = 'simple'\n"
@@ -3363,7 +3366,9 @@ AND    value        IN :ev_ids_fb
                     "         OR soi_child.name LIKE 'Yoga%%'\n"
                     "      )\n"
                     "WHERE\n"
-                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "    soi_parent.product_type = 'bundle'\n"
+                    "AND soi_parent.product_id   IN :fb_bundle_ids\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3506,17 +3511,18 @@ AND    value        IN :ev_ids
 
             if _supp_extra_bids:
                 import time as _time_supp
+                # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
                 _supp_cnt_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(30000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(30000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.name                        AS bundle_name,\n"
                     "    COUNT(DISTINCT soi_parent.item_id)     AS qtd\n"
-                    "FROM sales_order so\n"
-                    "INNER JOIN sales_order_item soi_parent\n"
-                    "       ON soi_parent.order_id     = so.entity_id\n"
-                    "      AND soi_parent.product_type = 'bundle'\n"
-                    "      AND soi_parent.product_id   IN :supp_bids\n"
+                    "FROM sales_order_item soi_parent\n"
+                    "INNER JOIN sales_order so\n"
+                    "       ON so.entity_id = soi_parent.order_id\n"
                     "WHERE\n"
-                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "    soi_parent.product_type = 'bundle'\n"
+                    "AND soi_parent.product_id   IN :supp_bids\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3531,15 +3537,14 @@ AND    value        IN :ev_ids
                     skip_cortesia_filter=_skip_cortesia_filter,
                 )
 
+                # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
                 _supp_rev_q = text(
-                    "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
+                    "SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN\n"
                     "    soi_parent.name                                                                    AS bundle_name,\n"
                     "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2)                        AS receita_liquida\n"
-                    "FROM sales_order so\n"
-                    "INNER JOIN sales_order_item soi_parent\n"
-                    "       ON soi_parent.order_id     = so.entity_id\n"
-                    "      AND soi_parent.product_type = 'bundle'\n"
-                    "      AND soi_parent.product_id   IN :supp_bids\n"
+                    "FROM sales_order_item soi_parent\n"
+                    "INNER JOIN sales_order so\n"
+                    "       ON so.entity_id = soi_parent.order_id\n"
                     "INNER JOIN sales_order_item soi_child\n"
                     "       ON soi_child.parent_item_id = soi_parent.item_id\n"
                     "      AND soi_child.product_type   = 'simple'\n"
@@ -3556,7 +3561,9 @@ AND    value        IN :ev_ids
                     "         OR soi_child.name LIKE 'Yoga%%'\n"
                     "      )\n"
                     "WHERE\n"
-                    "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "    soi_parent.product_type = 'bundle'\n"
+                    "AND soi_parent.product_id   IN :supp_bids\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -9368,17 +9375,18 @@ def _populate_cenarios_from_bundles(
     # :skip_cortesia_filter = False → the filter condition is enforced
     _skip_cortesia_filter = bool(incluir_cortesias)
 
+    # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
     _cic_count_q = text(
-        "SELECT /*+ MAX_EXECUTION_TIME(20000) */\n"
+        "SELECT /*+ MAX_EXECUTION_TIME(20000) */ STRAIGHT_JOIN\n"
         "    soi_parent.product_id AS bundle_id,\n"
         "    COUNT(DISTINCT soi_parent.item_id) AS qtd\n"
-        "FROM sales_order so\n"
-        "INNER JOIN sales_order_item soi_parent\n"
-        "       ON soi_parent.order_id     = so.entity_id\n"
-        "      AND soi_parent.product_type = 'bundle'\n"
-        "      AND soi_parent.product_id   IN :bundle_ids\n"
+        "FROM sales_order_item soi_parent\n"
+        "INNER JOIN sales_order so\n"
+        "       ON so.entity_id = soi_parent.order_id\n"
         "WHERE\n"
-        "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+        "    soi_parent.product_type = 'bundle'\n"
+        "AND soi_parent.product_id   IN :bundle_ids\n"
+        "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
         "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
         "AND so.state != 'canceled'\n"
         "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -9393,20 +9401,21 @@ def _populate_cenarios_from_bundles(
         skip_cortesia_filter=_skip_cortesia_filter,
     )
 
+    # OTIMIZAÇÃO (broad fix): lidera com sales_order_item.product_id IN.
     _cic_rev_q = text(
-        "SELECT /*+ MAX_EXECUTION_TIME(90000) */\n"
+        "SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN\n"
         "    soi_parent.product_id AS bundle_id,\n"
         "    ROUND(SUM(soi_child.price - soi_child.discount_amount), 2) AS receita\n"
-        "FROM sales_order so\n"
-        "INNER JOIN sales_order_item soi_parent\n"
-        "       ON soi_parent.order_id     = so.entity_id\n"
-        "      AND soi_parent.product_type = 'bundle'\n"
-        "      AND soi_parent.product_id   IN :bundle_ids\n"
+        "FROM sales_order_item soi_parent\n"
+        "INNER JOIN sales_order so\n"
+        "       ON so.entity_id = soi_parent.order_id\n"
         "INNER JOIN sales_order_item soi_child\n"
         "       ON soi_child.parent_item_id = soi_parent.item_id\n"
         "      AND soi_child.product_type   = 'simple'\n"
         "WHERE\n"
-        "    so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+        "    soi_parent.product_type = 'bundle'\n"
+        "AND soi_parent.product_id   IN :bundle_ids\n"
+        "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
         "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
         "AND so.state != 'canceled'\n"
         "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
