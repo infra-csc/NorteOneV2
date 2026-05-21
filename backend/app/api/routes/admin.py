@@ -4,12 +4,34 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func as sa_func
 from typing import Optional
+import threading as _threading
+import time as _time_module
+import copy as _copy
 from ...core.database import get_db
 from ...core.security import require_permission
 from ...models.user import Usuario
 from ...models.sync_event_log import SyncEventLog
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+# ── Consolidação Full Manual — rastreamento em memória ──────────────────────
+_consolidation_full_lock = _threading.Lock()
+_consolidation_full_progress: dict = {
+    "status": "idle",
+    "started_at": None,
+    "finished_at": None,
+    "triggered_by": None,
+    "total": 0,
+    "current": 0,
+    "current_grupo": None,
+    "ok": 0,
+    "failed": 0,
+    "skipped": 0,
+    "frozen": 0,
+    "results": [],
+    "ciclo_id": None,
+    "error": None,
+}
 
 ONLINE_THRESHOLD_MINUTES = 5
 AWAY_THRESHOLD_MINUTES = 30
@@ -110,6 +132,206 @@ def trigger_snapshot_consolidation(
         "status": "started",
         "message": "Consolidação de snapshots iniciada em background"
     }
+
+
+@router.post("/snapshots/consolidar-full")
+def trigger_snapshot_consolidation_full(
+    incremental: bool = Query(default=False, description="True=incremental (só dias novos). False=reconstrução completa."),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Consolidação completa de snapshots de todos os eventos com rastreamento de progresso em tempo real."""
+    global _consolidation_full_progress
+    with _consolidation_full_lock:
+        if _consolidation_full_progress.get("status") == "running":
+            return {
+                "status": "already_running",
+                "message": "Já existe uma consolidação em andamento",
+            }
+        _consolidation_full_progress = {
+            "status": "running",
+            "started_at": _time_module.time(),
+            "finished_at": None,
+            "triggered_by": f"{current_user.nome} ({current_user.email})",
+            "incremental": incremental,
+            "total": 0,
+            "current": 0,
+            "current_grupo": None,
+            "ok": 0,
+            "failed": 0,
+            "skipped": 0,
+            "frozen": 0,
+            "results": [],
+            "ciclo_id": None,
+            "error": None,
+        }
+
+    def _run_full():
+        global _consolidation_full_progress
+        import logging as _log
+        _logger = _log.getLogger(__name__)
+        from app.core.database import SessionLocal
+        from app.models.sku_mapping import SkuMapping
+        from app.models.dimensoes import DimProjeto
+        from app.models.cadastro_evento import CadastroEvento
+        from app.services.snapshot_service import (
+            consolidar_vendas_grupo, _freeze_after_days, _load_active_grupos
+        )
+        from app.services.sync_log_service import new_ciclo_id, log_evento
+        from app.api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
+        import time as _t
+        from datetime import date as _date, timedelta
+
+        local_db = SessionLocal()
+        try:
+            ciclo_id = new_ciclo_id()
+            triggered_by = _consolidation_full_progress.get("triggered_by", "")
+            with _consolidation_full_lock:
+                _consolidation_full_progress["ciclo_id"] = ciclo_id
+
+            log_evento(
+                ciclo_id, "consolidar_full_manual", "iniciado", nivel="ciclo",
+                detalhes=f"incremental={incremental} por {triggered_by}",
+            )
+
+            today = _date.today()
+            yesterday = today - timedelta(days=1)
+            ano = today.year
+
+            sku_to_grupo = _build_sku_to_grupo_map(local_db, ano)
+            if not sku_to_grupo:
+                with _consolidation_full_lock:
+                    _consolidation_full_progress["status"] = "error"
+                    _consolidation_full_progress["error"] = "Nenhum sku_to_grupo encontrado para o ano corrente"
+                    _consolidation_full_progress["finished_at"] = _t.time()
+                return
+
+            # Coleta grupos — mesma lógica do snapshot_diario_batch
+            grupos_candidatos: set = set()
+            for p in local_db.query(DimProjeto).all():
+                if not p.data_evento or not p.codigo:
+                    continue
+                if p.data_evento.year != ano:
+                    continue
+                g = sku_to_grupo.get(normalize_sku(str(p.codigo)))
+                if g:
+                    grupos_candidatos.add(g)
+
+            magento_id_to_grupo: dict = {}
+            for mm in local_db.query(SkuMapping).filter(
+                SkuMapping.ano == ano, SkuMapping.ativo == True,
+                SkuMapping.fonte == "MAGENTO", SkuMapping.id_externo.isnot(None),
+                SkuMapping.evento_grupo.isnot(None),
+            ).all():
+                magento_id_to_grupo[str(mm.id_externo)] = mm.evento_grupo
+
+            cadastros = local_db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None)).all()
+            projeto_ids = {c.projeto_id for c in cadastros if getattr(c, "projeto_id", None)}
+            projeto_codigo_by_id: dict = {}
+            if projeto_ids:
+                for pj in local_db.query(DimProjeto.id, DimProjeto.codigo).filter(DimProjeto.id.in_(projeto_ids)).all():
+                    if pj.codigo:
+                        projeto_codigo_by_id[pj.id] = str(pj.codigo)
+
+            for c in cadastros:
+                if not c.data_evento or c.data_evento.year != ano:
+                    continue
+                g = None
+                if getattr(c, "sku", None):
+                    g = sku_to_grupo.get(normalize_sku(str(c.sku)))
+                if not g and getattr(c, "projeto_id", None):
+                    cod = projeto_codigo_by_id.get(c.projeto_id)
+                    if cod:
+                        g = sku_to_grupo.get(normalize_sku(cod))
+                if not g and getattr(c, "id_evento_magento", None):
+                    g = magento_id_to_grupo.get(str(c.id_evento_magento))
+                if g:
+                    grupos_candidatos.add(g)
+
+            freeze_days = _freeze_after_days()
+            active_grupos = _load_active_grupos(local_db, freeze_days)
+            grupos_frozen = grupos_candidatos - active_grupos
+            grupos_to_process = sorted(grupos_candidatos & active_grupos)
+
+            with _consolidation_full_lock:
+                _consolidation_full_progress["total"] = len(grupos_to_process)
+                _consolidation_full_progress["frozen"] = len(grupos_frozen)
+
+            t_start = _consolidation_full_progress["started_at"]
+
+            for idx, grupo in enumerate(grupos_to_process):
+                with _consolidation_full_lock:
+                    _consolidation_full_progress["current"] = idx + 1
+                    _consolidation_full_progress["current_grupo"] = grupo
+
+                t_grupo = _t.time()
+                result_entry: dict = {
+                    "grupo": grupo,
+                    "status": "ok",
+                    "motivo": None,
+                    "qtd_antes": None,
+                    "qtd_depois": None,
+                    "duracao_ms": None,
+                    "detalhes": None,
+                }
+                try:
+                    consolidar_vendas_grupo(
+                        local_db, grupo, ano,
+                        data_inicio=None, data_fim=yesterday,
+                        incremental=incremental,
+                        ciclo_id=ciclo_id,
+                        parent_job_name="consolidar_full_manual",
+                    )
+                    with _consolidation_full_lock:
+                        _consolidation_full_progress["ok"] += 1
+                except Exception as exc:
+                    result_entry["status"] = "failed"
+                    result_entry["motivo"] = str(exc)[:300]
+                    with _consolidation_full_lock:
+                        _consolidation_full_progress["failed"] += 1
+                    _logger.error(f"consolidar_full_manual: erro grupo='{grupo}': {exc}")
+
+                result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
+                with _consolidation_full_lock:
+                    _consolidation_full_progress["results"].append(result_entry)
+
+            total_ms = int((_t.time() - t_start) * 1000)
+            log_evento(
+                ciclo_id, "consolidar_full_manual", "concluido", nivel="ciclo",
+                detalhes=(
+                    f"{len(grupos_to_process)} processados "
+                    f"({_consolidation_full_progress['ok']} ok, "
+                    f"{_consolidation_full_progress['failed']} falha), "
+                    f"{len(grupos_frozen)} congelados"
+                ),
+                duracao_ms=total_ms,
+            )
+            with _consolidation_full_lock:
+                _consolidation_full_progress["status"] = "done"
+                _consolidation_full_progress["finished_at"] = _t.time()
+                _consolidation_full_progress["current_grupo"] = None
+
+        except Exception as exc:
+            _logger.error(f"consolidar_full_manual: falha geral: {exc}")
+            with _consolidation_full_lock:
+                _consolidation_full_progress["status"] = "error"
+                _consolidation_full_progress["error"] = str(exc)[:500]
+                _consolidation_full_progress["finished_at"] = _t.time()
+        finally:
+            local_db.close()
+
+    t = _threading.Thread(target=_run_full, daemon=True)
+    t.start()
+    return {"status": "started", "message": "Consolidação completa iniciada em background"}
+
+
+@router.get("/snapshots/consolidar-full/progress")
+def get_snapshot_consolidation_full_progress(
+    current_user: Usuario = Depends(require_permission("marketing")),
+):
+    """Retorna o progresso atual da consolidação completa de snapshots."""
+    with _consolidation_full_lock:
+        return _copy.deepcopy(_consolidation_full_progress)
 
 
 @router.get("/sync-logs/cycles")

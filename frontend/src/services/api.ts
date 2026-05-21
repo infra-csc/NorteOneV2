@@ -633,6 +633,38 @@ export const adminService = {
     const response = await api.post('/admin/snapshots/consolidar');
     return response.data as { status: string; message: string };
   },
+  triggerSnapshotConsolidationFull: async (incremental: boolean = false) => {
+    const response = await api.post(`/admin/snapshots/consolidar-full?incremental=${incremental}`);
+    return response.data as { status: string; message: string };
+  },
+  getSnapshotConsolidationFullProgress: async () => {
+    const response = await api.get('/admin/snapshots/consolidar-full/progress');
+    return response.data as {
+      status: 'idle' | 'running' | 'done' | 'error';
+      started_at: number | null;
+      finished_at: number | null;
+      triggered_by: string | null;
+      incremental: boolean;
+      total: number;
+      current: number;
+      current_grupo: string | null;
+      ok: number;
+      failed: number;
+      skipped: number;
+      frozen: number;
+      ciclo_id: string | null;
+      error: string | null;
+      results: Array<{
+        grupo: string;
+        status: 'ok' | 'failed' | 'skipped';
+        motivo: string | null;
+        qtd_antes: number | null;
+        qtd_depois: number | null;
+        duracao_ms: number | null;
+        detalhes: string | null;
+      }>;
+    };
+  },
   getSyncPauseStatus: async () => {
     const response = await api.get('/admin/sync/pause-status');
     return response.data as { paused: boolean; by: string | null; since: string | null };
