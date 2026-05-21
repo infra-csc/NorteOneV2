@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import AtualizarHojeModal, { SyncStatus, SyncResult } from '../../components/marketing/AtualizarHojeModal';
 import { useParams, useNavigate, useSearchParams, useLocation, Link } from 'react-router-dom';
 import ConnectionAlert from '../../components/common/ConnectionAlert';
@@ -343,6 +343,7 @@ const EventDetail: React.FC = () => {
   const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(_snapModCached?.data ?? null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
+  const [showAllCurvaRows, setShowAllCurvaRows] = useState(false);
   const [showNormalizationDetail, setShowNormalizationDetail] = useState(false);
   const [isStaleData, setIsStaleData] = useState(false);
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<string | null>(null);
@@ -1068,6 +1069,107 @@ const EventDetail: React.FC = () => {
     </div>
   );
 
+  // ─── Memoized heavy derivations (must be before any early return to comply with hooks rules) ───
+  const _eventDailySales = event?.dailySales;
+  const _eventDate = event?.date;
+
+  const dailySalesNormExpected = useMemo(
+    () => normalizeExpectedOutliers(_eventDailySales || []),
+    [_eventDailySales]
+  );
+
+  const cumulativeData = useMemo(() =>
+    dailySalesNormExpected.reduce((acc, day, index) => {
+      const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
+      const prevExpected = index > 0 ? acc[index - 1].cumulativeExpected : 0;
+      acc.push({
+        date: day.date,
+        cumulative: prevCumulative + day.sales,
+        cumulativeExpected: day.cumulativeExpected != null ? day.cumulativeExpected : (prevExpected + day.expected),
+        cumulativeExpectedNormalized: day.cumulativeNormalizedExpected,
+        daily: day.sales,
+        expectedDaily: day.expected,
+        normalizedExpectedDaily: day.normalizedExpected,
+      });
+      return acc;
+    }, [] as { date: string; cumulative: number; cumulativeExpected: number; cumulativeExpectedNormalized: number; daily: number; expectedDaily: number; normalizedExpectedDaily: number }[]),
+    [dailySalesNormExpected]
+  );
+
+  const filteredCumulativeData = useMemo(
+    () => chartPeriod ? cumulativeData.slice(-chartPeriod) : cumulativeData,
+    [cumulativeData, chartPeriod]
+  );
+
+  const todayStr = useMemo(
+    () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }),
+    []
+  );
+
+  const parsedEventDate = useMemo(
+    () => _eventDate ? new Date(_eventDate + 'T12:00:00') : null,
+    [_eventDate]
+  );
+  const hasValidEventDate = parsedEventDate !== null && !isNaN(parsedEventDate.getTime());
+
+  const goalAttainmentData = useMemo(() =>
+    cumulativeData
+      .filter(d => d.cumulativeExpected > 0)
+      .map(d => {
+        let dMinusInsc = 0;
+        if (hasValidEventDate && parsedEventDate) {
+          const dayDate = new Date(d.date + 'T12:00:00');
+          const diffMs = parsedEventDate.getTime() - dayDate.getTime();
+          const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          dMinusInsc = Math.max(0, dMinusEvento - 2);
+        }
+        const realCumul = d.cumulative;
+        const refExpected = showNormalized ? d.cumulativeExpectedNormalized : d.cumulativeExpected;
+        const pct = parseFloat((((realCumul / refExpected) * 100) - 100).toFixed(1));
+        return {
+          date: d.date,
+          dMinus: dMinusInsc,
+          label: `D-${dMinusInsc}`,
+          percentual: pct,
+          cumulative: Math.round(realCumul),
+          cumulativeExpected: Math.round(refExpected),
+        };
+      }),
+    [cumulativeData, hasValidEventDate, parsedEventDate, showNormalized]
+  );
+
+  const goalAttainmentDailyData = useMemo(() =>
+    dailySalesNormExpected
+      .filter(d => d.expected > 0)
+      .map(d => {
+        let dMinusInsc = 0;
+        if (hasValidEventDate && parsedEventDate) {
+          const dayDate = new Date(d.date + 'T12:00:00');
+          const diffMs = parsedEventDate.getTime() - dayDate.getTime();
+          const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
+          dMinusInsc = Math.max(0, dMinusEvento - 2);
+        }
+        const realDay = d.sales;
+        const refExpected = showNormalized ? d.normalizedExpected : d.expected;
+        const pct = parseFloat((((realDay / refExpected) * 100) - 100).toFixed(1));
+        return {
+          date: d.date,
+          dMinus: dMinusInsc,
+          label: `D-${dMinusInsc}`,
+          percentual: pct,
+          sales: Math.round(realDay),
+          expected: Math.round(refExpected),
+        };
+      }),
+    [dailySalesNormExpected, hasValidEventDate, parsedEventDate, showNormalized]
+  );
+
+  const filteredAttainmentData = useMemo(() => {
+    const base = attainmentMode === 'acumulado' ? goalAttainmentData : goalAttainmentDailyData;
+    return attainmentPeriod ? base.slice(-attainmentPeriod) : base;
+  }, [attainmentMode, goalAttainmentData, goalAttainmentDailyData, attainmentPeriod]);
+  // ─────────────────────────────────────────────────────────────────────────────
+
   if (!event && (loading || error || isPreparing)) {
     return (
       <div className="p-6">
@@ -1288,83 +1390,6 @@ const EventDetail: React.FC = () => {
     NENHUMA_ACAO: 'Nenhuma Ação Tomada',
     OUTROS: 'Outros',
   };
-
-  const dailySalesNormExpected = normalizeExpectedOutliers(event.dailySales || []);
-
-  const cumulativeData = dailySalesNormExpected.reduce((acc, day, index) => {
-    const prevCumulative = index > 0 ? acc[index - 1].cumulative : 0;
-    const prevExpected = index > 0 ? acc[index - 1].cumulativeExpected : 0;
-
-    acc.push({
-      date: day.date,
-      cumulative: prevCumulative + day.sales,
-      cumulativeExpected: day.cumulativeExpected != null ? day.cumulativeExpected : (prevExpected + day.expected),
-      cumulativeExpectedNormalized: day.cumulativeNormalizedExpected,
-      daily: day.sales,
-      expectedDaily: day.expected,
-      normalizedExpectedDaily: day.normalizedExpected,
-    });
-
-    return acc;
-  }, [] as { date: string; cumulative: number; cumulativeExpected: number; cumulativeExpectedNormalized: number; daily: number; expectedDaily: number; normalizedExpectedDaily: number }[]);
-
-  const filteredCumulativeData = chartPeriod
-    ? cumulativeData.slice(-chartPeriod)
-    : cumulativeData;
-
-  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
-
-  const parsedEventDate = event.date ? new Date(event.date + 'T12:00:00') : null;
-  const hasValidEventDate = parsedEventDate && !isNaN(parsedEventDate.getTime());
-
-  const goalAttainmentData = cumulativeData
-    .filter(d => d.cumulativeExpected > 0)
-    .map(d => {
-      let dMinusInsc = 0;
-      if (hasValidEventDate) {
-        const dayDate = new Date(d.date + 'T12:00:00');
-        const diffMs = parsedEventDate!.getTime() - dayDate.getTime();
-        const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        dMinusInsc = Math.max(0, dMinusEvento - 2);
-      }
-      const realCumul = d.cumulative;
-      const refExpected = showNormalized ? d.cumulativeExpectedNormalized : d.cumulativeExpected;
-      const pct = parseFloat((((realCumul / refExpected) * 100) - 100).toFixed(1));
-      return {
-        date: d.date,
-        dMinus: dMinusInsc,
-        label: `D-${dMinusInsc}`,
-        percentual: pct,
-        cumulative: Math.round(realCumul),
-        cumulativeExpected: Math.round(refExpected),
-      };
-    });
-
-  const goalAttainmentDailyData = dailySalesNormExpected
-    .filter(d => d.expected > 0)
-    .map(d => {
-      let dMinusInsc = 0;
-      if (hasValidEventDate) {
-        const dayDate = new Date(d.date + 'T12:00:00');
-        const diffMs = parsedEventDate!.getTime() - dayDate.getTime();
-        const dMinusEvento = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        dMinusInsc = Math.max(0, dMinusEvento - 2);
-      }
-      const realDay = d.sales;
-      const refExpected = showNormalized ? d.normalizedExpected : d.expected;
-      const pct = parseFloat((((realDay / refExpected) * 100) - 100).toFixed(1));
-      return {
-        date: d.date,
-        dMinus: dMinusInsc,
-        label: `D-${dMinusInsc}`,
-        percentual: pct,
-        sales: Math.round(realDay),
-        expected: Math.round(refExpected),
-      };
-    });
-
-  const activeAttainmentData = attainmentMode === 'acumulado' ? goalAttainmentData : goalAttainmentDailyData;
-  const filteredAttainmentData = attainmentPeriod ? activeAttainmentData.slice(-attainmentPeriod) : activeAttainmentData;
 
   const dailySalesArr = event.dailySales || [];
   const todayDailySale = dailySalesArr.find(d => d.date === todayStr);
@@ -2073,7 +2098,7 @@ const EventDetail: React.FC = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {curvaSnapshot.data.map((row, i) => {
+                            {(showAllCurvaRows ? curvaSnapshot.data : curvaSnapshot.data.slice(0, 100)).map((row, i) => {
                               const evenRow = i % 2 === 0;
                               const rowBg = isDark
                                 ? (evenRow ? 'bg-gray-800' : 'bg-[#2d3748]')
@@ -2101,6 +2126,16 @@ const EventDetail: React.FC = () => {
                           </tbody>
                         </table>
                       </div>
+                      {!showAllCurvaRows && curvaSnapshot.data.length > 100 && (
+                        <div className={`flex items-center justify-center py-3 border-t ${isDark ? 'border-gray-600 bg-gray-800/50' : 'border-gray-200 bg-gray-50'}`}>
+                          <button
+                            onClick={() => setShowAllCurvaRows(true)}
+                            className={`text-xs font-medium px-4 py-1.5 rounded-md transition-colors ${isDark ? 'text-blue-400 hover:bg-gray-700' : 'text-blue-600 hover:bg-blue-50'}`}
+                          >
+                            Ver todas as {curvaSnapshot.data.length} linhas ↓
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
