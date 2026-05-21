@@ -1510,20 +1510,32 @@ const EventDetail: React.FC = () => {
           </p>
           {isAdmin ? (
             <button
-              onClick={() => {
-                setNoSnapshot(false);
-                setLoading(true);
-                if (fetchEventRef.current) fetchEventRef.current(true, false, true);
-              }}
-              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 inline-flex items-center gap-2"
+              onClick={handleReconsolidar}
+              disabled={reconsolidating}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
             >
-              <RefreshCw className="w-4 h-4" />
-              Reconsolidar agora
+              <RefreshCw className={`w-4 h-4 ${reconsolidating ? 'animate-spin' : ''}`} />
+              {reconsolidating ? 'Reconsolidando... (pode demorar até 1 min)' : 'Reconsolidar agora'}
             </button>
           ) : (
-            <p className="text-sm text-yellow-700 dark:text-yellow-300 italic">
-              Solicite ao administrador que clique em "Reconsolidar" no painel do evento.
-            </p>
+            <>
+              <button
+                onClick={handleSolicitarAtualizacao}
+                disabled={userRequestSent}
+                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-60 inline-flex items-center gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Solicitar atualização ao administrador
+              </button>
+              {userRequestSent && (
+                <p className="text-sm text-green-700 dark:text-green-300 mt-3">
+                  Pedido registrado. Avise um administrador para clicar em "Reconsolidar".
+                </p>
+              )}
+            </>
+          )}
+          {refreshError && (
+            <p className="text-sm text-red-600 dark:text-red-400 mt-3">{refreshError}</p>
           )}
         </div>
       </div>
@@ -2175,29 +2187,45 @@ const EventDetail: React.FC = () => {
 
       {isPartial && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="text-sm">
+          <div className="text-sm flex-1">
             <p className="text-yellow-900 dark:text-yellow-100 font-medium">
               Dados parciais — detalhes diários não consolidados
             </p>
             <p className="text-yellow-800 dark:text-yellow-200 mt-1">
               {partialMessage || 'Solicite ao administrador clicar em "Reconsolidar" para buscar os dados completos.'}
-              {partialComputedAt && (
-                <span className="block mt-1 text-yellow-700 dark:text-yellow-300">
-                  Última atualização: {new Date(partialComputedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
-                </span>
-              )}
             </p>
+            <p className="mt-2 text-yellow-700 dark:text-yellow-300 font-medium">
+              Última atualização:{' '}
+              {partialComputedAt
+                ? new Date(partialComputedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+                : 'sem registro'}
+            </p>
+            {userRequestSent && !isAdmin && (
+              <p className="mt-2 text-sm text-green-700 dark:text-green-300">
+                Pedido registrado. Avise um administrador para clicar em "Reconsolidar".
+              </p>
+            )}
+            {refreshError && reconsolidating === false && (
+              <p className="mt-2 text-sm text-red-600 dark:text-red-400">{refreshError}</p>
+            )}
           </div>
-          {isAdmin && (
+          {isAdmin ? (
             <button
-              onClick={() => {
-                setIsPartial(false);
-                if (fetchEventRef.current) fetchEventRef.current(true, false, true);
-              }}
-              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 inline-flex items-center gap-2 text-sm whitespace-nowrap"
+              onClick={handleReconsolidar}
+              disabled={reconsolidating}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2 text-sm whitespace-nowrap"
+            >
+              <RefreshCw className={`w-4 h-4 ${reconsolidating ? 'animate-spin' : ''}`} />
+              {reconsolidating ? 'Reconsolidando...' : 'Reconsolidar agora'}
+            </button>
+          ) : (
+            <button
+              onClick={handleSolicitarAtualizacao}
+              disabled={userRequestSent}
+              className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-60 inline-flex items-center gap-2 text-sm whitespace-nowrap"
             >
               <RefreshCw className="w-4 h-4" />
-              Reconsolidar agora
+              Solicitar atualização
             </button>
           )}
         </div>
