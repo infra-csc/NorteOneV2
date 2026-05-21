@@ -7501,10 +7501,14 @@ INNER JOIN catalog_product_entity_varchar cpev1
 LEFT JOIN customer_group cg
        ON cg.customer_group_id = so.customer_group_id
 LEFT JOIN (
-    SELECT parent_item_id, MAX(price) AS persona_price
-    FROM sales_order_item
-    WHERE name LIKE '%%persona%%'
-    GROUP BY parent_item_id
+    SELECT soi_p.parent_item_id, MAX(soi_p.price) AS persona_price
+    FROM sales_order_item soi_p
+    INNER JOIN sales_order so_p
+           ON so_p.entity_id = soi_p.order_id
+    WHERE soi_p.name LIKE '%%persona%%'
+      AND so_p.created_at >= CURDATE()
+      AND so_p.created_at <  CURDATE() + INTERVAL 1 DAY
+    GROUP BY soi_p.parent_item_id
 ) soi_persona ON soi_persona.parent_item_id = soi.item_id
 WHERE
     so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
