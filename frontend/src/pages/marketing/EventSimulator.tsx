@@ -30,6 +30,10 @@ import {
 } from 'recharts';
 import { marketingService } from '../../services/api';
 
+// Cache de módulo: evita re-fetch ao alternar para a aba Simulador no mesmo evento.
+// Padrão SWR — retorna o dado cacheado imediatamente e atualiza em background.
+const _simulacaoCache = new Map<string, { data: any; cachedAt: number }>();
+
 interface EventSimulatorProps {
   eventoId: string;
   ano: number;
@@ -69,27 +73,38 @@ const MargemBadge = ({ pct, isDark }: { pct: number; isDark: boolean }) => {
 };
 
 export default function EventSimulator({ eventoId, ano, isDark, dashTicketMedio, dashMargem, dashTotalVendas, dashTicketAtual, dashMediaDiaria, normalizedBase }: EventSimulatorProps) {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const _simCacheKey = `${eventoId}_${ano}`;
+  const _simCached = _simulacaoCache.get(_simCacheKey);
+
+  const [data, setData] = useState<any>(_simCached?.data ?? null);
+  // loading: começa false se há cache (SWR — exibe imediatamente, atualiza em background)
+  const [loading, setLoading] = useState(!_simCached);
   const [error, setError] = useState<string | null>(null);
 
   // Cenário 1 — Volume: ajuste de ritmo
   const [ajusteRitmo, setAjusteRitmo] = useState<number>(0);
 
   // Cenário 2 — Ticket: novo ticket + elasticidade
-  const [novoTicket, setNovoTicket] = useState<number | null>(null);
+  const [novoTicket, setNovoTicket] = useState<number | null>(
+    _simCached?.data?.atual ? Math.round(_simCached.data.atual.ticket_medio) || null : null
+  );
   const [elasticidade, setElasticidade] = useState<number>(0.5);
 
   // Meta customizável
-  const [metaCustom, setMetaCustom] = useState<number | null>(null);
+  const [metaCustom, setMetaCustom] = useState<number | null>(
+    _simCached?.data?.evento?.meta_orcada || null
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    const hasCached = data !== null;
+    // SWR: só mostra spinner na primeira carga (sem cache)
+    if (!hasCached) setLoading(true);
     setError(null);
     marketingService.getSimulacao(eventoId, controller.signal, ano)
       .then((res: any) => {
         if (!controller.signal.aborted) {
+          _simulacaoCache.set(`${eventoId}_${ano}`, { data: res, cachedAt: Date.now() });
           setData(res);
           setMetaCustom(res.evento.meta_orcada || null);
           setNovoTicket(Math.round(res.atual.ticket_medio) || null);
