@@ -1066,39 +1066,99 @@ class CacheRefreshScheduler:
                 return
 
         logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (04:00 BRT) ===")
+        # Ciclo guarda-chuva: agrupa todos os sub-passos sob o mesmo ciclo_id
+        # para que o painel de Sincronizações mostre o resumo do job das 04h
+        # (o que rodou, o que falhou, o que foi pulado).
+        from app.services.sync_log_service import log_evento as _le_root, new_ciclo_id as _ncid_root, classify_motivo as _cm_root
+        import time as _t_root
+        _root_ciclo = _ncid_root()
+        _root_job = "consolidacao_diaria_04h"
+        _root_t0 = _t_root.time()
+        _root_steps = {"ok": 0, "falha": 0, "pulado": 0}
+        _le_root(_root_ciclo, _root_job, "iniciado", nivel="ciclo",
+                 detalhes="Job agendado das 04h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
+
+        def _run_step(step_name: str, fn, *, optional: bool = False) -> bool:
+            """Executa um sub-passo logando início/fim no ciclo guarda-chuva."""
+            _t0 = _t_root.time()
+            _le_root(_root_ciclo, _root_job, "iniciado", nivel="grupo", grupo=step_name,
+                     detalhes=f"Iniciando {step_name}")
+            try:
+                _ret = fn()
+                _le_root(_root_ciclo, _root_job, "ok", nivel="grupo", grupo=step_name,
+                         detalhes=str(_ret) if _ret is not None else None,
+                         duracao_ms=int((_t_root.time() - _t0) * 1000))
+                _root_steps["ok"] += 1
+                return True
+            except Exception as _exc:
+                _status = "falha"
+                _motivo = _cm_root(_exc)
+                _le_root(_root_ciclo, _root_job, _status, nivel="grupo", grupo=step_name,
+                         motivo=_motivo, detalhes=str(_exc)[:1500],
+                         duracao_ms=int((_t_root.time() - _t0) * 1000))
+                _root_steps["falha"] += 1
+                if optional:
+                    logger.error(f"[Daily 04:00] {step_name} falhou (não bloqueante): {_exc}")
+                    return False
+                logger.error(f"[Daily 04:00] {step_name} falhou: {_exc}")
+                return False
+
+        _final_status = "concluido"
+        _final_motivo = None
+        _final_detalhes = None
         try:
             from app.core.database import SessionLocal
             from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
             db = SessionLocal()
             try:
-                snapshot_diario_batch(db)
-                consolidar_curvas_historicas_batch(db)
-                _hoje_count = sincronizar_hoje_batch(db)
-                # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do
-                # evento. Sem isso, mesmo após o sync das 04:00 ter rodado, o
-                # badge continua mostrando o último horário do agendador da noite
-                # anterior — o que dá a falsa impressão de dado velho ao abrir
-                # o sistema de manhã.
-                set_last_sync_hoje(time.time())
-                logger.info(f"[Daily 04:00] sincronizar_hoje_batch: {_hoje_count} grupos — last_sync_hoje atualizado")
-                try:
-                    result_margem = sincronizar_margem_bundle_rev_batch(db)
-                    logger.info(f"[Daily] sincronizar_margem_bundle_rev_batch: {result_margem}")
-                except Exception as _e_margem:
-                    logger.error(f"[Daily] sincronizar_margem_bundle_rev_batch falhou (não bloqueante): {_e_margem}")
-                # Cleanup de logs de sincronização antigos (retenção 30 dias)
-                try:
+                _run_step("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
+                _run_step("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
+
+                def _sync_hoje():
+                    _c = sincronizar_hoje_batch(db)
+                    # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do
+                    # evento. Sem isso, mesmo após o sync das 04:00 ter rodado, o
+                    # badge continua mostrando o último horário do agendador da
+                    # noite anterior — o que dá a falsa impressão de dado velho.
+                    set_last_sync_hoje(_t_root.time())
+                    logger.info(f"[Daily 04:00] sincronizar_hoje_batch: {_c} grupos — last_sync_hoje atualizado")
+                    return f"{_c} grupos sincronizados"
+                _run_step("sincronizar_hoje_batch", _sync_hoje)
+
+                _run_step("sincronizar_margem_bundle_rev_batch",
+                          lambda: sincronizar_margem_bundle_rev_batch(db),
+                          optional=True)
+
+                def _cleanup():
                     from app.services.sync_log_service import cleanup_old as _sync_cleanup
                     removed = _sync_cleanup(days=30)
                     if removed:
                         logger.info(f"[Daily 04:00] sync_event_log cleanup: {removed} linhas removidas (>30 dias)")
-                except Exception as _e_cleanup:
-                    logger.warning(f"[Daily 04:00] sync_event_log cleanup falhou (não bloqueante): {_e_cleanup}")
+                    return f"{removed or 0} linhas removidas (>30 dias)"
+                _run_step("sync_event_log_cleanup", _cleanup, optional=True)
                 logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")
             finally:
                 db.close()
         except Exception as e:
             logger.error(f"Daily snapshot consolidation error: {e}")
+            _final_status = "falha"
+            _final_motivo = _cm_root(e)
+            _final_detalhes = str(e)[:1500]
+
+        # Se algum sub-passo obrigatório falhou e nada explodiu acima, marca parcial.
+        if _final_status == "concluido" and _root_steps["falha"] > 0:
+            _final_status = "parcial"
+            _final_motivo = "sub_passo_falhou"
+
+        _le_root(
+            _root_ciclo, _root_job, _final_status, nivel="ciclo",
+            motivo=_final_motivo,
+            detalhes=(
+                _final_detalhes
+                or f"Sub-passos — ok: {_root_steps['ok']}, falha: {_root_steps['falha']}"
+            ),
+            duracao_ms=int((_t_root.time() - _root_t0) * 1000),
+        )
 
         self._schedule_snapshot_consolidation()
 

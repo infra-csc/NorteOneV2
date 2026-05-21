@@ -106,10 +106,14 @@ const MOTIVO_LABELS: Record<string, string> = {
 };
 
 const JOB_LABELS: Record<string, string> = {
-  sincronizar_hoje_batch:   'Sincronização de hoje',
-  snapshot_diario_batch:    'Snapshot diário',
-  consolidar_vendas_grupo:  'Consolidação por grupo',
-  atualizar_hoje:           'Atualizar Hoje (manual)',
+  sincronizar_hoje_batch:              'Sincronização de hoje',
+  snapshot_diario_batch:               'Snapshot diário',
+  consolidar_vendas_grupo:             'Consolidação por grupo',
+  atualizar_hoje:                      'Atualizar Hoje (manual)',
+  consolidacao_diaria_04h:             'Job agendado das 04h',
+  consolidar_curvas_historicas_batch:  'Curvas históricas',
+  sincronizar_margem_bundle_rev_batch: 'Margem por bundle',
+  sync_event_log_cleanup:              'Limpeza de logs',
 };
 
 function fmtDateTime(iso: string | null): string {
@@ -698,6 +702,102 @@ const SincronizacoesPanel: React.FC = () => {
           </button>
         </div>
       )}
+      {(() => {
+        const last04h = cycles.find(c => c.job_name === 'consolidacao_diaria_04h');
+        const ref = last04h?.concluido_em || last04h?.iniciado_em || last04h?.ultima_atividade;
+        const ageH = ref ? (Date.now() - new Date(ref).getTime()) / 3_600_000 : null;
+        const late = !last04h || (ageH != null && ageH > 26);
+        const sub = details[last04h?.ciclo_id || ''] || [];
+        const subSteps = sub.filter(e => e.nivel === 'grupo' && e.grupo);
+        const stepsByName = new Map<string, typeof sub[number]>();
+        for (const s of subSteps) {
+          const prev = stepsByName.get(s.grupo!);
+          if (!prev || new Date(s.created_at) > new Date(prev.created_at)) {
+            stepsByName.set(s.grupo!, s);
+          }
+        }
+        const ORDER = [
+          'snapshot_diario_batch',
+          'consolidar_curvas_historicas_batch',
+          'sincronizar_hoje_batch',
+          'sincronizar_margem_bundle_rev_batch',
+          'sync_event_log_cleanup',
+        ];
+        return (
+          <div className={`${cardBase} rounded-xl p-4`}>
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+              <div className="flex items-start gap-2">
+                <Clock className={`w-5 h-5 mt-0.5 ${late ? 'text-amber-500' : isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                <div>
+                  <h3 className={`text-base font-semibold ${textPrimary} flex items-center gap-2`}>
+                    Job agendado das 04h
+                    {last04h && <StatusBadge status={last04h.status} />}
+                    {late && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                        <AlertTriangle className="w-3 h-3" />
+                        {last04h ? 'Atrasado' : 'Sem execução registrada'}
+                      </span>
+                    )}
+                  </h3>
+                  <p className={`text-xs ${textSecondary} mt-0.5`}>
+                    {last04h ? (
+                      <>
+                        Última execução: {fmtDateTime(last04h.concluido_em || last04h.iniciado_em)}
+                        {last04h.duracao_ms != null && <> · duração {fmtDuration(last04h.duracao_ms)}</>}
+                        {ageH != null && <> · há {ageH < 1 ? `${Math.round(ageH * 60)}min` : `${ageH.toFixed(1)}h`}</>}
+                      </>
+                    ) : (
+                      'Nenhum ciclo registrado ainda. O próximo job está agendado para as 04h BRT.'
+                    )}
+                  </p>
+                </div>
+              </div>
+              {last04h && (
+                <button
+                  onClick={() => toggleExpand(last04h.ciclo_id)}
+                  className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${isDark ? 'border-gray-600 hover:bg-gray-700 text-gray-300' : 'border-gray-300 hover:bg-gray-50 text-gray-700'}`}
+                  title="Ver detalhes completos no histórico abaixo"
+                >
+                  {expanded.has(last04h.ciclo_id) ? 'Ocultar detalhes' : 'Ver detalhes'}
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 mt-3">
+              {ORDER.map(stepName => {
+                const ev = stepsByName.get(stepName);
+                const status = ev?.status ?? (last04h ? 'pulado' : 'pulado');
+                const label = JOB_LABELS[stepName] || stepName;
+                const ran = !!ev;
+                return (
+                  <div
+                    key={stepName}
+                    className={`flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-xs ${
+                      isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50/60'
+                    }`}
+                    title={ev?.detalhes || (ran ? '' : 'Não executado nesta janela')}
+                  >
+                    <span className={`truncate ${textPrimary}`}>{label}</span>
+                    {ran ? (
+                      <StatusBadge status={status} />
+                    ) : (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-600'}`}>
+                        <MinusCircle className="w-3 h-3" />
+                        Não rodou
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {last04h && subSteps.length === 0 && !loadingDetail.has(last04h.ciclo_id) && (
+              <p className={`text-[11px] ${textSecondary} mt-2`}>
+                Expanda o ciclo abaixo para carregar o detalhe dos sub-passos.
+              </p>
+            )}
+          </div>
+        );
+      })()}
+
       <div className={`${cardBase} rounded-xl p-4`}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
@@ -726,6 +826,7 @@ const SincronizacoesPanel: React.FC = () => {
               className={selectClass}
             >
               <option value="">Todos os jobs</option>
+              <option value="consolidacao_diaria_04h">Job agendado das 04h</option>
               <option value="atualizar_hoje">Atualizar Hoje (manual)</option>
               <option value="sincronizar_hoje_batch">Sincronização de hoje</option>
               <option value="snapshot_diario_batch">Snapshot diário</option>
