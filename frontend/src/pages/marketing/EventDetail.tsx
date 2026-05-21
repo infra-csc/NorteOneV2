@@ -283,6 +283,36 @@ const _curvaComparativaCache = new Map<string, _CurvaComparativaCache>();
 const _salesAvgCache = new Map<string, { data: any; period: number; cachedAt: number }>();
 const _curvaSnapshotModCache = new Map<string, { data: any; cachedAt: number }>();
 
+// Barra de progresso para o modo "Reconsolidando" simples. Como a operação não
+// emite progresso real do backend, mostramos uma estimativa visual baseada no
+// tempo decorrido (assíntota em ~95% até o resultado chegar).
+const ReconsolidarProgressBar: React.FC<{ startedAt: number | null; isDark: boolean }> = ({ startedAt, isDark }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, []);
+  const elapsedMs = startedAt ? Math.max(0, now - startedAt) : 0;
+  // Curva suave: 0% → ~95% em ~45s, sem nunca atingir 100% antes do fim real.
+  const targetMs = 45000;
+  const pct = Math.min(95, Math.round((1 - Math.exp(-elapsedMs / targetMs)) * 100));
+  const seconds = Math.floor(elapsedMs / 1000);
+  return (
+    <div className="space-y-1.5">
+      <div className={`h-2 w-full overflow-hidden rounded-full ${isDark ? 'bg-indigo-950/60' : 'bg-indigo-100'}`}>
+        <div
+          className={`h-full rounded-full transition-all duration-300 ease-out ${isDark ? 'bg-indigo-400' : 'bg-indigo-600'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className={`flex items-center justify-between text-[11px] ${isDark ? 'text-indigo-300/80' : 'text-indigo-700/80'}`}>
+        <span>{pct}%</span>
+        <span>{seconds}s decorridos</span>
+      </div>
+    </div>
+  );
+};
+
 const EventDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -434,6 +464,10 @@ const EventDetail: React.FC = () => {
     status: string; qtd_antes: number | null; qtd_depois: number | null; duracao_ms: number;
   } | null>(null);
   const [consolidarError, setConsolidarError] = useState<string | null>(null);
+  // Quando true, o modal é aberto pelos botões inline do banner amarelo e mostra
+  // apenas progresso/resultado/erro (sem escolha de modo "completa vs incremental").
+  const [reconsolidarSimple, setReconsolidarSimple] = useState(false);
+  const [reconsolidarStartMs, setReconsolidarStartMs] = useState<number | null>(null);
 
   const handleOpenSyncModal = useCallback(() => setShowSyncModal(true), []);
 
@@ -888,6 +922,15 @@ const EventDetail: React.FC = () => {
     if (!id || reconsolidating) return;
     setReconsolidating(true);
     setRefreshError(null);
+    // Abre o modal de progresso (mesmo visual do Reconsolidar do topo),
+    // em modo simples (sem escolha de modo, só loading → resultado/erro).
+    setReconsolidarSimple(true);
+    setConsolidarResult(null);
+    setConsolidarError(null);
+    setConsolidarLoading(true);
+    const _t0 = Date.now();
+    setReconsolidarStartMs(_t0);
+    setShowConsolidarModal(true);
     try {
       await marketingService.recalcularSnapshot(id);
       // Limpa flags e recarrega snapshot recém-salvo (sem force, lê do PG).
@@ -896,13 +939,20 @@ const EventDetail: React.FC = () => {
       setPartialMessage(null);
       setPartialComputedAt(null);
       if (fetchEventRef.current) fetchEventRef.current(false, false, false);
+      setConsolidarResult({
+        status: 'ok',
+        qtd_antes: null,
+        qtd_depois: null,
+        duracao_ms: Date.now() - _t0,
+      });
     } catch (err: any) {
-      setRefreshError(
-        err?.response?.data?.detail || err?.message ||
-        'Falha ao reconsolidar. Tente novamente em alguns minutos.'
-      );
+      const msg = err?.response?.data?.detail || err?.message ||
+        'Falha ao reconsolidar. Tente novamente em alguns minutos.';
+      setRefreshError(msg);
+      setConsolidarError(msg);
     } finally {
       setReconsolidating(false);
+      setConsolidarLoading(false);
     }
   };
 
@@ -2009,7 +2059,7 @@ const EventDetail: React.FC = () => {
       {/* ── Modal Reconsolidar Evento (admin) ─────────────────────────────────── */}
       {showConsolidarModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!consolidarLoading) setShowConsolidarModal(false); }} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if (!consolidarLoading) { setShowConsolidarModal(false); setReconsolidarSimple(false); } }} />
           <div className={`relative w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
 
             {/* Header */}
@@ -2024,7 +2074,7 @@ const EventDetail: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => { if (!consolidarLoading) setShowConsolidarModal(false); }}
+                onClick={() => { if (!consolidarLoading) { setShowConsolidarModal(false); setReconsolidarSimple(false); } }}
                 disabled={consolidarLoading}
                 className={`p-1.5 rounded-lg transition-colors disabled:opacity-30 ${isDark ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
               >
@@ -2034,28 +2084,49 @@ const EventDetail: React.FC = () => {
 
             {/* Body */}
             <div className="px-5 py-5 space-y-4">
+              {/* Loading em modo simples (sem config) */}
+              {reconsolidarSimple && consolidarLoading && !consolidarResult && !consolidarError && (
+                <div className={`rounded-xl border p-5 space-y-4 ${isDark ? 'bg-indigo-900/15 border-indigo-700/50' : 'bg-indigo-50 border-indigo-200'}`}>
+                  <div className="flex items-center justify-center">
+                    <Loader2 className={`w-10 h-10 animate-spin ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`} />
+                  </div>
+                  <div className="text-center space-y-1">
+                    <p className={`text-sm font-bold ${isDark ? 'text-indigo-200' : 'text-indigo-800'}`}>Reconsolidando dados…</p>
+                    <p className={`text-xs ${isDark ? 'text-indigo-300/80' : 'text-indigo-700/80'}`}>
+                      Consultando Ativo e Magento. Pode demorar até 1 minuto.
+                    </p>
+                  </div>
+                  <ReconsolidarProgressBar startedAt={reconsolidarStartMs} isDark={isDark} />
+                  <p className={`text-[11px] text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Você pode aguardar esta janela ou fechá-la ao final.
+                  </p>
+                </div>
+              )}
+
               {/* Resultado OK */}
               {consolidarResult && !consolidarError && (
                 <div className={`rounded-xl border p-4 space-y-3 ${isDark ? 'bg-emerald-900/20 border-emerald-700/50' : 'bg-emerald-50 border-emerald-200'}`}>
                   <div className="flex items-center gap-2">
                     <CheckCheck className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
-                    <p className={`font-bold text-sm ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>Consolidação concluída!</p>
+                    <p className={`font-bold text-sm ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>Reconsolidação concluída!</p>
                   </div>
-                  <div className={`grid grid-cols-3 gap-3 text-xs ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>
-                    <div className="text-center">
-                      <p className="opacity-70 mb-1">Antes</p>
-                      <p className="text-2xl font-bold">{consolidarResult.qtd_antes ?? '—'}</p>
+                  {(consolidarResult.qtd_antes !== null || consolidarResult.qtd_depois !== null) && (
+                    <div className={`grid grid-cols-3 gap-3 text-xs ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>
+                      <div className="text-center">
+                        <p className="opacity-70 mb-1">Antes</p>
+                        <p className="text-2xl font-bold">{consolidarResult.qtd_antes ?? '—'}</p>
+                      </div>
+                      <div className="flex items-center justify-center">
+                        <span className="text-lg opacity-50">→</span>
+                      </div>
+                      <div className="text-center">
+                        <p className="opacity-70 mb-1">Depois</p>
+                        <p className={`text-2xl font-bold ${(consolidarResult.qtd_depois ?? 0) > (consolidarResult.qtd_antes ?? 0) ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : ''}`}>
+                          {consolidarResult.qtd_depois ?? '—'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-center">
-                      <span className="text-lg opacity-50">→</span>
-                    </div>
-                    <div className="text-center">
-                      <p className="opacity-70 mb-1">Depois</p>
-                      <p className={`text-2xl font-bold ${(consolidarResult.qtd_depois ?? 0) > (consolidarResult.qtd_antes ?? 0) ? (isDark ? 'text-emerald-300' : 'text-emerald-700') : ''}`}>
-                        {consolidarResult.qtd_depois ?? '—'}
-                      </p>
-                    </div>
-                  </div>
+                  )}
                   <p className={`text-xs text-center opacity-60`}>
                     Duração: {consolidarResult.duracao_ms < 1000 ? `${consolidarResult.duracao_ms}ms` : `${(consolidarResult.duracao_ms / 1000).toFixed(1)}s`}
                   </p>
@@ -2064,7 +2135,7 @@ const EventDetail: React.FC = () => {
                     <span>Dados sendo atualizados automaticamente…</span>
                   </div>
                   <button
-                    onClick={() => setShowConsolidarModal(false)}
+                    onClick={() => { setShowConsolidarModal(false); setReconsolidarSimple(false); }}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
                   >
                     Fechar
@@ -2075,17 +2146,17 @@ const EventDetail: React.FC = () => {
               {/* Erro */}
               {consolidarError && (
                 <div className={`rounded-xl border p-4 ${isDark ? 'bg-red-900/20 border-red-700/50' : 'bg-red-50 border-red-200'}`}>
-                  <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-red-300' : 'text-red-700'}`}>Erro na consolidação</p>
+                  <p className={`text-sm font-semibold mb-1 ${isDark ? 'text-red-300' : 'text-red-700'}`}>Erro na reconsolidação</p>
                   <p className={`text-xs font-mono break-all ${isDark ? 'text-red-400' : 'text-red-600'}`}>{consolidarError}</p>
                   <button
-                    onClick={() => setConsolidarError(null)}
+                    onClick={() => { setConsolidarError(null); if (reconsolidarSimple) { setShowConsolidarModal(false); setReconsolidarSimple(false); } }}
                     className={`mt-3 text-xs underline ${isDark ? 'text-red-400' : 'text-red-600'}`}
-                  >Tentar novamente</button>
+                  >{reconsolidarSimple ? 'Fechar' : 'Tentar novamente'}</button>
                 </div>
               )}
 
-              {/* Configuração (só aparece antes de rodar) */}
-              {!consolidarResult && !consolidarError && (
+              {/* Configuração (só aparece antes de rodar e fora do modo simples) */}
+              {!reconsolidarSimple && !consolidarResult && !consolidarError && (
                 <>
                   <p className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>
                     Reconstrói o histórico de vendas deste evento buscando dados diretamente do Ativo e do Magento.
