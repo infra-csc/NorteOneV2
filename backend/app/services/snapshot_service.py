@@ -40,7 +40,10 @@ def _snapshot_lookback_days() -> int:
       também a carga noturna no Magento (cada grupo refaz N dias).
     """
     try:
-        return max(0, int(os.getenv("DAILY_SNAPSHOT_LOOKBACK_DAYS", "7")))
+        # Teto de 21 dias: limita o range scan no Magento mesmo com env
+        # mal configurada. Para reprocessar janelas maiores, use o endpoint
+        # de reconsolidação manual (full mode) em vez do batch noturno.
+        return max(0, min(21, int(os.getenv("DAILY_SNAPSHOT_LOOKBACK_DAYS", "7"))))
     except (TypeError, ValueError):
         return 7
 
@@ -994,17 +997,18 @@ def snapshot_diario_batch(db: Session):
             continue
         grupos_processados.add(grupo)
 
-        # NOTA: anteriormente havia `if latest >= yesterday: continue` como
-        # otimização para pular grupos que já tinham D-1 gravado. Esse skip
-        # invalidava o efeito do lookback (grupos com D-1 presente nunca
-        # reentravam pra reprocessar a janela e corrigir parciais). Agora
-        # todos os grupos ativos rodam — o custo extra é uma query Magento
-        # de ~7 dias por grupo, que é cheap (range scan SARGable com índice
-        # em created_at). Total esperado: ~150 grupos × ~2-5s = 8-15 min/noite.
+        # Comportamento do skip "latest >= yesterday":
+        # - Com lookback>0 (default 7): NÃO pulamos — o lookback precisa rodar
+        #   pra reprocessar a janela rolante e corrigir parciais (ex: dia 21 SP
+        #   gravado com 2 inscrições quando Magento estava em timeout). Custo
+        #   extra: ~150 grupos × ~5-25s = 12-60 min/noite (cabe na janela de
+        #   2700s do scheduler com folga; freeze de finalizados encurta a lista).
+        # - Com lookback=0: restauramos o skip antigo (semântica "desativado"
+        #   = mesmo comportamento de antes do fix estrutural).
         latest = get_latest_snapshot_date(db, grupo, ano=ano)
-        # Se o grupo nem tem snapshot ainda, força modo full (lookback não
-        # tem efeito sem max_dia anterior). Senão, usa lookback configurável.
         _lookback = _snapshot_lookback_days() if latest else 0
+        if _lookback == 0 and latest and latest >= yesterday:
+            continue
 
         try:
             # Job agendado usa modo incremental: lookback_days reprocessa
