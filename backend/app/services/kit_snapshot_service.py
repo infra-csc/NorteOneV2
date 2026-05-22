@@ -147,8 +147,12 @@ def rebuild_kit_snapshot(db: Session) -> dict:
             }
 
         # Indexa existentes por (bundle_entity_id, tipo_categoria_normalizado).
+        # IMPORTANTE: usar a MESMA normalização (_normalize_tipo_cat) que o
+        # novo `key` abaixo. Antes usava `r.tipo_categoria or ""` (raw), e se
+        # o DB tinha valores com whitespace ou case diferente o lookup falhava
+        # e tentava INSERT — colidindo com a UNIQUE constraint.
         existing = {
-            (r.bundle_entity_id, r.tipo_categoria or ""): r
+            (int(r.bundle_entity_id), _normalize_tipo_cat(r.tipo_categoria)): r
             for r in db.query(KitMappingSnapshot).all()
         }
 
@@ -158,11 +162,18 @@ def rebuild_kit_snapshot(db: Session) -> dict:
         for row in rows:
             tcat = _normalize_tipo_cat(row.tipo_categoria)
             key = (int(row.bundle_entity_id), tcat)
+            # Skip duplicatas dentro do mesmo rebuild (ex.: mesma combinação
+            # vinda 2x do Magento+Ativo). Sem isso, a segunda iteração não
+            # encontraria a primeira no `existing` (que só é populado da DB),
+            # chamaria db.add() de novo, e o commit explodiria com
+            # UniqueViolation em uq_kit_mapping_bundle_tipocat.
+            if key in seen_keys:
+                continue
             seen_keys.add(key)
             h = _content_hash(row)
             ex = existing.get(key)
             if ex is None:
-                db.add(KitMappingSnapshot(
+                new_obj = KitMappingSnapshot(
                     bundle_entity_id=int(row.bundle_entity_id),
                     tipo_categoria=tcat,
                     fonte=row.fonte or "",
@@ -176,7 +187,12 @@ def rebuild_kit_snapshot(db: Session) -> dict:
                     content_hash=h,
                     atualizado_em=started_at,
                     visto_em=started_at,
-                ))
+                )
+                db.add(new_obj)
+                # Registra no existing para que duplicatas no mesmo rebuild
+                # (caso o skip acima falhe por qualquer razão) caiam no branch
+                # de update em vez de tentar nova INSERT.
+                existing[key] = new_obj
                 novos += 1
             elif ex.content_hash != h:
                 ex.fonte         = row.fonte or ex.fonte
