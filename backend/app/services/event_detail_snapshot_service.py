@@ -155,6 +155,14 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str, ano: int | N
             daily[daily_idx_map[today_str]].get("sales") or 0
         ) if today_str in daily_idx_map else 0
 
+        # Detecta payload sem dailySales de base (ex.: caminho "PAYLOAD PARCIAL"
+        # do get_marketing_event_by_id, quando o snapshot persistido tem
+        # currentSales preenchido mas dailySales=[]). Nesse caso, os dias vindos
+        # do VendasDiariaSnapshot REPRESENTAM o total — não são um delta sobre
+        # currentSales, pois currentSales já contabiliza esses mesmos dias.
+        # Sem essa detecção, currentSales é somado a si mesmo (duplicação ~2x).
+        _no_base_daily = not daily_idx_map
+
         # Âncora: último dia presente no dailySales do snapshot.
         # Dias do VendasDiariaSnapshot com date > max_snapshot_date são genuinamente
         # novos (não contabilizados no currentSales base) e devem incrementar o delta.
@@ -206,20 +214,34 @@ def apply_today_overlay(db: Session, payload: dict, evento_id: str, ano: int | N
         if isinstance(evt, dict) and total_qty_delta != 0:
             evt = dict(evt)
             base_qty = int(evt.get("currentSales") or 0)
-            new_qty = max(0, base_qty + total_qty_delta)
+            if _no_base_daily:
+                # Sem dailySales de base: total_qty_delta JÁ representa o total
+                # agregado dos dias carregados — não pode ser somado ao base_qty,
+                # que já contabiliza esses mesmos dias (evita duplicação ~2x).
+                # Conserva o base_qty como piso de segurança caso o VendasDiaria
+                # esteja truncado (snapshot parcial > sum de dias = não baixar).
+                new_qty = max(base_qty, total_qty_delta)
+            else:
+                new_qty = max(0, base_qty + total_qty_delta)
             evt["currentSales"] = new_qty
             # averageTicket: usa delta de receita de HOJE especificamente
             # (mantém lógica original — receitas de dias anteriores já estão
             # capturadas no ticket médio base do snapshot).
             base_avg = float(evt.get("averageTicket") or 0.0)
-            base_rev = base_avg * base_qty if base_qty > 0 else 0.0
-            old_today_rev_est = (
-                base_avg * old_today_qty
-                if (base_avg > 0 and old_today_qty > 0) else 0.0
-            )
-            new_rev = max(0.0, base_rev - old_today_rev_est + today_rev_db)
-            if new_qty > 0 and new_rev > 0:
-                evt["averageTicket"] = round(new_rev / new_qty, 2)
+            if _no_base_daily:
+                # Sem dailySales de base, base_rev já contém a receita de hoje
+                # (foi consolidada em currentSales). Recomputar adicionando
+                # today_rev_db causaria viés para cima. Mantém ticket médio base.
+                pass
+            else:
+                base_rev = base_avg * base_qty if base_qty > 0 else 0.0
+                old_today_rev_est = (
+                    base_avg * old_today_qty
+                    if (base_avg > 0 and old_today_qty > 0) else 0.0
+                )
+                new_rev = max(0.0, base_rev - old_today_rev_est + today_rev_db)
+                if new_qty > 0 and new_rev > 0:
+                    evt["averageTicket"] = round(new_rev / new_qty, 2)
             out["evento"] = evt
 
     # --- dMinus / dMinusInscricoes overlay ---
