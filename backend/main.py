@@ -1224,6 +1224,25 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_sync_event_log_created_at ON sync_event_log (created_at)",
             "CREATE INDEX IF NOT EXISTS ix_sync_log_ciclo_nivel ON sync_event_log (ciclo_id, nivel)",
             "CREATE INDEX IF NOT EXISTS ix_sync_log_job_created ON sync_event_log (job_name, created_at)",
+            # consolidacao_checkpoint: checkpoint persistente para retomada da
+            # reconsolidação completa após reinício/crash do backend.
+            """CREATE TABLE IF NOT EXISTS consolidacao_checkpoint (
+                id BIGSERIAL PRIMARY KEY,
+                ciclo_id VARCHAR(40) NOT NULL,
+                evento_grupo VARCHAR(200) NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                incremental INTEGER NOT NULL DEFAULT 0,
+                triggered_by VARCHAR(200),
+                duracao_ms INTEGER,
+                motivo VARCHAR(400),
+                qtd_antes INTEGER,
+                qtd_depois INTEGER,
+                started_at_cycle TIMESTAMPTZ,
+                processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_consol_ckpt_ciclo_grupo UNIQUE (ciclo_id, evento_grupo)
+            )""",
+            "CREATE INDEX IF NOT EXISTS ix_consol_ckpt_ciclo_id ON consolidacao_checkpoint (ciclo_id)",
+            "CREATE INDEX IF NOT EXISTS ix_consol_ckpt_processed_at ON consolidacao_checkpoint (processed_at)",
             # acoes_comerciais: snapshot fields + cutoff point (task #51)
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS ponto_corte VARCHAR(10)",
             "ALTER TABLE acoes_comerciais ADD COLUMN IF NOT EXISTS estagio VARCHAR(20)",

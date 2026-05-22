@@ -169,6 +169,21 @@ const SincronizacoesPanel: React.FC = () => {
   const [fullProgress, setFullProgress] = useState<FullProgress | null>(null);
   const [fullStarting, setFullStarting] = useState(false);
   const [fullIncremental, setFullIncremental] = useState(false);
+  const [checkpoint, setCheckpoint] = useState<
+    | null
+    | {
+        resumable: true;
+        ciclo_id: string;
+        incremental: boolean;
+        triggered_by: string | null;
+        started_at_cycle: string | null;
+        ok_count: number;
+        failed_count: number;
+        last_grupo: string | null;
+        last_processed_at: string | null;
+      }
+  >(null);
+  const [checkpointLoading, setCheckpointLoading] = useState(false);
   const [elapsedSecs, setElapsedSecs] = useState(0);
   const resultsEndRef = useRef<HTMLDivElement>(null);
   const prevResultsCount = useRef(0);
@@ -376,19 +391,56 @@ const SincronizacoesPanel: React.FC = () => {
     }
   };
 
-  const handleStartFull = async () => {
+  const fetchCheckpoint = useCallback(async () => {
+    setCheckpointLoading(true);
+    try {
+      const r = await adminService.getSnapshotConsolidationCheckpoint();
+      setCheckpoint(r.resumable ? r : null);
+    } catch (e) {
+      console.error(e);
+      setCheckpoint(null);
+    } finally {
+      setCheckpointLoading(false);
+    }
+  }, []);
+
+  const handleStartFull = async (resume: boolean = false) => {
     setFullStarting(true);
     try {
       prevResultsCount.current = 0;
-      await adminService.triggerSnapshotConsolidationFull(fullIncremental);
+      const res = await adminService.triggerSnapshotConsolidationFull(
+        resume ? !!checkpoint?.incremental : fullIncremental,
+        resume
+      );
+      // Trata as respostas não-iniciadas: o backend devolve status especial
+      if (res.status === 'already_running') {
+        // Carrega o progresso atual (deve estar "running") e fecha o banner
+        const p = await adminService.getSnapshotConsolidationFullProgress();
+        setFullProgress(p);
+        setCheckpoint(null);
+        return;
+      }
+      if (res.status === 'no_checkpoint') {
+        // O checkpoint sumiu entre a consulta e o clique — re-consulta e mantém o banner caso ainda haja outro
+        await fetchCheckpoint();
+        return;
+      }
+      // Caso normal (status === 'started' ou similar)
       const p = await adminService.getSnapshotConsolidationFullProgress();
       setFullProgress(p);
+      setCheckpoint(null);
     } catch (e) {
       console.error(e);
     } finally {
       setFullStarting(false);
     }
   };
+
+  // Ao abrir o modal, consulta se há ciclo incompleto pra retomar
+  useEffect(() => {
+    if (!showFullModal) return;
+    fetchCheckpoint();
+  }, [showFullModal, fetchCheckpoint]);
 
   const handleInterruptSelected = async () => {
     if (selectedCycles.size === 0) return;
@@ -513,7 +565,58 @@ const SincronizacoesPanel: React.FC = () => {
                     Reconstrói o snapshot diário de vendas para <strong>todos os eventos ativos</strong> do ano corrente,
                     consultando diretamente Ativo e Magento. Garante que dados desatualizados sejam corrigidos.
                   </p>
-                  <div className={`rounded-xl border p-4 ${isDark ? 'bg-gray-800/60 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+
+                  {/* ── Banner de retomada (checkpoint) ─────────────────────── */}
+                  {checkpointLoading && (
+                    <div className={`flex items-center gap-2 px-4 py-3 rounded-lg border text-xs ${isDark ? 'bg-gray-800/60 border-gray-700 text-gray-400' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+                      <Loader2 className="w-3 h-3 animate-spin" /> Verificando consolidações anteriores…
+                    </div>
+                  )}
+
+                  {!checkpointLoading && checkpoint && (
+                    <div className={`rounded-xl border p-4 space-y-3 ${isDark ? 'bg-amber-900/15 border-amber-700/50' : 'bg-amber-50 border-amber-300'}`}>
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold ${isDark ? 'text-amber-200' : 'text-amber-900'}`}>
+                            Há uma consolidação anterior que ficou incompleta
+                          </p>
+                          <p className={`text-xs mt-1 ${isDark ? 'text-amber-300/90' : 'text-amber-800'}`}>
+                            <strong>{checkpoint.ok_count}</strong> eventos já processados com sucesso
+                            {checkpoint.failed_count > 0 && <> (e <strong>{checkpoint.failed_count}</strong> com falha)</>}
+                            {checkpoint.triggered_by && <> — iniciada por {checkpoint.triggered_by}</>}.
+                            {checkpoint.last_grupo && (
+                              <> Último processado: <span className="font-mono">{checkpoint.last_grupo}</span>.</>
+                            )}
+                          </p>
+                          <p className={`text-xs mt-2 ${isDark ? 'text-amber-300/70' : 'text-amber-700'}`}>
+                            Modo do ciclo original: <strong>{checkpoint.incremental ? 'Incremental' : 'Reconstrução completa'}</strong>.
+                            Você pode continuar de onde parou (pulando os eventos já OK) ou recomeçar do zero.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          onClick={() => handleStartFull(true)}
+                          disabled={fullStarting}
+                          className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-colors disabled:opacity-60 ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                        >
+                          {fullStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                          Retomar ({checkpoint.ok_count} já feitos)
+                        </button>
+                        <button
+                          onClick={() => setCheckpoint(null)}
+                          disabled={fullStarting}
+                          className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-60 border ${isDark ? 'bg-transparent border-gray-600 hover:bg-gray-700/50 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-100 text-gray-700'}`}
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          Começar do zero
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={`rounded-xl border p-4 ${checkpoint ? 'opacity-50 pointer-events-none' : ''} ${isDark ? 'bg-gray-800/60 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                     <p className={`text-sm font-medium ${textPrimary} mb-3`}>Modo de execução</p>
                     <div className="flex flex-col gap-2">
                       <label className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer border transition-colors ${!fullIncremental ? (isDark ? 'border-indigo-500 bg-indigo-900/20' : 'border-indigo-400 bg-indigo-50') : (isDark ? 'border-gray-700 hover:border-gray-600' : 'border-gray-200 hover:border-gray-300')}`}>
@@ -537,8 +640,8 @@ const SincronizacoesPanel: React.FC = () => {
                     <p className="text-xs">Esta operação pode levar vários minutos dependendo do número de eventos e da disponibilidade do Magento. Não feche esta janela durante a execução.</p>
                   </div>
                   <button
-                    onClick={handleStartFull}
-                    disabled={fullStarting}
+                    onClick={() => handleStartFull(false)}
+                    disabled={fullStarting || !!checkpoint}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors disabled:opacity-60 ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
                   >
                     {fullStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <DatabaseZap className="w-4 h-4" />}

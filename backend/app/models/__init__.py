@@ -39,3 +39,4 @@ from app.models.vendas_snapshot import (
     CurvaHistoricaSnapshot as CurvaHistoricaSnapshot,
 )
 from app.models.kit_config import KitConfig as KitConfig
+from app.models.consolidacao_checkpoint import ConsolidacaoCheckpoint as ConsolidacaoCheckpoint

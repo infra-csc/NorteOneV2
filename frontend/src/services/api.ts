@@ -633,9 +633,29 @@ export const adminService = {
     const response = await api.post('/admin/snapshots/consolidar');
     return response.data as { status: string; message: string };
   },
-  triggerSnapshotConsolidationFull: async (incremental: boolean = false) => {
-    const response = await api.post(`/admin/snapshots/consolidar-full?incremental=${incremental}`, null, { timeout: 30000 });
+  triggerSnapshotConsolidationFull: async (incremental: boolean = false, resume: boolean = false) => {
+    const response = await api.post(
+      `/admin/snapshots/consolidar-full?incremental=${incremental}&resume=${resume}`,
+      null,
+      { timeout: 30000 }
+    );
     return response.data as { status: string; message: string };
+  },
+  getSnapshotConsolidationCheckpoint: async () => {
+    const response = await api.get('/admin/snapshots/consolidar-full/checkpoint', { timeout: 10000 });
+    return response.data as
+      | { resumable: false }
+      | {
+          resumable: true;
+          ciclo_id: string;
+          incremental: boolean;
+          triggered_by: string | null;
+          started_at_cycle: string | null;
+          ok_count: number;
+          failed_count: number;
+          last_grupo: string | null;
+          last_processed_at: string | null;
+        };
   },
   getSnapshotConsolidationFullProgress: async () => {
     const response = await api.get('/admin/snapshots/consolidar-full/progress', { timeout: 10000 });

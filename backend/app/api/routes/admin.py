@@ -134,14 +134,107 @@ def trigger_snapshot_consolidation(
     }
 
 
-@router.post("/snapshots/consolidar-full")
-def trigger_snapshot_consolidation_full(
-    incremental: bool = Query(default=False, description="True=incremental (só dias novos). False=reconstrução completa."),
+def _find_resumable_checkpoint(db: Session) -> Optional[dict]:
+    """Busca o ciclo de consolidação mais recente que ficou incompleto.
+
+    Um ciclo é "incompleto" quando:
+      - Tem linhas em ``consolidacao_checkpoint`` nas últimas 24h, E
+      - NÃO existe linha em ``sync_event_log`` com job_name='consolidar_full_manual'
+        nivel='ciclo' status='concluido' para o mesmo ciclo_id.
+
+    Retorna {ciclo_id, incremental, triggered_by, started_at_cycle, ok_count,
+    failed_count, last_grupo, last_processed_at} ou None.
+    """
+    from ...models.consolidacao_checkpoint import ConsolidacaoCheckpoint
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    cutoff = _dt.now(_tz.utc) - _td(hours=24)
+
+    # Sub-query: ciclos JÁ concluídos (consolidar_full_manual nivel='ciclo' status='concluido')
+    concluded_subq = (
+        db.query(SyncEventLog.ciclo_id)
+        .filter(
+            SyncEventLog.job_name == "consolidar_full_manual",
+            SyncEventLog.nivel == "ciclo",
+            SyncEventLog.status == "concluido",
+        )
+        .subquery()
+    )
+
+    # Ciclo NÃO concluído mais recente (dentre os últimos 24h) — anti-join.
+    # Evita falso-negativo: se o ciclo mais novo já foi concluído mas existe
+    # um anterior ainda incompleto, ele é detectado.
+    latest = (
+        db.query(ConsolidacaoCheckpoint.ciclo_id, sa_func.max(ConsolidacaoCheckpoint.processed_at).label("latest"))
+        .filter(
+            ConsolidacaoCheckpoint.processed_at >= cutoff,
+            ~ConsolidacaoCheckpoint.ciclo_id.in_(db.query(concluded_subq.c.ciclo_id)),
+        )
+        .group_by(ConsolidacaoCheckpoint.ciclo_id)
+        .order_by(desc("latest"))
+        .first()
+    )
+    if not latest:
+        return None
+    ciclo_id = latest[0]
+    rows = db.query(ConsolidacaoCheckpoint).filter(
+        ConsolidacaoCheckpoint.ciclo_id == ciclo_id
+    ).order_by(desc(ConsolidacaoCheckpoint.processed_at)).all()
+    if not rows:
+        return None
+    ok_count = sum(1 for r in rows if r.status == "ok")
+    failed_count = sum(1 for r in rows if r.status == "failed")
+    first_row = rows[-1]
+    last_row = rows[0]
+    return {
+        "ciclo_id": ciclo_id,
+        "incremental": bool(first_row.incremental),
+        "triggered_by": first_row.triggered_by,
+        "started_at_cycle": first_row.started_at_cycle.isoformat() if first_row.started_at_cycle else None,
+        "ok_count": ok_count,
+        "failed_count": failed_count,
+        "last_grupo": last_row.evento_grupo,
+        "last_processed_at": last_row.processed_at.isoformat() if last_row.processed_at else None,
+    }
+
+
+@router.get("/snapshots/consolidar-full/checkpoint")
+def get_consolidation_checkpoint(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
-    """Consolidação completa de snapshots de todos os eventos com rastreamento de progresso em tempo real."""
+    """Retorna um checkpoint retomável (se houver) — ciclo iniciado nas últimas
+    24h que ainda não foi concluído. Usado pela UI pra oferecer "Retomar"."""
+    ckpt = _find_resumable_checkpoint(db)
+    if not ckpt:
+        return {"resumable": False}
+    return {"resumable": True, **ckpt}
+
+
+@router.post("/snapshots/consolidar-full")
+def trigger_snapshot_consolidation_full(
+    incremental: bool = Query(default=False, description="True=incremental (só dias novos). False=reconstrução completa."),
+    resume: bool = Query(default=False, description="True=retomar o ciclo incompleto mais recente; ignora 'incremental' e usa o do ciclo original."),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Consolidação completa de snapshots de todos os eventos com rastreamento de progresso em tempo real.
+
+    Quando ``resume=True``, retoma o último ciclo incompleto: pula os grupos que
+    já estão no ``consolidacao_checkpoint`` com status='ok' e reprocessa o resto.
+    """
     global _consolidation_full_progress
+
+    # Resolver ciclo + lista de grupos a pular (se resume)
+    resume_ckpt = None
+    if resume:
+        resume_ckpt = _find_resumable_checkpoint(db)
+        if not resume_ckpt:
+            return {
+                "status": "no_checkpoint",
+                "message": "Nenhum ciclo incompleto encontrado para retomar.",
+            }
+        incremental = bool(resume_ckpt["incremental"])
+
     with _consolidation_full_lock:
         if _consolidation_full_progress.get("status") == "running":
             return {
@@ -162,8 +255,10 @@ def trigger_snapshot_consolidation_full(
             "skipped": 0,
             "frozen": 0,
             "results": [],
-            "ciclo_id": None,
+            "ciclo_id": resume_ckpt["ciclo_id"] if resume_ckpt else None,
             "error": None,
+            "resumed": bool(resume_ckpt),
+            "resumed_from_ok": resume_ckpt["ok_count"] if resume_ckpt else 0,
         }
 
     def _run_full():
@@ -174,24 +269,44 @@ def trigger_snapshot_consolidation_full(
         from app.models.sku_mapping import SkuMapping
         from app.models.dimensoes import DimProjeto
         from app.models.cadastro_evento import CadastroEvento
+        from app.models.consolidacao_checkpoint import ConsolidacaoCheckpoint
         from app.services.snapshot_service import (
             consolidar_vendas_grupo, _freeze_after_days, _load_active_grupos
         )
         from app.services.sync_log_service import new_ciclo_id, log_evento
         from app.api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
+        from sqlalchemy.dialects.postgresql import insert as _pg_insert
+        from datetime import datetime as _dt, timezone as _tz
         import time as _t
         from datetime import date as _date, timedelta
 
         local_db = SessionLocal()
         try:
-            ciclo_id = new_ciclo_id()
+            # Resume path: reusa ciclo_id e marca os grupos já OK pra pular
+            already_ok_grupos: set = set()
+            if resume_ckpt:
+                ciclo_id = resume_ckpt["ciclo_id"]
+                rows_done = local_db.query(ConsolidacaoCheckpoint.evento_grupo).filter(
+                    ConsolidacaoCheckpoint.ciclo_id == ciclo_id,
+                    ConsolidacaoCheckpoint.status == "ok",
+                ).all()
+                already_ok_grupos = {r[0] for r in rows_done}
+            else:
+                ciclo_id = new_ciclo_id()
             triggered_by = _consolidation_full_progress.get("triggered_by", "")
+            cycle_started_at_dt = _dt.now(_tz.utc)
             with _consolidation_full_lock:
                 _consolidation_full_progress["ciclo_id"] = ciclo_id
 
+            # Sempre status='iniciado' no nível ciclo (mesmo quando retomado).
+            # 'retomado' fica apenas em detalhes — list_sync_cycles trata qualquer
+            # status != 'iniciado' como final, o que esconderia ciclos em execução.
             log_evento(
                 ciclo_id, "consolidar_full_manual", "iniciado", nivel="ciclo",
-                detalhes=f"incremental={incremental} por {triggered_by}",
+                detalhes=(
+                    f"incremental={incremental} por {triggered_by}"
+                    + (f" (RETOMADO de {len(already_ok_grupos)} já OK)" if resume_ckpt else "")
+                ),
             )
 
             today = _date.today()
@@ -251,15 +366,24 @@ def trigger_snapshot_consolidation_full(
             freeze_days = _freeze_after_days()
             active_grupos = _load_active_grupos(local_db, freeze_days)
             grupos_frozen = grupos_candidatos - active_grupos
-            grupos_to_process = sorted(grupos_candidatos & active_grupos)
+            grupos_to_process_all = sorted(grupos_candidatos & active_grupos)
+
+            # Resume: pula grupos que já foram OK neste ciclo
+            grupos_to_process = [g for g in grupos_to_process_all if g not in already_ok_grupos]
+            skipped_resume = len(grupos_to_process_all) - len(grupos_to_process)
 
             with _consolidation_full_lock:
-                _consolidation_full_progress["total"] = len(grupos_to_process)
+                _consolidation_full_progress["total"] = len(grupos_to_process_all)
                 _consolidation_full_progress["frozen"] = len(grupos_frozen)
+                # Pré-popula contadores com o que já foi feito antes do reinício
+                if skipped_resume > 0:
+                    _consolidation_full_progress["ok"] = skipped_resume
+                    _consolidation_full_progress["current"] = skipped_resume
 
             t_start = _consolidation_full_progress["started_at"]
 
-            for idx, grupo in enumerate(grupos_to_process):
+            for offset, grupo in enumerate(grupos_to_process):
+                idx = skipped_resume + offset
                 with _consolidation_full_lock:
                     _consolidation_full_progress["current"] = idx + 1
                     _consolidation_full_progress["current_grupo"] = grupo
@@ -295,12 +419,42 @@ def trigger_snapshot_consolidation_full(
                 with _consolidation_full_lock:
                     _consolidation_full_progress["results"].append(result_entry)
 
+                # Persiste checkpoint (UPSERT) — sobrevive a reinício do backend
+                try:
+                    stmt = _pg_insert(ConsolidacaoCheckpoint).values(
+                        ciclo_id=ciclo_id,
+                        evento_grupo=grupo,
+                        status=result_entry["status"],
+                        incremental=1 if incremental else 0,
+                        triggered_by=triggered_by[:200] if triggered_by else None,
+                        duracao_ms=result_entry["duracao_ms"],
+                        motivo=(result_entry["motivo"] or None),
+                        qtd_antes=result_entry.get("qtd_antes"),
+                        qtd_depois=result_entry.get("qtd_depois"),
+                        started_at_cycle=cycle_started_at_dt,
+                    )
+                    stmt = stmt.on_conflict_do_update(
+                        constraint="uq_consol_ckpt_ciclo_grupo",
+                        set_={
+                            "status": stmt.excluded.status,
+                            "duracao_ms": stmt.excluded.duracao_ms,
+                            "motivo": stmt.excluded.motivo,
+                            "processed_at": _dt.now(_tz.utc),
+                        },
+                    )
+                    local_db.execute(stmt)
+                    local_db.commit()
+                except Exception as _ckpt_err:
+                    local_db.rollback()
+                    _logger.warning(f"consolidar_full_manual: falha ao gravar checkpoint para '{grupo}': {_ckpt_err}")
+
             total_ms = int((_t.time() - t_start) * 1000)
             log_evento(
                 ciclo_id, "consolidar_full_manual", "concluido", nivel="ciclo",
                 detalhes=(
-                    f"{len(grupos_to_process)} processados "
-                    f"({_consolidation_full_progress['ok']} ok, "
+                    f"{len(grupos_to_process)} processados agora "
+                    + (f"(+{skipped_resume} retomados) " if skipped_resume else "")
+                    + f"({_consolidation_full_progress['ok']} ok, "
                     f"{_consolidation_full_progress['failed']} falha), "
                     f"{len(grupos_frozen)} congelados"
                 ),
