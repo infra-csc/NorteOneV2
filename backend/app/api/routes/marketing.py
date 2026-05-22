@@ -10154,74 +10154,181 @@ def get_marketing_event_by_id(
                 logger.warning(f"Falha ao obter hist_pattern normalizado p/ daily curve: {_e_norm_daily}")
         daily_sales_list = fetch_real_daily_sales_for_projetos(db, projetos, sales_goal=sales_goal, ano=ano, evento_grupo=grupo_nome, data_evento=data_fim_inscricoes, preloaded_hist_pattern=_detail_hist_for_daily, data_evento_real=projeto_data_evento, force_magento_refresh=force_magento_refresh)
 
-        # ── Fallback: se daily_sales_list veio vazio mas existe snapshot, reconstrói diretamente ──
-        if not daily_sales_list and grupo_nome:
+        # ── Snapshot como piso de segurança para dailySales ───────────────
+        # Carrega o snapshot consolidado (vendas_diaria_snapshot) uma vez por
+        # request. É uma consulta PG indexada (grupo_nome+ano) — barata o
+        # suficiente para rodar sempre. Em troca ganhamos robustez total:
+        # mesmo nos casos raros em que a carga interna do snapshot dentro de
+        # `fetch_real_daily_sales_for_projetos` falhar silenciosamente, o piso
+        # ainda se aplica. O merge abaixo só dispara quando há divergência
+        # real (snapshot_total > live_total + 5), então o overhead em fluxo
+        # saudável é só a leitura. Filosofia: mesma do MargemBundleRevSnapshot
+        # (GREATEST) e do currentSales alignment documentados no replit.md —
+        # o valor só pode subir, nunca cair.
+        if grupo_nome:
             try:
                 from ...services.snapshot_service import get_snapshot_vendas as _gsv_fallback
                 _fb_snap = _gsv_fallback(db, grupo_nome, data_fim=today_brazil(), ano=ano)
-                if _fb_snap:
-                    logger.warning(f"[DailySales] Fallback: daily_sales_list vazio para '{grupo_nome}' mas snapshot tem {len(_fb_snap)} dias — reconstruindo do snapshot")
-                    _fb_today = today_brazil()
-                    _fb_earliest = min(_fb_snap.keys())
-                    _fb_latest = max(_fb_snap.keys())
-                    _fb_end = _fb_today if (_fb_today - _fb_latest).days <= 30 else _fb_latest
-                    _fb_start = _fb_earliest
-                    _fb_dates = [_fb_start + timedelta(days=i) for i in range((_fb_end - _fb_start).days + 1)]
-                    _fb_cum = 0
-                    _fb_goal = sales_goal or 1000
-                    _fb_total = len(_fb_dates)
-                    _fb_result = []
-                    for _fd in _fb_dates:
-                        _fs = _fb_snap.get(_fd, 0)
-                        _fb_cum += _fs
-                        _fb_exp = round(_fb_goal / _fb_total, 1) if _fb_total > 0 else 0
-                        _fb_dm = (data_fim_inscricoes - _fd).days if data_fim_inscricoes else None
-                        _fb_result.append({
-                            "date": _fd.isoformat(),
-                            "sales": _fs,
+            except Exception as _fb_load_e:
+                logger.warning(f"[DailySales] Falha ao carregar snapshot p/ fallback '{grupo_nome}': {_fb_load_e}")
+                _fb_snap = None
+        else:
+            _fb_snap = None
+
+        if grupo_nome:
+
+            # ── Caso 1: live vazio ────────────────────────────────────────
+            if not daily_sales_list:
+                try:
+                    if _fb_snap:
+                        logger.warning(f"[DailySales] Fallback: daily_sales_list vazio para '{grupo_nome}' mas snapshot tem {len(_fb_snap)} dias — reconstruindo do snapshot")
+                        _fb_today = today_brazil()
+                        _fb_earliest = min(_fb_snap.keys())
+                        _fb_latest = max(_fb_snap.keys())
+                        _fb_end = _fb_today if (_fb_today - _fb_latest).days <= 30 else _fb_latest
+                        _fb_start = _fb_earliest
+                        _fb_dates = [_fb_start + timedelta(days=i) for i in range((_fb_end - _fb_start).days + 1)]
+                        _fb_cum = 0
+                        _fb_goal = sales_goal or 1000
+                        _fb_total = len(_fb_dates)
+                        _fb_result = []
+                        for _fd in _fb_dates:
+                            _fs = _fb_snap.get(_fd, 0)
+                            _fb_cum += _fs
+                            _fb_exp = round(_fb_goal / _fb_total, 1) if _fb_total > 0 else 0
+                            _fb_dm = (data_fim_inscricoes - _fd).days if data_fim_inscricoes else None
+                            _fb_result.append({
+                                "date": _fd.isoformat(),
+                                "sales": _fs,
+                                "expected": _fb_exp,
+                                "cumulativeSales": _fb_cum,
+                                "cumulativeExpected": round(_fb_exp * (_fb_dates.index(_fd) + 1), 1),
+                                "dMinus": _fb_dm,
+                                "curvaAnoAnterior": None,
+                                "dif": round(_fb_cum - _fb_exp * (_fb_dates.index(_fd) + 1), 1),
+                                "atingimentoAcumulado": 0.0,
+                                "atingimentoDiario": 0.0,
+                                "normalizedSales": _fs,
+                                "cumulativeNormalized": _fb_cum,
+                                "localMedian": None,
+                                "outlierLimit": None,
+                                "isOutlier": False,
+                                "excessRemoved": 0,
+                                "excessReceived": 0,
+                            })
+                        daily_sales_list = _fb_result
+                    else:
+                        # Sem snapshot algum — garante pelo menos a linha de hoje com 0
+                        logger.warning(f"[DailySales] Sem snapshot e sem daily_sales para '{grupo_nome}' — injetando linha de hoje com 0")
+                        _fb_today = today_brazil()
+                        _fb_exp = round((sales_goal or 1000) / 1, 1)
+                        daily_sales_list = [{
+                            "date": _fb_today.isoformat(),
+                            "sales": 0,
                             "expected": _fb_exp,
-                            "cumulativeSales": _fb_cum,
-                            "cumulativeExpected": round(_fb_exp * (_fb_dates.index(_fd) + 1), 1),
-                            "dMinus": _fb_dm,
+                            "cumulativeSales": 0,
+                            "cumulativeExpected": _fb_exp,
+                            "dMinus": (data_fim_inscricoes - _fb_today).days if data_fim_inscricoes else None,
                             "curvaAnoAnterior": None,
-                            "dif": round(_fb_cum - _fb_exp * (_fb_dates.index(_fd) + 1), 1),
-                            "atingimentoAcumulado": 0.0,
-                            "atingimentoDiario": 0.0,
-                            "normalizedSales": _fs,
-                            "cumulativeNormalized": _fb_cum,
+                            "dif": round(-_fb_exp, 1),
+                            "atingimentoAcumulado": -100.0,
+                            "atingimentoDiario": -100.0,
+                            "normalizedSales": 0,
+                            "cumulativeNormalized": 0,
                             "localMedian": None,
                             "outlierLimit": None,
                             "isOutlier": False,
                             "excessRemoved": 0,
                             "excessReceived": 0,
-                        })
-                    daily_sales_list = _fb_result
-                else:
-                    # Sem snapshot algum — garante pelo menos a linha de hoje com 0
-                    logger.warning(f"[DailySales] Sem snapshot e sem daily_sales para '{grupo_nome}' — injetando linha de hoje com 0")
-                    _fb_today = today_brazil()
-                    _fb_exp = round((sales_goal or 1000) / 1, 1)
-                    daily_sales_list = [{
-                        "date": _fb_today.isoformat(),
-                        "sales": 0,
-                        "expected": _fb_exp,
-                        "cumulativeSales": 0,
-                        "cumulativeExpected": _fb_exp,
-                        "dMinus": (data_fim_inscricoes - _fb_today).days if data_fim_inscricoes else None,
-                        "curvaAnoAnterior": None,
-                        "dif": round(-_fb_exp, 1),
-                        "atingimentoAcumulado": -100.0,
-                        "atingimentoDiario": -100.0,
-                        "normalizedSales": 0,
-                        "cumulativeNormalized": 0,
-                        "localMedian": None,
-                        "outlierLimit": None,
-                        "isOutlier": False,
-                        "excessRemoved": 0,
-                        "excessReceived": 0,
-                    }]
-            except Exception as _fb_e:
-                logger.warning(f"[DailySales] Fallback de snapshot falhou para '{grupo_nome}': {_fb_e}")
+                        }]
+                except Exception as _fb_e:
+                    logger.warning(f"[DailySales] Fallback de snapshot falhou para '{grupo_nome}': {_fb_e}")
+
+            # ── Caso 2: live veio incompleto (total < snapshot) ───────────
+            # Merge per-day pegando o MAX entre live e snapshot. Preserva os
+            # campos cosméticos do live (expected, curvaAnoAnterior, etc) e
+            # apenas eleva sales/cumulativeSales nas datas afetadas. Também
+            # adiciona dias que só existem no snapshot (live com janela mais
+            # curta por timeout/parcial), reordenando ao final.
+            elif _fb_snap:
+                try:
+                    _live_total = sum(float(d.get('sales') or 0) for d in daily_sales_list)
+                    _snap_total = sum(float(v or 0) for v in _fb_snap.values())
+                    # Threshold de 5 inscrições evita ruído por arredondamento
+                    # ou última hora; diferenças maiores indicam resposta parcial.
+                    if _snap_total > _live_total + 5:
+                        _today_local = today_brazil()
+                        # União de datas: linhas existentes do live + dias do
+                        # snapshot (<= hoje) que estão faltando. Garante que
+                        # janelas live truncadas sejam estendidas.
+                        _live_by_date: dict = {}
+                        for _row in daily_sales_list:
+                            try:
+                                _rd = date.fromisoformat(_row['date'])
+                                _live_by_date[_rd] = _row
+                            except Exception:
+                                pass
+                        _missing_dates = [d for d in _fb_snap.keys() if d <= _today_local and d not in _live_by_date]
+                        for _md in _missing_dates:
+                            _snap_v = float(_fb_snap.get(_md, 0) or 0)
+                            _dm = (data_fim_inscricoes - _md).days if data_fim_inscricoes else None
+                            _new_row = {
+                                "date": _md.isoformat(),
+                                "sales": _snap_v,
+                                "expected": 0.0,
+                                "cumulativeSales": 0.0,
+                                "cumulativeExpected": 0.0,
+                                "dMinus": _dm,
+                                "curvaAnoAnterior": None,
+                                "dif": 0.0,
+                                "atingimentoAcumulado": 0.0,
+                                "atingimentoDiario": 0.0,
+                                "normalizedSales": _snap_v,
+                                "cumulativeNormalized": 0.0,
+                                "localMedian": None,
+                                "outlierLimit": None,
+                                "isOutlier": False,
+                                "excessRemoved": 0,
+                                "excessReceived": 0,
+                            }
+                            daily_sales_list.append(_new_row)
+                            _live_by_date[_md] = _new_row
+                        # Reordena por data antes de recomputar cumulativos.
+                        daily_sales_list.sort(key=lambda r: r.get('date', ''))
+
+                        _raised_days = 0
+                        _added_days = len(_missing_dates)
+                        _cum_sales = 0.0
+                        _cum_norm = 0.0
+                        for _row in daily_sales_list:
+                            try:
+                                _row_date = date.fromisoformat(_row['date'])
+                            except Exception:
+                                continue
+                            _live_s = float(_row.get('sales') or 0)
+                            _snap_s = float(_fb_snap.get(_row_date, 0) or 0)
+                            # Snapshot só é piso confiável p/ datas <= hoje
+                            # (datas futuras não foram persistidas pelo job).
+                            if _row_date <= _today_local and _snap_s > _live_s:
+                                _row['sales'] = _snap_s
+                                # normalizedSales acompanha o piso (sem
+                                # recomputar mediana local aqui — coerência
+                                # mínima já basta). Usa float p/ não truncar.
+                                if float(_row.get('normalizedSales') or 0) < _snap_s:
+                                    _row['normalizedSales'] = _snap_s
+                                _raised_days += 1
+                            _cum_sales += float(_row.get('sales') or 0)
+                            _cum_norm += float(_row.get('normalizedSales') or 0)
+                            _row['cumulativeSales'] = _cum_sales
+                            _row['cumulativeNormalized'] = _cum_norm
+                            # Recalcula dif/atingimentoAcumulado com o novo cum.
+                            _row_exp_cum = float(_row.get('cumulativeExpected') or 0)
+                            _row['dif'] = round(_cum_sales - _row_exp_cum, 1)
+                            if _row_exp_cum > 0:
+                                _row['atingimentoAcumulado'] = round((_cum_sales / _row_exp_cum - 1.0) * 100, 1)
+                        logger.warning(f"[DailySales] Resposta parcial detectada p/ '{grupo_nome}': live={_live_total:.0f} < snapshot={_snap_total:.0f} — snapshot aplicado como piso em {_raised_days} dia(s), {_added_days} dia(s) adicionados")
+                except Exception as _merge_e:
+                    logger.warning(f"[DailySales] Merge snapshot-floor falhou para '{grupo_nome}': {_merge_e}")
 
         daily_sales_dict = {date.fromisoformat(d['date']): d['sales'] for d in daily_sales_list}
         
