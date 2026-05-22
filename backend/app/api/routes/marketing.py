@@ -9891,14 +9891,19 @@ def get_marketing_event_by_id(
                                     _ating_dia = round(((_qty - _exp_per_day) / _exp_per_day) * 100, 1) if _exp_per_day > 0 else 0.0
                                     _ating_acum = round(((_cum_sales - _cum_exp) / _cum_exp) * 100, 1) if _cum_exp > 0 else 0.0
                                     _new_row = dict(_row)
-                                    _new_row.setdefault("expected", _exp_per_day)
-                                    _new_row.setdefault("cumulativeSales", _cum_sales)
-                                    _new_row.setdefault("cumulativeExpected", _cum_exp)
-                                    _new_row.setdefault("dMinus", _dm)
+                                    # IMPORTANTE: atribuição direta (não setdefault).
+                                    # apply_today_overlay no caminho sem-base já adiciona
+                                    # rows com expected=0/cumulativeExpected=0 como placeholder;
+                                    # setdefault deixaria esses zeros e META DIA/ACUM. apareceriam
+                                    # como 0 e os ATING. como "—" (derivados de zeros).
+                                    _new_row["expected"] = _exp_per_day
+                                    _new_row["cumulativeSales"] = _cum_sales
+                                    _new_row["cumulativeExpected"] = _cum_exp
+                                    _new_row["dMinus"] = _dm
                                     _new_row.setdefault("curvaAnoAnterior", None)
-                                    _new_row.setdefault("dif", round(_cum_sales - _cum_exp, 1))
-                                    _new_row.setdefault("atingimentoAcumulado", _ating_acum)
-                                    _new_row.setdefault("atingimentoDiario", _ating_dia)
+                                    _new_row["dif"] = round(_cum_sales - _cum_exp, 1)
+                                    _new_row["atingimentoAcumulado"] = _ating_acum
+                                    _new_row["atingimentoDiario"] = _ating_dia
                                     _new_row.setdefault("normalizedSales", _qty)
                                     _new_row.setdefault("cumulativeNormalized", _cum_sales)
                                     _new_row.setdefault("localMedian", None)
