@@ -648,13 +648,46 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
     # without deleting — otherwise the snapshot ends up with only the surviving
     # source's data and the chart "loses" the other source's days.
     # Using raise_on_error=True so silently-swallowed exceptions surface here.
+    #
+    # PARALELIZAÇÃO: Ativo e Magento rodam em threads separadas. As duas fontes
+    # são independentes (engines/conexões diferentes), então o tempo total passa
+    # a ser ~max(Ativo, Magento) em vez de Ativo+Magento. O merge no all_daily
+    # acontece de volta no thread principal (sem race), e cada fonte mantém seu
+    # próprio flag de sucesso e seu próprio log de falha.
     all_daily = {}
     ativo_ok = True
     magento_ok = True
 
-    if ativo_ids:
+    def _do_fetch_ativo():
+        return _fetch_daily_sales_ativo_by_ids(
+            list(set(ativo_ids)), raise_on_error=True, data_floor=_fetch_data_floor
+        )
+
+    def _do_fetch_magento():
+        mag_cortesia = set(magento_ids) & cortesia_ids if cortesia_ids else None
+        return _fetch_daily_sales_magento_by_ids(
+            list(set(magento_ids)),
+            cortesia_magento_ids=mag_cortesia if mag_cortesia else None,
+            raise_on_error=True,
+            data_floor=_fetch_data_floor,
+        )
+
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    _fut_ativo = None
+    _fut_magento = None
+    if ativo_ids or magento_ids:
+        _executor = _TPE(max_workers=2, thread_name_prefix=f"snap-{evento_grupo[:16]}")
         try:
-            rows = _fetch_daily_sales_ativo_by_ids(list(set(ativo_ids)), raise_on_error=True, data_floor=_fetch_data_floor)
+            if ativo_ids:
+                _fut_ativo = _executor.submit(_do_fetch_ativo)
+            if magento_ids:
+                _fut_magento = _executor.submit(_do_fetch_magento)
+        finally:
+            _executor.shutdown(wait=False)
+
+    if _fut_ativo is not None:
+        try:
+            rows = _fut_ativo.result()
             for row in rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 if d not in all_daily:
@@ -672,15 +705,9 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
                 motivo=classify_motivo(_e), detalhes=str(_e),
             )
 
-    if magento_ids:
+    if _fut_magento is not None:
         try:
-            mag_cortesia = set(magento_ids) & cortesia_ids if cortesia_ids else None
-            rows = _fetch_daily_sales_magento_by_ids(
-                list(set(magento_ids)),
-                cortesia_magento_ids=mag_cortesia if mag_cortesia else None,
-                raise_on_error=True,
-                data_floor=_fetch_data_floor,
-            )
+            rows = _fut_magento.result()
             for row in rows:
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 if d not in all_daily:
