@@ -43,9 +43,9 @@ def _snapshot_lookback_days() -> int:
         # Teto de 21 dias: limita o range scan no Magento mesmo com env
         # mal configurada. Para reprocessar janelas maiores, use o endpoint
         # de reconsolidação manual (full mode) em vez do batch noturno.
-        return max(0, min(21, int(os.getenv("DAILY_SNAPSHOT_LOOKBACK_DAYS", "7"))))
+        return max(0, min(21, int(os.getenv("DAILY_SNAPSHOT_LOOKBACK_DAYS", "3"))))
     except (TypeError, ValueError):
-        return 7
+        return 3
 
 
 def is_event_frozen(data_evento: Optional[date], freeze_days: Optional[int] = None) -> bool:
