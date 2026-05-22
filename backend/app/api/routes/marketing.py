@@ -11256,6 +11256,49 @@ def get_marketing_event_by_id(
     return sa_result
 
 
+@router.get("/eventos/{evento_id}/version")
+def get_evento_version(
+    evento_id: str,
+    ano: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("marketing_dashboard", "pode_visualizar")),
+):
+    """Endpoint leve de versionamento — usado pelo frontend para polling de
+    propagação cross-user. Retorna apenas timestamps; não recomputa nada.
+
+    Frontend chama a cada ~60s. Se snapshot_updated_at ou last_sync_hoje
+    mudar em relação ao baseline capturado no primeiro carregamento, exibe
+    um banner "Há atualizações novas — clique para recarregar".
+    """
+    if ano is None:
+        ano = today_brazil().year
+    from ...models.evento_detail_snapshot import EventoDetailSnapshot as _EDS_v
+    snap_at = None
+    try:
+        # Coluna correta no model é `computed_at` (atualizada via onupdate=func.now()
+        # pelo scheduler/reconsolidar). Não confundir com `created_at`.
+        row = db.query(_EDS_v.computed_at).filter(
+            _EDS_v.evento_id == evento_id,
+            _EDS_v.ano == ano,
+        ).first()
+        if row and row[0]:
+            snap_at = row[0].astimezone(ZoneInfo('America/Sao_Paulo')).isoformat() if row[0].tzinfo else row[0].replace(tzinfo=ZoneInfo('America/Sao_Paulo')).isoformat()
+    except Exception as _v_e:
+        logger.debug(f"get_evento_version: snapshot lookup falhou para '{evento_id}/{ano}': {_v_e}")
+    _lsh_ts = get_last_sync_hoje()
+    last_sync_iso = (
+        datetime.fromtimestamp(_lsh_ts, tz=ZoneInfo('America/Sao_Paulo')).isoformat()
+        if _lsh_ts else None
+    )
+    return {
+        "evento_id": evento_id,
+        "ano": ano,
+        "snapshot_updated_at": snap_at,
+        "last_sync_hoje": last_sync_iso,
+        "server_now": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+    }
+
+
 @router.post("/eventos/{evento_id}/atualizar-hoje")
 def atualizar_vendas_hoje(
     evento_id: str,

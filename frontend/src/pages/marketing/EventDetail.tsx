@@ -445,6 +445,12 @@ const EventDetail: React.FC = () => {
   const [reconsolidating, setReconsolidating] = useState(false);
   const [userRequestSent, setUserRequestSent] = useState(false);
   const silentRefetchDoneRef = useRef(false);
+  // ── Polling de versão (propagação cross-user) ─────────────────────────────
+  // Captura timestamps do servidor no primeiro fetch bem-sucedido e compara
+  // com o que /version retorna a cada 60s. Se algum timestamp avançou (outro
+  // usuário rodou Atualizar Hoje, ou job noturno rodou), exibe banner azul.
+  const versionBaselineRef = useRef<{ snap: string | null; sync: string | null } | null>(null);
+  const [hasNewerVersion, setHasNewerVersion] = useState(false);
   const fetchEventRef = useRef<((forceRefresh?: boolean, silent?: boolean, forceMagentoRefresh?: boolean) => void) | null>(null);
   // Rastreia se algum dado de evento já foi exibido na tela. Persistido como ref
   // para que fetchEvent (closure do useEffect) acesse o valor atualizado mesmo
@@ -718,6 +724,12 @@ const EventDetail: React.FC = () => {
         setUltimaAtualizacao(systemRefresh || cacheTime || null);
         setUltimaAtualizacaoInscricoes(inscricoesSync || cacheTime || null);
         setSnapshotComputedAt(snapshotAt || systemRefresh || cacheTime || null);
+        // Reseta baseline de versão a cada novo carregamento bem-sucedido.
+        // O baseline real é capturado na PRIMEIRA resposta do polling de
+        // /version (mesmo relógio do servidor que será comparado depois),
+        // evitando comparar timestamps de fontes diferentes.
+        versionBaselineRef.current = null;
+        setHasNewerVersion(false);
         if ((response as any).projetos_vinculados) {
           setProjetosVinculados((response as any).projetos_vinculados);
         }
@@ -915,6 +927,48 @@ const EventDetail: React.FC = () => {
     fetchSnapshot();
     return () => controller.abort();
   }, [id, controleSubTab, anoParam, secondaryRefreshToken]);
+
+  // Polling de versão a cada 60s: detecta quando OUTRO usuário/processo
+  // avança o snapshot deste evento (Atualizar Hoje, Reconsolidar, job
+  // noturno) e exibe a banner azul "Há atualizações novas". Cancelado quando
+  // o id/ano mudar ou o componente desmontar.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const v = await marketingService.getEventoVersion(id, anoParam);
+        if (cancelled) return;
+        const base = versionBaselineRef.current;
+        // Primeira chamada após (re)carga: apenas captura o baseline. Como
+        // baseline e polling vêm do MESMO endpoint /version, os relógios são
+        // sempre consistentes — não há risco de falso positivo inicial.
+        if (!base) {
+          versionBaselineRef.current = {
+            snap: v.snapshot_updated_at,
+            sync: v.last_sync_hoje,
+          };
+          return;
+        }
+        const newer = (
+          (v.snapshot_updated_at && (!base.snap || new Date(v.snapshot_updated_at) > new Date(base.snap))) ||
+          (v.last_sync_hoje && (!base.sync || new Date(v.last_sync_hoje) > new Date(base.sync)))
+        );
+        if (newer) setHasNewerVersion(true);
+      } catch {
+        // silencioso — polling não deve poluir o console
+      }
+    };
+    // Dispara uma chamada imediata para já fixar o baseline e não esperar 60s.
+    check();
+    const timer = setInterval(check, 60000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [id, anoParam]);
+
+  const handleReloadNewerVersion = useCallback(() => {
+    setHasNewerVersion(false);
+    fetchEventRef.current?.(true, true);
+  }, []);
 
   // Reconsolidar (admin): roda o pipeline completo Magento + Ativo + recálculos
   // e persiste o snapshot. Pode demorar ~30-90s. Após sucesso, recarrega a tela.
@@ -1992,6 +2046,16 @@ const EventDetail: React.FC = () => {
       </div>
 
       <div className="relative z-10 p-6 space-y-6">
+      {hasNewerVersion && (
+        <button
+          onClick={handleReloadNewerVersion}
+          className={`w-full mb-3 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${isDark ? 'bg-blue-900/30 border-blue-700 text-blue-200 hover:bg-blue-900/50' : 'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'}`}
+          title="Outro usuário ou o sistema atualizou os dados deste evento. Clique para recarregar."
+        >
+          <RefreshCw className="w-4 h-4" />
+          Há atualizações novas — clique para recarregar
+        </button>
+      )}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button

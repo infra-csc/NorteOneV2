@@ -431,7 +431,12 @@ const MarketingDashboard: React.FC = () => {
   const [avisos, setAvisos] = useState<string[]>([]);
   const [fromCache, setFromCache] = useState(false);
   const [serverStale, setServerStale] = useState(false);
-  
+  // Banner de propagação cross-user: dispara quando o polling de /cache/status
+  // detecta que outro usuário/processo rodou Atualizar Hoje ou um sync global
+  // depois deste tab ter carregado os dados.
+  const versionBaselineRef = useRef<string | null>(null);
+  const [hasNewerVersion, setHasNewerVersion] = useState(false);
+
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const staleRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -447,7 +452,18 @@ const MarketingDashboard: React.FC = () => {
     setAvisos((response as any).avisos || []);
     if (response.ultima_atualizacao) {
       setDataTimestamp(response.ultima_atualizacao);
+      // Reseta o baseline a cada (re)carga. O baseline real é capturado pela
+      // primeira resposta de /cache/status (mesmo relógio que será comparado
+      // depois), evitando comparar timestamps de fontes diferentes.
+      versionBaselineRef.current = null;
+      setHasNewerVersion(false);
     }
+  }, []);
+
+  const handleReloadNewerVersion = useCallback(() => {
+    setHasNewerVersion(false);
+    fetchData(true, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fix B3: debounce de 300ms — antes salvava no sessionStorage a cada
@@ -839,6 +855,16 @@ const MarketingDashboard: React.FC = () => {
         const latestSync = status.last_sync_hoje || status.ultima_atualizacao_completa;
         if (latestSync) {
           setServerLastUpdate(latestSync);
+          // Primeira resposta após (re)carga apenas fixa o baseline; chamadas
+          // seguintes só disparam a banner se o servidor avançou em relação
+          // ao baseline. Como baseline e polling vêm do MESMO campo, os
+          // relógios são sempre consistentes.
+          const base = versionBaselineRef.current;
+          if (!base) {
+            versionBaselineRef.current = latestSync;
+          } else if (new Date(latestSync) > new Date(base)) {
+            setHasNewerVersion(true);
+          }
         }
         setBgRefreshing(status.refresh_in_progress);
         if (!status.refresh_in_progress) {
@@ -970,6 +996,16 @@ const MarketingDashboard: React.FC = () => {
       )}
 
       <div className="relative z-10 p-6 space-y-6">
+      {hasNewerVersion && (
+        <button
+          onClick={handleReloadNewerVersion}
+          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${isDark ? 'bg-blue-900/30 border-blue-700 text-blue-200 hover:bg-blue-900/50' : 'bg-blue-50 border-blue-200 text-blue-800 hover:bg-blue-100'}`}
+          title="Outro usuário ou o sistema atualizou os dados. Clique para recarregar."
+        >
+          <RefreshCw className="w-4 h-4" />
+          Há atualizações novas — clique para recarregar
+        </button>
+      )}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">

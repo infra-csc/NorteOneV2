@@ -1183,6 +1183,19 @@ export const marketingService = {
     data._isStale = response.headers?.['x-data-stale'] === 'true';
     return data;
   },
+  getEventoVersion: async (id: string, ano?: number): Promise<{
+    evento_id: string;
+    ano: number;
+    snapshot_updated_at: string | null;
+    last_sync_hoje: string | null;
+    server_now: string;
+  }> => {
+    const queryParams = new URLSearchParams();
+    if (ano) queryParams.append('ano', ano.toString());
+    const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+    const response = await api.get(`/marketing/eventos/${encodeURIComponent(id)}/version${queryString}`);
+    return response.data;
+  },
   atualizarHoje: async (id: string, ano?: number): Promise<{
     status: string;
     evento_id: string;
