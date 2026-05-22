@@ -6427,12 +6427,38 @@ def get_event_simulation(
     dias_enc_sim = get_dias_encerramento(db, projeto_id=projetos[0].id) if projetos else 2
     dias_ate_evento = calculate_d_minus(data_evento, dias_encerramento=dias_enc_sim) if data_evento else 0
 
-    meta_orcada = get_meta_orcada_projetos(db, projetos)
+    # Fix P1: eliminar N+1 — antes get_meta_orcada_projetos chamava 1 query
+    # por projeto (cache mitiga só após 1ª request), e logo abaixo havia OUTRO
+    # loop com 1 query CadastroEvento por projeto. Agora UMA query com IN(...)
+    # alimenta AMBOS os cálculos (meta_orcada + ticket_medio_orcado), com
+    # mesma regra de desempate. CadastroEvento.projeto_id não tem UNIQUE
+    # constraint (FK nullable), então garantimos determinismo com
+    # order_by(id) + setdefault: a primeira linha (menor id) vence,
+    # reproduzindo o comportamento típico de `.first()` sem order_by.
+    _projeto_ids_sim = [p.id for p in projetos]
+    _cads_sim = (
+        db.query(CadastroEvento)
+        .filter(CadastroEvento.projeto_id.in_(_projeto_ids_sim))
+        .order_by(CadastroEvento.id.asc())
+        .all()
+        if _projeto_ids_sim else []
+    )
+    _cad_by_proj_sim: dict = {}
+    for _c in _cads_sim:
+        _cad_by_proj_sim.setdefault(_c.projeto_id, _c)
+
+    # meta_orcada agora vem da mesma fonte; get_meta_from_cadastro retorna
+    # int(cad.atletas_site_pago) quando > 0, igual ao caminho antigo.
+    meta_orcada = 0
+    for p in projetos:
+        cad = _cad_by_proj_sim.get(p.id)
+        if cad:
+            meta_orcada += get_meta_from_cadastro(cad)
 
     budget_ticket_total_receita = 0.0
     budget_ticket_total_qtd = 0
     for p in projetos:
-        cad = db.query(CadastroEvento).filter(CadastroEvento.projeto_id == p.id).first()
+        cad = _cad_by_proj_sim.get(p.id)
         if cad and cad.atletas_site_tkt_medio and cad.atletas_site_pago and cad.atletas_site_pago > 0:
             budget_ticket_total_receita += float(cad.atletas_site_tkt_medio) * int(cad.atletas_site_pago)
             budget_ticket_total_qtd += int(cad.atletas_site_pago)
