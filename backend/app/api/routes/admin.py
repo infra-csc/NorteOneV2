@@ -288,7 +288,8 @@ def trigger_snapshot_consolidation_full(
         from app.models.cadastro_evento import CadastroEvento
         from app.models.consolidacao_checkpoint import ConsolidacaoCheckpoint
         from app.services.snapshot_service import (
-            consolidar_vendas_grupo, _freeze_after_days, _load_active_grupos
+            consolidar_vendas_grupo, _freeze_after_days, _load_active_grupos,
+            _snapshot_lookback_days,
         )
         from app.services.sync_log_service import new_ciclo_id, log_evento
         from app.api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
@@ -469,10 +470,17 @@ def trigger_snapshot_consolidation_full(
                         return result_entry
 
                     try:
+                        # incremental + lookback: reprocessa janela rolante (default
+                        # 7 dias) para corrigir snapshots parciais antigos. Mesmo
+                        # comportamento do batch das 04h e do "Reconsolidar"
+                        # individual. Sem lookback, incremental só busca dias novos
+                        # > max_dia e nunca corrige um valor errado de dia anterior.
+                        _lb_full = _snapshot_lookback_days() if incremental else 0
                         consolidar_vendas_grupo(
                             thread_db, grupo, ano,
                             data_inicio=None, data_fim=yesterday,
                             incremental=incremental,
+                            lookback_days=_lb_full,
                             ciclo_id=ciclo_id,
                             parent_job_name="consolidar_full_manual",
                         )
