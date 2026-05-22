@@ -1967,59 +1967,49 @@ async def lifespan(app: FastAPI):
         # Start the dedicated 05:30 BRT daily timer for insights generation
         _schedule_daily_nori_insights()
 
-    # Warmup do cache de cadastros no main thread (antes de aceitar requests)
-    try:
-        from app.api.routes.cadastros import warm_list_cache as _warm_cadastros
-        from app.core.database import SessionLocal as _SL
-        _db_warm = _SL()
+        # Câmbio USD/BRL pre-warm (movido pra background pra não bloquear startup do deploy).
         try:
-            _warm_cadastros(_db_warm)
-        finally:
-            _db_warm.close()
-    except Exception as e:
-        import traceback
-        logger.error(f"[Startup] Cadastros cache warmup FALHOU: {e}\n{traceback.format_exc()}")
-
-    init_thread = threading.Thread(target=_all_background_init, daemon=True, name="startup-bg-init")
-    init_thread.start()
-
-    try:
-        from app.api.routes.cotacoes import _cambio_cache
-        import httpx as _hx, time as _t
-        _taxa = 0
-        try:
-            with _hx.Client(timeout=10) as _cli:
-                _r = _cli.get("https://economia.awesomeapi.com.br/json/last/USD-BRL")
-                if _r.status_code == 200:
-                    _d = _r.json().get("USDBRL", {})
-                    _taxa = float(_d.get("bid", 0))
-                    if _taxa > 0:
-                        _cambio_cache["taxa"] = _taxa
-                        _cambio_cache["variacao"] = float(_d.get("varBid", 0))
-                        _cambio_cache["data"] = _d.get("create_date", "")
-                        _cambio_cache["ts"] = _t.time()
-        except Exception:
-            pass
-        if _taxa == 0:
+            from app.api.routes.cotacoes import _cambio_cache
+            import httpx as _hx, time as _t
+            _taxa = 0
             try:
                 with _hx.Client(timeout=10) as _cli:
-                    _r2 = _cli.get("https://open.er-api.com/v6/latest/USD")
-                    if _r2.status_code == 200:
-                        _brl = float(_r2.json().get("rates", {}).get("BRL", 0))
-                        if _brl > 0:
-                            _cambio_cache["taxa"] = round(_brl, 4)
-                            _cambio_cache["variacao"] = 0
-                            _cambio_cache["data"] = _r2.json().get("time_last_update_utc", "")
+                    _r = _cli.get("https://economia.awesomeapi.com.br/json/last/USD-BRL")
+                    if _r.status_code == 200:
+                        _d = _r.json().get("USDBRL", {})
+                        _taxa = float(_d.get("bid", 0))
+                        if _taxa > 0:
+                            _cambio_cache["taxa"] = _taxa
+                            _cambio_cache["variacao"] = float(_d.get("varBid", 0))
+                            _cambio_cache["data"] = _d.get("create_date", "")
                             _cambio_cache["ts"] = _t.time()
-                            _taxa = _brl
             except Exception:
                 pass
-        if _taxa > 0:
-            logger.info(f"[Startup] Câmbio cache pre-warmed: USD/BRL = {round(_taxa, 4)}")
-        else:
-            logger.warning("[Startup] Câmbio pre-warm: both APIs failed")
-    except Exception as _ce:
-        logger.warning(f"[Startup] Câmbio pre-warm failed (non-fatal): {_ce}")
+            if _taxa == 0:
+                try:
+                    with _hx.Client(timeout=10) as _cli:
+                        _r2 = _cli.get("https://open.er-api.com/v6/latest/USD")
+                        if _r2.status_code == 200:
+                            _brl = float(_r2.json().get("rates", {}).get("BRL", 0))
+                            if _brl > 0:
+                                _cambio_cache["taxa"] = round(_brl, 4)
+                                _cambio_cache["variacao"] = 0
+                                _cambio_cache["data"] = _r2.json().get("time_last_update_utc", "")
+                                _cambio_cache["ts"] = _t.time()
+                                _taxa = _brl
+                except Exception:
+                    pass
+            if _taxa > 0:
+                logger.info(f"[Startup-BG] Câmbio cache pre-warmed: USD/BRL = {round(_taxa, 4)}")
+            else:
+                logger.warning("[Startup-BG] Câmbio pre-warm: both APIs failed")
+        except Exception as _ce:
+            logger.warning(f"[Startup-BG] Câmbio pre-warm failed (non-fatal): {_ce}")
+
+    # Warmup de cadastros JÁ é feito dentro de _all_background_init (linhas ~1576-1585).
+    # Removida a chamada síncrona duplicada que bloqueava o startup do deploy.
+    init_thread = threading.Thread(target=_all_background_init, daemon=True, name="startup-bg-init")
+    init_thread.start()
 
     logger.info("=== Server ready to accept requests (background init running) ===")
 
