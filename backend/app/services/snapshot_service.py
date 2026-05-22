@@ -515,7 +515,7 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
     logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
 
 
-def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False, ciclo_id: Optional[str] = None, parent_job_name: Optional[str] = None):
+def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False, ciclo_id: Optional[str] = None, parent_job_name: Optional[str] = None, lookback_days: int = 0):
     """Reconstrói o snapshot diário de vendas de um grupo.
 
     Modo padrão (incremental=False): varre histórico completo no Magento/Ativo
@@ -601,6 +601,16 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
             # Re-busca a partir do último dia gravado (não +1) pra capturar
             # pedidos inseridos tardiamente naquele dia.
             data_floor = max_dia
+            # Lookback opcional: recua N dias para reprocessar snapshots
+            # parciais (ex: Magento fora do ar no dia em que foi gravado).
+            # Sem lookback, um snapshot parcial fica congelado pra sempre
+            # porque o incremental sempre parte do último dia gravado.
+            if lookback_days and lookback_days > 0:
+                data_floor = max_dia - timedelta(days=lookback_days)
+                logger.info(
+                    f"[Snapshot] grupo='{evento_grupo}' incremental com lookback={lookback_days}d "
+                    f"→ data_floor={data_floor} (recua {lookback_days} dias para auto-corrigir parciais)"
+                )
         else:
             # Sem snapshot anterior: força modo full nessa execução.
             incremental = False
@@ -977,7 +987,11 @@ def snapshot_diario_batch(db: Session):
             # Job agendado usa modo incremental: só busca dias novos desde
             # a última sincronização, reduzindo drasticamente a carga no
             # Magento e protegendo o histórico de gravações parciais.
-            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True, ciclo_id=_ciclo, parent_job_name="snapshot_diario_batch")
+            # lookback_days=7: reprocessa a última semana para auto-corrigir
+            # snapshots parciais (ex: Magento fora do ar no momento da gravação
+            # original). Sem isso, um dia que ficou parcial permanece parcial
+            # pra sempre, pois o incremental partia do último dia gravado.
+            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True, ciclo_id=_ciclo, parent_job_name="snapshot_diario_batch", lookback_days=7)
         except Exception as e:
             logger.error(f"Erro ao consolidar snapshot para grupo='{grupo}': {e}")
             try:
