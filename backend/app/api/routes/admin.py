@@ -298,7 +298,24 @@ def trigger_snapshot_consolidation_full(
         import time as _t
         from datetime import date as _date, timedelta
 
-        local_db = SessionLocal()
+        # Diagnóstico de hang: logamos cada passo do setup com timing pra que,
+        # se o thread travar antes do primeiro log_evento (pool exausto, etc),
+        # consigamos ver no log da aplicação onde parou.
+        _setup_t0 = _t.time()
+        _logger.info("consolidar_full_manual: thread iniciado, abrindo SessionLocal…")
+        with _consolidation_full_lock:
+            _consolidation_full_progress["setup_step"] = "Abrindo sessão no banco…"
+        try:
+            local_db = SessionLocal()
+        except Exception as _sl_err:
+            _logger.error(f"consolidar_full_manual: SessionLocal falhou: {_sl_err}")
+            with _consolidation_full_lock:
+                _consolidation_full_progress["status"] = "error"
+                _consolidation_full_progress["error"] = f"SessionLocal: {str(_sl_err)[:300]}"
+                _consolidation_full_progress["finished_at"] = _t.time()
+            return
+        _logger.info(f"consolidar_full_manual: SessionLocal ok em {(_t.time()-_setup_t0)*1000:.0f}ms")
+
         try:
             # Resume path: reusa ciclo_id e marca os grupos já OK pra pular
             already_ok_grupos: set = set()
@@ -315,10 +332,12 @@ def trigger_snapshot_consolidation_full(
             cycle_started_at_dt = _dt.now(_tz.utc)
             with _consolidation_full_lock:
                 _consolidation_full_progress["ciclo_id"] = ciclo_id
+                _consolidation_full_progress["setup_step"] = "Registrando início do ciclo…"
 
             # Sempre status='iniciado' no nível ciclo (mesmo quando retomado).
             # 'retomado' fica apenas em detalhes — list_sync_cycles trata qualquer
             # status != 'iniciado' como final, o que esconderia ciclos em execução.
+            _t_le = _t.time()
             log_evento(
                 ciclo_id, "consolidar_full_manual", "iniciado", nivel="ciclo",
                 detalhes=(
@@ -326,6 +345,7 @@ def trigger_snapshot_consolidation_full(
                     + (f" (RETOMADO de {len(already_ok_grupos)} já OK)" if resume_ckpt else "")
                 ),
             )
+            _logger.info(f"consolidar_full_manual: log_evento iniciado em {(_t.time()-_t_le)*1000:.0f}ms (ciclo={ciclo_id})")
 
             today = _date.today()
             yesterday = today - timedelta(days=1)
