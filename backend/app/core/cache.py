@@ -1051,64 +1051,117 @@ class CacheRefreshScheduler:
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
         today_target = now.replace(hour=4, minute=0, second=0, microsecond=0)
 
-        # Rede de segurança: se o backend subiu depois das 04:00 BRT e o job
-        # AINDA NÃO TEVE NENHUMA TENTATIVA HOJE (sucesso, parcial OU falha),
-        # dispara em 90s. Evita "pular" um dia inteiro quando há restart de
-        # manhã. Importante: aceita 'falha' como tentativa válida para não
-        # entrar em loop de 90s se uma exceção catastrófica acontecer toda
-        # vez. Também aceita 'iniciado' recente (<60min) para não duplicar
-        # um ciclo que ainda está rodando.
-        if now >= today_target:
-            already_tried_today = False
+        # Rede de segurança + retry intra-dia. Lê o estado dos ciclos de hoje
+        # (a partir das 04h BRT) e decide:
+        #   (a) NENHUMA tentativa hoje + já passou das 04h → catch-up em 90s
+        #       (cobre o caso "backend subiu de manhã e perdeu o 04h").
+        #   (b) Última tentativa terminou em 'parcial' ou 'falha' E ainda há
+        #       quota de retry (< MAX_RETRIES_PER_DAY tentativas terminais
+        #       hoje) → re-tenta em RETRY_DELAY_MINUTES. A idempotência por
+        #       sub-passo garante que o retry só re-roda o que faltou.
+        #   (c) Ciclo 'iniciado' ainda recente (< 60min, sem terminal): já
+        #       está rodando, não agenda nada extra.
+        #   (d) Concluído OK hoje, OU estourou retries, OU ainda não deu 04h:
+        #       agenda normalmente para o próximo 04h BRT (amanhã ou hoje).
+        MAX_RETRIES_PER_DAY = 3            # tentativas terminais adicionais após a 1ª
+        RETRY_DELAY_MINUTES = 30
+        _last_terminal_status = None
+        _terminal_count_today = 0
+        _running_recent = False
+        try:
+            from app.core.database import SessionLocal as _SL_chk
+            from app.models.sync_event_log import SyncEventLog as _SEL_chk
+            from sqlalchemy import and_ as _and_chk, or_ as _or_chk
+            _db_chk = _SL_chk()
             try:
-                from app.core.database import SessionLocal as _SL_chk
-                from app.models.sync_event_log import SyncEventLog as _SEL_chk
-                from sqlalchemy import and_ as _and_chk, or_ as _or_chk
-                _db_chk = _SL_chk()
-                try:
-                    _today_start_utc = today_target.astimezone(ZoneInfo('UTC'))
-                    # 1) Qualquer ciclo terminal hoje (concluido/parcial/falha)
-                    _terminal_hit = _db_chk.query(_SEL_chk.id).filter(
-                        _and_chk(
-                            _SEL_chk.job_name == "consolidacao_diaria_04h",
-                            _SEL_chk.nivel == "ciclo",
-                            _or_chk(
-                                _SEL_chk.status == "concluido",
-                                _SEL_chk.status == "parcial",
-                                _SEL_chk.status == "falha",
-                            ),
-                            _SEL_chk.created_at >= _today_start_utc,
-                        )
-                    ).first()
-                    if _terminal_hit is not None:
-                        already_tried_today = True
-                    else:
-                        # 2) Ciclo "iniciado" recente sem terminal: ainda rodando
-                        _recent_start_utc = (now - timedelta(minutes=60)).astimezone(ZoneInfo('UTC'))
-                        _running_hit = _db_chk.query(_SEL_chk.id).filter(
-                            _and_chk(
-                                _SEL_chk.job_name == "consolidacao_diaria_04h",
-                                _SEL_chk.nivel == "ciclo",
-                                _SEL_chk.status == "iniciado",
-                                _SEL_chk.created_at >= _recent_start_utc,
-                            )
-                        ).first()
-                        if _running_hit is not None:
-                            already_tried_today = True
-                finally:
-                    _db_chk.close()
-            except Exception as _e_chk:
-                logger.warning(f"[Scheduler] Falha ao checar execução prévia do 04h: {_e_chk}")
+                _today_start_utc = today_target.astimezone(ZoneInfo('UTC'))
+                _terminal_rows = _db_chk.query(_SEL_chk.status, _SEL_chk.created_at).filter(
+                    _and_chk(
+                        _SEL_chk.job_name == "consolidacao_diaria_04h",
+                        _SEL_chk.nivel == "ciclo",
+                        _or_chk(
+                            _SEL_chk.status == "concluido",
+                            _SEL_chk.status == "parcial",
+                            _SEL_chk.status == "falha",
+                        ),
+                        _SEL_chk.created_at >= _today_start_utc,
+                    )
+                ).order_by(_SEL_chk.created_at.asc()).all()
+                _terminal_count_today = len(_terminal_rows)
+                if _terminal_rows:
+                    _last_terminal_status = _terminal_rows[-1][0]
+                # Ciclo realmente em execução = último evento ciclo do job é
+                # 'iniciado' e foi há < 60min. NÃO basta "existir um iniciado
+                # recente": após um ciclo terminar normalmente, o próprio
+                # 'iniciado' que o abriu continua < 60min — se contássemos
+                # apenas presença, cairíamos em (c) e sairíamos sem agendar
+                # nada, deixando o scheduler morto até o próximo restart.
+                _recent_start_utc = (now - timedelta(minutes=60)).astimezone(ZoneInfo('UTC'))
+                _last_ciclo_row = _db_chk.query(_SEL_chk.status, _SEL_chk.created_at).filter(
+                    _and_chk(
+                        _SEL_chk.job_name == "consolidacao_diaria_04h",
+                        _SEL_chk.nivel == "ciclo",
+                    )
+                ).order_by(_SEL_chk.created_at.desc()).first()
+                if _last_ciclo_row is not None:
+                    _last_status, _last_ts = _last_ciclo_row
+                    if _last_status == "iniciado" and _last_ts >= _recent_start_utc:
+                        _running_recent = True
+            finally:
+                _db_chk.close()
+        except Exception as _e_chk:
+            logger.warning(f"[Scheduler] Falha ao checar execução prévia do 04h: {_e_chk}")
 
-            if not already_tried_today:
-                logger.warning(
-                    f"[Scheduler] Missed daily snapshot consolidation detected "
-                    f"(today_target={today_target.isoformat()}). Triggering catch-up in 90s."
-                )
-                self._snapshot_timer = threading.Timer(90, self._run_snapshot_consolidation)
-                self._snapshot_timer.daemon = True
-                self._snapshot_timer.start()
-                return
+        # (c) Já está rodando — re-checa em 10min ao invés de retornar vazio.
+        # IMPORTANTE: não usar `return` puro aqui. _schedule_snapshot_consolidation
+        # só é chamado no start() e no fim de _run_snapshot_consolidation; se o
+        # ciclo em execução crashar sem chegar ao fim, ninguém mais re-armaria
+        # o timer e o scheduler ficaria morto até o próximo restart. A re-check
+        # de 10min garante que ao expirar o ciclo (ou ele realmente terminar)
+        # caímos numa das outras branches e agendamos retry/próximo dia.
+        if _running_recent:
+            logger.info("[Scheduler] Ciclo 04h em execução (iniciado < 60min). Re-checa em 10min.")
+            self._snapshot_timer = threading.Timer(10 * 60, self._schedule_snapshot_consolidation)
+            self._snapshot_timer.daemon = True
+            self._snapshot_timer.start()
+            return
+
+        # (a) Catch-up: passou das 04h e nenhuma tentativa terminal hoje.
+        if now >= today_target and _terminal_count_today == 0:
+            logger.warning(
+                f"[Scheduler] Missed daily snapshot consolidation detected "
+                f"(today_target={today_target.isoformat()}). Triggering catch-up in 90s."
+            )
+            self._snapshot_timer = threading.Timer(90, self._run_snapshot_consolidation)
+            self._snapshot_timer.daemon = True
+            self._snapshot_timer.start()
+            return
+
+        # (b) Retry intra-dia: última tentativa terminou parcial/falha e ainda
+        # cabe re-tentar hoje. Conta-se a 1ª como "tentativa inicial", logo
+        # permite-se até MAX_RETRIES_PER_DAY tentativas adicionais.
+        if (
+            _last_terminal_status in ("parcial", "falha")
+            and _terminal_count_today <= MAX_RETRIES_PER_DAY
+        ):
+            _delay_s = RETRY_DELAY_MINUTES * 60
+            logger.warning(
+                f"[Scheduler] Última tentativa do 04h hoje terminou em '{_last_terminal_status}' "
+                f"({_terminal_count_today}/{MAX_RETRIES_PER_DAY + 1} tentativas). "
+                f"Agendando retry em {RETRY_DELAY_MINUTES}min — idempotência cuida do que já deu OK."
+            )
+            self._snapshot_timer = threading.Timer(_delay_s, self._run_snapshot_consolidation)
+            self._snapshot_timer.daemon = True
+            self._snapshot_timer.start()
+            return
+
+        # (d-extra) Esgotou retries hoje após várias falhas — segue pro próximo 04h.
+        if _last_terminal_status in ("parcial", "falha"):
+            logger.error(
+                f"[Scheduler] Cota diária de retries esgotada para 04h "
+                f"({_terminal_count_today} tentativas, última='{_last_terminal_status}'). "
+                f"Próxima tentativa só amanhã às 04h BRT."
+            )
 
         target = today_target
         if now >= target:
