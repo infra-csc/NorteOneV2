@@ -125,6 +125,7 @@ const JOB_LABELS: Record<string, string> = {
   consolidar_curvas_historicas_batch:  'Curvas históricas',
   sincronizar_margem_bundle_rev_batch: 'Margem por bundle',
   sync_event_log_cleanup:              'Limpeza de logs',
+  consolidar_full_manual:              'Reconsolidar Todos (manual)',
 };
 
 function fmtDateTime(iso: string | null): string {
@@ -1085,6 +1086,7 @@ const SincronizacoesPanel: React.FC = () => {
               <option value="sincronizar_hoje_batch">Sincronização de hoje</option>
               <option value="snapshot_diario_batch">Snapshot diário</option>
               <option value="consolidar_vendas_grupo">Consolidação por grupo</option>
+              <option value="consolidar_full_manual">Reconsolidar Todos (manual)</option>
             </select>
             <select
               value={filterStatus}
