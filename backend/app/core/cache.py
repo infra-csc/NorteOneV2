@@ -1049,7 +1049,68 @@ class CacheRefreshScheduler:
                 return
 
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
-        target = now.replace(hour=4, minute=0, second=0, microsecond=0)
+        today_target = now.replace(hour=4, minute=0, second=0, microsecond=0)
+
+        # Rede de segurança: se o backend subiu depois das 04:00 BRT e o job
+        # AINDA NÃO TEVE NENHUMA TENTATIVA HOJE (sucesso, parcial OU falha),
+        # dispara em 90s. Evita "pular" um dia inteiro quando há restart de
+        # manhã. Importante: aceita 'falha' como tentativa válida para não
+        # entrar em loop de 90s se uma exceção catastrófica acontecer toda
+        # vez. Também aceita 'iniciado' recente (<60min) para não duplicar
+        # um ciclo que ainda está rodando.
+        if now >= today_target:
+            already_tried_today = False
+            try:
+                from app.core.database import SessionLocal as _SL_chk
+                from app.models.sync_event_log import SyncEventLog as _SEL_chk
+                from sqlalchemy import and_ as _and_chk, or_ as _or_chk
+                _db_chk = _SL_chk()
+                try:
+                    _today_start_utc = today_target.astimezone(ZoneInfo('UTC'))
+                    # 1) Qualquer ciclo terminal hoje (concluido/parcial/falha)
+                    _terminal_hit = _db_chk.query(_SEL_chk.id).filter(
+                        _and_chk(
+                            _SEL_chk.job_name == "consolidacao_diaria_04h",
+                            _SEL_chk.nivel == "ciclo",
+                            _or_chk(
+                                _SEL_chk.status == "concluido",
+                                _SEL_chk.status == "parcial",
+                                _SEL_chk.status == "falha",
+                            ),
+                            _SEL_chk.created_at >= _today_start_utc,
+                        )
+                    ).first()
+                    if _terminal_hit is not None:
+                        already_tried_today = True
+                    else:
+                        # 2) Ciclo "iniciado" recente sem terminal: ainda rodando
+                        _recent_start_utc = (now - timedelta(minutes=60)).astimezone(ZoneInfo('UTC'))
+                        _running_hit = _db_chk.query(_SEL_chk.id).filter(
+                            _and_chk(
+                                _SEL_chk.job_name == "consolidacao_diaria_04h",
+                                _SEL_chk.nivel == "ciclo",
+                                _SEL_chk.status == "iniciado",
+                                _SEL_chk.created_at >= _recent_start_utc,
+                            )
+                        ).first()
+                        if _running_hit is not None:
+                            already_tried_today = True
+                finally:
+                    _db_chk.close()
+            except Exception as _e_chk:
+                logger.warning(f"[Scheduler] Falha ao checar execução prévia do 04h: {_e_chk}")
+
+            if not already_tried_today:
+                logger.warning(
+                    f"[Scheduler] Missed daily snapshot consolidation detected "
+                    f"(today_target={today_target.isoformat()}). Triggering catch-up in 90s."
+                )
+                self._snapshot_timer = threading.Timer(90, self._run_snapshot_consolidation)
+                self._snapshot_timer.daemon = True
+                self._snapshot_timer.start()
+                return
+
+        target = today_target
         if now >= target:
             target += timedelta(days=1)
 
@@ -1078,6 +1139,36 @@ class CacheRefreshScheduler:
         _le_root(_root_ciclo, _root_job, "iniciado", nivel="ciclo",
                  detalhes="Job agendado das 04h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
 
+        # Idempotência por sub-passo: se este sub-passo JÁ concluiu hoje BRT
+        # em qualquer ciclo (ex.: backend reiniciou no meio do job das 04h e
+        # o catch-up está rodando de novo), pular para não duplicar trabalho
+        # pesado de Magento.
+        def _step_already_done_today(step_name: str) -> bool:
+            try:
+                from app.core.database import SessionLocal as _SL_idem
+                from app.models.sync_event_log import SyncEventLog as _SEL_idem
+                from sqlalchemy import and_ as _and_idem
+                _now_brt = datetime.now(ZoneInfo('America/Sao_Paulo'))
+                _today_brt_start = _now_brt.replace(hour=0, minute=0, second=0, microsecond=0)
+                _today_utc = _today_brt_start.astimezone(ZoneInfo('UTC'))
+                _db_idem = _SL_idem()
+                try:
+                    _hit = _db_idem.query(_SEL_idem.id).filter(
+                        _and_idem(
+                            _SEL_idem.job_name == _root_job,
+                            _SEL_idem.nivel == "grupo",
+                            _SEL_idem.grupo == step_name,
+                            _SEL_idem.status == "ok",
+                            _SEL_idem.created_at >= _today_utc,
+                        )
+                    ).first()
+                    return _hit is not None
+                finally:
+                    _db_idem.close()
+            except Exception as _e_idem:
+                logger.warning(f"[Daily 04:00] Falha ao checar idempotência de {step_name}: {_e_idem}")
+                return False
+
         def _run_step(step_name: str, fn, *, optional: bool = False) -> bool:
             """Executa um sub-passo logando início/fim no ciclo guarda-chuva.
 
@@ -1086,6 +1177,14 @@ class CacheRefreshScheduler:
             ou `{"status": "falha_persistencia"}` apareçam falsamente como `ok`
             no resumo do ciclo (visto no painel).
             """
+            # Idempotência: pula se já concluiu OK hoje em outro ciclo.
+            if _step_already_done_today(step_name):
+                _le_root(_root_ciclo, _root_job, "pulado", nivel="grupo", grupo=step_name,
+                         motivo="ja_executado_hoje",
+                         detalhes=f"{step_name} já concluído hoje BRT — pulado (idempotência)")
+                _root_steps["pulado"] += 1
+                logger.info(f"[Daily 04:00] {step_name} pulado: já concluiu hoje BRT em outro ciclo")
+                return True
             _t0 = _t_root.time()
             _le_root(_root_ciclo, _root_job, "iniciado", nivel="grupo", grupo=step_name,
                      detalhes=f"Iniciando {step_name}")
