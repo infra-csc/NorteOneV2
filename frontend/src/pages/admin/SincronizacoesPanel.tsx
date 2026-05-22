@@ -574,7 +574,8 @@ const SincronizacoesPanel: React.FC = () => {
                   )}
 
                   {!checkpointLoading && checkpoint && (
-                    <div className={`rounded-xl border p-4 space-y-3 ${isDark ? 'bg-amber-900/15 border-amber-700/50' : 'bg-amber-50 border-amber-300'}`}>
+                    <div className={`rounded-xl border p-4 space-y-4 ${isDark ? 'bg-amber-900/15 border-amber-700/50' : 'bg-amber-50 border-amber-300'}`}>
+                      {/* Cabeçalho explicativo */}
                       <div className="flex items-start gap-2">
                         <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
                         <div className="flex-1 min-w-0">
@@ -582,35 +583,80 @@ const SincronizacoesPanel: React.FC = () => {
                             Há uma consolidação anterior que ficou incompleta
                           </p>
                           <p className={`text-xs mt-1 ${isDark ? 'text-amber-300/90' : 'text-amber-800'}`}>
-                            <strong>{checkpoint.ok_count}</strong> eventos já processados com sucesso
-                            {checkpoint.failed_count > 0 && <> (e <strong>{checkpoint.failed_count}</strong> com falha)</>}
-                            {checkpoint.triggered_by && <> — iniciada por {checkpoint.triggered_by}</>}.
-                            {checkpoint.last_grupo && (
-                              <> Último processado: <span className="font-mono">{checkpoint.last_grupo}</span>.</>
-                            )}
-                          </p>
-                          <p className={`text-xs mt-2 ${isDark ? 'text-amber-300/70' : 'text-amber-700'}`}>
-                            Modo do ciclo original: <strong>{checkpoint.incremental ? 'Incremental' : 'Reconstrução completa'}</strong>.
-                            Você pode continuar de onde parou (pulando os eventos já OK) ou recomeçar do zero.
+                            Provavelmente o backend foi reiniciado ou a janela foi fechada antes do fim.
+                            O progresso foi salvo no banco e você pode escolher como prosseguir.
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-col sm:flex-row gap-2">
+
+                      {/* Mini-cards com o estado do ciclo interrompido */}
+                      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs`}>
+                        <div className={`rounded-lg px-3 py-2 ${isDark ? 'bg-gray-800/60' : 'bg-white/80'}`}>
+                          <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>Já processados</p>
+                          <p className={`font-bold text-base ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{checkpoint.ok_count}</p>
+                        </div>
+                        <div className={`rounded-lg px-3 py-2 ${isDark ? 'bg-gray-800/60' : 'bg-white/80'}`}>
+                          <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>Com falha</p>
+                          <p className={`font-bold text-base ${checkpoint.failed_count > 0 ? (isDark ? 'text-red-400' : 'text-red-600') : (isDark ? 'text-gray-300' : 'text-gray-600')}`}>{checkpoint.failed_count}</p>
+                        </div>
+                        <div className={`rounded-lg px-3 py-2 ${isDark ? 'bg-gray-800/60' : 'bg-white/80'}`}>
+                          <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>Modo original</p>
+                          <p className={`font-bold text-base ${textPrimary}`}>{checkpoint.incremental ? 'Incremental' : 'Completa'}</p>
+                        </div>
+                        <div className={`rounded-lg px-3 py-2 ${isDark ? 'bg-gray-800/60' : 'bg-white/80'}`}>
+                          <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>Iniciada por</p>
+                          <p className={`font-medium text-xs truncate ${textPrimary}`} title={checkpoint.triggered_by || '—'}>{checkpoint.triggered_by || '—'}</p>
+                        </div>
+                      </div>
+
+                      {checkpoint.last_grupo && (
+                        <p className={`text-xs ${isDark ? 'text-amber-300/80' : 'text-amber-800'}`}>
+                          Último evento processado: <span className="font-mono font-semibold">{checkpoint.last_grupo}</span>
+                          {checkpoint.last_processed_at && <> em {fmtDateTime(checkpoint.last_processed_at)}</>}.
+                        </p>
+                      )}
+
+                      {/* Opção 1: Retomar — descrição clara do efeito */}
+                      <div className={`rounded-lg border p-3 space-y-2 ${isDark ? 'border-emerald-700/50 bg-emerald-900/15' : 'border-emerald-300 bg-emerald-50'}`}>
+                        <div className="flex items-center gap-2">
+                          <PlayCircle className={`w-4 h-4 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+                          <p className={`text-sm font-semibold ${isDark ? 'text-emerald-300' : 'text-emerald-800'}`}>Retomar de onde parou (recomendado)</p>
+                        </div>
+                        <ul className={`text-xs space-y-0.5 ml-6 list-disc ${isDark ? 'text-emerald-200/90' : 'text-emerald-900'}`}>
+                          <li>Pula os <strong>{checkpoint.ok_count}</strong> eventos já processados com sucesso</li>
+                          <li>Processa apenas os <strong>pendentes</strong> (mais rápido — economiza horas de Magento)</li>
+                          <li>Mantém o mesmo ciclo: o relatório final mostra tudo junto</li>
+                          <li>Usa o mesmo modo do ciclo original (<strong>{checkpoint.incremental ? 'Incremental' : 'Reconstrução completa'}</strong>)</li>
+                        </ul>
                         <button
                           onClick={() => handleStartFull(true)}
                           disabled={fullStarting}
-                          className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-colors disabled:opacity-60 ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
+                          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-colors disabled:opacity-60 ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}
                         >
                           {fullStarting ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-                          Retomar ({checkpoint.ok_count} já feitos)
+                          Retomar ({checkpoint.ok_count} pulados)
                         </button>
+                      </div>
+
+                      {/* Opção 2: Começar do zero — descrição do efeito */}
+                      <div className={`rounded-lg border p-3 space-y-2 ${isDark ? 'border-gray-600 bg-gray-800/40' : 'border-gray-300 bg-white/60'}`}>
+                        <div className="flex items-center gap-2">
+                          <RotateCcw className={textSecondary + ' w-4 h-4'} />
+                          <p className={`text-sm font-semibold ${textPrimary}`}>Começar do zero</p>
+                        </div>
+                        <ul className={`text-xs space-y-0.5 ml-6 list-disc ${textSecondary}`}>
+                          <li>Ignora o progresso anterior e <strong>reprocessa todos os eventos</strong> de novo</li>
+                          <li>Cria um novo ciclo (o anterior fica como abandonado no histórico)</li>
+                          <li>Útil se você acha que os dados processados antes podem estar errados</li>
+                          <li>Vai demorar bem mais — escolha o modo abaixo antes de iniciar</li>
+                        </ul>
                         <button
                           onClick={() => setCheckpoint(null)}
                           disabled={fullStarting}
-                          className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-60 border ${isDark ? 'bg-transparent border-gray-600 hover:bg-gray-700/50 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-100 text-gray-700'}`}
+                          className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-colors disabled:opacity-60 border ${isDark ? 'bg-transparent border-gray-600 hover:bg-gray-700/50 text-gray-200' : 'bg-white border-gray-300 hover:bg-gray-100 text-gray-700'}`}
                         >
                           <RotateCcw className="w-4 h-4" />
-                          Começar do zero
+                          Descartar e começar do zero
                         </button>
                       </div>
                     </div>
