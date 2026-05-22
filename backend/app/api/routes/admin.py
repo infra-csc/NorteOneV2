@@ -113,7 +113,7 @@ def _current_consolidation_generation() -> int:
 # dispare uma reconsolidação pesada (Magento + Ativo) repetidas vezes.
 _evento_cooldown_lock = _threading.Lock()
 _evento_cooldown: dict = {}  # {evento_grupo: locked_until_epoch}
-_evento_inflight: set = set()  # eventos em execução AGORA por Diretoria
+_evento_inflight: set = set()  # eventos em reconsolidação manual AGORA (gate global, qualquer perfil)
 DIRETORIA_PERFIL_NOME = "Diretoria"
 
 
@@ -147,29 +147,45 @@ def _evento_cooldown_remaining(evento_grupo: str) -> int:
     return int(until - now)
 
 
-def _try_acquire_evento_slot(evento_grupo: str) -> tuple[bool, int, bool]:
-    """Gate ATÔMICO para Diretoria: checa cooldown E in_flight juntos sob lock.
-    Se livre, marca o evento como in_flight e retorna (True, 0, False).
-    Se bloqueado por cooldown: (False, remaining_sec, False).
-    Se bloqueado porque outra reconsolidação está em andamento: (False, 0, True).
+def _try_acquire_evento_slot(evento_grupo: str, check_cooldown: bool) -> tuple[bool, int, Optional[str]]:
+    """Gate ATÔMICO global: garante que NO MÁXIMO um evento esteja sendo
+    reconsolidado no sistema inteiro de cada vez. Se `check_cooldown=True`
+    (Diretoria), também verifica cooldown do próprio evento.
+
+    Retorna `(acquired, remaining_sec, busy_evento_grupo)`:
+    - `(True, 0, None)`              — slot adquirido, pode prosseguir.
+    - `(False, remaining_sec, None)` — bloqueado por cooldown deste evento.
+    - `(False, 0, <grupo>)`          — outra reconsolidação em curso. `<grupo>`
+      é o evento que está rodando agora (pode ser o mesmo, se o usuário
+      clicou duas vezes, ou outro qualquer).
     """
     now = _time_module.time()
     with _evento_cooldown_lock:
-        until = _evento_cooldown.get(evento_grupo)
-        if until and now < until:
-            return (False, int(until - now), False)
-        if until and now >= until:
-            _evento_cooldown.pop(evento_grupo, None)
-        if evento_grupo in _evento_inflight:
-            return (False, 0, True)
+        if check_cooldown:
+            until = _evento_cooldown.get(evento_grupo)
+            if until and now < until:
+                return (False, int(until - now), None)
+            if until and now >= until:
+                _evento_cooldown.pop(evento_grupo, None)
+        if _evento_inflight:
+            busy = next(iter(_evento_inflight))
+            return (False, 0, busy)
         _evento_inflight.add(evento_grupo)
-        return (True, 0, False)
+        return (True, 0, None)
 
 
 def _release_evento_slot(evento_grupo: str):
     """Remove evento do in_flight. Idempotente."""
     with _evento_cooldown_lock:
         _evento_inflight.discard(evento_grupo)
+
+
+def _current_evento_inflight() -> Optional[str]:
+    """Retorna o evento atualmente em reconsolidação (ou None)."""
+    with _evento_cooldown_lock:
+        if _evento_inflight:
+            return next(iter(_evento_inflight))
+    return None
 
 
 def _set_evento_cooldown(evento_grupo: str, ttl_sec: int) -> float:
@@ -989,12 +1005,15 @@ def get_evento_cooldown(
     "Reconsolidar" mostrando um countdown."""
     is_diretoria = _user_is_diretoria(current_user)
     remaining = _evento_cooldown_remaining(evento_grupo) if is_diretoria else 0
+    busy_evento = _current_evento_inflight()
     return {
         "evento_grupo": evento_grupo,
         "is_diretoria": is_diretoria,
         "locked": remaining > 0,
         "remaining_sec": remaining,
         "cooldown_total_sec": _diretoria_cooldown_sec(),
+        "evento_em_andamento": busy_evento,
+        "outro_em_andamento": (busy_evento is not None and busy_evento != evento_grupo),
     }
 
 
@@ -1022,44 +1041,55 @@ def trigger_consolidar_evento(
     from app.models.vendas_snapshot import VendasDiariaSnapshot
     from sqlalchemy import func as sa_func2
 
-    # ── Gate ATÔMICO (só para Diretoria): cooldown + in_flight juntos ──────
-    # Sem isso, duas requisições simultâneas da diretoria para o mesmo evento
-    # passariam ambas no check de cooldown e iniciariam reconsolidação pesada
-    # em paralelo. O acquire abaixo é atômico sob lock; em caso de bloqueio
-    # NÃO entramos no try/finally — não há slot a liberar.
+    # ── Gate ATÔMICO GLOBAL: só permite UMA reconsolidação por vez no
+    # sistema inteiro (vale para qualquer perfil). Se outro evento estiver
+    # rodando, retorna 429 com qual evento está em curso. A checagem de
+    # cooldown adicional (anti-clique compulsivo) só se aplica à Diretoria.
     is_diretoria = _user_is_diretoria(current_user)
-    slot_acquired = False
-    if is_diretoria:
-        acquired, remaining, em_andamento = _try_acquire_evento_slot(evento_grupo)
-        if not acquired:
-            if em_andamento:
-                raise HTTPException(
-                    status_code=429,
-                    detail={
-                        "code": "reconsolidacao_em_andamento",
-                        "message": (
-                            "Já existe uma reconsolidação em andamento para este "
-                            "evento. Aguarde a conclusão."
-                        ),
-                        "evento_grupo": evento_grupo,
-                    },
+    acquired, remaining, busy_evento = _try_acquire_evento_slot(
+        evento_grupo, check_cooldown=is_diretoria
+    )
+    slot_acquired = acquired
+    if not acquired:
+        if busy_evento is not None:
+            if busy_evento == evento_grupo:
+                message = (
+                    "Já existe uma reconsolidação em andamento para este "
+                    "evento. Aguarde a conclusão."
                 )
-            mins = remaining // 60
-            secs = remaining % 60
-            tempo = f"{mins}min {secs}s" if mins else f"{secs}s"
+                code = "reconsolidacao_em_andamento"
+            else:
+                message = (
+                    f"Outro evento está sendo reconsolidado agora "
+                    f"('{busy_evento}'). Aguarde a conclusão antes de iniciar "
+                    f"uma nova reconsolidação."
+                )
+                code = "outro_evento_em_andamento"
             raise HTTPException(
                 status_code=429,
                 detail={
-                    "code": "cooldown_diretoria",
-                    "message": (
-                        f"Este evento foi reconsolidado recentemente. "
-                        f"Aguarde {tempo} antes de tentar novamente."
-                    ),
-                    "remaining_sec": remaining,
+                    "code": code,
+                    "message": message,
                     "evento_grupo": evento_grupo,
+                    "evento_em_andamento": busy_evento,
                 },
             )
-        slot_acquired = True
+        # Cooldown da Diretoria
+        mins = remaining // 60
+        secs = remaining % 60
+        tempo = f"{mins}min {secs}s" if mins else f"{secs}s"
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "cooldown_diretoria",
+                "message": (
+                    f"Este evento foi reconsolidado recentemente. "
+                    f"Aguarde {tempo} antes de tentar novamente."
+                ),
+                "remaining_sec": remaining,
+                "evento_grupo": evento_grupo,
+            },
+        )
 
     # Tudo abaixo do acquire fica dentro de try/finally para garantir que
     # qualquer exceção (incluindo em new_ciclo_id, log_evento, queries de
