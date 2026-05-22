@@ -450,15 +450,21 @@ const MarketingDashboard: React.FC = () => {
     }
   }, []);
 
+  // Fix B3: debounce de 300ms — antes salvava no sessionStorage a cada
+  // tecla digitada no campo de busca, gerando escrita síncrona na main
+  // thread. Agora agrupa updates rápidos (typing) numa única persistência.
   useEffect(() => {
-    saveFilters({
-      search: searchInput,
-      category: categoryFilter,
-      status: statusFilter,
-      zone: zoneFilter,
-      dMinus: dMinusFilter,
-      onlyCutoff,
-    });
+    const t = setTimeout(() => {
+      saveFilters({
+        search: searchInput,
+        category: categoryFilter,
+        status: statusFilter,
+        zone: zoneFilter,
+        dMinus: dMinusFilter,
+        onlyCutoff,
+      });
+    }, 300);
+    return () => clearTimeout(t);
   }, [searchInput, categoryFilter, statusFilter, zoneFilter, dMinusFilter, onlyCutoff]);
 
   const fetchData = useCallback(async (isRefresh = false, forceRefresh = false) => {

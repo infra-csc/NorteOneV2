@@ -5661,6 +5661,21 @@ def get_marketing_events(
                 all_grupo_names_for_hist.add(eg)
     hist_patterns_prefetch, curva_info_prefetch = _prefetch_all_historical_patterns(db, list(all_grupo_names_for_hist), ano)
 
+    # Fix P1: batch UMA query de snapshot agregado pra TODOS os grupos antes
+    # do loop, eliminando N+1 quando _consolidated_totals dá miss. Grupos não
+    # consolidados simplesmente não retornam linhas — sem custo extra.
+    # Flag `_snapshot_batch_failed` separa "prefetch deu exceção" (precisa
+    # fallback per-grupo) de "prefetch ok porém vazio" (resultado válido,
+    # vai direto pro fallback live sem refazer N queries).
+    _snapshot_batch_failed = False
+    _snapshot_batch_metrics: dict = {}
+    try:
+        from ...services.snapshot_service import get_snapshot_metrics_for_grupos_batch as _snap_batch
+        _snapshot_batch_metrics = _snap_batch(db, list(grupo_projetos.keys()), ano=ano)
+    except Exception as _snap_err:
+        logger.warning(f"[ISC] prefetch batch snapshot falhou, fallback per-grupo: {_snap_err}")
+        _snapshot_batch_failed = True
+
     for grupo_nome, proj_list in grupo_projetos.items():
         grupo = grupo_details[grupo_nome]
         
@@ -5713,7 +5728,13 @@ def get_marketing_events(
                 current_sales = _ct['qtd_site']
                 current_receita = _ct['receita_liquida_site']
             else:
-                snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
+                # Fix P1: lê do batch prefetched; só cai no per-grupo quando
+                # o prefetch deu EXCEÇÃO (flag explícita). Prefetch ok porém
+                # vazio para o grupo é resultado válido → vai direto pro
+                # fallback live abaixo sem refazer N queries.
+                snap = _snapshot_batch_metrics.get(grupo_nome)
+                if snap is None and _snapshot_batch_failed:
+                    snap = _get_snapshot_metrics_for_grupo(db, grupo_nome, ano=ano)
                 if snap is not None:
                     current_sales = snap['qtd_site']
                     current_receita = snap['receita_liquida_site']
