@@ -398,6 +398,47 @@ def get_snapshot_vendas_com_receita(db: Session, evento_grupo: str, data_inicio:
     return [{"dia": d.isoformat(), "qtd": v["qtd"], "receita": v["receita"]} for d, v in sorted(daily.items())]
 
 
+def get_snapshot_metrics_for_grupos_batch(
+    db: Session,
+    evento_grupos: list,
+    ano: Optional[int] = None,
+) -> dict:
+    """
+    Fix P1: variante batch de `get_snapshot_vendas_com_receita` agregada por
+    grupo. Faz UMA query com `WHERE evento_grupo IN (...)` e retorna um dict
+    `{grupo_nome: {qtd_site, receita_liquida_site}}`, evitando N+1 no loop
+    principal do Dashboard ISC quando há ~200 grupos consolidados.
+
+    Grupos sem snapshot simplesmente não aparecem no dict — o caller deve usar
+    `.get(grupo)` e tratar None como fallback para o caminho live.
+    """
+    if not evento_grupos:
+        return {}
+    from sqlalchemy import func as _sa_func
+    q = db.query(
+        VendasDiariaSnapshot.evento_grupo.label("g"),
+        _sa_func.coalesce(_sa_func.sum(VendasDiariaSnapshot.quantidade), 0).label("qtd"),
+        _sa_func.coalesce(_sa_func.sum(VendasDiariaSnapshot.receita), 0.0).label("rec"),
+    ).filter(VendasDiariaSnapshot.evento_grupo.in_(list(evento_grupos)))
+    if ano is not None:
+        q = q.filter(_ano_filter_for_snapshot(ano))
+    q = q.group_by(VendasDiariaSnapshot.evento_grupo)
+    out: dict = {}
+    for row in q.all():
+        qtd = int(row.qtd or 0)
+        rec = float(row.rec or 0.0)
+        out[row.g] = {
+            "qtd_site": qtd,
+            "inscricao_liquida": rec,
+            "receita_liquida_site": rec,
+            "ticket_medio": round(rec / qtd, 2) if qtd > 0 else 0.0,
+            "media_7d": 0.0,
+            "media_14d": 0.0,
+            "media_30d": 0.0,
+        }
+    return out
+
+
 def has_snapshot_for_date(db: Session, evento_grupo: str, data: date) -> bool:
     count = db.query(VendasDiariaSnapshot).filter(
         VendasDiariaSnapshot.evento_grupo == evento_grupo,

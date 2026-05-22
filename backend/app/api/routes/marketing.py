@@ -972,8 +972,13 @@ def _get_isc_settings(db: Session) -> dict:
             _isc_settings_cache["value"] = merged
             _isc_settings_cache["ts"] = now
             return merged
-    except Exception:
-        pass
+    except Exception as exc:
+        # Fix B1: não silenciar — incidente em ISC settings afeta o cálculo
+        # do indicador de saúde comercial e precisa ser visível em logs.
+        logger.warning(
+            f"[ISC] _get_isc_settings: falha ao ler MarketingSettings, "
+            f"usando defaults (ISC pode estar com pesos desatualizados): {exc}"
+        )
     _isc_settings_cache["value"] = _DEFAULT_ISC_SETTINGS
     _isc_settings_cache["ts"] = now
     return _DEFAULT_ISC_SETTINGS
