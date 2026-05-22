@@ -7,6 +7,8 @@ from typing import Optional
 import threading as _threading
 import time as _time_module
 import copy as _copy
+import os as _os
+from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _as_completed
 from ...core.database import get_db
 from ...core.security import require_permission
 from ...models.user import Usuario
@@ -382,12 +384,26 @@ def trigger_snapshot_consolidation_full(
 
             t_start = _consolidation_full_progress["started_at"]
 
-            for offset, grupo in enumerate(grupos_to_process):
-                idx = skipped_resume + offset
-                with _consolidation_full_lock:
-                    _consolidation_full_progress["current"] = idx + 1
-                    _consolidation_full_progress["current_grupo"] = grupo
+            # Paralelização: cada worker abre sua própria SessionLocal pra não
+            # compartilhar Session (SQLAlchemy Session não é thread-safe).
+            # Default conservador de 3 workers (≈3 conexões simultâneas pelo
+            # túnel SSH); o pool local PG (25/50) e o pool MySQL têm folga.
+            # Pode subir até 6 com `CONSOLIDAR_FULL_WORKERS=6` em ambientes
+            # onde o SSH aguenta. Em 1 worker o comportamento é equivalente
+            # ao serial original.
+            try:
+                _max_workers = max(1, int(_os.getenv("CONSOLIDAR_FULL_WORKERS", "3")))
+            except ValueError:
+                _max_workers = 3
+            _max_workers = min(_max_workers, max(1, len(grupos_to_process)))
+            _logger.info(
+                f"consolidar_full_manual: processando {len(grupos_to_process)} grupos "
+                f"em paralelo com {_max_workers} worker(s) (ciclo={ciclo_id})"
+            )
 
+            def _process_one(grupo: str) -> dict:
+                """Processa 1 grupo numa SessionLocal isolada do thread."""
+                thread_db = SessionLocal()
                 t_grupo = _t.time()
                 result_entry: dict = {
                     "grupo": grupo,
@@ -399,54 +415,88 @@ def trigger_snapshot_consolidation_full(
                     "detalhes": None,
                 }
                 try:
-                    consolidar_vendas_grupo(
-                        local_db, grupo, ano,
-                        data_inicio=None, data_fim=yesterday,
-                        incremental=incremental,
-                        ciclo_id=ciclo_id,
-                        parent_job_name="consolidar_full_manual",
-                    )
-                    with _consolidation_full_lock:
-                        _consolidation_full_progress["ok"] += 1
-                except Exception as exc:
-                    result_entry["status"] = "failed"
-                    result_entry["motivo"] = str(exc)[:300]
-                    with _consolidation_full_lock:
-                        _consolidation_full_progress["failed"] += 1
-                    _logger.error(f"consolidar_full_manual: erro grupo='{grupo}': {exc}")
+                    try:
+                        consolidar_vendas_grupo(
+                            thread_db, grupo, ano,
+                            data_inicio=None, data_fim=yesterday,
+                            incremental=incremental,
+                            ciclo_id=ciclo_id,
+                            parent_job_name="consolidar_full_manual",
+                        )
+                    except Exception as exc:
+                        result_entry["status"] = "failed"
+                        result_entry["motivo"] = str(exc)[:300]
+                        _logger.error(f"consolidar_full_manual: erro grupo='{grupo}': {exc}")
 
-                result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
-                with _consolidation_full_lock:
-                    _consolidation_full_progress["results"].append(result_entry)
+                    result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
 
-                # Persiste checkpoint (UPSERT) — sobrevive a reinício do backend
-                try:
-                    stmt = _pg_insert(ConsolidacaoCheckpoint).values(
-                        ciclo_id=ciclo_id,
-                        evento_grupo=grupo,
-                        status=result_entry["status"],
-                        incremental=1 if incremental else 0,
-                        triggered_by=triggered_by[:200] if triggered_by else None,
-                        duracao_ms=result_entry["duracao_ms"],
-                        motivo=(result_entry["motivo"] or None),
-                        qtd_antes=result_entry.get("qtd_antes"),
-                        qtd_depois=result_entry.get("qtd_depois"),
-                        started_at_cycle=cycle_started_at_dt,
-                    )
-                    stmt = stmt.on_conflict_do_update(
-                        constraint="uq_consol_ckpt_ciclo_grupo",
-                        set_={
-                            "status": stmt.excluded.status,
-                            "duracao_ms": stmt.excluded.duracao_ms,
-                            "motivo": stmt.excluded.motivo,
-                            "processed_at": _dt.now(_tz.utc),
-                        },
-                    )
-                    local_db.execute(stmt)
-                    local_db.commit()
-                except Exception as _ckpt_err:
-                    local_db.rollback()
-                    _logger.warning(f"consolidar_full_manual: falha ao gravar checkpoint para '{grupo}': {_ckpt_err}")
+                    # Checkpoint UPSERT — sobrevive a reinício, com session do
+                    # próprio thread (evita disputa pelo cursor entre workers).
+                    try:
+                        stmt = _pg_insert(ConsolidacaoCheckpoint).values(
+                            ciclo_id=ciclo_id,
+                            evento_grupo=grupo,
+                            status=result_entry["status"],
+                            incremental=1 if incremental else 0,
+                            triggered_by=triggered_by[:200] if triggered_by else None,
+                            duracao_ms=result_entry["duracao_ms"],
+                            motivo=(result_entry["motivo"] or None),
+                            qtd_antes=result_entry.get("qtd_antes"),
+                            qtd_depois=result_entry.get("qtd_depois"),
+                            started_at_cycle=cycle_started_at_dt,
+                        )
+                        stmt = stmt.on_conflict_do_update(
+                            constraint="uq_consol_ckpt_ciclo_grupo",
+                            set_={
+                                "status": stmt.excluded.status,
+                                "duracao_ms": stmt.excluded.duracao_ms,
+                                "motivo": stmt.excluded.motivo,
+                                "processed_at": _dt.now(_tz.utc),
+                            },
+                        )
+                        thread_db.execute(stmt)
+                        thread_db.commit()
+                    except Exception as _ckpt_err:
+                        thread_db.rollback()
+                        _logger.warning(
+                            f"consolidar_full_manual: falha ao gravar checkpoint "
+                            f"para '{grupo}': {_ckpt_err}"
+                        )
+                finally:
+                    thread_db.close()
+                return result_entry
+
+            with _TPE(max_workers=_max_workers, thread_name_prefix="consolfull") as _pool:
+                _futures = {_pool.submit(_process_one, g): g for g in grupos_to_process}
+                for _fut in _as_completed(_futures):
+                    _grupo = _futures[_fut]
+                    try:
+                        result_entry = _fut.result()
+                    except Exception as exc:
+                        # _process_one já trata internamente; se chegou aqui é
+                        # algo bem inesperado (ex.: SessionLocal() falhou).
+                        result_entry = {
+                            "grupo": _grupo, "status": "failed",
+                            "motivo": f"worker_crash: {str(exc)[:280]}",
+                            "duracao_ms": None,
+                            "qtd_antes": None, "qtd_depois": None, "detalhes": None,
+                        }
+                        _logger.error(f"consolidar_full_manual: worker crash em '{_grupo}': {exc}")
+
+                    # Tudo sob o mesmo lock: contadores ok/failed e current
+                    # derivado deles mantêm consistência mesmo se no futuro
+                    # houver múltiplos agregadores.
+                    with _consolidation_full_lock:
+                        if result_entry["status"] == "ok":
+                            _consolidation_full_progress["ok"] += 1
+                        else:
+                            _consolidation_full_progress["failed"] += 1
+                        _consolidation_full_progress["current"] = (
+                            _consolidation_full_progress["ok"]
+                            + _consolidation_full_progress["failed"]
+                        )
+                        _consolidation_full_progress["current_grupo"] = result_entry["grupo"]
+                        _consolidation_full_progress["results"].append(result_entry)
 
             total_ms = int((_t.time() - t_start) * 1000)
             log_evento(
