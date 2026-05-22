@@ -1,0 +1,83 @@
+Preciso que você revise e ajuste a query SQL abaixo. Ela roda em MySQL (8.0+) e usa CTE para calcular pedidos elegíveis de uma plataforma Magento.
+
+Por favor:
+1. Verifique se há algum erro lógico ou de sintaxe
+2. Sugira melhorias adicionais de performance se identificar
+3. Mantenha a lógica de negócio intacta (filtros de cortesia, grupos, persona, etc.)
+
+```sql
+WITH pedidos AS (
+    SELECT
+        DATE(so.created_at)                                 AS dia,
+        soi.price,
+        soi.name,
+        so.base_discount_invoiced,
+        so.base_subtotal,
+        cg.customer_group_id,
+        COALESCE(soi_persona.persona_price, 0)              AS persona_price,
+        CASE
+            WHEN so.base_grand_total > 0
+             AND NOT (so.discount_description LIKE '%CORTESIA%' AND so.base_grand_total < 50)
+             AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%GRUPOS%')
+             AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%')
+             AND soi.price > 0
+            THEN 1
+            ELSE 0
+        END AS elegivel
+    FROM sales_order so
+    INNER JOIN sales_order_item soi
+           ON soi.order_id      = so.entity_id
+          AND soi.product_type  = 'bundle'
+    INNER JOIN catalog_product_entity_varchar cpev1
+           ON cpev1.entity_id    = soi.product_id
+          AND cpev1.attribute_id = 321
+          AND cpev1.store_id     = 0
+    LEFT JOIN customer_group cg
+           ON cg.customer_group_id = so.customer_group_id
+    LEFT JOIN (
+        SELECT  soi2.parent_item_id,
+                MAX(soi2.price) AS persona_price
+        FROM    sales_order_item soi2
+        INNER JOIN sales_order so2
+               ON so2.entity_id   = soi2.order_id
+              AND so2.status IN ('processing','complete','approved',
+                                 'aprovado_link','reembolso_parcial',
+                                 'closed','retirado')
+              AND so2.state      != 'canceled'
+              AND so2.created_at >= :data_floor
+              AND so2.created_at <  CURDATE() + INTERVAL 1 DAY
+        WHERE   soi2.name LIKE '%persona%'
+        GROUP BY soi2.parent_item_id
+    ) soi_persona ON soi_persona.parent_item_id = soi.item_id
+    WHERE
+        so.status IN ('processing','complete','approved','aprovado_link',
+                      'reembolso_parcial','closed','retirado')
+        AND so.state        != 'canceled'
+        AND cpev1.value     IN :magento_event_ids
+        AND so.increment_id NOT LIKE '%-%'
+        AND so.created_at   <  CURDATE() + INTERVAL 1 DAY
+        AND so.created_at   >= :data_floor
+)
+SELECT
+    dia,
+    COUNT(CASE WHEN elegivel = 1 THEN 1 END) AS qtd,
+    SUM(CASE WHEN elegivel = 1 THEN
+        price
+        - CASE
+            WHEN price = 0             THEN   0
+            WHEN name LIKE '%plus%'    THEN  69.00
+            WHEN name LIKE '%super%'   THEN 269.00
+            WHEN name LIKE '%vip%'     THEN 199.99
+            ELSE 0
+          END
+        + COALESCE(base_discount_invoiced, 0) * (price / NULLIF(base_subtotal, 1))
+        - CASE
+            WHEN customer_group_id = 4                                         THEN 0
+            WHEN customer_group_id IN (0,1,2,3,5,7) AND persona_price = 14.90  THEN 14.90
+            ELSE 0
+          END
+    ELSE 0 END) AS receita
+FROM  pedidos
+GROUP BY dia
+ORDER BY dia;
+```
