@@ -9945,7 +9945,13 @@ def get_marketing_event_by_id(
         grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
         if not grupo:
             raise HTTPException(status_code=404, detail="Grupo de evento não encontrado")
-        
+        # Capture scalar attrs immediately. Several downstream calls (notably
+        # consolidar_vendas_grupo) commit/refresh the session, which can expire
+        # or detach this instance — causing DetachedInstanceError when we read
+        # grupo.nome / grupo.incluir_cortesias later in this function.
+        _grupo_nome_attr = grupo.nome
+        _grupo_incluir_cortesias_attr = bool(grupo.incluir_cortesias)
+
         if ano is None:
             ano = datetime.now().year
         
@@ -10397,7 +10403,7 @@ def get_marketing_event_by_id(
         detail_ticket_kit_nome = _get_ticket_atual_kit_nome_for_event(detail_ticket_atual_map, [p.id for p in projetos])
         
         grupo_projeto_ids = [p.id for p in projetos]
-        _grupo_incluir_cortesias = bool(getattr(grupo, 'incluir_cortesias', False))
+        _grupo_incluir_cortesias = _grupo_incluir_cortesias_attr
         _detail_margem_avisos: list = []
         detail_margem_por_kit = get_margem_por_kit(
             db,
@@ -10447,7 +10453,7 @@ def get_marketing_event_by_id(
         
         evento = MarketingEvent(
             id=evento_id,
-            name=grupo.nome,
+            name=_grupo_nome_attr,
             date=projeto_data_evento.isoformat() if projeto_data_evento else "",
             location=projeto_cidade or projeto_estado or "Não definido",
             category=projeto_modalidade or "Corrida",
