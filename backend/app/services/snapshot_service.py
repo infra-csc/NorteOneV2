@@ -30,6 +30,21 @@ def _freeze_after_days() -> int:
         return 30
 
 
+def _snapshot_lookback_days() -> int:
+    """Janela rolante (em dias) que o batch noturno reprocessa em modo
+    incremental, para auto-corrigir snapshots parciais. Configurável via
+    env ``DAILY_SNAPSHOT_LOOKBACK_DAYS`` (default 7).
+
+    - 0 desativa o lookback (volta ao comportamento antigo: só dias novos).
+    - Valores maiores aumentam a chance de corrigir parciais antigos, mas
+      também a carga noturna no Magento (cada grupo refaz N dias).
+    """
+    try:
+        return max(0, int(os.getenv("DAILY_SNAPSHOT_LOOKBACK_DAYS", "7")))
+    except (TypeError, ValueError):
+        return 7
+
+
 def is_event_frozen(data_evento: Optional[date], freeze_days: Optional[int] = None) -> bool:
     """Retorna True quando data_evento + freeze_days < hoje.
 
@@ -979,19 +994,25 @@ def snapshot_diario_batch(db: Session):
             continue
         grupos_processados.add(grupo)
 
+        # NOTA: anteriormente havia `if latest >= yesterday: continue` como
+        # otimização para pular grupos que já tinham D-1 gravado. Esse skip
+        # invalidava o efeito do lookback (grupos com D-1 presente nunca
+        # reentravam pra reprocessar a janela e corrigir parciais). Agora
+        # todos os grupos ativos rodam — o custo extra é uma query Magento
+        # de ~7 dias por grupo, que é cheap (range scan SARGable com índice
+        # em created_at). Total esperado: ~150 grupos × ~2-5s = 8-15 min/noite.
         latest = get_latest_snapshot_date(db, grupo, ano=ano)
-        if latest and latest >= yesterday:
-            continue
+        # Se o grupo nem tem snapshot ainda, força modo full (lookback não
+        # tem efeito sem max_dia anterior). Senão, usa lookback configurável.
+        _lookback = _snapshot_lookback_days() if latest else 0
 
         try:
-            # Job agendado usa modo incremental: só busca dias novos desde
-            # a última sincronização, reduzindo drasticamente a carga no
-            # Magento e protegendo o histórico de gravações parciais.
-            # lookback_days=7: reprocessa a última semana para auto-corrigir
-            # snapshots parciais (ex: Magento fora do ar no momento da gravação
-            # original). Sem isso, um dia que ficou parcial permanece parcial
-            # pra sempre, pois o incremental partia do último dia gravado.
-            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True, ciclo_id=_ciclo, parent_job_name="snapshot_diario_batch", lookback_days=7)
+            # Job agendado usa modo incremental: lookback_days reprocessa
+            # a janela rolante para auto-corrigir snapshots parciais (ex:
+            # Magento fora do ar no momento da gravação original). Sem isso,
+            # um dia que ficou parcial permanece parcial pra sempre, pois o
+            # incremental partia do último dia gravado.
+            consolidar_vendas_grupo(db, grupo, ano, data_inicio=None, data_fim=yesterday, incremental=True, ciclo_id=_ciclo, parent_job_name="snapshot_diario_batch", lookback_days=_lookback)
         except Exception as e:
             logger.error(f"Erro ao consolidar snapshot para grupo='{grupo}': {e}")
             try:
