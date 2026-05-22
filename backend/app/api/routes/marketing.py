@@ -12218,62 +12218,159 @@ def _atualizar_hoje_inner(
 def recalcular_snapshot_evento(
     evento_id: str,
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_admin()),
+    current_user: Usuario = Depends(get_current_user),
 ):
     """Força a recomputação completa do snapshot de um evento específico.
 
-    Útil para corrigir manualmente o snapshot de um evento já concluído quando
-    o valor armazenado está incorreto (ex: queda de conexão com o Magento
-    gravou dados parciais antes das salvaguardas entrarem em vigor).
-
-    A salvaguarda de margem em `save_persisted_detail` continua ativa:
-    - Se o Magento devolver um valor MAIOR que o armazenado → salva.
-    - Se o Magento devolver um valor MENOR (< 95% do existente) → preserva o existente.
-
-    Para forçar a gravação mesmo quando o novo valor é menor, use
-    `?force_overwrite=true` (com cautela — apenas quando o Magento está saudável).
+    Disponível para perfis **Admin** e **Diretoria**. Para a Diretoria, após
+    sucesso o botão entra em cooldown de 20 min para evitar clique compulsivo.
+    Aplica também um gate global: apenas UMA reconsolidação por vez no sistema
+    inteiro (qualquer evento). Se outro evento estiver rodando, retorna 429.
     """
-    from ...services.event_detail_snapshot_service import (
-        EventoDetailSnapshot,
-        save_persisted_detail as _save_detail,
+    from ...core.security import is_user_admin
+    from .admin import (
+        _user_is_diretoria, _try_acquire_evento_slot, _release_evento_slot,
+        _set_evento_cooldown, _diretoria_cooldown_sec,
     )
-    from sqlalchemy.dialects.postgresql import insert as pg_insert_local
 
-    ano = datetime.now().year
-
-    try:
-        # current_user=None força o caminho de recompute interno: bypassa o early-return
-        # snapshot-only e executa o pipeline completo (Magento + Ativo + recálculos),
-        # que internamente chama save_persisted_detail para persistir no PostgreSQL.
-        result = get_marketing_event_by_id(
-            evento_id=evento_id,
-            ano=ano,
-            force_refresh=True,
-            db=db,
-            current_user=None,
-            response=None,
+    is_diretoria = _user_is_diretoria(current_user)
+    if not (is_user_admin(current_user) or is_diretoria):
+        raise HTTPException(
+            status_code=403,
+            detail="Permissão insuficiente — requer perfil Admin ou Diretoria.",
         )
 
-        # Extrai a margem do resultado para informar no response
-        margem_nova = None
-        try:
-            from ...services.event_detail_snapshot_service import _extract_margem_total, _to_jsonable
-            from fastapi.encoders import jsonable_encoder
-            payload_json = jsonable_encoder(result)
-            margem_nova = _extract_margem_total(payload_json)
-        except Exception:
-            pass
+    # ── Gate ATÔMICO GLOBAL: só permite UMA reconsolidação por vez ─────────
+    # Compartilha o mesmo _evento_inflight do admin.py (chave = evento_id).
+    # Cooldown da Diretoria só se aplica ao mesmo evento_id.
+    acquired, remaining, busy_evento = _try_acquire_evento_slot(
+        evento_id, check_cooldown=is_diretoria
+    )
+    if not acquired:
+        if busy_evento is not None:
+            if busy_evento == evento_id:
+                msg = (
+                    "Já existe uma reconsolidação em andamento para este "
+                    "evento. Aguarde a conclusão."
+                )
+                code = "reconsolidacao_em_andamento"
+            else:
+                msg = (
+                    f"Outro evento está sendo reconsolidado agora. "
+                    f"Aguarde a conclusão antes de iniciar uma nova reconsolidação."
+                )
+                code = "outro_evento_em_andamento"
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": code,
+                    "message": msg,
+                    "evento_id": evento_id,
+                    "evento_em_andamento": busy_evento,
+                },
+            )
+        mins = remaining // 60
+        secs = remaining % 60
+        tempo = f"{mins}min {secs}s" if mins else f"{secs}s"
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "cooldown_diretoria",
+                "message": (
+                    f"Este evento foi reconsolidado recentemente. "
+                    f"Aguarde {tempo} antes de tentar novamente."
+                ),
+                "remaining_sec": remaining,
+                "evento_id": evento_id,
+            },
+        )
 
-        return {
-            "status": "ok",
-            "evento_id": evento_id,
-            "ano": ano,
-            "margem_recalculada": margem_nova,
-            "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"[recalcular-snapshot] falhou para '{evento_id}': {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao recalcular snapshot: {str(e)}")
+    ano = datetime.now().year
+    try:
+        try:
+            result = get_marketing_event_by_id(
+                evento_id=evento_id,
+                ano=ano,
+                force_refresh=True,
+                db=db,
+                current_user=None,
+                response=None,
+            )
+
+            margem_nova = None
+            try:
+                from ...services.event_detail_snapshot_service import _extract_margem_total
+                from fastapi.encoders import jsonable_encoder
+                payload_json = jsonable_encoder(result)
+                margem_nova = _extract_margem_total(payload_json)
+            except Exception:
+                pass
+
+            # Cooldown só pra Diretoria após sucesso
+            cooldown_until = None
+            cooldown_sec_used = 0
+            if is_diretoria:
+                cooldown_sec_used = _diretoria_cooldown_sec()
+                if cooldown_sec_used > 0:
+                    cooldown_until = _set_evento_cooldown(evento_id, cooldown_sec_used)
+
+            return {
+                "status": "ok",
+                "evento_id": evento_id,
+                "ano": ano,
+                "margem_recalculada": margem_nova,
+                "ultima_atualizacao": datetime.now(ZoneInfo('America/Sao_Paulo')).isoformat(),
+                "cooldown_aplicado": cooldown_until is not None,
+                "cooldown_until_epoch": cooldown_until,
+                "cooldown_total_sec": cooldown_sec_used,
+            }
+        except Exception as e:
+            logger.error(f"[recalcular-snapshot] falhou para '{evento_id}': {e}")
+            raise HTTPException(status_code=500, detail=f"Erro ao recalcular snapshot: {str(e)}")
+    finally:
+        _release_evento_slot(evento_id)
+
+
+@router.get("/eventos/{evento_id}/reconsolidar-cooldown")
+def get_reconsolidar_cooldown(
+    evento_id: str,
+    current_user: Usuario = Depends(get_current_user),
+):
+    """Retorna o status do cooldown/gate de reconsolidação para a UI.
+
+    **Acesso restrito a Admin ou Diretoria** — usuários sem privilégio
+    recebem 403 (não vazamos qual evento está sendo reconsolidado no momento
+    para operadores comuns).
+    - `can_reconsolidar`: sempre true neste endpoint (gate de 403 já filtrou).
+    - `is_diretoria`: usuário é Diretoria (sujeito a cooldown).
+    - `locked`/`remaining_sec`: cooldown ativo no próprio evento.
+    - `evento_em_andamento`/`outro_em_andamento`: se há reconsolidação rodando.
+    """
+    from ...core.security import is_user_admin
+    from .admin import (
+        _user_is_diretoria, _evento_cooldown_remaining,
+        _current_evento_inflight, _diretoria_cooldown_sec,
+    )
+
+    is_diretoria = _user_is_diretoria(current_user)
+    if not (is_user_admin(current_user) or is_diretoria):
+        raise HTTPException(
+            status_code=403,
+            detail="Permissão insuficiente — requer perfil Admin ou Diretoria.",
+        )
+
+    remaining = _evento_cooldown_remaining(evento_id) if is_diretoria else 0
+    busy_evento = _current_evento_inflight()
+    return {
+        "evento_id": evento_id,
+        "can_reconsolidar": True,
+        "is_diretoria": is_diretoria,
+        "locked": remaining > 0,
+        "remaining_sec": remaining,
+        "cooldown_total_sec": _diretoria_cooldown_sec(),
+        "evento_em_andamento": busy_evento,
+        "outro_em_andamento": (busy_evento is not None and busy_evento != evento_id),
+    }
 
 
 @router.post("/cache/refresh")

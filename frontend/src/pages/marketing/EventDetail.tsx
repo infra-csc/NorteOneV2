@@ -321,6 +321,9 @@ const EventDetail: React.FC = () => {
   const { isDark } = useTheme();
   const { permissions } = usePermissions();
   const isAdmin = permissions?.is_admin ?? false;
+  const isDiretoria = (permissions?.perfil_acesso_nome ?? '').trim().toLowerCase() === 'diretoria';
+  // Diretoria também pode reconsolidar (com cooldown de 20min por evento aplicado pelo backend).
+  const canReconsolidar = isAdmin || isDiretoria;
   const anoParam = searchParams.get('ano') ? parseInt(searchParams.get('ano')!) : undefined;
   // Consulta o cache de módulo ANTES dos useState para que o estado seja
   // inicializado com os dados completos (inclusive dailySales/gráficos) se o
@@ -444,6 +447,16 @@ const EventDetail: React.FC = () => {
   const [partialComputedAt, setPartialComputedAt] = useState<string | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
   const [userRequestSent, setUserRequestSent] = useState(false);
+  // ── Cooldown de reconsolidação (Diretoria) ─────────────────────────────
+  // Backend aplica cooldown de 20min por evento após sucesso da Diretoria.
+  // Também sinaliza quando outro evento está sendo reconsolidado no sistema.
+  const [reconsolidarCooldown, setReconsolidarCooldown] = useState<{
+    locked: boolean;
+    remainingSec: number;
+    totalSec: number;
+    outroEmAndamento: boolean;
+    eventoEmAndamento: string | null;
+  }>({ locked: false, remainingSec: 0, totalSec: 0, outroEmAndamento: false, eventoEmAndamento: null });
   const silentRefetchDoneRef = useRef(false);
   // ── Polling de versão (propagação cross-user) ─────────────────────────────
   // Captura timestamps do servidor no primeiro fetch bem-sucedido e compara
@@ -970,8 +983,57 @@ const EventDetail: React.FC = () => {
     fetchEventRef.current?.(true, true);
   }, []);
 
-  // Reconsolidar (admin): roda o pipeline completo Magento + Ativo + recálculos
-  // e persiste o snapshot. Pode demorar ~30-90s. Após sucesso, recarrega a tela.
+  // Formata um inteiro de segundos como "Xmin Ys" (ou só "Ys" quando < 60s).
+  const formatCooldown = (sec: number): string => {
+    if (sec <= 0) return '0s';
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return m > 0 ? `${m}min ${s}s` : `${s}s`;
+  };
+
+  // Busca status de cooldown/gate de reconsolidação do backend.
+  const fetchReconsolidarCooldown = async () => {
+    if (!id || !canReconsolidar) return;
+    try {
+      const r = await marketingService.getReconsolidarCooldown(id);
+      setReconsolidarCooldown({
+        locked: r.locked,
+        remainingSec: r.remaining_sec,
+        totalSec: r.cooldown_total_sec,
+        outroEmAndamento: r.outro_em_andamento,
+        eventoEmAndamento: r.evento_em_andamento,
+      });
+    } catch {
+      // Falha silenciosa — backend ainda rejeita 429 se necessário.
+    }
+  };
+
+  // Carrega cooldown ao montar / quando id muda / quando perfil resolve.
+  // Re-checa a cada 30s p/ refletir reconsolidação iniciada por outro usuário.
+  useEffect(() => {
+    fetchReconsolidarCooldown();
+    const poll = setInterval(fetchReconsolidarCooldown, 30000);
+    return () => clearInterval(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, canReconsolidar]);
+
+  // Tick de countdown local enquanto locked — decrementa 1s/s sem bater no backend.
+  useEffect(() => {
+    if (!reconsolidarCooldown.locked || reconsolidarCooldown.remainingSec <= 0) return;
+    const t = setInterval(() => {
+      setReconsolidarCooldown(prev => {
+        if (!prev.locked) return prev;
+        const next = prev.remainingSec - 1;
+        if (next <= 0) return { ...prev, locked: false, remainingSec: 0 };
+        return { ...prev, remainingSec: next };
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [reconsolidarCooldown.locked, reconsolidarCooldown.remainingSec > 0]);
+
+  // Reconsolidar (admin/diretoria): roda o pipeline completo Magento + Ativo +
+  // recálculos e persiste o snapshot. Pode demorar ~30-90s. Após sucesso,
+  // recarrega a tela. Para Diretoria, aplica cooldown de 20min por evento.
   const handleReconsolidar = async () => {
     if (!id || reconsolidating) return;
     setReconsolidating(true);
@@ -986,7 +1048,17 @@ const EventDetail: React.FC = () => {
     setReconsolidarStartMs(_t0);
     setShowConsolidarModal(true);
     try {
-      await marketingService.recalcularSnapshot(id);
+      const resp = await marketingService.recalcularSnapshot(id);
+      // Aplica cooldown localmente (Diretoria) com base na resposta do backend.
+      if (resp.cooldown_aplicado && resp.cooldown_total_sec && resp.cooldown_total_sec > 0) {
+        setReconsolidarCooldown({
+          locked: true,
+          remainingSec: resp.cooldown_total_sec,
+          totalSec: resp.cooldown_total_sec,
+          outroEmAndamento: false,
+          eventoEmAndamento: null,
+        });
+      }
       // Limpa flags e recarrega snapshot recém-salvo. forceRefresh=true para
       // bypass do event_detail_cache do backend — sem isso o cache devolveria
       // o status 'partial' antigo e o banner amarelo continuaria aparecendo,
@@ -1008,11 +1080,42 @@ const EventDetail: React.FC = () => {
         duracao_ms: Date.now() - _t0,
       });
     } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message ||
-        'Falha ao reconsolidar. Tente novamente em alguns minutos.';
+      // Backend devolve 429 com detail={code, message, remaining_sec?, evento_em_andamento?}
+      // quando o gate global ou o cooldown da Diretoria está ativo.
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      let msg: string;
+      if (status === 429 && detail && typeof detail === 'object') {
+        msg = detail.message || 'Reconsolidação temporariamente bloqueada.';
+        if (detail.code === 'cooldown_diretoria' && typeof detail.remaining_sec === 'number') {
+          setReconsolidarCooldown(prev => ({
+            ...prev,
+            locked: true,
+            remainingSec: detail.remaining_sec,
+            totalSec: prev.totalSec || detail.remaining_sec,
+            outroEmAndamento: false,
+          }));
+        } else if (detail.code === 'reconsolidacao_em_andamento' || detail.code === 'outro_evento_em_andamento') {
+          // Para a UI, ambos os casos travam o botão. Marcamos outroEmAndamento
+          // = true também no caso "mesmo evento já está rodando" para reuso do
+          // mesmo gate visual (botão disabled + label "Em andamento...").
+          setReconsolidarCooldown(prev => ({
+            ...prev,
+            outroEmAndamento: true,
+            eventoEmAndamento: detail.evento_em_andamento ?? prev.eventoEmAndamento,
+          }));
+        }
+      } else if (typeof detail === 'string') {
+        msg = detail;
+      } else {
+        msg = err?.message || 'Falha ao reconsolidar. Tente novamente em alguns minutos.';
+      }
       setRefreshError(msg);
       setConsolidarError(msg);
     } finally {
+      // Re-sincroniza estado do cooldown com o servidor (caso outro usuário
+      // tenha iniciado/concluído uma reconsolidação em paralelo).
+      fetchReconsolidarCooldown();
       setReconsolidating(false);
       setConsolidarLoading(false);
     }
@@ -1623,14 +1726,27 @@ const EventDetail: React.FC = () => {
           <p className="text-sm text-yellow-800 dark:text-yellow-200 mb-4">
             {partialMessage || 'Não há informações armazenadas para este evento.'}
           </p>
-          {isAdmin ? (
+          {canReconsolidar ? (
             <button
               onClick={handleReconsolidar}
-              disabled={reconsolidating}
+              disabled={reconsolidating || reconsolidarCooldown.locked || reconsolidarCooldown.outroEmAndamento}
               className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2"
+              title={
+                reconsolidarCooldown.locked
+                  ? `Aguarde ${formatCooldown(reconsolidarCooldown.remainingSec)} antes de reconsolidar este evento novamente.`
+                  : reconsolidarCooldown.outroEmAndamento
+                    ? `Outra reconsolidação em andamento (${reconsolidarCooldown.eventoEmAndamento ?? 'outro evento'}). Aguarde para iniciar uma nova.`
+                    : undefined
+              }
             >
               <RefreshCw className={`w-4 h-4 ${reconsolidating ? 'animate-spin' : ''}`} />
-              {reconsolidating ? 'Reconsolidando... (pode demorar até 1 min)' : 'Reconsolidar agora'}
+              {reconsolidating
+                ? 'Reconsolidando... (pode demorar até 1 min)'
+                : reconsolidarCooldown.locked
+                  ? `Aguarde ${formatCooldown(reconsolidarCooldown.remainingSec)}`
+                  : reconsolidarCooldown.outroEmAndamento
+                    ? 'Outra reconsolidação em andamento'
+                    : 'Reconsolidar agora'}
             </button>
           ) : (
             <>
@@ -2109,15 +2225,29 @@ const EventDetail: React.FC = () => {
               </span>
             </label>
           )}
-          {isAdmin && (
+          {canReconsolidar && (
             <button
               onClick={handleReconsolidar}
-              disabled={reconsolidating}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${reconsolidating ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'}`}
-              title="Reconstruir o histórico de vendas deste evento consultando Ativo e Magento (apenas admin)"
+              disabled={reconsolidating || reconsolidarCooldown.locked || reconsolidarCooldown.outroEmAndamento}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${(reconsolidating || reconsolidarCooldown.locked || reconsolidarCooldown.outroEmAndamento) ? 'opacity-50 cursor-not-allowed' : ''} ${isDark ? 'bg-indigo-900/30 text-indigo-400 hover:bg-indigo-900/50' : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'}`}
+              title={
+                reconsolidarCooldown.locked
+                  ? `Aguarde ${formatCooldown(reconsolidarCooldown.remainingSec)} antes de reconsolidar este evento novamente.`
+                  : reconsolidarCooldown.outroEmAndamento
+                    ? `Outra reconsolidação em andamento (${reconsolidarCooldown.eventoEmAndamento ?? 'outro evento'}). Aguarde para iniciar uma nova.`
+                    : 'Reconstruir o histórico de vendas deste evento consultando Ativo e Magento'
+              }
             >
               <DatabaseZap className={`w-4 h-4 ${reconsolidating ? 'animate-pulse' : ''}`} />
-              <span className="text-sm font-medium whitespace-nowrap">{reconsolidating ? 'Reconsolidando...' : 'Reconsolidar'}</span>
+              <span className="text-sm font-medium whitespace-nowrap">
+                {reconsolidating
+                  ? 'Reconsolidando...'
+                  : reconsolidarCooldown.locked
+                    ? `Aguarde ${formatCooldown(reconsolidarCooldown.remainingSec)}`
+                    : reconsolidarCooldown.outroEmAndamento
+                      ? 'Em andamento...'
+                      : 'Reconsolidar'}
+              </span>
             </button>
           )}
           <button
@@ -2356,14 +2486,27 @@ const EventDetail: React.FC = () => {
               <p className="mt-2 text-sm text-red-600 dark:text-red-400">{refreshError}</p>
             )}
           </div>
-          {isAdmin ? (
+          {canReconsolidar ? (
             <button
               onClick={handleReconsolidar}
-              disabled={reconsolidating}
+              disabled={reconsolidating || reconsolidarCooldown.locked || reconsolidarCooldown.outroEmAndamento}
               className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2 text-sm whitespace-nowrap"
+              title={
+                reconsolidarCooldown.locked
+                  ? `Aguarde ${formatCooldown(reconsolidarCooldown.remainingSec)} antes de reconsolidar este evento novamente.`
+                  : reconsolidarCooldown.outroEmAndamento
+                    ? `Outra reconsolidação em andamento (${reconsolidarCooldown.eventoEmAndamento ?? 'outro evento'}).`
+                    : undefined
+              }
             >
               <RefreshCw className={`w-4 h-4 ${reconsolidating ? 'animate-spin' : ''}`} />
-              {reconsolidating ? 'Reconsolidando...' : 'Reconsolidar agora'}
+              {reconsolidating
+                ? 'Reconsolidando...'
+                : reconsolidarCooldown.locked
+                  ? `Aguarde ${formatCooldown(reconsolidarCooldown.remainingSec)}`
+                  : reconsolidarCooldown.outroEmAndamento
+                    ? 'Em andamento...'
+                    : 'Reconsolidar agora'}
             </button>
           ) : (
             <button

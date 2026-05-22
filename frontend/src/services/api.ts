@@ -25,17 +25,29 @@ api.interceptors.response.use(
     }
     if (error.response?.status === 429) {
       const retryAfter = error.response.data?.retry_after ?? 60;
-      const detail = error.response.data?.detail ?? `Muitas requisições. Aguarde ${retryAfter}s.`;
-      const enriched = new Error(detail) as Error & {
+      const rawDetail = error.response.data?.detail;
+      // Se o backend devolveu detail como objeto estruturado (ex.: gate de
+      // reconsolidação com {code, message, remaining_sec}), o handler de origem
+      // precisa enxergar isso. Mensagem amigável vira o texto do Error.
+      const detailText = typeof rawDetail === 'string'
+        ? rawDetail
+        : (rawDetail?.message ?? `Muitas requisições. Aguarde ${retryAfter}s.`);
+      const enriched = new Error(detailText) as Error & {
         isRateLimit: boolean;
         retryAfter: number;
         blockedBy?: string;
         nextAllowedAt?: string;
+        response?: typeof error.response;
+        config?: typeof error.config;
       };
       enriched.isRateLimit = true;
       enriched.retryAfter = retryAfter;
       if (error.response.data?.blocked_by) enriched.blockedBy = error.response.data.blocked_by;
       if (error.response.data?.next_allowed_at) enriched.nextAllowedAt = error.response.data.next_allowed_at;
+      // Preserva a resposta original para que handlers possam ler detail.code,
+      // detail.remaining_sec etc. (necessário p/ cooldown de reconsolidação).
+      enriched.response = error.response;
+      enriched.config = error.config;
       return Promise.reject(enriched);
     }
     if (error.response?.status === 409) {
@@ -1224,8 +1236,32 @@ export const marketingService = {
     ano: number;
     margem_recalculada: number | null;
     ultima_atualizacao: string;
+    cooldown_aplicado?: boolean;
+    cooldown_until_epoch?: number | null;
+    cooldown_total_sec?: number;
   }> => {
-    const response = await api.post(`/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot`);
+    // Timeout longo: pipeline Magento + Ativo + recálculos pode demorar até ~90s.
+    const response = await api.post(
+      `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot`,
+      null,
+      { timeout: 180000 }
+    );
+    return response.data;
+  },
+  getReconsolidarCooldown: async (eventoId: string): Promise<{
+    evento_id: string;
+    can_reconsolidar: boolean;
+    is_diretoria: boolean;
+    locked: boolean;
+    remaining_sec: number;
+    cooldown_total_sec: number;
+    evento_em_andamento: string | null;
+    outro_em_andamento: boolean;
+  }> => {
+    const response = await api.get(
+      `/marketing/eventos/${encodeURIComponent(eventoId)}/reconsolidar-cooldown`,
+      { timeout: 10000 }
+    );
     return response.data;
   },
   toggleCortesias: async (eventoId: string): Promise<{ incluirCortesias: boolean }> => {
