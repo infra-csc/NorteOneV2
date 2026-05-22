@@ -45,7 +45,139 @@ _consolidation_full_progress: dict = {
     # Grupos em execução nesta janela (até CONSOLIDAR_FULL_WORKERS).
     # Cada item: {"grupo": str, "started_at": float epoch}.
     "em_execucao": [],
+    # Auto-retry: tentativa atual / máximo. Quando o ciclo termina com
+    # `failed > 0` ou `status == "error"` e `auto_retry=True`, um timer
+    # agenda nova execução em `auto_retry_delay_sec` segundos usando o
+    # mesmo checkpoint (retoma só os grupos que faltaram).
+    "auto_retry": False,
+    "auto_retry_attempt": 1,
+    "auto_retry_max_attempts": 1,
+    "auto_retry_next_at": None,  # epoch da próxima tentativa agendada
 }
+
+# Timer ativo de auto-retry (para conseguirmos cancelar se o usuário
+# disparar manualmente uma nova consolidação no meio do intervalo).
+_consolidation_retry_lock = _threading.Lock()
+_consolidation_retry_timer: Optional[_threading.Timer] = None
+
+# Geração da consolidação. Incrementado a cada disparo manual e a cada
+# cancelamento. O _maybe_schedule_auto_retry e o _fire() guardam a geração
+# que enxergavam no início e abortam se ela mudou — impede que o `finally`
+# de um ciclo antigo (lento) reagende um timer "fantasma" depois que o
+# usuário já cancelou ou disparou outra consolidação.
+_consolidation_generation: int = 0
+
+
+def _bump_consolidation_generation() -> int:
+    """Invalida qualquer auto-retry pendente do ciclo anterior. Retorna
+    o novo número de geração. Deve ser chamado sob `_consolidation_retry_lock`."""
+    global _consolidation_generation
+    _consolidation_generation += 1
+    return _consolidation_generation
+
+
+def _cancel_pending_auto_retry(invalidate_generation: bool = True) -> bool:
+    """Cancela um timer de auto-retry pendente (se houver). Se
+    `invalidate_generation=True` (default), também invalida a geração
+    atual, garantindo que qualquer `_finally` em execução de ciclo anterior
+    NÃO agende um novo timer e que `_fire()`s do ciclo anterior abortem.
+
+    Use `invalidate_generation=False` apenas internamente, quando o próprio
+    `_maybe_schedule_auto_retry` está prestes a substituir o timer pelo
+    próximo da MESMA geração (não queremos invalidar a si mesmo)."""
+    global _consolidation_retry_timer
+    cancelled = False
+    with _consolidation_retry_lock:
+        if _consolidation_retry_timer is not None:
+            try:
+                _consolidation_retry_timer.cancel()
+            except Exception:
+                pass
+            _consolidation_retry_timer = None
+            cancelled = True
+        if invalidate_generation:
+            _bump_consolidation_generation()
+    return cancelled
+
+
+def _current_consolidation_generation() -> int:
+    with _consolidation_retry_lock:
+        return _consolidation_generation
+
+
+# ── Cooldown por evento (Reconsolidar individual) ─────────────────────────
+# Quando um usuário com perfil "Diretoria" reconsolida um evento com sucesso,
+# o evento fica bloqueado por DIRETORIA_RECONSOLIDAR_COOLDOWN_SEC (padrão 1200s
+# = 20min). Usuários de outros perfis (Admin, etc) NÃO são afetados pelo lock.
+# Evita que clique compulsivo ou recarregamento de página por parte da diretoria
+# dispare uma reconsolidação pesada (Magento + Ativo) repetidas vezes.
+_evento_cooldown_lock = _threading.Lock()
+_evento_cooldown: dict = {}  # {evento_grupo: locked_until_epoch}
+_evento_inflight: set = set()  # eventos em execução AGORA por Diretoria
+DIRETORIA_PERFIL_NOME = "Diretoria"
+
+
+def _diretoria_cooldown_sec() -> int:
+    try:
+        return max(0, int(_os.getenv("DIRETORIA_RECONSOLIDAR_COOLDOWN_SEC", "1200")))
+    except (TypeError, ValueError):
+        return 1200
+
+
+def _user_is_diretoria(user: Usuario) -> bool:
+    perfil = getattr(user, "perfil_acesso_rel", None)
+    if not perfil:
+        return False
+    nome = (getattr(perfil, "nome", "") or "").strip().lower()
+    return nome == DIRETORIA_PERFIL_NOME.lower()
+
+
+def _evento_cooldown_remaining(evento_grupo: str) -> int:
+    """Retorna segundos restantes do cooldown (0 se expirou ou não existe).
+    Apenas leitura — NÃO use para gate atômico; use `_try_acquire_evento_slot`."""
+    with _evento_cooldown_lock:
+        until = _evento_cooldown.get(evento_grupo)
+    if not until:
+        return 0
+    now = _time_module.time()
+    if now >= until:
+        with _evento_cooldown_lock:
+            _evento_cooldown.pop(evento_grupo, None)
+        return 0
+    return int(until - now)
+
+
+def _try_acquire_evento_slot(evento_grupo: str) -> tuple[bool, int, bool]:
+    """Gate ATÔMICO para Diretoria: checa cooldown E in_flight juntos sob lock.
+    Se livre, marca o evento como in_flight e retorna (True, 0, False).
+    Se bloqueado por cooldown: (False, remaining_sec, False).
+    Se bloqueado porque outra reconsolidação está em andamento: (False, 0, True).
+    """
+    now = _time_module.time()
+    with _evento_cooldown_lock:
+        until = _evento_cooldown.get(evento_grupo)
+        if until and now < until:
+            return (False, int(until - now), False)
+        if until and now >= until:
+            _evento_cooldown.pop(evento_grupo, None)
+        if evento_grupo in _evento_inflight:
+            return (False, 0, True)
+        _evento_inflight.add(evento_grupo)
+        return (True, 0, False)
+
+
+def _release_evento_slot(evento_grupo: str):
+    """Remove evento do in_flight. Idempotente."""
+    with _evento_cooldown_lock:
+        _evento_inflight.discard(evento_grupo)
+
+
+def _set_evento_cooldown(evento_grupo: str, ttl_sec: int) -> float:
+    """Seta lock até now+ttl. Retorna o epoch de liberação."""
+    until = _time_module.time() + max(1, ttl_sec)
+    with _evento_cooldown_lock:
+        _evento_cooldown[evento_grupo] = until
+    return until
 
 ONLINE_THRESHOLD_MINUTES = 5
 AWAY_THRESHOLD_MINUTES = 30
@@ -224,10 +356,512 @@ def get_consolidation_checkpoint(
     return {"resumable": True, **ckpt}
 
 
+def _execute_consolidation_full(resume_ckpt: Optional[dict], incremental: bool):
+    """Executa a consolidação completa em thread daemon. Lê metadados de
+    retry (`auto_retry`, `auto_retry_attempt`, `auto_retry_max_attempts`,
+    `auto_retry_delay_sec`) do `_consolidation_full_progress` já preparado
+    pelo chamador. Ao final, se houver falhas e auto_retry estiver ativo,
+    agenda nova tentativa via `_schedule_auto_retry`."""
+    global _consolidation_full_progress
+    # Captura a geração no início. Se o usuário cancelar ou disparar outra
+    # consolidação enquanto este ciclo ainda está rodando, a geração muda e
+    # o `_maybe_schedule_auto_retry` no `finally` aborta sem agendar timer.
+    _my_generation = _current_consolidation_generation()
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    from app.core.database import SessionLocal
+    from app.models.sku_mapping import SkuMapping
+    from app.models.dimensoes import DimProjeto
+    from app.models.cadastro_evento import CadastroEvento
+    from app.models.consolidacao_checkpoint import ConsolidacaoCheckpoint
+    from app.services.snapshot_service import (
+        consolidar_vendas_grupo, _freeze_after_days, _load_active_grupos,
+        _snapshot_lookback_days,
+    )
+    from app.services.sync_log_service import new_ciclo_id, log_evento
+    from app.api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
+    from sqlalchemy.dialects.postgresql import insert as _pg_insert
+    from datetime import datetime as _dt, timezone as _tz
+    import time as _t
+    from datetime import date as _date, timedelta
+
+    # Diagnóstico de hang: logamos cada passo do setup com timing pra que,
+    # se o thread travar antes do primeiro log_evento (pool exausto, etc),
+    # consigamos ver no log da aplicação onde parou.
+    _setup_t0 = _t.time()
+    _logger.info("consolidar_full_manual: thread iniciado, abrindo SessionLocal…")
+    with _consolidation_full_lock:
+        _consolidation_full_progress["setup_step"] = "Abrindo sessão no banco…"
+    try:
+        local_db = SessionLocal()
+    except Exception as _sl_err:
+        _logger.error(f"consolidar_full_manual: SessionLocal falhou: {_sl_err}")
+        with _consolidation_full_lock:
+            _consolidation_full_progress["status"] = "error"
+            _consolidation_full_progress["error"] = f"SessionLocal: {str(_sl_err)[:300]}"
+            _consolidation_full_progress["finished_at"] = _t.time()
+        return
+    _logger.info(f"consolidar_full_manual: SessionLocal ok em {(_t.time()-_setup_t0)*1000:.0f}ms")
+
+    try:
+        # Resume path: reusa ciclo_id e marca os grupos já OK pra pular
+        already_ok_grupos: set = set()
+        if resume_ckpt:
+            ciclo_id = resume_ckpt["ciclo_id"]
+            rows_done = local_db.query(ConsolidacaoCheckpoint.evento_grupo).filter(
+                ConsolidacaoCheckpoint.ciclo_id == ciclo_id,
+                ConsolidacaoCheckpoint.status == "ok",
+            ).all()
+            already_ok_grupos = {r[0] for r in rows_done}
+        else:
+            ciclo_id = new_ciclo_id()
+        triggered_by = _consolidation_full_progress.get("triggered_by", "")
+        cycle_started_at_dt = _dt.now(_tz.utc)
+        with _consolidation_full_lock:
+            _consolidation_full_progress["ciclo_id"] = ciclo_id
+            _consolidation_full_progress["setup_step"] = "Registrando início do ciclo…"
+
+        # Sempre status='iniciado' no nível ciclo (mesmo quando retomado).
+        # 'retomado' fica apenas em detalhes — list_sync_cycles trata qualquer
+        # status != 'iniciado' como final, o que esconderia ciclos em execução.
+        _t_le = _t.time()
+        log_evento(
+            ciclo_id, "consolidar_full_manual", "iniciado", nivel="ciclo",
+            detalhes=(
+                f"incremental={incremental} por {triggered_by}"
+                + (f" (RETOMADO de {len(already_ok_grupos)} já OK)" if resume_ckpt else "")
+            ),
+        )
+        _logger.info(f"consolidar_full_manual: log_evento iniciado em {(_t.time()-_t_le)*1000:.0f}ms (ciclo={ciclo_id})")
+
+        today = _date.today()
+        yesterday = today - timedelta(days=1)
+        ano = today.year
+
+        with _consolidation_full_lock:
+            _consolidation_full_progress["setup_step"] = "Carregando mapeamento de SKUs…"
+        sku_to_grupo = _build_sku_to_grupo_map(local_db, ano)
+        if not sku_to_grupo:
+            with _consolidation_full_lock:
+                _consolidation_full_progress["status"] = "error"
+                _consolidation_full_progress["error"] = "Nenhum sku_to_grupo encontrado para o ano corrente"
+                _consolidation_full_progress["finished_at"] = _t.time()
+            return
+
+        with _consolidation_full_lock:
+            _consolidation_full_progress["setup_step"] = "Identificando eventos do ano corrente…"
+        # Coleta grupos — mesma lógica do snapshot_diario_batch
+        grupos_candidatos: set = set()
+        for p in local_db.query(DimProjeto).all():
+            if not p.data_evento or not p.codigo:
+                continue
+            if p.data_evento.year != ano:
+                continue
+            g = sku_to_grupo.get(normalize_sku(str(p.codigo)))
+            if g:
+                grupos_candidatos.add(g)
+
+        magento_id_to_grupo: dict = {}
+        for mm in local_db.query(SkuMapping).filter(
+            SkuMapping.ano == ano, SkuMapping.ativo == True,
+            SkuMapping.fonte == "MAGENTO", SkuMapping.id_externo.isnot(None),
+            SkuMapping.evento_grupo.isnot(None),
+        ).all():
+            magento_id_to_grupo[str(mm.id_externo)] = mm.evento_grupo
+
+        cadastros = local_db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None)).all()
+        projeto_ids = {c.projeto_id for c in cadastros if getattr(c, "projeto_id", None)}
+        projeto_codigo_by_id: dict = {}
+        if projeto_ids:
+            for pj in local_db.query(DimProjeto.id, DimProjeto.codigo).filter(DimProjeto.id.in_(projeto_ids)).all():
+                if pj.codigo:
+                    projeto_codigo_by_id[pj.id] = str(pj.codigo)
+
+        for c in cadastros:
+            if not c.data_evento or c.data_evento.year != ano:
+                continue
+            g = None
+            if getattr(c, "sku", None):
+                g = sku_to_grupo.get(normalize_sku(str(c.sku)))
+            if not g and getattr(c, "projeto_id", None):
+                cod = projeto_codigo_by_id.get(c.projeto_id)
+                if cod:
+                    g = sku_to_grupo.get(normalize_sku(cod))
+            if not g and getattr(c, "id_evento_magento", None):
+                g = magento_id_to_grupo.get(str(c.id_evento_magento))
+            if g:
+                grupos_candidatos.add(g)
+
+        with _consolidation_full_lock:
+            _consolidation_full_progress["setup_step"] = "Filtrando eventos ativos (excluindo congelados)…"
+        freeze_days = _freeze_after_days()
+        active_grupos = _load_active_grupos(local_db, freeze_days)
+        grupos_frozen = grupos_candidatos - active_grupos
+        grupos_to_process_all = sorted(grupos_candidatos & active_grupos)
+
+        # Resume: pula grupos que já foram OK neste ciclo
+        grupos_to_process = [g for g in grupos_to_process_all if g not in already_ok_grupos]
+        skipped_resume = len(grupos_to_process_all) - len(grupos_to_process)
+
+        with _consolidation_full_lock:
+            _consolidation_full_progress["total"] = len(grupos_to_process_all)
+            _consolidation_full_progress["frozen"] = len(grupos_frozen)
+            # Fila inicial: tudo que ainda falta processar nesta execução.
+            # À medida que cada worker pega um grupo, ele sai daqui e vai
+            # pra `em_execucao`; ao terminar, sai de ambos.
+            _consolidation_full_progress["grupos_pendentes"] = list(grupos_to_process)
+            _consolidation_full_progress["setup_step"] = None  # Fase de prep terminou
+            # Pré-popula contadores com o que já foi feito antes do reinício
+            if skipped_resume > 0:
+                _consolidation_full_progress["ok"] = skipped_resume
+                _consolidation_full_progress["current"] = skipped_resume
+
+        t_start = _consolidation_full_progress["started_at"]
+
+        # Paralelização: cada worker abre sua própria SessionLocal pra não
+        # compartilhar Session (SQLAlchemy Session não é thread-safe).
+        # Default conservador de 3 workers (≈3 conexões simultâneas pelo
+        # túnel SSH); o pool local PG (25/50) e o pool MySQL têm folga.
+        # Pode subir até 6 com `CONSOLIDAR_FULL_WORKERS=6` em ambientes
+        # onde o SSH aguenta. Em 1 worker o comportamento é equivalente
+        # ao serial original.
+        try:
+            _max_workers = max(1, int(_os.getenv("CONSOLIDAR_FULL_WORKERS", "3")))
+        except ValueError:
+            _max_workers = 3
+        _max_workers = min(_max_workers, max(1, len(grupos_to_process)))
+        _logger.info(
+            f"consolidar_full_manual: processando {len(grupos_to_process)} grupos "
+            f"em paralelo com {_max_workers} worker(s) (ciclo={ciclo_id})"
+        )
+
+        def _process_one(grupo: str) -> dict:
+            """Processa 1 grupo numa SessionLocal isolada do thread."""
+            t_grupo = _t.time()
+            # Marca grupo como "em execução" e remove da fila pendente
+            # ANTES de qualquer operação que possa falhar (ex.: SessionLocal()
+            # com pool exaurido). Garante que mesmo numa falha precoce o
+            # grupo não fique preso visualmente em `grupos_pendentes`.
+            # O cleanup de `em_execucao` está no finally externo abaixo.
+            with _consolidation_full_lock:
+                _consolidation_full_progress["em_execucao"].append(
+                    {"grupo": grupo, "started_at": t_grupo}
+                )
+                try:
+                    _consolidation_full_progress["grupos_pendentes"].remove(grupo)
+                except ValueError:
+                    pass  # já removido (improvável, defensivo)
+            thread_db = None
+            result_entry: dict = {
+                "grupo": grupo,
+                "status": "ok",
+                "motivo": None,
+                "qtd_antes": None,
+                "qtd_depois": None,
+                "duracao_ms": None,
+                "detalhes": None,
+            }
+            try:
+                # SessionLocal() pode falhar (pool exaurido). Tratamos aqui
+                # pra registrar como failed em vez de propagar como worker
+                # crash (que deixaria o estado inconsistente).
+                try:
+                    thread_db = SessionLocal()
+                except Exception as _sess_err:
+                    result_entry["status"] = "failed"
+                    result_entry["motivo"] = f"SessionLocal: {str(_sess_err)[:280]}"
+                    result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
+                    _logger.error(
+                        f"consolidar_full_manual: SessionLocal falhou p/ '{grupo}': {_sess_err}"
+                    )
+                    return result_entry
+
+                try:
+                    # incremental + lookback: reprocessa janela rolante (default
+                    # 7 dias) para corrigir snapshots parciais antigos. Mesmo
+                    # comportamento do batch das 04h e do "Reconsolidar"
+                    # individual. Sem lookback, incremental só busca dias novos
+                    # > max_dia e nunca corrige um valor errado de dia anterior.
+                    _lb_full = _snapshot_lookback_days() if incremental else 0
+                    consolidar_vendas_grupo(
+                        thread_db, grupo, ano,
+                        data_inicio=None, data_fim=yesterday,
+                        incremental=incremental,
+                        lookback_days=_lb_full,
+                        ciclo_id=ciclo_id,
+                        parent_job_name="consolidar_full_manual",
+                    )
+                except Exception as exc:
+                    result_entry["status"] = "failed"
+                    result_entry["motivo"] = str(exc)[:300]
+                    _logger.error(f"consolidar_full_manual: erro grupo='{grupo}': {exc}")
+
+                result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
+
+                # Checkpoint UPSERT — sobrevive a reinício, com session do
+                # próprio thread (evita disputa pelo cursor entre workers).
+                try:
+                    stmt = _pg_insert(ConsolidacaoCheckpoint).values(
+                        ciclo_id=ciclo_id,
+                        evento_grupo=grupo,
+                        status=result_entry["status"],
+                        incremental=1 if incremental else 0,
+                        triggered_by=triggered_by[:200] if triggered_by else None,
+                        duracao_ms=result_entry["duracao_ms"],
+                        motivo=(result_entry["motivo"] or None),
+                        qtd_antes=result_entry.get("qtd_antes"),
+                        qtd_depois=result_entry.get("qtd_depois"),
+                        started_at_cycle=cycle_started_at_dt,
+                    )
+                    stmt = stmt.on_conflict_do_update(
+                        constraint="uq_consol_ckpt_ciclo_grupo",
+                        set_={
+                            "status": stmt.excluded.status,
+                            "duracao_ms": stmt.excluded.duracao_ms,
+                            "motivo": stmt.excluded.motivo,
+                            "processed_at": _dt.now(_tz.utc),
+                        },
+                    )
+                    thread_db.execute(stmt)
+                    thread_db.commit()
+                except Exception as _ckpt_err:
+                    thread_db.rollback()
+                    _logger.warning(
+                        f"consolidar_full_manual: falha ao gravar checkpoint "
+                        f"para '{grupo}': {_ckpt_err}"
+                    )
+            finally:
+                if thread_db is not None:
+                    try:
+                        thread_db.close()
+                    except Exception:
+                        pass  # defensivo — close já errou, nada a fazer
+                # Sai da lista "em execução" assim que o worker termina,
+                # independente de ok/falha. Fica no `results` (adicionado
+                # pelo agregador no loop principal) ou nos contadores.
+                with _consolidation_full_lock:
+                    _consolidation_full_progress["em_execucao"] = [
+                        x for x in _consolidation_full_progress["em_execucao"]
+                        if x.get("grupo") != grupo
+                    ]
+            return result_entry
+
+        with _TPE(max_workers=_max_workers, thread_name_prefix="consolfull") as _pool:
+            _futures = {_pool.submit(_process_one, g): g for g in grupos_to_process}
+            for _fut in _as_completed(_futures):
+                _grupo = _futures[_fut]
+                try:
+                    result_entry = _fut.result()
+                except Exception as exc:
+                    # _process_one já trata internamente; se chegou aqui é
+                    # algo bem inesperado (ex.: SessionLocal() falhou).
+                    result_entry = {
+                        "grupo": _grupo, "status": "failed",
+                        "motivo": f"worker_crash: {str(exc)[:280]}",
+                        "duracao_ms": None,
+                        "qtd_antes": None, "qtd_depois": None, "detalhes": None,
+                    }
+                    _logger.error(f"consolidar_full_manual: worker crash em '{_grupo}': {exc}")
+
+                # Tudo sob o mesmo lock: contadores ok/failed e current
+                # derivado deles mantêm consistência mesmo se no futuro
+                # houver múltiplos agregadores.
+                with _consolidation_full_lock:
+                    if result_entry["status"] == "ok":
+                        _consolidation_full_progress["ok"] += 1
+                    else:
+                        _consolidation_full_progress["failed"] += 1
+                    _consolidation_full_progress["current"] = (
+                        _consolidation_full_progress["ok"]
+                        + _consolidation_full_progress["failed"]
+                    )
+                    _consolidation_full_progress["current_grupo"] = result_entry["grupo"]
+                    _consolidation_full_progress["results"].append(result_entry)
+
+        total_ms = int((_t.time() - t_start) * 1000)
+        log_evento(
+            ciclo_id, "consolidar_full_manual", "concluido", nivel="ciclo",
+            detalhes=(
+                f"{len(grupos_to_process)} processados agora "
+                + (f"(+{skipped_resume} retomados) " if skipped_resume else "")
+                + f"({_consolidation_full_progress['ok']} ok, "
+                f"{_consolidation_full_progress['failed']} falha), "
+                f"{len(grupos_frozen)} congelados"
+            ),
+            duracao_ms=total_ms,
+        )
+        with _consolidation_full_lock:
+            _consolidation_full_progress["status"] = "done"
+            _consolidation_full_progress["finished_at"] = _t.time()
+            _consolidation_full_progress["current_grupo"] = None
+
+    except Exception as exc:
+        _logger.error(f"consolidar_full_manual: falha geral: {exc}")
+        with _consolidation_full_lock:
+            _consolidation_full_progress["status"] = "error"
+            _consolidation_full_progress["error"] = str(exc)[:500]
+            _consolidation_full_progress["finished_at"] = _t.time()
+    finally:
+        try:
+            local_db.close()
+        except Exception:
+            pass
+        # ── Auto-retry: se o ciclo terminou com falhas e auto_retry está
+        # ativo, agenda nova tentativa em N segundos via threading.Timer.
+        # A tentativa usa o checkpoint existente (retoma só pendentes).
+        try:
+            _maybe_schedule_auto_retry(owner_generation=_my_generation)
+        except Exception as _retry_err:
+            _logger.error(f"consolidar_full_manual: falha ao agendar auto-retry: {_retry_err}")
+
+
+def _maybe_schedule_auto_retry(owner_generation: int):
+    """Agenda nova tentativa se o ciclo terminou com `failed > 0` ou
+    `status == "error"`, `auto_retry=True` e ainda restam tentativas.
+    Idempotente: cancela timer pendente antes de criar novo.
+
+    `owner_generation` é a geração capturada no início do ciclo que está
+    chamando. Se ela foi invalidada (cancelamento manual ou novo disparo),
+    NÃO agenda timer — evita retry-fantasma."""
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    global _consolidation_retry_timer
+
+    current_gen = _current_consolidation_generation()
+    if owner_generation != current_gen:
+        _logger.info(
+            f"auto_retry: geração {owner_generation} foi invalidada "
+            f"(atual={current_gen}) — não reagenda."
+        )
+        return
+
+    with _consolidation_full_lock:
+        snap = dict(_consolidation_full_progress)
+
+    if not snap.get("auto_retry"):
+        return
+    attempt = int(snap.get("auto_retry_attempt", 1) or 1)
+    max_att = int(snap.get("auto_retry_max_attempts", 1) or 1)
+    if attempt >= max_att:
+        _logger.info(
+            f"auto_retry: tentativa {attempt}/{max_att} esgotada, não reagenda."
+        )
+        return
+
+    final_status = snap.get("status")
+    failed = int(snap.get("failed", 0) or 0)
+    if final_status != "error" and failed == 0:
+        _logger.info("auto_retry: ciclo sem falhas, não reagenda.")
+        return
+
+    delay_sec = int(snap.get("auto_retry_delay_sec", 1200) or 1200)
+    next_at = _time_module.time() + delay_sec
+    triggered_by = snap.get("triggered_by", "auto-retry")
+
+    def _fire():
+        global _consolidation_retry_timer
+        with _consolidation_retry_lock:
+            _consolidation_retry_timer = None
+            # Revalida a geração no momento do disparo. Se foi invalidada
+            # entre o agendamento e o fire (cancelamento ou novo disparo
+            # manual), aborta sem fazer nada.
+            if _consolidation_generation != owner_generation:
+                _logger.info(
+                    f"auto_retry: geração mudou antes do fire "
+                    f"({owner_generation} → {_consolidation_generation}), abortando."
+                )
+                return
+        _logger.info("auto_retry: timer disparou, abrindo SessionLocal p/ checkpoint…")
+        try:
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            try:
+                ckpt = _find_resumable_checkpoint(db)
+            finally:
+                db.close()
+        except Exception as _e:
+            _logger.error(f"auto_retry: falha ao buscar checkpoint: {_e}")
+            return
+        if not ckpt:
+            _logger.info("auto_retry: nenhum checkpoint pendente — nada a retomar.")
+            return
+
+        with _consolidation_full_lock:
+            if _consolidation_full_progress.get("status") == "running":
+                _logger.info("auto_retry: já existe consolidação em execução, abortando timer.")
+                return
+            new_attempt = attempt + 1
+            _consolidation_full_progress.clear()
+            _consolidation_full_progress.update({
+                "status": "running",
+                "started_at": _time_module.time(),
+                "finished_at": None,
+                "triggered_by": f"{triggered_by} [auto-retry {new_attempt}/{max_att}]",
+                "incremental": bool(ckpt["incremental"]),
+                "total": 0,
+                "current": 0,
+                "current_grupo": None,
+                "ok": 0,
+                "failed": 0,
+                "skipped": 0,
+                "frozen": 0,
+                "results": [],
+                "ciclo_id": ckpt["ciclo_id"],
+                "error": None,
+                "resumed": True,
+                "resumed_from_ok": ckpt["ok_count"],
+                "setup_step": f"Auto-retry {new_attempt}/{max_att} — iniciando…",
+                "grupos_pendentes": [],
+                "em_execucao": [],
+                "auto_retry": True,
+                "auto_retry_attempt": new_attempt,
+                "auto_retry_max_attempts": max_att,
+                "auto_retry_delay_sec": delay_sec,
+                "auto_retry_next_at": None,
+            })
+        # Revalidação final ANTES de spawnar o thread: se a geração foi
+        # invalidada entre a primeira checagem do _fire e este ponto (ex.:
+        # cancelar-retry chegou no meio), aborta e reverte progress.
+        with _consolidation_retry_lock:
+            if _consolidation_generation != owner_generation:
+                _logger.info(
+                    f"auto_retry: geração mudou imediatamente antes do start "
+                    f"({owner_generation} → {_consolidation_generation}), abortando."
+                )
+                with _consolidation_full_lock:
+                    _consolidation_full_progress["status"] = "cancelled"
+                    _consolidation_full_progress["error"] = "auto-retry cancelado"
+                    _consolidation_full_progress["finished_at"] = _time_module.time()
+                return
+            _threading.Thread(
+                target=_execute_consolidation_full,
+                args=(ckpt, bool(ckpt["incremental"])),
+                daemon=True,
+            ).start()
+
+    # Cancela timer anterior (se houver) e agenda novo. Mantemos a geração
+    # intacta — este é o próprio fluxo de auto-retry continuando, não um
+    # cancelamento externo. Invalidar aqui faria o `_fire` abaixo abortar.
+    _cancel_pending_auto_retry(invalidate_generation=False)
+    timer = _threading.Timer(delay_sec, _fire)
+    timer.daemon = True
+    with _consolidation_retry_lock:
+        _consolidation_retry_timer = timer
+    timer.start()
+    with _consolidation_full_lock:
+        _consolidation_full_progress["auto_retry_next_at"] = next_at
+    _logger.info(
+        f"auto_retry: agendado em {delay_sec}s (tentativa {attempt+1}/{max_att})."
+    )
+
+
 @router.post("/snapshots/consolidar-full")
 def trigger_snapshot_consolidation_full(
     incremental: bool = Query(default=False, description="True=incremental (só dias novos). False=reconstrução completa."),
     resume: bool = Query(default=False, description="True=retomar o ciclo incompleto mais recente; ignora 'incremental' e usa o do ciclo original."),
+    auto_retry: bool = Query(default=True, description="Se True, agenda nova tentativa automática a cada `auto_retry_delay_min` minutos quando houver falhas, até `auto_retry_max_attempts` tentativas."),
+    auto_retry_delay_min: int = Query(default=20, ge=1, le=120, description="Intervalo (min) entre tentativas automáticas."),
+    auto_retry_max_attempts: int = Query(default=6, ge=1, le=20, description="Número máximo de tentativas (1ª + retries)."),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
@@ -235,6 +869,11 @@ def trigger_snapshot_consolidation_full(
 
     Quando ``resume=True``, retoma o último ciclo incompleto: pula os grupos que
     já estão no ``consolidacao_checkpoint`` com status='ok' e reprocessa o resto.
+
+    Quando ``auto_retry=True`` (padrão), se o ciclo terminar com `failed > 0`
+    ou `status == "error"`, agenda automaticamente nova tentativa em
+    ``auto_retry_delay_min`` minutos (padrão 20), até no máximo
+    ``auto_retry_max_attempts`` tentativas no total (padrão 6).
     """
     global _consolidation_full_progress
 
@@ -249,13 +888,32 @@ def trigger_snapshot_consolidation_full(
             }
         incremental = bool(resume_ckpt["incremental"])
 
+    # Pre-check rápido SEM segurar lock nenhum aninhado: evita inversão de
+    # ordem com `retry_lock` (segurado por `_fire`). Se já há execução em
+    # curso, retorna sem cancelar auto-retry.
     with _consolidation_full_lock:
         if _consolidation_full_progress.get("status") == "running":
             return {
                 "status": "already_running",
                 "message": "Já existe uma consolidação em andamento",
             }
-        _consolidation_full_progress = {
+
+    # Fora de qualquer lock: cancelar auto-retry pendente e invalidar
+    # geração (`_cancel_pending_auto_retry` adquire SOMENTE retry_lock).
+    # Ordem global de locks: retry_lock SEMPRE antes de full_lock.
+    _cancel_pending_auto_retry()
+
+    with _consolidation_full_lock:
+        # Double-check: outra requisição pode ter iniciado entre nossos dois
+        # blocos. Improvável (request handler é síncrono por worker), mas
+        # mantém invariante "só 1 execução por vez" sem race.
+        if _consolidation_full_progress.get("status") == "running":
+            return {
+                "status": "already_running",
+                "message": "Já existe uma consolidação em andamento",
+            }
+        _consolidation_full_progress.clear()
+        _consolidation_full_progress.update({
             "status": "running",
             "started_at": _time_module.time(),
             "finished_at": None,
@@ -276,350 +934,38 @@ def trigger_snapshot_consolidation_full(
             "setup_step": "Iniciando…",
             "grupos_pendentes": [],
             "em_execucao": [],
-        }
+            "auto_retry": bool(auto_retry),
+            "auto_retry_attempt": 1,
+            "auto_retry_max_attempts": int(auto_retry_max_attempts),
+            "auto_retry_delay_sec": int(auto_retry_delay_min) * 60,
+            "auto_retry_next_at": None,
+        })
 
-    def _run_full():
-        global _consolidation_full_progress
-        import logging as _log
-        _logger = _log.getLogger(__name__)
-        from app.core.database import SessionLocal
-        from app.models.sku_mapping import SkuMapping
-        from app.models.dimensoes import DimProjeto
-        from app.models.cadastro_evento import CadastroEvento
-        from app.models.consolidacao_checkpoint import ConsolidacaoCheckpoint
-        from app.services.snapshot_service import (
-            consolidar_vendas_grupo, _freeze_after_days, _load_active_grupos,
-            _snapshot_lookback_days,
-        )
-        from app.services.sync_log_service import new_ciclo_id, log_evento
-        from app.api.routes.marketing import _build_sku_to_grupo_map, normalize_sku
-        from sqlalchemy.dialects.postgresql import insert as _pg_insert
-        from datetime import datetime as _dt, timezone as _tz
-        import time as _t
-        from datetime import date as _date, timedelta
+    _threading.Thread(
+        target=_execute_consolidation_full,
+        args=(resume_ckpt, incremental),
+        daemon=True,
+    ).start()
+    return {
+        "status": "started",
+        "message": "Consolidação completa iniciada em background",
+        "auto_retry": bool(auto_retry),
+        "auto_retry_max_attempts": int(auto_retry_max_attempts),
+        "auto_retry_delay_min": int(auto_retry_delay_min),
+    }
 
-        # Diagnóstico de hang: logamos cada passo do setup com timing pra que,
-        # se o thread travar antes do primeiro log_evento (pool exausto, etc),
-        # consigamos ver no log da aplicação onde parou.
-        _setup_t0 = _t.time()
-        _logger.info("consolidar_full_manual: thread iniciado, abrindo SessionLocal…")
-        with _consolidation_full_lock:
-            _consolidation_full_progress["setup_step"] = "Abrindo sessão no banco…"
-        try:
-            local_db = SessionLocal()
-        except Exception as _sl_err:
-            _logger.error(f"consolidar_full_manual: SessionLocal falhou: {_sl_err}")
-            with _consolidation_full_lock:
-                _consolidation_full_progress["status"] = "error"
-                _consolidation_full_progress["error"] = f"SessionLocal: {str(_sl_err)[:300]}"
-                _consolidation_full_progress["finished_at"] = _t.time()
-            return
-        _logger.info(f"consolidar_full_manual: SessionLocal ok em {(_t.time()-_setup_t0)*1000:.0f}ms")
 
-        try:
-            # Resume path: reusa ciclo_id e marca os grupos já OK pra pular
-            already_ok_grupos: set = set()
-            if resume_ckpt:
-                ciclo_id = resume_ckpt["ciclo_id"]
-                rows_done = local_db.query(ConsolidacaoCheckpoint.evento_grupo).filter(
-                    ConsolidacaoCheckpoint.ciclo_id == ciclo_id,
-                    ConsolidacaoCheckpoint.status == "ok",
-                ).all()
-                already_ok_grupos = {r[0] for r in rows_done}
-            else:
-                ciclo_id = new_ciclo_id()
-            triggered_by = _consolidation_full_progress.get("triggered_by", "")
-            cycle_started_at_dt = _dt.now(_tz.utc)
-            with _consolidation_full_lock:
-                _consolidation_full_progress["ciclo_id"] = ciclo_id
-                _consolidation_full_progress["setup_step"] = "Registrando início do ciclo…"
-
-            # Sempre status='iniciado' no nível ciclo (mesmo quando retomado).
-            # 'retomado' fica apenas em detalhes — list_sync_cycles trata qualquer
-            # status != 'iniciado' como final, o que esconderia ciclos em execução.
-            _t_le = _t.time()
-            log_evento(
-                ciclo_id, "consolidar_full_manual", "iniciado", nivel="ciclo",
-                detalhes=(
-                    f"incremental={incremental} por {triggered_by}"
-                    + (f" (RETOMADO de {len(already_ok_grupos)} já OK)" if resume_ckpt else "")
-                ),
-            )
-            _logger.info(f"consolidar_full_manual: log_evento iniciado em {(_t.time()-_t_le)*1000:.0f}ms (ciclo={ciclo_id})")
-
-            today = _date.today()
-            yesterday = today - timedelta(days=1)
-            ano = today.year
-
-            with _consolidation_full_lock:
-                _consolidation_full_progress["setup_step"] = "Carregando mapeamento de SKUs…"
-            sku_to_grupo = _build_sku_to_grupo_map(local_db, ano)
-            if not sku_to_grupo:
-                with _consolidation_full_lock:
-                    _consolidation_full_progress["status"] = "error"
-                    _consolidation_full_progress["error"] = "Nenhum sku_to_grupo encontrado para o ano corrente"
-                    _consolidation_full_progress["finished_at"] = _t.time()
-                return
-
-            with _consolidation_full_lock:
-                _consolidation_full_progress["setup_step"] = "Identificando eventos do ano corrente…"
-            # Coleta grupos — mesma lógica do snapshot_diario_batch
-            grupos_candidatos: set = set()
-            for p in local_db.query(DimProjeto).all():
-                if not p.data_evento or not p.codigo:
-                    continue
-                if p.data_evento.year != ano:
-                    continue
-                g = sku_to_grupo.get(normalize_sku(str(p.codigo)))
-                if g:
-                    grupos_candidatos.add(g)
-
-            magento_id_to_grupo: dict = {}
-            for mm in local_db.query(SkuMapping).filter(
-                SkuMapping.ano == ano, SkuMapping.ativo == True,
-                SkuMapping.fonte == "MAGENTO", SkuMapping.id_externo.isnot(None),
-                SkuMapping.evento_grupo.isnot(None),
-            ).all():
-                magento_id_to_grupo[str(mm.id_externo)] = mm.evento_grupo
-
-            cadastros = local_db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None)).all()
-            projeto_ids = {c.projeto_id for c in cadastros if getattr(c, "projeto_id", None)}
-            projeto_codigo_by_id: dict = {}
-            if projeto_ids:
-                for pj in local_db.query(DimProjeto.id, DimProjeto.codigo).filter(DimProjeto.id.in_(projeto_ids)).all():
-                    if pj.codigo:
-                        projeto_codigo_by_id[pj.id] = str(pj.codigo)
-
-            for c in cadastros:
-                if not c.data_evento or c.data_evento.year != ano:
-                    continue
-                g = None
-                if getattr(c, "sku", None):
-                    g = sku_to_grupo.get(normalize_sku(str(c.sku)))
-                if not g and getattr(c, "projeto_id", None):
-                    cod = projeto_codigo_by_id.get(c.projeto_id)
-                    if cod:
-                        g = sku_to_grupo.get(normalize_sku(cod))
-                if not g and getattr(c, "id_evento_magento", None):
-                    g = magento_id_to_grupo.get(str(c.id_evento_magento))
-                if g:
-                    grupos_candidatos.add(g)
-
-            with _consolidation_full_lock:
-                _consolidation_full_progress["setup_step"] = "Filtrando eventos ativos (excluindo congelados)…"
-            freeze_days = _freeze_after_days()
-            active_grupos = _load_active_grupos(local_db, freeze_days)
-            grupos_frozen = grupos_candidatos - active_grupos
-            grupos_to_process_all = sorted(grupos_candidatos & active_grupos)
-
-            # Resume: pula grupos que já foram OK neste ciclo
-            grupos_to_process = [g for g in grupos_to_process_all if g not in already_ok_grupos]
-            skipped_resume = len(grupos_to_process_all) - len(grupos_to_process)
-
-            with _consolidation_full_lock:
-                _consolidation_full_progress["total"] = len(grupos_to_process_all)
-                _consolidation_full_progress["frozen"] = len(grupos_frozen)
-                # Fila inicial: tudo que ainda falta processar nesta execução.
-                # À medida que cada worker pega um grupo, ele sai daqui e vai
-                # pra `em_execucao`; ao terminar, sai de ambos.
-                _consolidation_full_progress["grupos_pendentes"] = list(grupos_to_process)
-                _consolidation_full_progress["setup_step"] = None  # Fase de prep terminou
-                # Pré-popula contadores com o que já foi feito antes do reinício
-                if skipped_resume > 0:
-                    _consolidation_full_progress["ok"] = skipped_resume
-                    _consolidation_full_progress["current"] = skipped_resume
-
-            t_start = _consolidation_full_progress["started_at"]
-
-            # Paralelização: cada worker abre sua própria SessionLocal pra não
-            # compartilhar Session (SQLAlchemy Session não é thread-safe).
-            # Default conservador de 3 workers (≈3 conexões simultâneas pelo
-            # túnel SSH); o pool local PG (25/50) e o pool MySQL têm folga.
-            # Pode subir até 6 com `CONSOLIDAR_FULL_WORKERS=6` em ambientes
-            # onde o SSH aguenta. Em 1 worker o comportamento é equivalente
-            # ao serial original.
-            try:
-                _max_workers = max(1, int(_os.getenv("CONSOLIDAR_FULL_WORKERS", "3")))
-            except ValueError:
-                _max_workers = 3
-            _max_workers = min(_max_workers, max(1, len(grupos_to_process)))
-            _logger.info(
-                f"consolidar_full_manual: processando {len(grupos_to_process)} grupos "
-                f"em paralelo com {_max_workers} worker(s) (ciclo={ciclo_id})"
-            )
-
-            def _process_one(grupo: str) -> dict:
-                """Processa 1 grupo numa SessionLocal isolada do thread."""
-                t_grupo = _t.time()
-                # Marca grupo como "em execução" e remove da fila pendente
-                # ANTES de qualquer operação que possa falhar (ex.: SessionLocal()
-                # com pool exaurido). Garante que mesmo numa falha precoce o
-                # grupo não fique preso visualmente em `grupos_pendentes`.
-                # O cleanup de `em_execucao` está no finally externo abaixo.
-                with _consolidation_full_lock:
-                    _consolidation_full_progress["em_execucao"].append(
-                        {"grupo": grupo, "started_at": t_grupo}
-                    )
-                    try:
-                        _consolidation_full_progress["grupos_pendentes"].remove(grupo)
-                    except ValueError:
-                        pass  # já removido (improvável, defensivo)
-                thread_db = None
-                result_entry: dict = {
-                    "grupo": grupo,
-                    "status": "ok",
-                    "motivo": None,
-                    "qtd_antes": None,
-                    "qtd_depois": None,
-                    "duracao_ms": None,
-                    "detalhes": None,
-                }
-                try:
-                    # SessionLocal() pode falhar (pool exaurido). Tratamos aqui
-                    # pra registrar como failed em vez de propagar como worker
-                    # crash (que deixaria o estado inconsistente).
-                    try:
-                        thread_db = SessionLocal()
-                    except Exception as _sess_err:
-                        result_entry["status"] = "failed"
-                        result_entry["motivo"] = f"SessionLocal: {str(_sess_err)[:280]}"
-                        result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
-                        _logger.error(
-                            f"consolidar_full_manual: SessionLocal falhou p/ '{grupo}': {_sess_err}"
-                        )
-                        return result_entry
-
-                    try:
-                        # incremental + lookback: reprocessa janela rolante (default
-                        # 7 dias) para corrigir snapshots parciais antigos. Mesmo
-                        # comportamento do batch das 04h e do "Reconsolidar"
-                        # individual. Sem lookback, incremental só busca dias novos
-                        # > max_dia e nunca corrige um valor errado de dia anterior.
-                        _lb_full = _snapshot_lookback_days() if incremental else 0
-                        consolidar_vendas_grupo(
-                            thread_db, grupo, ano,
-                            data_inicio=None, data_fim=yesterday,
-                            incremental=incremental,
-                            lookback_days=_lb_full,
-                            ciclo_id=ciclo_id,
-                            parent_job_name="consolidar_full_manual",
-                        )
-                    except Exception as exc:
-                        result_entry["status"] = "failed"
-                        result_entry["motivo"] = str(exc)[:300]
-                        _logger.error(f"consolidar_full_manual: erro grupo='{grupo}': {exc}")
-
-                    result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
-
-                    # Checkpoint UPSERT — sobrevive a reinício, com session do
-                    # próprio thread (evita disputa pelo cursor entre workers).
-                    try:
-                        stmt = _pg_insert(ConsolidacaoCheckpoint).values(
-                            ciclo_id=ciclo_id,
-                            evento_grupo=grupo,
-                            status=result_entry["status"],
-                            incremental=1 if incremental else 0,
-                            triggered_by=triggered_by[:200] if triggered_by else None,
-                            duracao_ms=result_entry["duracao_ms"],
-                            motivo=(result_entry["motivo"] or None),
-                            qtd_antes=result_entry.get("qtd_antes"),
-                            qtd_depois=result_entry.get("qtd_depois"),
-                            started_at_cycle=cycle_started_at_dt,
-                        )
-                        stmt = stmt.on_conflict_do_update(
-                            constraint="uq_consol_ckpt_ciclo_grupo",
-                            set_={
-                                "status": stmt.excluded.status,
-                                "duracao_ms": stmt.excluded.duracao_ms,
-                                "motivo": stmt.excluded.motivo,
-                                "processed_at": _dt.now(_tz.utc),
-                            },
-                        )
-                        thread_db.execute(stmt)
-                        thread_db.commit()
-                    except Exception as _ckpt_err:
-                        thread_db.rollback()
-                        _logger.warning(
-                            f"consolidar_full_manual: falha ao gravar checkpoint "
-                            f"para '{grupo}': {_ckpt_err}"
-                        )
-                finally:
-                    if thread_db is not None:
-                        try:
-                            thread_db.close()
-                        except Exception:
-                            pass  # defensivo — close já errou, nada a fazer
-                    # Sai da lista "em execução" assim que o worker termina,
-                    # independente de ok/falha. Fica no `results` (adicionado
-                    # pelo agregador no loop principal) ou nos contadores.
-                    with _consolidation_full_lock:
-                        _consolidation_full_progress["em_execucao"] = [
-                            x for x in _consolidation_full_progress["em_execucao"]
-                            if x.get("grupo") != grupo
-                        ]
-                return result_entry
-
-            with _TPE(max_workers=_max_workers, thread_name_prefix="consolfull") as _pool:
-                _futures = {_pool.submit(_process_one, g): g for g in grupos_to_process}
-                for _fut in _as_completed(_futures):
-                    _grupo = _futures[_fut]
-                    try:
-                        result_entry = _fut.result()
-                    except Exception as exc:
-                        # _process_one já trata internamente; se chegou aqui é
-                        # algo bem inesperado (ex.: SessionLocal() falhou).
-                        result_entry = {
-                            "grupo": _grupo, "status": "failed",
-                            "motivo": f"worker_crash: {str(exc)[:280]}",
-                            "duracao_ms": None,
-                            "qtd_antes": None, "qtd_depois": None, "detalhes": None,
-                        }
-                        _logger.error(f"consolidar_full_manual: worker crash em '{_grupo}': {exc}")
-
-                    # Tudo sob o mesmo lock: contadores ok/failed e current
-                    # derivado deles mantêm consistência mesmo se no futuro
-                    # houver múltiplos agregadores.
-                    with _consolidation_full_lock:
-                        if result_entry["status"] == "ok":
-                            _consolidation_full_progress["ok"] += 1
-                        else:
-                            _consolidation_full_progress["failed"] += 1
-                        _consolidation_full_progress["current"] = (
-                            _consolidation_full_progress["ok"]
-                            + _consolidation_full_progress["failed"]
-                        )
-                        _consolidation_full_progress["current_grupo"] = result_entry["grupo"]
-                        _consolidation_full_progress["results"].append(result_entry)
-
-            total_ms = int((_t.time() - t_start) * 1000)
-            log_evento(
-                ciclo_id, "consolidar_full_manual", "concluido", nivel="ciclo",
-                detalhes=(
-                    f"{len(grupos_to_process)} processados agora "
-                    + (f"(+{skipped_resume} retomados) " if skipped_resume else "")
-                    + f"({_consolidation_full_progress['ok']} ok, "
-                    f"{_consolidation_full_progress['failed']} falha), "
-                    f"{len(grupos_frozen)} congelados"
-                ),
-                duracao_ms=total_ms,
-            )
-            with _consolidation_full_lock:
-                _consolidation_full_progress["status"] = "done"
-                _consolidation_full_progress["finished_at"] = _t.time()
-                _consolidation_full_progress["current_grupo"] = None
-
-        except Exception as exc:
-            _logger.error(f"consolidar_full_manual: falha geral: {exc}")
-            with _consolidation_full_lock:
-                _consolidation_full_progress["status"] = "error"
-                _consolidation_full_progress["error"] = str(exc)[:500]
-                _consolidation_full_progress["finished_at"] = _t.time()
-        finally:
-            local_db.close()
-
-    t = _threading.Thread(target=_run_full, daemon=True)
-    t.start()
-    return {"status": "started", "message": "Consolidação completa iniciada em background"}
+@router.post("/snapshots/consolidar-full/cancelar-retry")
+def cancel_auto_retry(
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Cancela um auto-retry agendado (se houver). Não afeta consolidação
+    em execução."""
+    cancelled = _cancel_pending_auto_retry()
+    with _consolidation_full_lock:
+        _consolidation_full_progress["auto_retry"] = False
+        _consolidation_full_progress["auto_retry_next_at"] = None
+    return {"cancelled": cancelled}
 
 
 @router.get("/snapshots/consolidar-full/progress")
@@ -629,6 +975,27 @@ def get_snapshot_consolidation_full_progress(
     """Retorna o progresso atual da consolidação completa de snapshots."""
     with _consolidation_full_lock:
         return _copy.deepcopy(_consolidation_full_progress)
+
+
+@router.get("/snapshots/consolidar-evento/cooldown")
+def get_evento_cooldown(
+    evento_grupo: str = Query(..., description="Nome do grupo de evento"),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Retorna o status de cooldown do evento para o usuário atual.
+
+    Cooldown só se aplica a perfis "Diretoria". Para outros perfis sempre
+    retorna `locked=false`. A UI pode usar isso para desabilitar o botão
+    "Reconsolidar" mostrando um countdown."""
+    is_diretoria = _user_is_diretoria(current_user)
+    remaining = _evento_cooldown_remaining(evento_grupo) if is_diretoria else 0
+    return {
+        "evento_grupo": evento_grupo,
+        "is_diretoria": is_diretoria,
+        "locked": remaining > 0,
+        "remaining_sec": remaining,
+        "cooldown_total_sec": _diretoria_cooldown_sec(),
+    }
 
 
 @router.post("/snapshots/consolidar-evento")
@@ -642,6 +1009,11 @@ def trigger_consolidar_evento(
 
     Executa de forma síncrona e retorna o resultado completo com qtd_antes/depois.
     Requer permissão admin_monitoramento.
+
+    **Cooldown Diretoria:** quando um usuário com perfil "Diretoria" reconsolida
+    com sucesso, o evento fica bloqueado por 20 min (configurável via
+    DIRETORIA_RECONSOLIDAR_COOLDOWN_SEC) para outros usuários "Diretoria".
+    Usuários Admin/etc bypassam o lock.
     """
     import time as _t
     from datetime import date as _date, timedelta
@@ -650,40 +1022,57 @@ def trigger_consolidar_evento(
     from app.models.vendas_snapshot import VendasDiariaSnapshot
     from sqlalchemy import func as sa_func2
 
-    ciclo_id = new_ciclo_id()
-    triggered_by = current_user.email if hasattr(current_user, 'email') else str(current_user.id)
-    ano = _date.today().year
-    yesterday = _date.today() - timedelta(days=1)
+    # ── Gate ATÔMICO (só para Diretoria): cooldown + in_flight juntos ──────
+    # Sem isso, duas requisições simultâneas da diretoria para o mesmo evento
+    # passariam ambas no check de cooldown e iniciariam reconsolidação pesada
+    # em paralelo. O acquire abaixo é atômico sob lock; em caso de bloqueio
+    # NÃO entramos no try/finally — não há slot a liberar.
+    is_diretoria = _user_is_diretoria(current_user)
+    slot_acquired = False
+    if is_diretoria:
+        acquired, remaining, em_andamento = _try_acquire_evento_slot(evento_grupo)
+        if not acquired:
+            if em_andamento:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "code": "reconsolidacao_em_andamento",
+                        "message": (
+                            "Já existe uma reconsolidação em andamento para este "
+                            "evento. Aguarde a conclusão."
+                        ),
+                        "evento_grupo": evento_grupo,
+                    },
+                )
+            mins = remaining // 60
+            secs = remaining % 60
+            tempo = f"{mins}min {secs}s" if mins else f"{secs}s"
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "cooldown_diretoria",
+                    "message": (
+                        f"Este evento foi reconsolidado recentemente. "
+                        f"Aguarde {tempo} antes de tentar novamente."
+                    ),
+                    "remaining_sec": remaining,
+                    "evento_grupo": evento_grupo,
+                },
+            )
+        slot_acquired = True
 
-    # qtd_antes
+    # Tudo abaixo do acquire fica dentro de try/finally para garantir que
+    # qualquer exceção (incluindo em new_ciclo_id, log_evento, queries de
+    # qtd_antes/depois) libere o slot in_flight.
     try:
-        qtd_antes = int(
-            db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
-            .filter(
-                VendasDiariaSnapshot.evento_grupo == evento_grupo,
-                VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
-                VendasDiariaSnapshot.ano == ano,
-            ).scalar() or 0
-        )
-    except Exception:
-        qtd_antes = None
+        ciclo_id = new_ciclo_id()
+        triggered_by = current_user.email if hasattr(current_user, 'email') else str(current_user.id)
+        ano = _date.today().year
+        yesterday = _date.today() - timedelta(days=1)
 
-    log_evento(ciclo_id, "consolidar_evento_manual", "iniciado", nivel="ciclo",
-               detalhes=f"grupo={evento_grupo} incremental={incremental} por {triggered_by}")
-
-    t0 = _t.time()
-    try:
-        consolidar_vendas_grupo(
-            db, evento_grupo, ano,
-            data_inicio=None, data_fim=yesterday,
-            incremental=incremental,
-            ciclo_id=ciclo_id,
-            parent_job_name="consolidar_evento_manual",
-        )
-        duracao_ms = int((_t.time() - t0) * 1000)
-
+        # qtd_antes
         try:
-            qtd_depois = int(
+            qtd_antes = int(
                 db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
                 .filter(
                     VendasDiariaSnapshot.evento_grupo == evento_grupo,
@@ -692,27 +1081,69 @@ def trigger_consolidar_evento(
                 ).scalar() or 0
             )
         except Exception:
-            qtd_depois = None
+            qtd_antes = None
 
-        log_evento(ciclo_id, "consolidar_evento_manual", "concluido", nivel="ciclo",
-                   detalhes=f"qtd_antes={qtd_antes} qtd_depois={qtd_depois}",
-                   duracao_ms=duracao_ms)
+        log_evento(ciclo_id, "consolidar_evento_manual", "iniciado", nivel="ciclo",
+                   detalhes=f"grupo={evento_grupo} incremental={incremental} por {triggered_by}")
 
-        return {
-            "status": "ok",
-            "evento_grupo": evento_grupo,
-            "incremental": incremental,
-            "qtd_antes": qtd_antes,
-            "qtd_depois": qtd_depois,
-            "duracao_ms": duracao_ms,
-            "ciclo_id": ciclo_id,
-        }
-    except Exception as exc:
-        duracao_ms = int((_t.time() - t0) * 1000)
-        logger.error(f"consolidar_evento_manual: erro grupo='{evento_grupo}': {exc}")
-        log_evento(ciclo_id, "consolidar_evento_manual", "falha", nivel="ciclo",
-                   grupo=evento_grupo, motivo=str(exc)[:300], duracao_ms=duracao_ms)
-        raise HTTPException(status_code=500, detail=str(exc))
+        t0 = _t.time()
+        try:
+            consolidar_vendas_grupo(
+                db, evento_grupo, ano,
+                data_inicio=None, data_fim=yesterday,
+                incremental=incremental,
+                ciclo_id=ciclo_id,
+                parent_job_name="consolidar_evento_manual",
+            )
+            duracao_ms = int((_t.time() - t0) * 1000)
+
+            try:
+                qtd_depois = int(
+                    db.query(sa_func2.coalesce(sa_func2.sum(VendasDiariaSnapshot.quantidade), 0))
+                    .filter(
+                        VendasDiariaSnapshot.evento_grupo == evento_grupo,
+                        VendasDiariaSnapshot.fonte == 'CONSOLIDADO',
+                        VendasDiariaSnapshot.ano == ano,
+                    ).scalar() or 0
+                )
+            except Exception:
+                qtd_depois = None
+
+            log_evento(ciclo_id, "consolidar_evento_manual", "concluido", nivel="ciclo",
+                       detalhes=f"qtd_antes={qtd_antes} qtd_depois={qtd_depois}",
+                       duracao_ms=duracao_ms)
+
+            # ── Cooldown: grava lock só para perfil Diretoria após sucesso ─────
+            cooldown_until = None
+            cooldown_sec_used = 0
+            if is_diretoria:
+                cooldown_sec_used = _diretoria_cooldown_sec()
+                if cooldown_sec_used > 0:
+                    cooldown_until = _set_evento_cooldown(evento_grupo, cooldown_sec_used)
+
+            return {
+                "status": "ok",
+                "evento_grupo": evento_grupo,
+                "incremental": incremental,
+                "qtd_antes": qtd_antes,
+                "qtd_depois": qtd_depois,
+                "duracao_ms": duracao_ms,
+                "ciclo_id": ciclo_id,
+                "cooldown_aplicado": cooldown_until is not None,
+                "cooldown_until_epoch": cooldown_until,
+                "cooldown_total_sec": cooldown_sec_used,
+            }
+        except Exception as exc:
+            duracao_ms = int((_t.time() - t0) * 1000)
+            logger.error(f"consolidar_evento_manual: erro grupo='{evento_grupo}': {exc}")
+            log_evento(ciclo_id, "consolidar_evento_manual", "falha", nivel="ciclo",
+                       grupo=evento_grupo, motivo=str(exc)[:300], duracao_ms=duracao_ms)
+            raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        # Sempre libera o slot in_flight em caso de Diretoria (sucesso OU
+        # exceção). Em falha, NÃO seta cooldown — usuário pode tentar de novo.
+        if slot_acquired:
+            _release_evento_slot(evento_grupo)
 
 
 @router.get("/sync-logs/cycles")
