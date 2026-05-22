@@ -33,6 +33,18 @@ _consolidation_full_progress: dict = {
     "results": [],
     "ciclo_id": None,
     "error": None,
+    # Fase de preparação (ANTES do total ser conhecido): texto curto
+    # descrevendo o passo atual ("Carregando mapeamento de SKUs",
+    # "Identificando eventos ativos", etc.). Frontend usa pra mostrar
+    # "Preparando…" em vez de "Processando 0%".
+    "setup_step": None,
+    # Lista ordenada dos grupos a processar (preenchida 1 vez após o
+    # cálculo). Frontend mostra como "fila"; à medida que cada grupo
+    # termina, ele é removido aqui pra a UI refletir só o que falta.
+    "grupos_pendentes": [],
+    # Grupos em execução nesta janela (até CONSOLIDAR_FULL_WORKERS).
+    # Cada item: {"grupo": str, "started_at": float epoch}.
+    "em_execucao": [],
 }
 
 ONLINE_THRESHOLD_MINUTES = 5
@@ -261,6 +273,9 @@ def trigger_snapshot_consolidation_full(
             "error": None,
             "resumed": bool(resume_ckpt),
             "resumed_from_ok": resume_ckpt["ok_count"] if resume_ckpt else 0,
+            "setup_step": "Iniciando…",
+            "grupos_pendentes": [],
+            "em_execucao": [],
         }
 
     def _run_full():
@@ -315,6 +330,8 @@ def trigger_snapshot_consolidation_full(
             yesterday = today - timedelta(days=1)
             ano = today.year
 
+            with _consolidation_full_lock:
+                _consolidation_full_progress["setup_step"] = "Carregando mapeamento de SKUs…"
             sku_to_grupo = _build_sku_to_grupo_map(local_db, ano)
             if not sku_to_grupo:
                 with _consolidation_full_lock:
@@ -323,6 +340,8 @@ def trigger_snapshot_consolidation_full(
                     _consolidation_full_progress["finished_at"] = _t.time()
                 return
 
+            with _consolidation_full_lock:
+                _consolidation_full_progress["setup_step"] = "Identificando eventos do ano corrente…"
             # Coleta grupos — mesma lógica do snapshot_diario_batch
             grupos_candidatos: set = set()
             for p in local_db.query(DimProjeto).all():
@@ -365,6 +384,8 @@ def trigger_snapshot_consolidation_full(
                 if g:
                     grupos_candidatos.add(g)
 
+            with _consolidation_full_lock:
+                _consolidation_full_progress["setup_step"] = "Filtrando eventos ativos (excluindo congelados)…"
             freeze_days = _freeze_after_days()
             active_grupos = _load_active_grupos(local_db, freeze_days)
             grupos_frozen = grupos_candidatos - active_grupos
@@ -377,6 +398,11 @@ def trigger_snapshot_consolidation_full(
             with _consolidation_full_lock:
                 _consolidation_full_progress["total"] = len(grupos_to_process_all)
                 _consolidation_full_progress["frozen"] = len(grupos_frozen)
+                # Fila inicial: tudo que ainda falta processar nesta execução.
+                # À medida que cada worker pega um grupo, ele sai daqui e vai
+                # pra `em_execucao`; ao terminar, sai de ambos.
+                _consolidation_full_progress["grupos_pendentes"] = list(grupos_to_process)
+                _consolidation_full_progress["setup_step"] = None  # Fase de prep terminou
                 # Pré-popula contadores com o que já foi feito antes do reinício
                 if skipped_resume > 0:
                     _consolidation_full_progress["ok"] = skipped_resume
@@ -403,8 +429,21 @@ def trigger_snapshot_consolidation_full(
 
             def _process_one(grupo: str) -> dict:
                 """Processa 1 grupo numa SessionLocal isolada do thread."""
-                thread_db = SessionLocal()
                 t_grupo = _t.time()
+                # Marca grupo como "em execução" e remove da fila pendente
+                # ANTES de qualquer operação que possa falhar (ex.: SessionLocal()
+                # com pool exaurido). Garante que mesmo numa falha precoce o
+                # grupo não fique preso visualmente em `grupos_pendentes`.
+                # O cleanup de `em_execucao` está no finally externo abaixo.
+                with _consolidation_full_lock:
+                    _consolidation_full_progress["em_execucao"].append(
+                        {"grupo": grupo, "started_at": t_grupo}
+                    )
+                    try:
+                        _consolidation_full_progress["grupos_pendentes"].remove(grupo)
+                    except ValueError:
+                        pass  # já removido (improvável, defensivo)
+                thread_db = None
                 result_entry: dict = {
                     "grupo": grupo,
                     "status": "ok",
@@ -415,6 +454,20 @@ def trigger_snapshot_consolidation_full(
                     "detalhes": None,
                 }
                 try:
+                    # SessionLocal() pode falhar (pool exaurido). Tratamos aqui
+                    # pra registrar como failed em vez de propagar como worker
+                    # crash (que deixaria o estado inconsistente).
+                    try:
+                        thread_db = SessionLocal()
+                    except Exception as _sess_err:
+                        result_entry["status"] = "failed"
+                        result_entry["motivo"] = f"SessionLocal: {str(_sess_err)[:280]}"
+                        result_entry["duracao_ms"] = int((_t.time() - t_grupo) * 1000)
+                        _logger.error(
+                            f"consolidar_full_manual: SessionLocal falhou p/ '{grupo}': {_sess_err}"
+                        )
+                        return result_entry
+
                     try:
                         consolidar_vendas_grupo(
                             thread_db, grupo, ano,
@@ -463,7 +516,19 @@ def trigger_snapshot_consolidation_full(
                             f"para '{grupo}': {_ckpt_err}"
                         )
                 finally:
-                    thread_db.close()
+                    if thread_db is not None:
+                        try:
+                            thread_db.close()
+                        except Exception:
+                            pass  # defensivo — close já errou, nada a fazer
+                    # Sai da lista "em execução" assim que o worker termina,
+                    # independente de ok/falha. Fica no `results` (adicionado
+                    # pelo agregador no loop principal) ou nos contadores.
+                    with _consolidation_full_lock:
+                        _consolidation_full_progress["em_execucao"] = [
+                            x for x in _consolidation_full_progress["em_execucao"]
+                            if x.get("grupo") != grupo
+                        ]
                 return result_entry
 
             with _TPE(max_workers=_max_workers, thread_name_prefix="consolfull") as _pool:

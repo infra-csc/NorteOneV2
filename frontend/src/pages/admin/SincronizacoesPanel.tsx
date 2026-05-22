@@ -51,6 +51,11 @@ type FullProgressResult = {
   detalhes: string | null;
 };
 
+type FullProgressInFlight = {
+  grupo: string;
+  started_at: number;
+};
+
 type FullProgress = {
   status: 'idle' | 'running' | 'done' | 'error';
   started_at: number | null;
@@ -67,6 +72,12 @@ type FullProgress = {
   ciclo_id: string | null;
   error: string | null;
   results: FullProgressResult[];
+  // Fase de preparação — antes de `total` ser conhecido.
+  setup_step?: string | null;
+  // Lista ordenada do que falta processar (atualizada conforme workers consomem).
+  grupos_pendentes?: string[];
+  // Grupos atualmente sendo processados em paralelo.
+  em_execucao?: FullProgressInFlight[];
 };
 
 function fmtElapsed(startTs: number | null, endTs: number | null): string {
@@ -696,6 +707,27 @@ const SincronizacoesPanel: React.FC = () => {
                 </div>
               ) : (
                 <>
+                  {/* ── Estado: Preparando (fase de setup antes do total ser conhecido) ── */}
+                  {isRunning && fullProgress.total === 0 ? (
+                    <div className={`rounded-xl border p-5 space-y-3 ${isDark ? 'bg-indigo-900/15 border-indigo-700/50' : 'bg-indigo-50 border-indigo-200'}`}>
+                      <div className="flex items-center gap-3">
+                        <Loader2 className={`w-5 h-5 animate-spin flex-shrink-0 ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-sm ${isDark ? 'text-indigo-200' : 'text-indigo-900'}`}>Preparando consolidação…</p>
+                          <p className={`text-xs mt-0.5 ${isDark ? 'text-indigo-300/90' : 'text-indigo-700'}`}>
+                            {fullProgress.setup_step || 'Identificando eventos a processar…'}
+                          </p>
+                        </div>
+                        <span className={`text-xs font-mono whitespace-nowrap ${isDark ? 'text-indigo-300/70' : 'text-indigo-700/70'}`}>
+                          {fmtElapsed(fullProgress.started_at, null)}
+                        </span>
+                      </div>
+                      <p className={`text-xs ${isDark ? 'text-indigo-300/70' : 'text-indigo-600/80'}`}>
+                        Esta fase costuma levar 30-60s. A barra de progresso aparece assim que a lista de eventos é montada.
+                      </p>
+                    </div>
+                  ) : (
+                  <>
                   {/* ── Barra de progresso ───────────────────────────────────── */}
                   <div className={`rounded-xl border p-4 space-y-3 ${isDark ? 'bg-gray-800/60 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="flex items-center justify-between text-sm">
@@ -725,21 +757,16 @@ const SincronizacoesPanel: React.FC = () => {
                         {fullProgress.incremental ? 'Incremental' : 'Completo'}
                       </span>
                     </div>
-                    {isRunning && fullProgress.current_grupo && (
-                      <div className={`flex items-center gap-2 text-xs ${isDark ? 'text-indigo-300' : 'text-indigo-700'}`}>
-                        <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
-                        <span className="truncate">Processando: <strong>{fullProgress.current_grupo}</strong></span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* ── Cards de contadores ──────────────────────────────────── */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {/* ── Cards de contadores (5 com "Na fila") ─────────────────── */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     {[
                       { label: 'OK', val: fullProgress.ok, color: 'emerald', Icon: CheckCircle2 },
                       { label: 'Falha', val: fullProgress.failed, color: 'red', Icon: XCircle },
                       { label: 'Pulado', val: fullProgress.skipped, color: 'gray', Icon: MinusCircle },
                       { label: 'Congelados', val: fullProgress.frozen, color: 'blue', Icon: Snowflake },
+                      { label: 'Na fila', val: (fullProgress.grupos_pendentes?.length ?? 0), color: 'amber', Icon: Clock },
                     ].map(({ label, val, color, Icon }) => (
                       <div key={label} className={`rounded-xl border p-3 text-center ${isDark ? 'bg-gray-800/60 border-gray-700' : 'bg-white border-gray-200 shadow-sm'}`}>
                         <Icon className={`w-5 h-5 mx-auto mb-1 text-${color}-${isDark ? '400' : '500'}`} />
@@ -748,6 +775,50 @@ const SincronizacoesPanel: React.FC = () => {
                       </div>
                     ))}
                   </div>
+
+                  {/* ── Em execução agora (paralelos) ─────────────────────────── */}
+                  {isRunning && (fullProgress.em_execucao?.length ?? 0) > 0 && (
+                    <div className={`rounded-xl border overflow-hidden ${isDark ? 'border-indigo-700/50 bg-indigo-900/15' : 'border-indigo-300 bg-indigo-50/60'}`}>
+                      <div className={`flex items-center justify-between px-4 py-2.5 border-b ${isDark ? 'border-indigo-700/50' : 'border-indigo-200'}`}>
+                        <p className={`text-xs font-semibold ${isDark ? 'text-indigo-200' : 'text-indigo-900'} flex items-center gap-1.5`}>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Em execução agora ({fullProgress.em_execucao!.length} em paralelo)
+                        </p>
+                      </div>
+                      <ul className="divide-y divide-indigo-200/40 dark:divide-indigo-700/30">
+                        {fullProgress.em_execucao!.map((ev) => (
+                          <li key={ev.grupo} className="flex items-center justify-between px-4 py-2 text-xs">
+                            <span className={`truncate ${textPrimary}`} title={ev.grupo}>{ev.grupo}</span>
+                            <span className={`font-mono ml-3 whitespace-nowrap ${isDark ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                              {fmtElapsed(ev.started_at, null)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* ── Aguardando na fila ───────────────────────────────────── */}
+                  {isRunning && (fullProgress.grupos_pendentes?.length ?? 0) > 0 && (
+                    <details className={`rounded-xl border overflow-hidden ${isDark ? 'border-gray-700 bg-gray-800/40' : 'border-gray-200 bg-gray-50/60'}`}>
+                      <summary className={`flex items-center justify-between px-4 py-2.5 cursor-pointer select-none text-xs font-semibold ${textPrimary} hover:bg-black/5 dark:hover:bg-white/5`}>
+                        <span className="flex items-center gap-1.5">
+                          <Clock className={`w-3.5 h-3.5 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+                          Aguardando na fila ({fullProgress.grupos_pendentes!.length} restantes)
+                        </span>
+                        <span className={`text-xs font-normal ${textSecondary}`}>Clique para expandir</span>
+                      </summary>
+                      <div className="max-h-48 overflow-y-auto px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+                        <ul className={`space-y-1 text-xs ${textSecondary}`}>
+                          {fullProgress.grupos_pendentes!.map((g) => (
+                            <li key={g} className="truncate" title={g}>· {g}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </details>
+                  )}
+                  </>
+                  )}
 
                   {/* ── Erro geral ───────────────────────────────────────────── */}
                   {isError && fullProgress.error && (
