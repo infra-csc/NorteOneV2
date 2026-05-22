@@ -10119,12 +10119,16 @@ def get_marketing_event_by_id(
                 pass
             if _should_rebuild:
                 try:
-                    from ...services.snapshot_service import consolidar_vendas_grupo
-                    # incremental=True: busca apenas dias novos desde o último snapshot,
-                    # evitando rebuild completo síncrono que bloqueia a resposta por 1-2min.
-                    # O serviço cai automaticamente para full rebuild se não houver snapshot prévio.
-                    consolidar_vendas_grupo(db, grupo_nome, ano, incremental=True)
-                    logger.info(f"Snapshot atualizado incremental (force_refresh) para '{grupo_nome}' ano={ano}")
+                    from ...services.snapshot_service import consolidar_vendas_grupo, _snapshot_lookback_days
+                    # incremental=True + lookback_days: reprocessa janela rolante
+                    # (default 7 dias) para corrigir snapshots parciais (ex: Magento
+                    # em timeout quando o dia foi gravado pela primeira vez). Sem o
+                    # lookback, o botão "Reconsolidar" só busca dias > max_dia e
+                    # nunca corrige um dia antigo que ficou com valor errado.
+                    # Mesmo comportamento do batch noturno das 04h BRT.
+                    _lb = _snapshot_lookback_days()
+                    consolidar_vendas_grupo(db, grupo_nome, ano, incremental=True, lookback_days=_lb)
+                    logger.info(f"Snapshot atualizado incremental+lookback={_lb} (force_refresh) para '{grupo_nome}' ano={ano}")
                 except Exception as _e:
                     logger.warning(f"Falha ao reconstruir snapshot para '{grupo_nome}': {_e}")
         elif detail_regime == "consolidated" and ano == current_year:
