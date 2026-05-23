@@ -512,6 +512,41 @@ def get_curva_historica_snapshot_with_meta(db: Session, evento_grupo: str, ano_r
     return pattern, origem
 
 
+def is_curve_saturated(pattern: Optional[dict]) -> bool:
+    """Detecta curvas históricas saturadas — padrões onde percentual_acumulado
+    está em ~100% em vários d_minus altos, indicando que a curva é inutilizável
+    (delta diário ≈ 0 em quase todos os pontos, produzindo Meta Dia zerada).
+
+    Origens conhecidas dessa saturação:
+      • Edições anteriores com poucas inscrições concentradas em 1-2 dias
+        (ex.: Vitória Inverno 2025 com 5 inscrições).
+      • Eventos com bloco de dias sem venda antes de D=0; o preenchimento
+        forçado de pct=1.0 em _fetch_previous_year_cumulative_pattern leva
+        a saturação ampla.
+      • Curvas derivadas regionalmente onde TODOS os irmãos já estão
+        saturados (cascata).
+
+    Heurística: exige ≥2 amostras com pct≥0.95 no quartil superior dos d_minus
+    (evita rejeitar curvas legítimas frontloaded). Curvas muito curtas
+    (max_dm < 30) são consideradas não-saturadas — não há base estatística.
+    """
+    if not pattern:
+        return False
+    try:
+        keys = sorted(pattern.keys())
+        max_dm = keys[-1]
+        if max_dm < 30:
+            return False
+        cutoff = max_dm * 0.75
+        high_pts = [pattern[k] for k in keys if k >= cutoff]
+        if len(high_pts) < 2:
+            return False
+        saturated_pts = sum(1 for p in high_pts if p >= 0.95)
+        return saturated_pts >= 2
+    except (ValueError, KeyError):
+        return False
+
+
 def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: Optional[int] = None, origem: Optional[str] = None):
     db.query(CurvaHistoricaSnapshot).filter(
         CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
@@ -1089,9 +1124,13 @@ def consolidar_curvas_historicas_batch(db: Session):
             continue
 
         try:
+            # _fetch_previous_year_cumulative_pattern já persiste internamente
+            # com total_vendas_referencia correto (= total_prev_sales). Não
+            # re-salvamos aqui para evitar sobrescrever esse total com
+            # len(pattern), que é o número de d_minus (não de inscrições) e
+            # corrompe os pesos usados nos blends regionais/de circuito.
             pattern = _fetch_previous_year_cumulative_pattern(db, grupo, ano)
             if pattern:
-                save_curva_historica_snapshot(db, grupo, prev_ano, pattern, len(pattern), origem="historico")
                 saved += 1
         except Exception as e:
             logger.error(f"Erro ao consolidar curva histórica para grupo='{grupo}': {e}")
@@ -1116,10 +1155,22 @@ def consolidar_curvas_historicas_batch(db: Session):
         try:
             estado = grupo_estado_map.get(grupo)
             fb_pattern, fb_info = _resolve_hist_pattern(db, grupo, ano, estado=estado)
+            # Não persiste curvas derivadas saturadas — quando todos os irmãos
+            # regionais também estão degenerados (ex.: Vitória 2025 inteira),
+            # a média regional também vira pct≈1.0 em todos os d_minus.
+            if fb_pattern and is_curve_saturated(fb_pattern):
+                logger.warning(
+                    f"[CurvaDerivada] '{grupo}' fallback {fb_info.get('tipo_curva')} "
+                    f"de '{fb_info.get('fonte_curva')}' veio saturado — não salvando"
+                )
+                continue
             if fb_pattern and fb_info.get("tipo_curva") != "linear":
+                # total_vendas_referencia=None: padrão derivado não tem
+                # contagem de inscrições própria (é blend de irmãos). Manter
+                # None evita que o peso fake influencie blends futuros.
                 save_curva_historica_snapshot(
                     db, grupo, prev_ano, fb_pattern,
-                    len(fb_pattern),
+                    None,
                     origem=fb_info.get("tipo_curva", "derivado")
                 )
                 derived += 1
@@ -1161,9 +1212,11 @@ def _repair_orphan_curva_historica(db: Session) -> int:
         if grupo in curva_grupos:
             continue
         try:
+            # _fetch_previous_year_cumulative_pattern persiste internamente
+            # com total_vendas_referencia correto. Antes este caminho
+            # chamava save de novo com len(pattern), corrompendo o total.
             pattern = _fetch_previous_year_cumulative_pattern(db, grupo, max_ano + 1)
             if pattern:
-                save_curva_historica_snapshot(db, grupo, max_ano, pattern, len(pattern), origem="historico")
                 repaired += 1
                 logger.info(f"[RepairOrphan] CurvaHistoricaSnapshot criada para '{grupo}' ano_referencia={max_ano}")
         except Exception as e:

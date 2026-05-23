@@ -1544,6 +1544,22 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
 
     logger.info(f"Built historical pattern for '{evento_grupo}' from ano={prev_ano} (inscricao D-): {len(prev_daily)} sale days, total={total_prev_sales}, D- range [{min_dm}, {max_dm}]")
 
+    # Guard contra curvas degeneradas: edições com baixíssimo volume produzem
+    # padrões saturados (pct=1.0 em quase todo d_minus), gerando Meta Dia
+    # zerada quando aplicados. Em vez de persistir lixo, retorna None para
+    # que _resolve_hist_pattern siga o fallback (override → circuito →
+    # regional → linear). Threshold de 20 inscrições é conservador — abaixo
+    # disso a curva não tem base estatística.
+    from ...services.snapshot_service import is_curve_saturated
+    MIN_REF_TOTAL = 20
+    if total_prev_sales < MIN_REF_TOTAL or is_curve_saturated(pattern):
+        logger.warning(
+            f"[CurvaHist] '{evento_grupo}' ano={prev_ano} curva descartada "
+            f"(total={total_prev_sales}, saturated={is_curve_saturated(pattern)}) "
+            f"— delegando ao fallback"
+        )
+        return None
+
     if not use_normalized:
         try:
             save_curva_historica_snapshot(db, evento_grupo, prev_ano, pattern, total_prev_sales)
@@ -1561,9 +1577,17 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
       - fonte_curva: name of the source grupo or region
       - ano_referencia: year the pattern data is from
     """
-    from ...services.snapshot_service import get_curva_historica_snapshot
+    from ...services.snapshot_service import get_curva_historica_snapshot, is_curve_saturated
     from ...models.vendas_snapshot import CurvaHistoricaSnapshot
     prev_ano = ano - 1
+
+    def _skip_if_saturated(pat: Optional[dict], src: str) -> Optional[dict]:
+        """Descarta padrões saturados antes de usá-los como sibling/regional,
+        impedindo cascata de degeneração nos blends de fallback."""
+        if pat and is_curve_saturated(pat):
+            logger.info(f"[CurvaResolve] sibling '{src}' está saturado — ignorando no blend")
+            return None
+        return pat
 
     # Detecta curvas "degeneradas": padrões que reflitam histórico de baixíssima
     # venda (ex.: Vitória Inverno 2025 com apenas 5 inscrições) ou que já estejam
@@ -1642,8 +1666,10 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
         ).all()
         for sibling in same_circuit_city:
             sib_pattern = None if use_normalized else get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            sib_pattern = _skip_if_saturated(sib_pattern, sibling.nome)
             if not sib_pattern:
                 sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano, use_normalized=use_normalized)
+                sib_pattern = _skip_if_saturated(sib_pattern, sibling.nome)
             if sib_pattern:
                 logger.info(f"[CurvaResolve] '{evento_grupo}' using circuit+city sibling: '{sibling.nome}'")
                 return sib_pattern, {
@@ -1663,6 +1689,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
         pattern_weights = []
         for sibling in same_circuit:
             sib_pattern = None if use_normalized else get_curva_historica_snapshot(db, sibling.nome, prev_ano)
+            sib_pattern = _skip_if_saturated(sib_pattern, sibling.nome)
             sib_weight = 0
             if sib_pattern:
                 weight_row = db.query(CurvaHistoricaSnapshot.total_vendas_referencia).filter(
@@ -1672,6 +1699,7 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
                 sib_weight = weight_row[0] if weight_row and weight_row[0] else 0
             if not sib_pattern:
                 sib_pattern = _fetch_previous_year_cumulative_pattern(db, sibling.nome, ano, use_normalized=use_normalized)
+                sib_pattern = _skip_if_saturated(sib_pattern, sibling.nome)
             if sib_pattern:
                 patterns_found.append(sib_pattern)
                 source_names.append(sibling.nome)
@@ -1703,8 +1731,10 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
         for rg in regional_grupos:
             rg_pattern = (None if use_normalized
                           else get_curva_historica_snapshot(db, rg.nome, prev_ano))
+            rg_pattern = _skip_if_saturated(rg_pattern, rg.nome)
             if not rg_pattern and use_normalized:
                 rg_pattern = _fetch_previous_year_cumulative_pattern(db, rg.nome, ano, use_normalized=True)
+                rg_pattern = _skip_if_saturated(rg_pattern, rg.nome)
             if rg_pattern:
                 patterns_found.append(rg_pattern)
                 weight_row = db.query(CurvaHistoricaSnapshot.total_vendas_referencia).filter(
@@ -6394,33 +6424,10 @@ def get_curva_snapshot(
     pattern, curva_info = _resolve_hist_pattern(db, evento_grupo, ano, estado=_estado)
     ano_ref = (curva_info or {}).get("ano_referencia") or prev_ano
 
-    # Mesmo após o fallback, o padrão pode vir saturado em ~100% num D- alto
-    # (caso de Vitória, onde TODAS as curvas regionais 2025 têm pct=1.0 em
-    # qualquer d_minus — provável bug histórico de consolidação dessas
-    # curvas). Saturado = meta_dia=0 em todos os dias. Trata como ausente
-    # e cai na fabricação linear logo abaixo.
-    def _pattern_is_saturated(pat: Optional[dict]) -> bool:
-        """Considera saturado quando o padrão já está em ~100% em VÁRIOS
-        d_minus altos — evita rejeitar curvas legítimas frontloaded onde
-        apenas o ponto mais alto bateu 95% (e.g., evento muito próximo
-        de D=0 com histórico curto). Exige que >=2 amostras no quartil
-        superior dos d_minus tenham pct >= 0.95.
-        """
-        if not pat:
-            return False
-        try:
-            keys = sorted(pat.keys())
-            max_dm = keys[-1]
-            if max_dm < 30:
-                return False
-            cutoff = max_dm * 0.75
-            high_pts = [pat[k] for k in keys if k >= cutoff]
-            if len(high_pts) < 2:
-                return False
-            saturated_pts = sum(1 for p in high_pts if p >= 0.95)
-            return saturated_pts >= 2
-        except (ValueError, KeyError):
-            return False
+    # Mesmo após o fallback, o padrão pode vir saturado em ~100% num D- alto.
+    # Usa o helper canônico de snapshot_service para manter UMA regra de
+    # saturação em todo o sistema (consolidação, blends de fallback e leitura).
+    from ...services.snapshot_service import is_curve_saturated as _pattern_is_saturated
 
     if _pattern_is_saturated(pattern):
         logger.info(
