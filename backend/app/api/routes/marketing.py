@@ -6336,6 +6336,7 @@ def get_curva_snapshot(
 
     is_grouped = evento_id.startswith("grp_")
 
+    projetos_for_meta = []
     if is_grouped:
         grupo_nome = evento_id.replace("grp_", "")
         grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
@@ -6346,6 +6347,7 @@ def get_curva_snapshot(
         projetos_q = _wq_dim_projetos_by_codigos(db, proj_skus)
         sales_goal = get_meta_orcada_projetos(db, projetos_q)
         evento_grupo = grupo_nome
+        projetos_for_meta = list(projetos_q or [])
     else:
         projeto = _wq_dim_projeto_by_id(db, int(evento_id))
         if not projeto:
@@ -6359,12 +6361,104 @@ def get_curva_snapshot(
                 if sm.evento_grupo and sm.evento_grupo.strip():
                     evento_grupo = sm.evento_grupo
                     break
+        projetos_for_meta = [projeto]
 
     if not evento_grupo:
         raise HTTPException(status_code=404, detail="Evento sem grupo configurado")
 
+    # Descobre estado e data do evento para alimentar o fallback regional
+    # e a fabricação linear (último recurso).
+    _estado = None
+    _data_evento = None
+    _rep_projeto = None
+    for _p in projetos_for_meta:
+        if getattr(_p, "data_evento", None):
+            if not _data_evento or _p.data_evento > _data_evento:
+                _data_evento = _p.data_evento
+                _rep_projeto = _p
+    if _rep_projeto and getattr(_rep_projeto, "estado", None):
+        _estado = str(_rep_projeto.estado)
+    _dias_enc = 2
+    try:
+        if _rep_projeto:
+            _dias_enc = get_dias_encerramento(db, projeto_id=_rep_projeto.id)
+    except Exception:
+        pass
+
+    # Usa a cadeia completa de fallback (override → próprio → circuito+cidade →
+    # circuito → regional → linear) em vez de ler o snapshot direto. Sem isso,
+    # eventos como Vitória — cujo histórico próprio é degenerado (5 inscrições)
+    # E cujo override (Outono Vitória) está saturado em pct=1.0 — caíam num
+    # padrão onde pct_dia=0 em todos os dias, gerando meta_dia=0 na tabela.
     prev_ano = ano - 1
-    pattern = get_curva_historica_snapshot(db, evento_grupo, prev_ano)
+    pattern, curva_info = _resolve_hist_pattern(db, evento_grupo, ano, estado=_estado)
+    ano_ref = (curva_info or {}).get("ano_referencia") or prev_ano
+
+    # Mesmo após o fallback, o padrão pode vir saturado em ~100% num D- alto
+    # (caso de Vitória, onde TODAS as curvas regionais 2025 têm pct=1.0 em
+    # qualquer d_minus — provável bug histórico de consolidação dessas
+    # curvas). Saturado = meta_dia=0 em todos os dias. Trata como ausente
+    # e cai na fabricação linear logo abaixo.
+    def _pattern_is_saturated(pat: Optional[dict]) -> bool:
+        """Considera saturado quando o padrão já está em ~100% em VÁRIOS
+        d_minus altos — evita rejeitar curvas legítimas frontloaded onde
+        apenas o ponto mais alto bateu 95% (e.g., evento muito próximo
+        de D=0 com histórico curto). Exige que >=2 amostras no quartil
+        superior dos d_minus tenham pct >= 0.95.
+        """
+        if not pat:
+            return False
+        try:
+            keys = sorted(pat.keys())
+            max_dm = keys[-1]
+            if max_dm < 30:
+                return False
+            cutoff = max_dm * 0.75
+            high_pts = [pat[k] for k in keys if k >= cutoff]
+            if len(high_pts) < 2:
+                return False
+            saturated_pts = sum(1 for p in high_pts if p >= 0.95)
+            return saturated_pts >= 2
+        except (ValueError, KeyError):
+            return False
+
+    if _pattern_is_saturated(pattern):
+        logger.info(
+            f"[CurvaSnapshot] '{evento_grupo}' padrão resolvido está saturado "
+            f"(tipo={(curva_info or {}).get('tipo_curva')}, fonte={(curva_info or {}).get('fonte_curva')}) "
+            f"— descartando e caindo em fabricação linear"
+        )
+        pattern = None
+
+    # Fabricação linear como último recurso: distribui a meta uniformemente
+    # da abertura de inscrições (estimada) até D=0. Garante que a coluna
+    # "Meta Dia" nunca fique zerada quando há sales_goal e data de evento.
+    fabricated_linear = False
+    if not pattern and _data_evento:
+        today_lin = today_brazil()
+        days_to_event = max((_data_evento - today_lin).days, 0)
+        # Janela total: dias até o evento + 90 dias de histórico observável.
+        d_open = max(days_to_event + 90, 60)
+        # A meta deve estar 100% atingida no fechamento das inscrições
+        # (data_evento - dias_enc), não em D=0. Sem isso, a meta_dia
+        # continua incremental nos dias em que já não há venda possível.
+        d_close = max(int(_dias_enc or 0), 0)
+        span = max(d_open - d_close, 1)
+        pattern = {}
+        for dm in range(0, d_open + 1):
+            if dm <= d_close:
+                pattern[dm] = 1.0
+            else:
+                pattern[dm] = max(0.0, 1.0 - ((dm - d_close) / span))
+        pattern[0] = 1.0
+        curva_info = {"tipo_curva": "linear", "fonte_curva": None, "ano_referencia": None}
+        ano_ref = None
+        fabricated_linear = True
+        logger.info(
+            f"[CurvaSnapshot] '{evento_grupo}' sem padrão histórico utilizável — "
+            f"fabricando curva linear sobre {d_open} dias "
+            f"(data_evento={_data_evento}, dias_enc={d_close})"
+        )
 
     if not pattern:
         return {
@@ -6373,7 +6467,7 @@ def get_curva_snapshot(
             "ano_referencia": prev_ano,
             "sales_goal": sales_goal,
             "data": [],
-            "message": f"Sem dados de curva histórica para {prev_ano}"
+            "message": f"Sem dados de curva histórica para {prev_ano} e sem data de evento para projeção linear"
         }
 
     sorted_dms = sorted(pattern.keys(), reverse=True)
@@ -6396,8 +6490,11 @@ def get_curva_snapshot(
     return {
         "status": "success",
         "evento_grupo": evento_grupo,
-        "ano_referencia": prev_ano,
+        "ano_referencia": ano_ref,
         "sales_goal": sales_goal,
+        "tipo_curva": (curva_info or {}).get("tipo_curva"),
+        "fonte_curva": (curva_info or {}).get("fonte_curva"),
+        "fabricated_linear": fabricated_linear,
         "data": rows
     }
 
