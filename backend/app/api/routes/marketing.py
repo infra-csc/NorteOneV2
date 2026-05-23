@@ -1564,6 +1564,37 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
     from ...models.vendas_snapshot import CurvaHistoricaSnapshot
     prev_ano = ano - 1
 
+    # Detecta curvas "degeneradas": padrões que reflitam histórico de baixíssima
+    # venda (ex.: Vitória Inverno 2025 com apenas 5 inscrições) ou que já estejam
+    # saturados em ~100% no D- mais alto disponível (toda venda do ano anterior
+    # ocorreu antes do início da janela observada). Ambos os casos produzem
+    # meta_dia=0 em todos os dias úteis e meta_acum constante na meta final.
+    # Preferimos cair no fallback (circuito / regional / linear) nesses casos.
+    MIN_REF_SALES = 50
+    SATURATION_PCT = 0.95
+
+    def _ref_total_for(eg: str, ar: int) -> int:
+        val = db.query(func.max(CurvaHistoricaSnapshot.total_vendas_referencia)).filter(
+            CurvaHistoricaSnapshot.evento_grupo == eg,
+            CurvaHistoricaSnapshot.ano_referencia == ar
+        ).scalar()
+        return int(val) if val else 0
+
+    def _is_degenerate(pattern: Optional[dict], ref_total: int, label: str) -> bool:
+        if ref_total > 0 and ref_total < MIN_REF_SALES:
+            logger.info(f"[CurvaResolve] {label} descartado: total_vendas_ref={ref_total} < {MIN_REF_SALES}")
+            return True
+        if pattern:
+            try:
+                max_dm = max(pattern.keys())
+                head_pct = pattern[max_dm]
+                if max_dm >= 30 and head_pct >= SATURATION_PCT:
+                    logger.info(f"[CurvaResolve] {label} descartado: saturado em D-{max_dm} (pct={head_pct:.2f} ≥ {SATURATION_PCT})")
+                    return True
+            except (ValueError, KeyError):
+                pass
+        return False
+
     grupo_obj = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == evento_grupo).first()
 
     if grupo_obj and grupo_obj.curva_override:
@@ -1580,7 +1611,8 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
                     logger.info(f"[CurvaResolve] '{evento_grupo}' override '{grupo_obj.curva_override}': ano {prev_ano} não encontrado, usando ano_ref={most_recent_ano}")
         if not override_pattern:
             override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano, use_normalized=use_normalized)
-        if override_pattern:
+        override_ref_total = _ref_total_for(grupo_obj.curva_override, override_ano_ref)
+        if override_pattern and not _is_degenerate(override_pattern, override_ref_total, f"'{evento_grupo}' override '{grupo_obj.curva_override}'"):
             logger.info(f"[CurvaResolve] '{evento_grupo}' using manual override: '{grupo_obj.curva_override}'")
             return override_pattern, {
                 "tipo_curva": "manual",
@@ -1588,8 +1620,9 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
                 "ano_referencia": override_ano_ref
             }
 
+    own_ref_total = _ref_total_for(evento_grupo, prev_ano)
     own_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano, use_normalized=use_normalized)
-    if own_pattern:
+    if own_pattern and not _is_degenerate(own_pattern, own_ref_total, f"'{evento_grupo}' próprio ano={prev_ano}"):
         return own_pattern, {
             "tipo_curva": "historico",
             "fonte_curva": evento_grupo,
