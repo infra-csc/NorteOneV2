@@ -1046,6 +1046,20 @@ def snapshot_diario_batch(db: Session):
         detalhes=f"{len(grupos_processados)} grupos processados, {len(grupos_frozen)} congelados",
         duracao_ms=int((_t_batch.time() - _t_start) * 1000),
     )
+    try:
+        from datetime import datetime as _dt_jh, timezone as _tz_jh
+        from .job_health_service import record_job_run as _rjr
+        _rjr(
+            "snapshot_diario",
+            started_at=_dt_jh.fromtimestamp(_t_start, tz=_tz_jh.utc),
+            grupos_total=len(grupos_candidatos) + len(grupos_frozen),
+            grupos_ok=len(grupos_processados),
+            grupos_pulado=len(grupos_frozen),
+            status="concluido",
+            extra=f"frozen={len(grupos_frozen)} active={len(grupos_candidatos)}",
+        )
+    except Exception:
+        pass
     return len(grupos_processados)
 
 
@@ -1610,6 +1624,29 @@ def sincronizar_hoje_batch(db: Session) -> int:
         qtd_depois=synced + partial_synced,
         duracao_ms=int((_t_hj.time() - _t_hj_start) * 1000),
     )
+    try:
+        from datetime import datetime as _dt_jh2, timezone as _tz_jh2
+        from .job_health_service import record_job_run as _rjr2, maybe_alert_high_partial_ratio as _alert2
+        _rjr2(
+            "sincronizar_hoje",
+            started_at=_dt_jh2.fromtimestamp(_t_hj_start, tz=_tz_jh2.utc),
+            grupos_total=len(grupos),
+            grupos_ok=synced,
+            grupos_parcial=partial_synced,
+            grupos_falha=failed,
+            grupos_pulado=skipped_unhealthy,
+            status="concluido",
+            extra=f"ativo_ok={ativo_ok} magento_ok={magento_ok} backfills={backfilled}",
+        )
+        _alert2(
+            "sincronizar_hoje_batch",
+            grupos_total=len(grupos),
+            grupos_parcial=partial_synced,
+            grupos_falha=failed,
+            threshold=0.20,
+        )
+    except Exception:
+        pass
 
     # Invalidate event_detail and ISC caches so next dashboard request gets fresh
     # snapshot data without waiting for the 22h/5min SmartCache TTL to expire.

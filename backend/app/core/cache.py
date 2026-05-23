@@ -995,7 +995,7 @@ class CacheRefreshScheduler:
         self._schedule_daily_refresh()
         self._schedule_snapshot_consolidation()
         self._schedule_evening_refresh()
-        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 04:00 BRT, daily refresh at 05:00 BRT, evening refresh at 17:00 BRT)")
+        logger.info(f"Cache refresh scheduler started (interval: {interval}s, daily snapshot at 02:00 BRT, daily refresh at 05:00 BRT, evening refresh at 17:00 BRT)")
 
     def _schedule(self, interval: int):
         with self._lock:
@@ -1049,12 +1049,12 @@ class CacheRefreshScheduler:
                 return
 
         now = datetime.now(ZoneInfo('America/Sao_Paulo'))
-        today_target = now.replace(hour=4, minute=0, second=0, microsecond=0)
+        today_target = now.replace(hour=2, minute=0, second=0, microsecond=0)
 
         # Rede de segurança + retry intra-dia. Lê o estado dos ciclos de hoje
-        # (a partir das 04h BRT) e decide:
-        #   (a) NENHUMA tentativa hoje + já passou das 04h → catch-up em 90s
-        #       (cobre o caso "backend subiu de manhã e perdeu o 04h").
+        # (a partir das 02h BRT) e decide:
+        #   (a) NENHUMA tentativa hoje + já passou das 02h → catch-up em 90s
+        #       (cobre o caso "backend subiu de manhã e perdeu o 02h").
         #   (b) Última tentativa terminou em 'parcial' ou 'falha' E ainda há
         #       quota de retry (< MAX_RETRIES_PER_DAY tentativas terminais
         #       hoje) → re-tenta em RETRY_DELAY_MINUTES. A idempotência por
@@ -1179,7 +1179,7 @@ class CacheRefreshScheduler:
             if not self._running:
                 return
 
-        logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (04:00 BRT) ===")
+        logger.info("=== DAILY SNAPSHOT CONSOLIDATION STARTED (02:00 BRT) ===")
         # Ciclo guarda-chuva: agrupa todos os sub-passos sob o mesmo ciclo_id
         # para que o painel de Sincronizações mostre o resumo do job das 04h
         # (o que rodou, o que falhou, o que foi pulado).
@@ -1190,7 +1190,7 @@ class CacheRefreshScheduler:
         _root_t0 = _t_root.time()
         _root_steps = {"ok": 0, "falha": 0, "pulado": 0}
         _le_root(_root_ciclo, _root_job, "iniciado", nivel="ciclo",
-                 detalhes="Job agendado das 04h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
+                 detalhes="Job agendado das 02h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
 
         # Idempotência por sub-passo: se este sub-passo JÁ concluiu hoje BRT
         # em qualquer ciclo (ex.: backend reiniciou no meio do job das 04h e
@@ -1219,7 +1219,7 @@ class CacheRefreshScheduler:
                 finally:
                     _db_idem.close()
             except Exception as _e_idem:
-                logger.warning(f"[Daily 04:00] Falha ao checar idempotência de {step_name}: {_e_idem}")
+                logger.warning(f"[Daily 02:00] Falha ao checar idempotência de {step_name}: {_e_idem}")
                 return False
 
         def _run_step(step_name: str, fn, *, optional: bool = False) -> bool:
@@ -1236,7 +1236,7 @@ class CacheRefreshScheduler:
                          motivo="ja_executado_hoje",
                          detalhes=f"{step_name} já concluído hoje BRT — pulado (idempotência)")
                 _root_steps["pulado"] += 1
-                logger.info(f"[Daily 04:00] {step_name} pulado: já concluiu hoje BRT em outro ciclo")
+                logger.info(f"[Daily 02:00] {step_name} pulado: já concluiu hoje BRT em outro ciclo")
                 return True
             _t0 = _t_root.time()
             _le_root(_root_ciclo, _root_job, "iniciado", nivel="grupo", grupo=step_name,
@@ -1269,7 +1269,7 @@ class CacheRefreshScheduler:
                 else:
                     _root_steps["falha"] += 1
                     if not optional:
-                        logger.error(f"[Daily 04:00] {step_name} retornou status='{_motivo_log}' (não exceção)")
+                        logger.error(f"[Daily 02:00] {step_name} retornou status='{_motivo_log}' (não exceção)")
                 return _status_log == "ok"
             except Exception as _exc:
                 _status = "falha"
@@ -1279,9 +1279,9 @@ class CacheRefreshScheduler:
                          duracao_ms=int((_t_root.time() - _t0) * 1000))
                 _root_steps["falha"] += 1
                 if optional:
-                    logger.error(f"[Daily 04:00] {step_name} falhou (não bloqueante): {_exc}")
+                    logger.error(f"[Daily 02:00] {step_name} falhou (não bloqueante): {_exc}")
                     return False
-                logger.error(f"[Daily 04:00] {step_name} falhou: {_exc}")
+                logger.error(f"[Daily 02:00] {step_name} falhou: {_exc}")
                 return False
 
         _final_status = "concluido"
@@ -1302,7 +1302,7 @@ class CacheRefreshScheduler:
                     # badge continua mostrando o último horário do agendador da
                     # noite anterior — o que dá a falsa impressão de dado velho.
                     set_last_sync_hoje(_t_root.time())
-                    logger.info(f"[Daily 04:00] sincronizar_hoje_batch: {_c} grupos — last_sync_hoje atualizado")
+                    logger.info(f"[Daily 02:00] sincronizar_hoje_batch: {_c} grupos — last_sync_hoje atualizado")
                     return f"{_c} grupos sincronizados"
                 _run_step("sincronizar_hoje_batch", _sync_hoje)
 
@@ -1314,7 +1314,7 @@ class CacheRefreshScheduler:
                     from app.services.sync_log_service import cleanup_old as _sync_cleanup
                     removed = _sync_cleanup(days=30)
                     if removed:
-                        logger.info(f"[Daily 04:00] sync_event_log cleanup: {removed} linhas removidas (>30 dias)")
+                        logger.info(f"[Daily 02:00] sync_event_log cleanup: {removed} linhas removidas (>30 dias)")
                     return f"{removed or 0} linhas removidas (>30 dias)"
                 _run_step("sync_event_log_cleanup", _cleanup, optional=True)
                 logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")

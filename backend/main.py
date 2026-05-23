@@ -1554,6 +1554,7 @@ async def lifespan(app: FastAPI):
             from app.models import nori_insights as _ni_models  # noqa: F401 — ensure table is registered
             from app.models import system_health as _sh_models  # noqa: F401 — ensure health tables are registered
             from app.models import projecao as _proj_models  # noqa: F401 — ensure projecao tables are registered
+            from app.models import job_run_health as _jrh_models  # noqa: F401 — ensure job_run_health table is registered
             from app.models import evento_detail_snapshot as _eds_models  # noqa: F401 — ensure detail snapshot table is registered
             from app.models import user_session as _us_models  # noqa: F401 — ensure user_sessions table is registered
             if engine:
