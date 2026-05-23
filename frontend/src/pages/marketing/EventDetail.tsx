@@ -428,7 +428,7 @@ const EventDetail: React.FC = () => {
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
   const [controleSubTab, setControleSubTab] = useState<'tabela' | 'curva'>('tabela');
-  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string } | null>(_snapModCached?.data ?? null);
+  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number | null; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string; tipo_curva?: string | null; fonte_curva?: string | null; fabricated_linear?: boolean } | null>(_snapModCached?.data ?? null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
   const [showAllCurvaRows, setShowAllCurvaRows] = useState(false);
@@ -2732,8 +2732,17 @@ const EventDetail: React.FC = () => {
                   <div className="space-y-4">
                     <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4`}>
                       <div className={`rounded-lg p-4 border ${isDark ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200'}`}>
-                        <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ano de Referência</span>
-                        <p className={`text-xl font-bold mt-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>{curvaSnapshot.ano_referencia}</p>
+                        <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {curvaSnapshot.fabricated_linear ? 'Tipo de Curva' : 'Ano de Referência'}
+                        </span>
+                        <p className={`text-xl font-bold mt-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                          {curvaSnapshot.fabricated_linear
+                            ? 'Linear'
+                            : (curvaSnapshot.ano_referencia ?? '—')}
+                        </p>
+                        {curvaSnapshot.fabricated_linear && (
+                          <span className={`text-[10px] block mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>sem histórico utilizável</span>
+                        )}
                       </div>
                       <div className={`rounded-lg p-4 border ${isDark ? 'bg-purple-900/20 border-purple-800' : 'bg-purple-50 border-purple-200'}`}>
                         <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Meta Atual (base)</span>
@@ -2746,7 +2755,9 @@ const EventDetail: React.FC = () => {
                     </div>
 
                     <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                      A curva é baseada no histórico de {curvaSnapshot.ano_referencia}. As quantidades de meta são calculadas aplicando o % acumulado à meta atual de {curvaSnapshot.sales_goal.toLocaleString('pt-BR')} inscrições.
+                      {curvaSnapshot.fabricated_linear
+                        ? `Sem curva histórica utilizável para este evento — a meta de ${curvaSnapshot.sales_goal.toLocaleString('pt-BR')} inscrições foi distribuída linearmente ao longo da janela de inscrições.`
+                        : `A curva é baseada no histórico de ${curvaSnapshot.ano_referencia ?? '—'}. As quantidades de meta são calculadas aplicando o % acumulado à meta atual de ${curvaSnapshot.sales_goal.toLocaleString('pt-BR')} inscrições.`}
                     </p>
 
                     <div className={`rounded-lg overflow-hidden border ${isDark ? 'border-gray-600' : 'border-gray-300'}`}>
