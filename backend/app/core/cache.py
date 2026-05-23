@@ -1189,6 +1189,10 @@ class CacheRefreshScheduler:
         _root_job = "consolidacao_diaria_04h"
         _root_t0 = _t_root.time()
         _root_steps = {"ok": 0, "falha": 0, "pulado": 0}
+        logger.info(
+            f"[DailyJob] job_name legado='{_root_job}' (mantido para compat com SyncEventLog); "
+            f"execução real agendada para 02:00 BRT"
+        )
         _le_root(_root_ciclo, _root_job, "iniciado", nivel="ciclo",
                  detalhes="Job agendado das 02h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
 

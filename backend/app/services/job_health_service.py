@@ -60,7 +60,7 @@ def maybe_alert_high_partial_ratio(
     if grupos_total <= 0:
         return
     ratio = (grupos_parcial + grupos_falha) / grupos_total
-    if ratio < threshold:
+    if ratio <= threshold:
         return
     try:
         from app.services.health_alert_service import log_and_alert

@@ -1058,8 +1058,8 @@ def snapshot_diario_batch(db: Session):
             status="concluido",
             extra=f"frozen={len(grupos_frozen)} active={len(grupos_candidatos)}",
         )
-    except Exception:
-        pass
+    except Exception as _e_jh:
+        logger.warning(f"[JobHealth] snapshot_diario_batch: falha ao registrar métrica: {_e_jh}")
     return len(grupos_processados)
 
 
@@ -1645,8 +1645,8 @@ def sincronizar_hoje_batch(db: Session) -> int:
             grupos_falha=failed,
             threshold=0.20,
         )
-    except Exception:
-        pass
+    except Exception as _e_jh2:
+        logger.warning(f"[JobHealth] sincronizar_hoje_batch: falha ao registrar métrica/alerta: {_e_jh2}")
 
     # Invalidate event_detail and ISC caches so next dashboard request gets fresh
     # snapshot data without waiting for the 22h/5min SmartCache TTL to expire.
