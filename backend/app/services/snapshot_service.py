@@ -526,9 +526,18 @@ def is_curve_saturated(pattern: Optional[dict]) -> bool:
       • Curvas derivadas regionalmente onde TODOS os irmãos já estão
         saturados (cascata).
 
-    Heurística: exige ≥2 amostras com pct≥0.95 no quartil superior dos d_minus
-    (evita rejeitar curvas legítimas frontloaded). Curvas muito curtas
-    (max_dm < 30) são consideradas não-saturadas — não há base estatística.
+    Heurística (OR entre A e B):
+      • Critério A (forte, com salvaguarda anti-early-bird): ≥2 amostras com
+        pct≥0.95 em d_minus≥30, sendo PELO MENOS UMA em d_minus≥60. Uma
+        curva real não atinge 95% acumulado tão cedo em múltiplos dias —
+        early-bird saturado entre D-30 e D-60 é tolerado (pode ser
+        comportamento legítimo de fechamento antecipado), mas saturação que
+        se estende para D-≥60 não é fisicamente plausível.
+      • Critério B (legado): ≥2 amostras com pct≥0.95 no quartil superior
+        dos d_minus. Rede de segurança para padrões onde o topo fica todo
+        em 1.0.
+    Curvas muito curtas (max_dm < 30) são consideradas não-saturadas — não
+    há base estatística.
     """
     if not pattern:
         return False
@@ -537,6 +546,12 @@ def is_curve_saturated(pattern: Optional[dict]) -> bool:
         max_dm = keys[-1]
         if max_dm < 30:
             return False
+        # Critério A com salvaguarda anti-early-bird
+        sat_d30 = sum(1 for k in keys if k >= 30 and pattern[k] >= 0.95)
+        sat_d60 = sum(1 for k in keys if k >= 60 and pattern[k] >= 0.95)
+        if sat_d30 >= 2 and sat_d60 >= 1:
+            return True
+        # Critério B (legado): saturação no quartil superior
         cutoff = max_dm * 0.75
         high_pts = [pattern[k] for k in keys if k >= cutoff]
         if len(high_pts) < 2:
