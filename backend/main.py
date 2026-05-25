@@ -35,6 +35,18 @@ ENABLE_BACKGROUND_MAGENTO_SYNC = os.getenv("ENABLE_BACKGROUND_MAGENTO_SYNC", "fa
 if not ENABLE_BACKGROUND_MAGENTO_SYNC:
     logger.warning("[Config] ENABLE_BACKGROUND_MAGENTO_SYNC=false - warmup de startup, scheduler 45min e loop sync-hoje DESATIVADOS. Use 'Reconsolidar' (admin) para atualizar snapshots.")
 
+# Flag fina (Maio/2026) — desliga APENAS o Tier1 startup warmup, mantendo
+# scheduler/consolidação/hoje-loop ativos. Motivo: análise de PROD mostrou
+# que esse warmup roda ~184 queries Magento por deploy (46 eventos × 4 queries
+# pesadas de 11-13s cada, em 1 worker sequencial = ~50min de carga contínua),
+# porque a maioria dos snapshots persistidos chegam como "bootstrap" sem
+# dailySales e são descartados pelo guard de version_mismatch. O custo não
+# compensa: o primeiro usuário a abrir cada evento já dispara o recompute
+# protegido por singleflight + TTL no caminho normal. Default OFF.
+ENABLE_TIER1_STARTUP_WARMUP = os.getenv("ENABLE_TIER1_STARTUP_WARMUP", "false").lower() in ("true", "1", "yes")
+if ENABLE_BACKGROUND_MAGENTO_SYNC and not ENABLE_TIER1_STARTUP_WARMUP:
+    logger.info("[Config] ENABLE_TIER1_STARTUP_WARMUP=false — Tier1 warmup pós-deploy DESATIVADO (corta ~184 queries Magento/deploy). Scheduler e hoje-sync seguem ativos. Primeiros acessos por evento recompilam lazy via singleflight.")
+
 def _scheduled_isc_refresh():
     from app.core.database import SessionLocal
     db = None
@@ -1626,7 +1638,7 @@ async def lifespan(app: FastAPI):
         # Phase 3: Tier1 gap detection + targeted warmup
         _gap_warmup_ok = 0
         _gap_warmup_fail = 0
-        if ENABLE_BACKGROUND_MAGENTO_SYNC:
+        if ENABLE_BACKGROUND_MAGENTO_SYNC and ENABLE_TIER1_STARTUP_WARMUP:
             try:
                 logger.info("Running Tier1 gap detection...")
                 _gap_result = _startup_tier1_gap_warmup()
@@ -1635,8 +1647,10 @@ async def lifespan(app: FastAPI):
                 logger.info("Tier1 gap detection complete")
             except Exception as e:
                 logger.error(f"Startup gap detection failed: {e}")
-        else:
+        elif not ENABLE_BACKGROUND_MAGENTO_SYNC:
             logger.info("[Startup] Tier1 gap warmup SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+        else:
+            logger.info("[Startup] Tier1 gap warmup SKIPPED (ENABLE_TIER1_STARTUP_WARMUP=false — recompute lazy no primeiro acesso, protegido por singleflight)")
 
         # After targeted warmup, re-check cache timestamps DIRECTLY rather than
         # relying on the pre-warmup gap result (which reflects state *before* warmup).
