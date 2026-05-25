@@ -1686,6 +1686,48 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("[Startup] cache_scheduler NOT started (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
 
+        # ── CAMADA 2: Catch-up reforçado do job 02h BRT ─────────────────────
+        # Independente da "freshness" de VendasDiariaSnapshot (que pode estar
+        # bumpada por sincronizar_hoje_batch do scheduler de 45min sem que a
+        # consolidação 02h tenha rodado), checa EXPLICITAMENTE se o ciclo
+        # `consolidacao_diaria_04h` (nivel='ciclo' status='concluido') rodou
+        # nas últimas 24h. Se NÃO rodou E já passou das 02h BRT hoje, força
+        # a consolidação no startup (mesmo se snapshots parecerem frescos).
+        # Cobre o cenário: backend reinicia às 13h-22h sem ter rodado 02h.
+        _force_consolidation_catchup = False
+        try:
+            from app.core.database import SessionLocal as _CatchSL
+            from app.models.sync_event_log import SyncEventLog as _SEL_catch
+            from sqlalchemy import and_ as _and_catch
+            from datetime import datetime as _dt_catch, timedelta as _td_catch, timezone as _tz_catch
+            from zoneinfo import ZoneInfo as _ZI_catch
+            _now_brt_catch = _dt_catch.now(_ZI_catch('America/Sao_Paulo'))
+            _today_02h_brt = _now_brt_catch.replace(hour=2, minute=0, second=0, microsecond=0)
+            if _now_brt_catch >= _today_02h_brt:
+                _cutoff_utc = (_dt_catch.now(_tz_catch.utc) - _td_catch(hours=24))
+                _cdb_catch = _CatchSL()
+                try:
+                    _last_ok = _cdb_catch.query(_SEL_catch.id).filter(
+                        _and_catch(
+                            _SEL_catch.job_name == "consolidacao_diaria_04h",
+                            _SEL_catch.nivel == "ciclo",
+                            _SEL_catch.status == "concluido",
+                            _SEL_catch.created_at >= _cutoff_utc,
+                        )
+                    ).first()
+                    if not _last_ok:
+                        _force_consolidation_catchup = True
+                        logger.warning(
+                            "[Startup] CATCH-UP REFORÇADO: nenhuma 'consolidacao_diaria_04h' concluída nas últimas 24h "
+                            f"(now_brt={_now_brt_catch.isoformat()}). Forçando consolidação no startup mesmo se snapshots parecerem frescos."
+                        )
+                    else:
+                        logger.info("[Startup] Consolidação 02h BRT já completou nas últimas 24h — catch-up reforçado não necessário.")
+                finally:
+                    _cdb_catch.close()
+        except Exception as _cc_err:
+            logger.warning(f"[Startup] Falha no check de catch-up reforçado: {_cc_err}")
+
         # Check if snapshots are fresh enough to skip consolidation at startup.
         # If snapshots were updated within the last 2 hours (e.g. after "Atualizar Tudo" or
         # the previous 05:00/17:00 warmup), skip the expensive snapshot rebuild entirely.
@@ -1741,6 +1783,9 @@ async def lifespan(app: FastAPI):
         snapshot_thread = threading.Thread(target=_run_snapshot_consolidation, daemon=True, name="startup-snapshot")
         if not ENABLE_BACKGROUND_MAGENTO_SYNC:
             logger.info("[Startup] snapshot_consolidation SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+        elif _force_consolidation_catchup:
+            logger.warning("[Startup] Catch-up reforçado: rodando consolidação completa no startup (job 02h BRT não rodou nas últimas 24h)")
+            snapshot_thread.start()
         elif not _snapshot_is_fresh:
             snapshot_thread.start()
         else:

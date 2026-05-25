@@ -1,5 +1,5 @@
-from datetime import datetime, date, timedelta
-from fastapi import APIRouter, Depends, Query, HTTPException
+from datetime import datetime, date, timedelta, timezone
+from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func as sa_func
@@ -262,6 +262,116 @@ def get_user_activity(
         },
         "usuarios": user_list,
     }
+
+
+@router.post("/scheduled-jobs/consolidacao-diaria")
+def trigger_scheduled_daily_consolidation(
+    x_scheduler_token: Optional[str] = Header(None, alias="X-Scheduler-Token"),
+):
+    """Endpoint chamado por **Replit Scheduled Deployment** às 02h BRT todo dia.
+
+    Camada externa de defesa do job noturno: independe do uptime do processo
+    backend — se ele estiver parado/hibernando, o Scheduled Deployment liga e
+    chama. Síncrono (retorna só após terminar) para que o Scheduled Deployment
+    marque success/failure corretamente.
+
+    Protegido por shared-secret em env `SCHEDULER_TOKEN` (header
+    `X-Scheduler-Token`). Idempotente: batches usam UPSERT com `GREATEST()`,
+    então re-execuções não corrompem snapshots.
+
+    Replica exatamente a sequência de `_run_snapshot_consolidation` (cache.py)
+    e do startup em `main.py`: snapshot_diario → curvas → hoje → margem →
+    refresh_active_event_details.
+    """
+    import logging as _logging_sd
+    import time as _time_sd
+
+    _logger_sd = _logging_sd.getLogger(__name__)
+
+    expected = (_os.environ.get("SCHEDULER_TOKEN") or "").strip()
+    if not expected:
+        _logger_sd.error("[ScheduledJob] SCHEDULER_TOKEN não configurado no backend — endpoint inacessível")
+        raise HTTPException(status_code=500, detail="SCHEDULER_TOKEN não configurado no backend")
+    received = (x_scheduler_token or "").strip()
+    if not received or received != expected:
+        _logger_sd.warning("[ScheduledJob] Tentativa de execução com token inválido/ausente")
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    from app.core.database import SessionLocal as _SL_sd
+    from app.services.snapshot_service import (
+        snapshot_diario_batch as _sdb_sd,
+        consolidar_curvas_historicas_batch as _cchb_sd,
+        sincronizar_hoje_batch as _shb_sd,
+        sincronizar_margem_bundle_rev_batch as _smbrb_sd,
+    )
+
+    _t0_sd = _time_sd.time()
+    _result_sd: dict = {
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "snapshot_diario": None,
+        "curvas": None,
+        "hoje": None,
+        "margem": None,
+        "event_details": None,
+        "errors": [],
+    }
+
+    _logger_sd.info("[ScheduledJob] === CONSOLIDAÇÃO DIÁRIA 02h BRT (via Scheduled Deployment) INICIADA ===")
+
+    _db_sd = _SL_sd()
+    try:
+        try:
+            _result_sd["snapshot_diario"] = _sdb_sd(_db_sd)
+        except Exception as _e1:
+            _logger_sd.error(f"[ScheduledJob] snapshot_diario_batch falhou: {_e1}")
+            _result_sd["errors"].append(f"snapshot_diario: {str(_e1)[:300]}")
+        try:
+            _result_sd["curvas"] = _cchb_sd(_db_sd)
+        except Exception as _e2:
+            _logger_sd.error(f"[ScheduledJob] consolidar_curvas_historicas_batch falhou: {_e2}")
+            _result_sd["errors"].append(f"curvas: {str(_e2)[:300]}")
+        try:
+            _result_sd["hoje"] = _shb_sd(_db_sd)
+        except Exception as _e3:
+            _logger_sd.error(f"[ScheduledJob] sincronizar_hoje_batch falhou: {_e3}")
+            _result_sd["errors"].append(f"hoje: {str(_e3)[:300]}")
+        try:
+            _result_sd["margem"] = _smbrb_sd(_db_sd)
+        except Exception as _e4:
+            _logger_sd.error(f"[ScheduledJob] sincronizar_margem_bundle_rev_batch falhou: {_e4}")
+            _result_sd["errors"].append(f"margem: {str(_e4)[:300]}")
+    finally:
+        _db_sd.close()
+
+    try:
+        from app.services.event_detail_snapshot_service import refresh_active_event_details as _raed_sd
+        _result_sd["event_details"] = _raed_sd()
+    except Exception as _e5:
+        _logger_sd.error(f"[ScheduledJob] refresh_active_event_details falhou: {_e5}")
+        _result_sd["errors"].append(f"event_details: {str(_e5)[:300]}")
+
+    _result_sd["duration_s"] = round(_time_sd.time() - _t0_sd, 1)
+    _result_sd["finished_at"] = datetime.now(timezone.utc).isoformat()
+    _result_sd["status"] = "ok" if not _result_sd["errors"] else "parcial"
+
+    _logger_sd.info(
+        f"[ScheduledJob] === CONSOLIDAÇÃO DIÁRIA 02h BRT CONCLUÍDA em {_result_sd['duration_s']}s — "
+        f"status={_result_sd['status']}, erros={len(_result_sd['errors'])} ==="
+    )
+
+    if _result_sd["errors"]:
+        try:
+            from app.services.health_alert_service import log_and_alert as _laa_sd
+            _laa_sd(
+                event_type="SCHEDULED_DAILY_PARTIAL",
+                severity="HIGH",
+                message=f"Consolidação 02h BRT terminou parcial: {len(_result_sd['errors'])} sub-passo(s) falharam",
+                detail=" | ".join(_result_sd["errors"])[:2000],
+            )
+        except Exception as _alert_err:
+            _logger_sd.warning(f"[ScheduledJob] Falha ao registrar alerta: {_alert_err}")
+
+    return _result_sd
 
 
 @router.post("/snapshots/consolidar")

@@ -1444,6 +1444,68 @@ class CacheRefreshScheduler:
 
         self._schedule_evening_refresh()
 
+    def _check_daily_consolidation_health(self):
+        """CAMADA 3: monitor de saúde do job 02h BRT.
+
+        A cada tick do scheduler de 45min, verifica se houve uma execução
+        bem-sucedida (`consolidacao_diaria_04h` nivel='ciclo' status='concluido')
+        nas últimas 26h. Se não, dispara alerta HIGH `SYNC_DIARIA_MISSING`
+        (com throttle de 5min via health_alert_service). Garante que se as
+        camadas 1 (Scheduled Deployment) e 2 (catch-up startup) falharem,
+        operadores são notificados em até 45min.
+        """
+        try:
+            from app.core.database import SessionLocal as _HSL
+            from app.models.sync_event_log import SyncEventLog as _SEL_h
+            from sqlalchemy import and_ as _and_h
+            from datetime import datetime as _dt_h, timedelta as _td_h, timezone as _tz_h
+            from zoneinfo import ZoneInfo as _ZI_h
+
+            _now_brt = _dt_h.now(_ZI_h('America/Sao_Paulo'))
+            _today_02h = _now_brt.replace(hour=2, minute=0, second=0, microsecond=0)
+            if _now_brt < _today_02h:
+                return  # antes das 02h BRT, ainda não é hora — não alerta
+
+            _cutoff = _dt_h.now(_tz_h.utc) - _td_h(hours=26)
+            _db_h = _HSL()
+            try:
+                _last_ok = _db_h.query(_SEL_h.created_at).filter(
+                    _and_h(
+                        _SEL_h.job_name == "consolidacao_diaria_04h",
+                        _SEL_h.nivel == "ciclo",
+                        _SEL_h.status == "concluido",
+                        _SEL_h.created_at >= _cutoff,
+                    )
+                ).order_by(_SEL_h.created_at.desc()).first()
+
+                if _last_ok is None:
+                    _last_any = _db_h.query(_SEL_h.created_at, _SEL_h.status).filter(
+                        _SEL_h.job_name == "consolidacao_diaria_04h",
+                        _SEL_h.nivel == "ciclo",
+                    ).order_by(_SEL_h.created_at.desc()).first()
+                    _last_str = (
+                        f"última execução: {_last_any.created_at.isoformat()} status={_last_any.status}"
+                        if _last_any else "nunca executou"
+                    )
+                    try:
+                        from app.services.health_alert_service import log_and_alert as _laa_h
+                        _laa_h(
+                            event_type="SYNC_DIARIA_MISSING",
+                            severity="HIGH",
+                            message="Consolidação diária 02h BRT não rodou nas últimas 26h",
+                            detail=(
+                                f"Nenhum ciclo 'consolidacao_diaria_04h' concluído desde {_cutoff.isoformat()}. "
+                                f"{_last_str}. Verificar Scheduled Deployment e logs do backend."
+                            ),
+                        )
+                        logger.warning("[HealthMonitor] SYNC_DIARIA_MISSING alertado (>26h sem consolidação 02h BRT)")
+                    except Exception as _ae:
+                        logger.warning(f"[HealthMonitor] Falha ao disparar alerta SYNC_DIARIA_MISSING: {_ae}")
+            finally:
+                _db_h.close()
+        except Exception as _hc_err:
+            logger.warning(f"[HealthMonitor] _check_daily_consolidation_health falhou: {_hc_err}")
+
     def _run_refresh(self, interval: int):
         with self._lock:
             if not self._running:
@@ -1454,6 +1516,11 @@ class CacheRefreshScheduler:
                 callback()
             except Exception as e:
                 logger.error(f"Cache refresh callback error: {e}")
+        # CAMADA 3: monitor de saúde do 02h BRT — roda em cada tick (45min)
+        try:
+            self._check_daily_consolidation_health()
+        except Exception as _hce:
+            logger.warning(f"[HealthMonitor] check_daily_consolidation_health raised: {_hce}")
         self._schedule(interval)
 
     def stop(self):
