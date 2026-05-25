@@ -3095,7 +3095,11 @@ def get_margem_por_kit(
                 skip_cortesia_filter=_skip_cortesia_filter,
             )
 
-            import time as _time
+            # Nota: NÃO reimporta `time as _time` aqui — já está no nível de módulo (linha 3).
+            # Re-importar localmente causa Python a tratar `_time` como variável LOCAL em toda
+            # a função get_margem_por_kit, gerando UnboundLocalError quando linhas anteriores
+            # (ex.: 2821, no caminho force_refresh=True do Reconsolidar) referenciam `_time`
+            # antes de chegar neste import condicional.
 
             def _log_margem_magento_failed(e_exc, label="primary"):
                 _aviso = "AVISO: Conexão com Magento instável — buscando dados do snapshot mais recente."
@@ -3528,7 +3532,8 @@ def get_margem_por_kit(
         # contra as chaves do kit_map (ex: "Kit Básico" está contido em "Kit Básico Bravus Race - Speed I")
         kits_sem_venda = [k for k, v in kit_map.items() if v["qtd"] == 0]
         if kits_sem_venda and seen_magento_events and db_module.engine_magento is not None:
-            import time as _time  # may not have been imported if primary block was skipped
+            # Nota: NÃO reimporta `time as _time` (já está no módulo). Ver comentário no bloco
+            # primary acima — re-import local quebra escopo em toda a função.
 
             try:
                 _log_margem_magento_failed  # noqa: F821
