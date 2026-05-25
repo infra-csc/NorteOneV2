@@ -641,6 +641,78 @@ ORDER BY
 """
 
 
+# ---------------------------------------------------------------------------
+# Singleflight + TTL para MAGENTO_KITS_QUERY.
+# A query é a 2ª mais cara do sistema (joins múltiplos em catalog_product_*,
+# 4 subqueries correlacionadas no special_price, 25+ NOT LIKE) e é disparada
+# por 3 endpoints distintos (POST /kits/refresh, GET /eventos/{id}, modal
+# de margem). Como NÃO tem parâmetros (varre todos os kits), uma única
+# entrada em cache serve todos os chamadores. TTL=60s: estrutura de kits
+# muda raramente (lotes/preços só são editados pontualmente). Singleflight
+# evita 3 queries paralelas no Magento quando vários endpoints disparam ao
+# mesmo tempo (ex.: detalhe de evento + modal de margem).
+# Não muda lógica: cada chamador segue recebendo (rows, columns) tupla
+# idêntica ao que o conn.execute() retornaria.
+# ---------------------------------------------------------------------------
+_MK_SF_LOCK = _threading.Lock()
+_MK_SF_INFLIGHT: dict = {}   # {label_bucket: Event}
+_MK_SF_RESULT = {"ts": 0.0, "rows": None, "cols": None, "exc": None}
+_MK_SF_TTL = 60.0
+
+
+def _fetch_magento_kits_cached(label: str):
+    """Executa MAGENTO_KITS_QUERY com singleflight + cache TTL.
+
+    Retorna (rows, columns) — mesmo formato que conn.execute(...).fetchall() +
+    conn.execute(...).keys(). Propaga exceções (caller decide se faz fallback).
+    Usa engine_magento via magento_run com o label passado p/ observabilidade.
+    """
+    from app.core.db_retry import magento_run
+    now = _time.time()
+    with _MK_SF_LOCK:
+        if (_MK_SF_RESULT["rows"] is not None
+                and (now - _MK_SF_RESULT["ts"]) < _MK_SF_TTL
+                and _MK_SF_RESULT["exc"] is None):
+            return _MK_SF_RESULT["rows"], _MK_SF_RESULT["cols"]
+        evt = _MK_SF_INFLIGHT.get("magento_kits")
+        if evt is not None:
+            wait_evt = evt
+            leader = False
+        else:
+            wait_evt = _threading.Event()
+            _MK_SF_INFLIGHT["magento_kits"] = wait_evt
+            leader = True
+    if not leader:
+        wait_evt.wait(timeout=120.0)
+        with _MK_SF_LOCK:
+            if _MK_SF_RESULT["exc"] is not None:
+                raise _MK_SF_RESULT["exc"]
+            if _MK_SF_RESULT["rows"] is not None:
+                return _MK_SF_RESULT["rows"], _MK_SF_RESULT["cols"]
+        # Fallback: leader sumiu sem publicar — segue para executar direto.
+    rows = None
+    cols = None
+    exc_caught = None
+    try:
+        def _kits_work(conn):
+            result = conn.execute(text(MAGENTO_KITS_QUERY))
+            return result.fetchall(), list(result.keys())
+        rows, cols = magento_run(_kits_work, label=label, profile="request")
+    except BaseException as e:
+        exc_caught = e
+    finally:
+        with _MK_SF_LOCK:
+            _MK_SF_RESULT["ts"] = _time.time()
+            _MK_SF_RESULT["rows"] = rows
+            _MK_SF_RESULT["cols"] = cols
+            _MK_SF_RESULT["exc"] = exc_caught
+            _MK_SF_INFLIGHT.pop("magento_kits", None)
+        wait_evt.set()
+    if exc_caught is not None:
+        raise exc_caught
+    return rows, cols
+
+
 # ============================================================
 # Tickets por evento no banco do Ativo: COMBO + Modalidade Simples
 # Preço do lote vigente (menor dt_limite >= hoje).
@@ -1038,16 +1110,10 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
         fallback = _build_local_fallback_kits(db)
         return fallback, False, False
 
-    from app.core.db_retry import magento_run, MagentoEngineUnavailable
-
-    def _kits_work(conn):
-        result = conn.execute(text(MAGENTO_KITS_QUERY))
-        rows = result.fetchall()
-        cols = list(result.keys())
-        return rows, cols
+    from app.core.db_retry import MagentoEngineUnavailable
 
     try:
-        magento_rows, columns = magento_run(_kits_work, label="kit_config:list-magento", profile="request")
+        magento_rows, columns = _fetch_magento_kits_cached(label="kit_config:list-magento")
         magento_ok = True
     except MagentoEngineUnavailable:
         if not local_fallback_allowed:

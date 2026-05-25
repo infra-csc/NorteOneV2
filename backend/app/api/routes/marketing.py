@@ -480,7 +480,7 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     from ...models.kit_config import KitConfig
     from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto
     from ..routes.kit_config import (
-        MAGENTO_KITS_QUERY,
+        _fetch_magento_kits_cached,
         fetch_ativo_kits_indexed,
         _normalize_kit_name,
     )
@@ -499,11 +499,8 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
     # ───────────────────────── MAGENTO ─────────────────────────
     magento_projeto_tickets: dict = {}
     if magento_configs and db_module.engine_magento is not None:
-        def _ticket_atual_work(conn):
-            result = conn.execute(text(MAGENTO_KITS_QUERY))
-            return result.fetchall(), list(result.keys())
         try:
-            rows, columns = magento_run(_ticket_atual_work, label="ticket_atual", profile="request")
+            rows, columns = _fetch_magento_kits_cached(label="ticket_atual")
         except Exception as e:
             logger.error(f"Erro ao buscar ticket_atual do Magento: {e}")
             rows, columns = [], []
@@ -2796,17 +2793,14 @@ def get_margem_por_kit(
         # Fetch ticket_atual (special_price) per tipo_kit from Magento
         tipo_kit_ticket_atual: dict = {}
         if global_bundle_tipo_map and db_module.engine_magento is not None:
-            from ..routes.kit_config import MAGENTO_KITS_QUERY
+            from ..routes.kit_config import _fetch_magento_kits_cached
             _bid_set = set(global_bundle_tipo_map.keys())
             _kcs_sp = db.query(KitConfig).filter(
                 KitConfig.bundle_entity_id.in_(list(_bid_set))
             ).all()
             _kc_mult_by_bid = {k.bundle_entity_id: (k.multiplicador or 1) for k in _kcs_sp}
-            def _ticket_sp_work(conn):
-                _mq_res = conn.execute(text(MAGENTO_KITS_QUERY))
-                return _mq_res.fetchall(), list(_mq_res.keys())
             try:
-                _mq_rows, _mq_cols = magento_run(_ticket_sp_work, label="margem:ticket_atual_sp", profile="request")
+                _mq_rows, _mq_cols = _fetch_magento_kits_cached(label="margem:ticket_atual_sp")
                 _sp_by_bid: dict = {}
                 for _r in _mq_rows:
                     _d = dict(zip(_mq_cols, _r))
