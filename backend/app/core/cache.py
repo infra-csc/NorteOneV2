@@ -1,3 +1,4 @@
+import os
 import time
 import json
 import threading
@@ -8,6 +9,32 @@ from typing import Any, Optional, Callable
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+
+def _scheduler_in_quiet_hours() -> bool:
+    """Retorna True se o horário BRT atual cai na janela silenciosa do scheduler.
+
+    Configurável via env SCHEDULER_QUIET_HOURS_START (default 22) e
+    SCHEDULER_QUIET_HOURS_END (default 6). Durante a janela, callbacks do
+    scheduler de 45/90 min são pulados (re-agendamento normal continua),
+    cortando carga no Magento em horários sem usuários. Jobs por horário
+    fixo (02h consolidação, 05h refresh, 17h refresh) NÃO são afetados —
+    eles têm timers próprios.
+
+    Se start == end, janela desabilitada (sempre False).
+    """
+    try:
+        _start = int(os.getenv("SCHEDULER_QUIET_HOURS_START", "22"))
+        _end = int(os.getenv("SCHEDULER_QUIET_HOURS_END", "6"))
+    except (TypeError, ValueError):
+        return False
+    if _start == _end:
+        return False
+    _now_h = datetime.now(ZoneInfo("America/Sao_Paulo")).hour
+    if _start < _end:
+        return _start <= _now_h < _end
+    # Janela atravessa meia-noite (ex.: 22→6)
+    return _now_h >= _start or _now_h < _end
 
 CURRENT_YEAR_TTL = 79200
 HISTORICAL_TTL = None
@@ -1544,13 +1571,21 @@ class CacheRefreshScheduler:
         with self._lock:
             if not self._running:
                 return
+        if _scheduler_in_quiet_hours():
+            logger.info(
+                "[Scheduler] Quiet hours BRT — pulando callbacks deste tick "
+                "(reduz carga Magento em horário sem usuários). Próximo tick "
+                f"em {interval//60} min."
+            )
+            self._schedule(interval)
+            return
         logger.info("Running scheduled cache refresh for current year data...")
         for callback in self._refresh_callbacks:
             try:
                 callback()
             except Exception as e:
                 logger.error(f"Cache refresh callback error: {e}")
-        # CAMADA 3: monitor de saúde do 02h BRT — roda em cada tick (45min)
+        # CAMADA 3: monitor de saúde do 02h BRT — roda em cada tick
         try:
             self._check_daily_consolidation_health()
         except Exception as _hce:

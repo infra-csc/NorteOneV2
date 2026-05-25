@@ -1801,8 +1801,20 @@ async def lifespan(app: FastAPI):
             logger.warning(f"[Startup] Falha no check de catch-up reforçado: {_cc_err}")
 
         if ENABLE_BACKGROUND_MAGENTO_SYNC:
-            cache_scheduler.start(interval=2700)
-            logger.info("Cache auto-refresh scheduler started (45 min interval + daily 05:00 BRT)")
+            try:
+                _scheduler_interval_s = max(300, int(os.getenv("CACHE_REFRESH_INTERVAL_SECONDS", "5400")))
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"[Config] CACHE_REFRESH_INTERVAL_SECONDS inválido "
+                    f"('{os.getenv('CACHE_REFRESH_INTERVAL_SECONDS')}') — usando default 5400s"
+                )
+                _scheduler_interval_s = 5400
+            cache_scheduler.start(interval=_scheduler_interval_s)
+            logger.info(
+                f"Cache auto-refresh scheduler started ({_scheduler_interval_s//60} min interval + "
+                f"daily 05:00 BRT, quiet hours {os.getenv('SCHEDULER_QUIET_HOURS_START','22')}h-"
+                f"{os.getenv('SCHEDULER_QUIET_HOURS_END','6')}h BRT)"
+            )
         else:
             logger.info("[Startup] cache_scheduler NOT started (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
 
