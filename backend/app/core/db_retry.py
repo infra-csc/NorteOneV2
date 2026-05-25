@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 import time
+from collections import deque
 from typing import Any, Callable, Dict
 
 from sqlalchemy.exc import (
@@ -41,6 +43,67 @@ from sqlalchemy.exc import (
 import app.core.database as db_module
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker — protege Magento de avalanches de queries quando o servidor
+# remoto está degradado. Quando _CIRCUIT_THRESHOLD falhas acontecem na janela
+# _CIRCUIT_WINDOW_S para o mesmo label, o circuito abre por
+# _CIRCUIT_OPEN_DURATION_S e novas tentativas falham imediatamente com
+# MagentoCircuitOpen (subclasse de MagentoEngineUnavailable) — os callers
+# existentes já tratam essa exceção servindo snapshot persistido.
+# ---------------------------------------------------------------------------
+_CIRCUIT_WINDOW_S = 60.0
+_CIRCUIT_THRESHOLD = 5
+_CIRCUIT_OPEN_DURATION_S = 60.0
+
+_circuit_lock = threading.Lock()
+_circuit_failures: Dict[str, deque] = {}
+_circuit_open_until: Dict[str, float] = {}
+
+
+def _circuit_remaining_open(label: str) -> float:
+    """Retorna segundos restantes se o circuito está aberto para `label`, senão 0.0."""
+    with _circuit_lock:
+        open_until = _circuit_open_until.get(label)
+        if open_until is None:
+            return 0.0
+        now = time.monotonic()
+        if now >= open_until:
+            _circuit_open_until.pop(label, None)
+            return 0.0
+        return open_until - now
+
+
+def _circuit_record_failure(label: str) -> None:
+    """Registra uma falha; abre o circuito se atingir o threshold na janela."""
+    now = time.monotonic()
+    with _circuit_lock:
+        if label in _circuit_open_until:
+            # já aberto — não conta falhas adicionais
+            return
+        dq = _circuit_failures.setdefault(label, deque())
+        cutoff = now - _CIRCUIT_WINDOW_S
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+        dq.append(now)
+        if len(dq) >= _CIRCUIT_THRESHOLD:
+            _circuit_open_until[label] = now + _CIRCUIT_OPEN_DURATION_S
+            dq.clear()
+            logger.warning(
+                f"[Magento][{label}] CIRCUIT OPEN: {_CIRCUIT_THRESHOLD} falhas em "
+                f"{_CIRCUIT_WINDOW_S:.0f}s — pausando chamadas por "
+                f"{_CIRCUIT_OPEN_DURATION_S:.0f}s (snapshots vão servir como piso)"
+            )
+
+
+def _circuit_record_success(label: str) -> None:
+    """Limpa o histórico de falhas e fecha o circuito após sucesso."""
+    with _circuit_lock:
+        had_open = _circuit_open_until.pop(label, None)
+        _circuit_failures.pop(label, None)
+    if had_open:
+        logger.info(f"[Magento][{label}] CIRCUIT CLOSED: chamada bem-sucedida, retomando normal")
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +194,15 @@ class MagentoEngineUnavailable(RuntimeError):
     """
 
 
+class MagentoCircuitOpen(MagentoEngineUnavailable):
+    """Raised when too many recent Magento failures opened the circuit breaker.
+
+    Herda de MagentoEngineUnavailable para que callers existentes que já
+    tratam o engine indisponível (servindo snapshot persistido) façam a
+    coisa certa automaticamente, sem necessidade de novo handler.
+    """
+
+
 def magento_run(
     work_fn: Callable[[Any], Any],
     *,
@@ -171,6 +243,18 @@ def magento_run(
     if engine is None:
         raise MagentoEngineUnavailable("engine_magento não configurado")
 
+    # Circuit breaker: se está aberto para este label, falha imediato.
+    # Callers já tratam MagentoEngineUnavailable servindo snapshot.
+    _remaining = _circuit_remaining_open(label)
+    if _remaining > 0:
+        logger.info(
+            f"[Magento][{label}] circuito aberto ({_remaining:.0f}s restantes) — "
+            "pulando chamada, snapshot vai responder"
+        )
+        raise MagentoCircuitOpen(
+            f"Magento circuit breaker aberto para '{label}' ({_remaining:.0f}s restantes)"
+        )
+
     # Release any idle local PG connections held by this request thread
     # before we start waiting on Magento. Magento queries can block for
     # tens of seconds on slow plans / timeouts; holding a local pool slot
@@ -198,6 +282,7 @@ def magento_run(
                     logger.info(
                         f"[Magento][{label}] OK na tentativa {attempt}/{max_attempts}"
                     )
+                _circuit_record_success(label)
                 return result
         except MagentoEngineUnavailable:
             raise
@@ -210,6 +295,7 @@ def magento_run(
                         f"[Magento][{label}] desistiu após {attempt}/{max_attempts} "
                         f"tentativas: {type(e).__name__}: {str(e)[:200]}"
                     )
+                _circuit_record_failure(label)
                 raise
             backoff = min(backoff_base * (2 ** (attempt - 1)), max_backoff)
             logger.warning(

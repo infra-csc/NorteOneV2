@@ -9471,6 +9471,41 @@ _detail_final_cache: dict = {}
 _DETAIL_FINAL_TTL: float = 60.0
 
 
+# ── Cooldown por (usuário, evento, ano) — 30s ────────────────────────────────
+# Anti-spam: se o mesmo usuário reabrir/atualizar a mesma página de evento em
+# <30s, devolvemos qualquer payload cacheado (snapshot ou final cache) sem
+# disparar refresh em background nem bypass por version_mismatch. Se nada
+# cacheado existir, devolvemos HTTP 429. Não se aplica a force_refresh
+# (já protegido pelo rate-limit global de 6/min) nem a chamadas internas
+# (warmup/scheduler com current_user=None).
+import threading as _user_cd_threading
+_user_event_cooldown: dict = {}
+_user_event_cooldown_lock = _user_cd_threading.Lock()
+_USER_EVENT_COOLDOWN_S: float = 30.0
+
+
+def _user_event_cooldown_active(user_id, evento_id: str, ano) -> bool:
+    """Retorna True e marca a entrada se (user, evento, ano) foi acessado
+    nos últimos _USER_EVENT_COOLDOWN_S segundos. Caso contrário, marca o
+    momento atual e retorna False."""
+    import time as _t
+    if user_id is None:
+        return False
+    key = (user_id, evento_id, ano)
+    now = _t.monotonic()
+    with _user_event_cooldown_lock:
+        last = _user_event_cooldown.get(key, 0.0)
+        if (now - last) < _USER_EVENT_COOLDOWN_S:
+            return True
+        _user_event_cooldown[key] = now
+        # housekeeping leve — limita o dict a ~5000 entradas
+        if len(_user_event_cooldown) > 5000:
+            cutoff = now - (_USER_EVENT_COOLDOWN_S * 4)
+            for k in [k for k, v in _user_event_cooldown.items() if v < cutoff]:
+                _user_event_cooldown.pop(k, None)
+        return False
+
+
 def _detail_final_cache_get(key: str):
     import time as _t
     entry = _detail_final_cache.get(key)
@@ -9755,6 +9790,20 @@ def get_marketing_event_by_id(
     _internal_recompute = force_refresh and current_user is None
     _user_refresh_request = force_refresh and current_user is not None
     _USE_SNAPSHOT_FIRST = os.getenv("USE_SNAPSHOT_FIRST_READ", "true").lower() not in ("0", "false", "no")
+
+    # ── Cooldown anti-spam por (usuário, evento, ano) ────────────────────────
+    # Se o mesmo usuário reabriu/atualizou essa página em <30s sem force_refresh,
+    # forçamos modo "serve qualquer coisa cacheada": sem bypass de version_mismatch
+    # e sem disparar bg refresh. Se nada cacheado existir, devolvemos 429.
+    _user_cd_active = False
+    if (
+        current_user is not None
+        and not force_refresh
+        and not force_magento_refresh
+    ):
+        _user_cd_active = _user_event_cooldown_active(
+            getattr(current_user, 'id', None), evento_id, _ano_for_persist
+        )
     # Bootstrap fallback: quando o snapshot completo for descartado, ainda assim
     # podemos servir os dados básicos do "evento" (nome, data, local, vendas/meta
     # da lista) para o usuário ver algo. Capturado abaixo.
@@ -9796,7 +9845,7 @@ def get_marketing_event_by_id(
             # causam Controle Diário vazio pois dailySales é undefined no frontend.
             # Snapshots completos mas com versão antiga são servidos via SWR para
             # evitar o loop "preparing" quando o recompute demora 2-3 min.
-            if _gpd_version_mismatch:
+            if _gpd_version_mismatch and not _user_cd_active:
                 _pl = _persisted["payload"] if isinstance(_persisted["payload"], dict) else {}
                 _evt_chk = _pl.get("evento") if isinstance(_pl, dict) else None
                 _has_evt = isinstance(_evt_chk, dict) and bool(_evt_chk)
@@ -9854,7 +9903,9 @@ def get_marketing_event_by_id(
             # NÃO disparam recompute Magento aqui. Apenas mudança de versão de schema
             # justifica refresh em background. Reconsolidação completa só via POST
             # /eventos/{id}/recalcular-snapshot (admin explícito).
-            _gpd_stale = _gpd_version_mismatch
+            # Cooldown anti-spam: suprime bg refresh quando o mesmo usuário
+            # acabou de acessar este evento (<30s). O snapshot serve como está.
+            _gpd_stale = _gpd_version_mismatch and not _user_cd_active
             _gpd_key = f"{_ano_for_persist}_{evento_id}_detail"
             if _gpd_stale and _gpd_key not in _swr_recompute_in_progress:
                 _reason = (
@@ -9924,6 +9975,12 @@ def get_marketing_event_by_id(
             except Exception:
                 pass
             return _gpd_result
+
+    # NOTA: o cooldown anti-spam por (usuário, evento, ano) já entregou seu valor
+    # acima — suprimiu o bypass por version_mismatch e o bg refresh (que tocariam
+    # Magento). Se chegarmos aqui, é porque genuinamente NÃO há snapshot persistido
+    # (evento ainda não consolidado). O caminho `no_snapshot/partial` abaixo serve
+    # mensagem útil ao usuário SEM tocar Magento, então deixamos seguir.
 
     # ── PAYLOAD PARCIAL OU "SEM SNAPSHOT" PARA REQUEST DE USUÁRIO ─────────────
     # Não dispara recompute automático (consumiria Magento sem o usuário pedir).
