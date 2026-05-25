@@ -1240,11 +1240,14 @@ export const marketingService = {
     cooldown_until_epoch?: number | null;
     cooldown_total_sec?: number;
   }> => {
-    // Timeout longo: pipeline Magento + Ativo + recálculos pode demorar até ~90s.
+    // Timeout longo (10 min): pipeline Magento + Ativo + recálculos pode demorar bastante
+    // quando o Magento está instável (SSH tunnel + retries). O backend tem proteção própria
+    // contra abuso (slot lock global por evento + cooldown da Diretoria de 20min), então
+    // estender o timeout do cliente não cria risco. Antes era 180s e estourava em picos.
     const response = await api.post(
       `/marketing/eventos/${encodeURIComponent(eventoId)}/recalcular-snapshot`,
       null,
-      { timeout: 180000 }
+      { timeout: 600000 }
     );
     return response.data;
   },
