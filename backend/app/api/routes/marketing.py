@@ -10376,6 +10376,55 @@ def get_marketing_event_by_id(
                 pass
         if _bootstrap_evento_partial is not None:
             logger.info(f"[Prepare] '{_prep_key}' sem snapshot completo — servindo dados parciais (bootstrap)")
+            # Bootstrap salvo antes de mudanças em _fetch_ticket_atual_map pode ter
+            # ticketAtual stale (ex: R$129,99 do lot_value fantasma em vez do R$99,99
+            # real). Como bootstraps não são reescritos quando já existem no DB
+            # (cf. line ~6173), recomputamos ticketAtual/ticketKitNome inline aqui
+            # usando o _get_ticket_atual_map (que tem cache TTL 15min e já aplica
+            # Regra B). Cobre tanto grupo (evento_id="grp_<nome>") quanto standalone.
+            try:
+                _btp_proj_ids: list = []
+                if isinstance(evento_id, str) and evento_id.startswith("grp_"):
+                    _btp_grupo_nome = evento_id.replace("grp_", "", 1)
+                    _btp_sku_map = _build_sku_to_grupo_map(db, _ano_for_persist)
+                    _btp_skus_do_grupo = {
+                        sku for sku, g in _btp_sku_map.items() if g == _btp_grupo_nome
+                    }
+                    if _btp_skus_do_grupo:
+                        # Janela ±1 ano para evitar full scan de DimProjeto.
+                        # SKUs do grupo são do _ano_for_persist, então projetos
+                        # relevantes têm data_evento em janela próxima a esse ano.
+                        from datetime import date as _date
+                        _btp_y = int(_ano_for_persist)
+                        _btp_dt_lo = _date(_btp_y - 1, 1, 1)
+                        _btp_dt_hi = _date(_btp_y + 1, 12, 31)
+                        _btp_projetos = db.query(DimProjeto.id, DimProjeto.codigo).filter(
+                            DimProjeto.data_evento >= _btp_dt_lo,
+                            DimProjeto.data_evento <= _btp_dt_hi,
+                        ).all()
+                        for _bp in _btp_projetos:
+                            if _bp.codigo and normalize_sku(str(_bp.codigo)) in _btp_skus_do_grupo:
+                                _btp_proj_ids.append(_bp.id)
+                else:
+                    try:
+                        _btp_proj_ids = [int(evento_id)]
+                    except (TypeError, ValueError):
+                        _btp_proj_ids = []
+                if _btp_proj_ids:
+                    _btp_map = _get_ticket_atual_map(db)
+                    _btp_ticket_new = _get_ticket_atual_for_event(_btp_map, _btp_proj_ids)
+                    _btp_kit_nome_new = _get_ticket_atual_kit_nome_for_event(_btp_map, _btp_proj_ids)
+                    _btp_old = _bootstrap_evento_partial.get("ticketAtual")
+                    if _btp_ticket_new and _btp_ticket_new > 0:
+                        _bootstrap_evento_partial["ticketAtual"] = _btp_ticket_new
+                        _bootstrap_evento_partial["ticketKitNome"] = _btp_kit_nome_new
+                        if _btp_old != _btp_ticket_new:
+                            logger.info(
+                                f"[Bootstrap] '{_prep_key}' ticketAtual recomputado: "
+                                f"{_btp_old} → {_btp_ticket_new} (kit={_btp_kit_nome_new})"
+                            )
+            except Exception as _btp_e:
+                logger.warning(f"[Bootstrap] '{_prep_key}' recompute ticketAtual falhou: {_btp_e}")
             if response is not None:
                 response.headers["X-Data-Stale"] = "true"
                 response.headers["X-Data-Partial"] = "true"
