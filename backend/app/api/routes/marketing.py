@@ -1793,9 +1793,40 @@ def _average_patterns(patterns: list, weights: Optional[list] = None) -> dict:
     return avg
 
 
+_FORCE_REFRESH_COOLDOWN_SECONDS = int(os.getenv("FORCE_REFRESH_COOLDOWN_SECONDS", "300"))
+_force_refresh_last_ts: dict = {}
+_force_refresh_lock = _threading.Lock()
+
+
 def fetch_real_daily_sales_for_projetos(db: Session, projetos: list, days_history: Optional[int] = None, sales_goal: int = 1000, ano: Optional[int] = None, evento_grupo: Optional[str] = None, data_evento: Optional[date] = None, preloaded_hist_pattern: object = "NOT_SET", data_evento_real: Optional[date] = None, force_magento_refresh: bool = False) -> list:
     from ...services.snapshot_service import get_snapshot_vendas
-    
+    import time as _frt_time
+
+    # Proteção contra cliques repetidos em "Atualizar" do mesmo grupo
+    # (cooldown 5min, env FORCE_REFRESH_COOLDOWN_SECONDS).
+    # O lock garante que, mesmo com 2+ requests simultâneos para o mesmo grupo,
+    # apenas o PRIMEIRO grava timestamp e prossegue com force_magento_refresh=True;
+    # os concorrentes leem o timestamp recém-gravado e são rebaixados para
+    # force_magento_refresh=False (caem no caminho normal de cache/snapshot).
+    # Isso corta o fan-out típico do force_refresh (cpev1 + count + revenue +
+    # fallback + supplementary = 7-10 queries pesadas no Magento) que estava
+    # saturando o servidor externo em rajadas de cliques.
+    if force_magento_refresh and evento_grupo:
+        _now_ts = _frt_time.time()
+        _key_ano = ano if ano is not None else today_brazil().year
+        _key = f"{evento_grupo}|{_key_ano}"
+        with _force_refresh_lock:
+            _last = _force_refresh_last_ts.get(_key)
+            if _last is not None and (_now_ts - _last) < _FORCE_REFRESH_COOLDOWN_SECONDS:
+                force_magento_refresh = False
+                _demoted_age = int(_now_ts - _last)
+                logger.info(
+                    f"[force_magento_refresh] DEMOTED p/ grupo='{evento_grupo}' ano={ano} — "
+                    f"cooldown {_demoted_age}s < {_FORCE_REFRESH_COOLDOWN_SECONDS}s. Usando cache/snapshot."
+                )
+            else:
+                _force_refresh_last_ts[_key] = _now_ts
+
     today = today_brazil()
     if ano is None:
         ano = today.year
