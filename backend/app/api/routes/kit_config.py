@@ -655,8 +655,15 @@ ORDER BY
 # idêntica ao que o conn.execute() retornaria.
 # ---------------------------------------------------------------------------
 _MK_SF_LOCK = _threading.Lock()
-_MK_SF_INFLIGHT: dict = {}   # {label_bucket: Event}
-_MK_SF_RESULT = {"ts": 0.0, "rows": None, "cols": None, "exc": None}
+# Voo em curso: dict com {"event": Event, "rows": list|None, "cols": list|None, "exc": BaseException|None}.
+# Cada chamada concorrente que pega o MESMO _MK_SF_FLIGHT espera o mesmo Event e lê o resultado
+# DESSE voo (não de voos antigos). Quando o voo termina, _MK_SF_FLIGHT é zerado mas o dict
+# permanece acessível via referência local dos followers — assim mesmo após timeout, eles leem
+# apenas o resultado do voo que aguardaram, nunca estado global stale.
+_MK_SF_FLIGHT: dict | None = None
+# Último resultado VÁLIDO (rows não-vazio) — só este é usado como cache hit.
+# Erros NUNCA poluem o cache; ficam isolados no flight dict e só atingem participantes daquele voo.
+_MK_SF_LAST_GOOD: dict = {"ts": 0.0, "rows": None, "cols": None}
 _MK_SF_TTL = 60.0
 
 
@@ -664,32 +671,55 @@ def _fetch_magento_kits_cached(label: str):
     """Executa MAGENTO_KITS_QUERY com singleflight + cache TTL.
 
     Retorna (rows, columns) — mesmo formato que conn.execute(...).fetchall() +
-    conn.execute(...).keys(). Propaga exceções (caller decide se faz fallback).
-    Usa engine_magento via magento_run com o label passado p/ observabilidade.
+    conn.execute(...).keys(). Propaga exceções APENAS aos participantes do voo
+    corrente (líder + followers que esperaram seu Event). Follower que sofreu
+    timeout (120s sem set()) NÃO vira leader e NÃO lê estado global stale:
+    executa query direta isoladamente e loga warning. Resultados vazios NÃO
+    são cacheados como válidos — falha parcial do Magento não vira "OK"
+    pelos próximos 60s.
     """
     from app.core.db_retry import magento_run
+    global _MK_SF_FLIGHT
     now = _time.time()
     with _MK_SF_LOCK:
-        if (_MK_SF_RESULT["rows"] is not None
-                and (now - _MK_SF_RESULT["ts"]) < _MK_SF_TTL
-                and _MK_SF_RESULT["exc"] is None):
-            return _MK_SF_RESULT["rows"], _MK_SF_RESULT["cols"]
-        evt = _MK_SF_INFLIGHT.get("magento_kits")
-        if evt is not None:
-            wait_evt = evt
+        # Cache hit: somente last-good (rows não-vazio) dentro do TTL.
+        if (_MK_SF_LAST_GOOD["rows"]
+                and (now - _MK_SF_LAST_GOOD["ts"]) < _MK_SF_TTL):
+            return _MK_SF_LAST_GOOD["rows"], _MK_SF_LAST_GOOD["cols"]
+        if _MK_SF_FLIGHT is not None:
+            flight = _MK_SF_FLIGHT
             leader = False
         else:
-            wait_evt = _threading.Event()
-            _MK_SF_INFLIGHT["magento_kits"] = wait_evt
+            flight = {
+                "event": _threading.Event(),
+                "rows": None,
+                "cols": None,
+                "exc": None,
+            }
+            _MK_SF_FLIGHT = flight
             leader = True
+
     if not leader:
-        wait_evt.wait(timeout=120.0)
+        flight["event"].wait(timeout=120.0)
+        if flight["event"].is_set():
+            # Leu APENAS o resultado deste voo (referência local), nunca estado global stale.
+            if flight["exc"] is not None:
+                raise flight["exc"]
+            return flight["rows"], flight["cols"]
+        # Timeout sem set(): leader desapareceu. Cai para retry direto SEM ler flight.
+        # Não vira novo leader (risco de stampede); apenas executa sua própria query.
+        # Logamos para diagnóstico — é cenário raro de processo emperrado.
+        logger.warning(
+            "[KitConfig] singleflight follower timeout (120s) — leader não publicou; "
+            "executando query direta sem cache"
+        )
+        # Limpeza defensiva: se o flight órfão ainda é o ativo (compare-by-identity),
+        # libera para que o próximo caller possa se eleger leader normalmente em vez
+        # de também esperar 120s em loop.
         with _MK_SF_LOCK:
-            if _MK_SF_RESULT["exc"] is not None:
-                raise _MK_SF_RESULT["exc"]
-            if _MK_SF_RESULT["rows"] is not None:
-                return _MK_SF_RESULT["rows"], _MK_SF_RESULT["cols"]
-        # Fallback: leader sumiu sem publicar — segue para executar direto.
+            if _MK_SF_FLIGHT is flight:
+                _MK_SF_FLIGHT = None
+
     rows = None
     cols = None
     exc_caught = None
@@ -701,13 +731,20 @@ def _fetch_magento_kits_cached(label: str):
     except BaseException as e:
         exc_caught = e
     finally:
-        with _MK_SF_LOCK:
-            _MK_SF_RESULT["ts"] = _time.time()
-            _MK_SF_RESULT["rows"] = rows
-            _MK_SF_RESULT["cols"] = cols
-            _MK_SF_RESULT["exc"] = exc_caught
-            _MK_SF_INFLIGHT.pop("magento_kits", None)
-        wait_evt.set()
+        if leader:
+            with _MK_SF_LOCK:
+                flight["rows"] = rows
+                flight["cols"] = cols
+                flight["exc"] = exc_caught
+                # Atualiza last-good APENAS com resultado não-vazio sem erro.
+                # Resultado vazio (Magento respondeu mas sem linhas) é tratado como
+                # falha parcial — preserva o last_good anterior em vez de promover [].
+                if exc_caught is None and rows:
+                    _MK_SF_LAST_GOOD["ts"] = _time.time()
+                    _MK_SF_LAST_GOOD["rows"] = rows
+                    _MK_SF_LAST_GOOD["cols"] = cols
+                _MK_SF_FLIGHT = None
+            flight["event"].set()
     if exc_caught is not None:
         raise exc_caught
     return rows, cols
