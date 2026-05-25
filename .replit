@@ -63,11 +63,14 @@ build = ["bash", "build.sh"]
 [userenv.shared]
 CORS_ORIGINS = "http://localhost:5000,http://localhost:5173,https://0b827c34-60ec-4b06-8fcd-e09a89148a97-00-xu37byadrs7f.picard.replit.dev"
 SSH_HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILptjCB6sjk0yPPaeEp/wPje1NklpU4XIKXA63hCmErM"
-ENABLE_BACKGROUND_MAGENTO_SYNC = "true"
 
 [userenv.production]
 FORCE_RESET_EMAIL = "admin@cscdoesporte.com"
 FORCE_RESET_PASSWORD = "Nortemkt@2026"
+ENABLE_BACKGROUND_MAGENTO_SYNC = "true"
+
+[userenv.development]
+ENABLE_BACKGROUND_MAGENTO_SYNC = "false"
 
 [postMerge]
 path = "scripts/post-merge.sh"

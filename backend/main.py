@@ -270,6 +270,12 @@ def _scheduled_cleanup_sessions():
 
 
 def _scheduled_nori_insights():
+    # Gateado por ENABLE_BACKGROUND_MAGENTO_SYNC (consistente com startup):
+    # em dev (false) o timer 05h30 BRT não dispara — evita ISC force_refresh
+    # → kit_cost_batch Magento em ambiente sem necessidade de atualização.
+    if not ENABLE_BACKGROUND_MAGENTO_SYNC:
+        logger.info("[NoriInsights] Scheduled run SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+        return
     from app.core.database import SessionLocal
     import asyncio as _aio
     db = None
@@ -2263,19 +2269,24 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("[Startup] RevenuePrewarm SKIPPED (ENABLE_REVENUE_PREWARM=false)")
 
-        # Trigger proactive insights generation on startup (non-blocking, best-effort)
-        try:
-            from app.core.database import SessionLocal as _InsightSL
-            from app.services.nori_insights_service import run_proactive_insights_job
-            import asyncio as _aio
-            _ins_db = _InsightSL()
+        # Trigger proactive insights generation on startup (non-blocking, best-effort).
+        # Gateado por ENABLE_BACKGROUND_MAGENTO_SYNC: o job dispara ISC com
+        # force_refresh, que vai ao Magento (kit_cost_batch etc.). Em dev fica off.
+        if not ENABLE_BACKGROUND_MAGENTO_SYNC:
+            logger.info("[Startup] Nori insights job SKIPPED (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
+        else:
             try:
-                _ins_result = _aio.run(run_proactive_insights_job(_ins_db))
-                logger.info(f"[Startup] Nori insights job: {_ins_result.get('insights_saved', 0)} saved, {_ins_result.get('events_analyzed', 0)} events analyzed")
-            finally:
-                _ins_db.close()
-        except Exception as _ins_err:
-            logger.warning(f"[Startup] Nori insights startup run failed (non-fatal): {_ins_err}")
+                from app.core.database import SessionLocal as _InsightSL
+                from app.services.nori_insights_service import run_proactive_insights_job
+                import asyncio as _aio
+                _ins_db = _InsightSL()
+                try:
+                    _ins_result = _aio.run(run_proactive_insights_job(_ins_db))
+                    logger.info(f"[Startup] Nori insights job: {_ins_result.get('insights_saved', 0)} saved, {_ins_result.get('events_analyzed', 0)} events analyzed")
+                finally:
+                    _ins_db.close()
+            except Exception as _ins_err:
+                logger.warning(f"[Startup] Nori insights startup run failed (non-fatal): {_ins_err}")
 
         # Start the dedicated 05:30 BRT daily timer for insights generation
         _schedule_daily_nori_insights()
