@@ -2250,7 +2250,13 @@ async def lifespan(app: FastAPI):
         # Pré-aquece cache de receita Magento por bundle em background (não bloqueia startup).
         # Garante que a primeira requisição de margem para qualquer evento ativo
         # responda a partir do cache em memória, não espere 20-55s na query de receita.
-        _prewarm_revenue_cache()
+        # Pode ser desligado em PROD via ENABLE_REVENUE_PREWARM=false para cortar
+        # ~150 queries pesadas no Magento durante o deploy; primeiro acesso a cada
+        # evento recarrega lazy (mesma fórmula, mesmo resultado, só adiado).
+        if os.getenv("ENABLE_REVENUE_PREWARM", "true").lower() in ("true", "1", "yes"):
+            _prewarm_revenue_cache()
+        else:
+            logger.info("[Startup] RevenuePrewarm SKIPPED (ENABLE_REVENUE_PREWARM=false)")
 
         # Trigger proactive insights generation on startup (non-blocking, best-effort)
         try:

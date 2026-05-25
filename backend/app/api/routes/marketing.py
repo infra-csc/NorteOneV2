@@ -2603,6 +2603,53 @@ _MARGEM_GLOBAL_COOLDOWN_S = 300  # 5 minutos de cooldown global após qualquer f
 _MARGEM_SF_LOCK = _threading.Lock()
 _MARGEM_SF_FLIGHTS: dict = {}   # key -> {"event": Event, "result": Any, "exc": BaseException|None}
 
+# ---------------------------------------------------------------------------
+# Cooldown para force_refresh do endpoint de Margem por Kit.
+# Quando o usuário abre/reabre o modal de Margem repetidamente, cada clique
+# com force_refresh=True dispara count+revenue (15-90s cada) no Magento.
+# O cooldown rebaixa force_refresh para False dentro da janela (default 10min),
+# fazendo o caminho normal de cache/snapshot servir o resultado anterior.
+# Chave: (tuple sorted projeto_ids, ano normalizado, incluir_cortesias).
+# Resultado entregue é idêntico (mesmo cache); só evita re-execução cara.
+# ---------------------------------------------------------------------------
+_MARGEM_FORCE_REFRESH_COOLDOWN_SECONDS = int(os.getenv("MARGEM_FORCE_REFRESH_COOLDOWN_SECONDS", "600"))
+_margem_force_refresh_last_ts: dict = {}
+_margem_force_refresh_lock = _threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Cache TTL para vendas-kit-detalhe (breakdown por kit/canal/modalidade).
+# A query é STRAIGHT_JOIN + agregações + CASEs aninhados, custa 5-30s no
+# Magento e os dados raramente mudam minuto-a-minuto. TTL curto (5min default)
+# preserva frescor sem martelar o Magento em reaberturas do modal.
+# Chave: (frozenset(magento_event_ids), ano, incluir_cortesias).
+# ---------------------------------------------------------------------------
+_VENDAS_KIT_DETALHE_TTL_SECONDS = int(os.getenv("VENDAS_KIT_DETALHE_TTL_SECONDS", "300"))
+_vendas_kit_detalhe_cache: dict = {}   # key -> (rows_list, mono_ts)
+_vendas_kit_detalhe_lock = _threading.Lock()
+
+# Cap defensivo: evita crescimento ilimitado dos dicts de cooldown/cache em
+# memória. Quando o tamanho ultrapassar o cap, remove as entradas mais antigas
+# (sem refazer trabalho — só esquece registros de cooldown vencidos).
+_MARGEM_FORCE_REFRESH_MAX_ENTRIES = int(os.getenv("MARGEM_FORCE_REFRESH_MAX_ENTRIES", "500"))
+_VENDAS_KIT_DETALHE_MAX_ENTRIES = int(os.getenv("VENDAS_KIT_DETALHE_MAX_ENTRIES", "500"))
+
+
+def _prune_oldest_inplace(d: dict, max_entries: int, ts_index: int = 0) -> None:
+    """Remove entradas mais antigas quando o dict ultrapassa o cap.
+    ts_index: posição do timestamp dentro do valor (0 se valor é float ts,
+    1 se valor é (data, ts) como no cache de vendas-kit-detalhe).
+    Caller deve segurar o lock apropriado.
+    """
+    if len(d) <= max_entries:
+        return
+    overflow = len(d) - max_entries
+    if ts_index == 0:
+        sorted_keys = sorted(d.keys(), key=lambda k: d[k])
+    else:
+        sorted_keys = sorted(d.keys(), key=lambda k: d[k][ts_index])
+    for k in sorted_keys[:overflow + max(1, max_entries // 10)]:
+        d.pop(k, None)
+
 
 def _margem_singleflight(key, work_fn, label: str):
     """Singleflight wrapper genérico (sem TTL próprio) para as 4 queries de Margem.
@@ -2762,6 +2809,33 @@ def get_margem_por_kit(
 
     if not projeto_ids:
         return []
+
+    # Cooldown de force_refresh por (projeto_ids, ano, cortesias). Quando o
+    # usuário clica "Atualizar" repetidamente no modal de Margem, só o primeiro
+    # clique dentro da janela passa força bruta no Magento; demais são
+    # rebaixados a leitura normal de cache/snapshot (mesmo resultado).
+    _frc_key = None
+    _frc_stamp_set_by_this_request = False
+    _frc_my_stamp = None
+    if force_refresh and _MARGEM_FORCE_REFRESH_COOLDOWN_SECONDS > 0:
+        _frc_now = _time.time()
+        _frc_ano = ano if ano is not None else today_brazil().year
+        _frc_key = (tuple(sorted(projeto_ids)), _frc_ano, bool(incluir_cortesias))
+        with _margem_force_refresh_lock:
+            _frc_last = _margem_force_refresh_last_ts.get(_frc_key)
+            if _frc_last is not None and (_frc_now - _frc_last) < _MARGEM_FORCE_REFRESH_COOLDOWN_SECONDS:
+                _frc_age = int(_frc_now - _frc_last)
+                logger.info(
+                    f"[Margem] force_refresh DEMOTED — cooldown {_frc_age}s "
+                    f"< {_MARGEM_FORCE_REFRESH_COOLDOWN_SECONDS}s key={_frc_key}"
+                )
+                force_refresh = False
+            else:
+                _margem_force_refresh_last_ts[_frc_key] = _frc_now
+                _prune_oldest_inplace(_margem_force_refresh_last_ts, _MARGEM_FORCE_REFRESH_MAX_ENTRIES, ts_index=0)
+                _frc_stamp_set_by_this_request = True
+                _frc_my_stamp = _frc_now
+                logger.info(f"[Margem] force_refresh ACCEPTED — cooldown reset key={_frc_key}")
 
     try:
         # 1. Cadastro do Evento → Kits & Produtos serve APENAS como fonte de custo
@@ -4017,6 +4091,18 @@ GROUP BY sub.id_evento, sub.ds_categoria
 
     except Exception as e:
         logger.exception(f"Erro ao calcular margem por kit: {e}")
+        # Falha não pode bloquear retry: limpa o stamp de cooldown SE este
+        # request foi quem o setou. Sem o guard, um request demoted (que
+        # encontrou cooldown ativo) que falhe depois limparia o stamp de outro
+        # request que está válido — abrindo brecha para re-execução prematura.
+        if _frc_stamp_set_by_this_request and _frc_key is not None:
+            # Compare-and-delete: só remove se o stamp ainda é o nosso. Evita
+            # apagar um stamp mais novo gravado por outro request após o nosso
+            # ter expirado e este só agora falhado.
+            with _margem_force_refresh_lock:
+                _curr = _margem_force_refresh_last_ts.get(_frc_key)
+                if _curr == _frc_my_stamp:
+                    _margem_force_refresh_last_ts.pop(_frc_key, None)
         return []
 
 
@@ -4068,6 +4154,20 @@ def get_detalhe_vendas_por_kit(
     if not magento_event_ids:
         return []
 
+    # Cache TTL curto: dentro da janela, devolve resultado idêntico sem tocar Magento.
+    _vkd_cache_key = (frozenset(magento_event_ids), _ano, bool(incluir_cortesias))
+    if _VENDAS_KIT_DETALHE_TTL_SECONDS > 0:
+        _vkd_now = _time.monotonic()
+        with _vendas_kit_detalhe_lock:
+            _vkd_entry = _vendas_kit_detalhe_cache.get(_vkd_cache_key)
+        if _vkd_entry and (_vkd_now - _vkd_entry[1]) < _VENDAS_KIT_DETALHE_TTL_SECONDS:
+            logger.info(
+                f"[vendas-kit-detalhe] cache HIT: {len(magento_event_ids)} event_ids → "
+                f"{len(_vkd_entry[0])} linhas (TTL restante: "
+                f"{int(_VENDAS_KIT_DETALHE_TTL_SECONDS - (_vkd_now - _vkd_entry[1]))}s)"
+            )
+            return list(_vkd_entry[0])
+
     _cort_ids = _get_cortesia_magento_ids(db) if incluir_cortesias else None
     detalhe_query = text(build_query_isc_magento_detalhe(magento_event_ids, _ano, cortesia_magento_ids=_cort_ids))
 
@@ -4090,7 +4190,12 @@ def get_detalhe_vendas_por_kit(
                 "receitaLiquida": round(float(row[11] or 0), 2),
                 "ticketMedio":    round(float(row[12]), 2) if row[12] else None,
             })
-        return rows if rows else []
+        _vkd_result = rows if rows else []
+        if _VENDAS_KIT_DETALHE_TTL_SECONDS > 0:
+            with _vendas_kit_detalhe_lock:
+                _vendas_kit_detalhe_cache[_vkd_cache_key] = (list(_vkd_result), _time.monotonic())
+                _prune_oldest_inplace(_vendas_kit_detalhe_cache, _VENDAS_KIT_DETALHE_MAX_ENTRIES, ts_index=1)
+        return _vkd_result
     except Exception as e:
         logger.error(f"Erro ao buscar detalhe de vendas por kit: {e}")
         return None
