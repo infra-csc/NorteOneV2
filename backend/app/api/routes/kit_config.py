@@ -353,7 +353,7 @@ def diag_special_price(
 
 
 MAGENTO_KITS_QUERY = """
-SELECT 
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     cpev1.value                             AS id_evento,
     cpev_kit.value                          AS nome_evento,
     cpe_parent.entity_id                    AS bundle_entity_id,
