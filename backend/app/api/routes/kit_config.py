@@ -40,6 +40,27 @@ def _ativo_synthetic_id(id_evento_ativo: int, kit_name: str) -> int:
 
 logger = logging.getLogger(__name__)
 
+
+def _normalize_special_price(price, special_price):
+    """Regra B (acordada com usuário, mai/2026):
+    o campo `special_price` só deve aparecer quando representa uma promoção
+    REAL — isto é, quando for estritamente menor que `price`. Quando o
+    fallback do SQL traz special_price >= price (caso típico: kit sem
+    EAV special_price cujo MIN(lot_value) acaba >= preço do componente),
+    semanticamente NÃO existe promoção, então retornamos None.
+    Aplicar este filtro UMA VEZ na leitura (cache/snapshot/live) evita
+    espalhar a regra por múltiplos pontos de construção do KitRow.
+    """
+    if special_price is None or price is None:
+        return special_price
+    try:
+        if float(special_price) >= float(price):
+            return None
+    except (TypeError, ValueError):
+        return special_price
+    return special_price
+
+
 _kits_cache: dict = {"data": None, "ts": 0.0}
 _KITS_TTL = 120
 
@@ -972,6 +993,12 @@ def get_kits_with_config(
     response.headers["X-Kit-Source"] = (
         "live" if (magento_ok or ativo_ok) else "local-fallback"
     )
+    # Regra B (resposta apenas): esconde special_price/special_price_base quando >= price.
+    # NÃO aplicada dentro de _build_kit_rows_internal porque a mesma função alimenta
+    # rebuild_kit_snapshot, que deve persistir valores raw vindos de Magento/Ativo.
+    for r in rows:
+        r.special_price = _normalize_special_price(r.price, r.special_price)
+        r.special_price_base = _normalize_special_price(r.price_base, r.special_price_base)
     return rows
 
 
@@ -1099,9 +1126,11 @@ def _apply_overlay_to_snapshot(db: Session, snapshot_dicts: list) -> List[KitRow
             multiplicador_sugerido=1,
             multiplicador=cfg.multiplicador if cfg else 1,
             price_base=d.get("price"),
-            special_price_base=d.get("special_price"),
+            special_price_base=_normalize_special_price(d.get("price"), d.get("special_price")),
             price=d.get("price"),
-            special_price=d.get("special_price"),
+            special_price=_normalize_special_price(d.get("price"), d.get("special_price")),
+            # Nota: snapshot armazena raw; aplica Regra B só na resposta.
+            # Aqui é leitura do snapshot já persistido → normaliza no read.
             is_configured=is_configured,
             is_kit_basico=cfg.is_kit_basico if cfg else False,
             is_promo_principal=cfg.is_promo_principal if cfg else False,
