@@ -1680,13 +1680,13 @@ async def lifespan(app: FastAPI):
         # upstream MySQL pools (Magento via SSH tunnel). The dashboard list
         # also trusts the snapshot as fresh within 50min, so today's row stays
         # visibly up-to-date between batches.
-        if ENABLE_BACKGROUND_MAGENTO_SYNC:
-            cache_scheduler.start(interval=2700)
-            logger.info("Cache auto-refresh scheduler started (45 min interval + daily 05:00 BRT)")
-        else:
-            logger.info("[Startup] cache_scheduler NOT started (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
-
         # ── CAMADA 2: Catch-up reforçado do job 02h BRT ─────────────────────
+        # IMPORTANTE: rodar ANTES de cache_scheduler.start() para que, se
+        # decidirmos forçar consolidação, possamos logar 'iniciado' no ciclo
+        # ANTES do _schedule_snapshot_consolidation rodar — assim o scheduler
+        # cai na branch (c) "running_recent" e re-agenda em 10min ao invés de
+        # disparar Timer paralelo em 90s. Evita carga duplicada no Magento.
+        #
         # Independente da "freshness" de VendasDiariaSnapshot (que pode estar
         # bumpada por sincronizar_hoje_batch do scheduler de 45min sem que a
         # consolidação 02h tenha rodado), checa EXPLICITAMENTE se o ciclo
@@ -1695,6 +1695,8 @@ async def lifespan(app: FastAPI):
         # a consolidação no startup (mesmo se snapshots parecerem frescos).
         # Cobre o cenário: backend reinicia às 13h-22h sem ter rodado 02h.
         _force_consolidation_catchup = False
+        _catchup_ciclo_id = None  # ciclo_id pré-alocado, será preenchido se forçarmos catch-up
+        _catchup_lock_conn = None  # connection segurando advisory lock — release no fim do thread
         try:
             from app.core.database import SessionLocal as _CatchSL
             from app.models.sync_event_log import SyncEventLog as _SEL_catch
@@ -1715,18 +1717,65 @@ async def lifespan(app: FastAPI):
                             _SEL_catch.created_at >= _cutoff_utc,
                         )
                     ).first()
-                    if not _last_ok:
-                        _force_consolidation_catchup = True
-                        logger.warning(
-                            "[Startup] CATCH-UP REFORÇADO: nenhuma 'consolidacao_diaria_04h' concluída nas últimas 24h "
-                            f"(now_brt={_now_brt_catch.isoformat()}). Forçando consolidação no startup mesmo se snapshots parecerem frescos."
+                    if not _last_ok and ENABLE_BACKGROUND_MAGENTO_SYNC:
+                        # Gate por ENABLE_BACKGROUND_MAGENTO_SYNC: se a flag está off, o thread
+                        # não vai rodar lá embaixo (snapshot_thread.start() é pulado), então NÃO
+                        # adquirimos o lock — caso contrário ele ficaria pendurado até o processo
+                        # morrer, bloqueando endpoint (409) e scheduler interno (re-agenda 10min).
+                        # ADVISORY LOCK cross-process — se endpoint /scheduled-jobs/...
+                        # ou scheduler interno já estiver rodando, NÃO ativamos catch-up
+                        # (evita dois jobs pesados em paralelo).
+                        from app.services.sync_log_service import (
+                            new_ciclo_id as _ncid_catch,
+                            log_evento_strict as _les_catch,
+                            acquire_consolidation_lock as _acq_catch,
+                            release_consolidation_lock as _rel_catch,
                         )
+                        _catchup_lock_conn = _acq_catch()
+                        if _catchup_lock_conn is None:
+                            _catchup_ciclo_id = None
+                            _force_consolidation_catchup = False
+                            logger.warning(
+                                "[Startup] CATCH-UP REFORÇADO PULADO: advisory lock detido por outro processo "
+                                "(Scheduled Deployment ou scheduler interno já estão consolidando)."
+                            )
+                        else:
+                            # Loga 'iniciado' com STRICT — se falhar, libera lock e desiste.
+                            try:
+                                _catchup_ciclo_id = _ncid_catch()
+                                _les_catch(
+                                    _catchup_ciclo_id,
+                                    "consolidacao_diaria_04h",
+                                    "iniciado",
+                                    nivel="ciclo",
+                                    detalhes="Startup catch-up reforçado: 02h BRT não rodou nas últimas 24h",
+                                )
+                                _force_consolidation_catchup = True
+                                logger.warning(
+                                    f"[Startup] CATCH-UP REFORÇADO ativado (ciclo={_catchup_ciclo_id}): nenhuma "
+                                    f"'consolidacao_diaria_04h' concluída nas últimas 24h. Forçando consolidação."
+                                )
+                            except Exception as _le_err:
+                                _rel_catch(_catchup_lock_conn)
+                                _catchup_lock_conn = None
+                                _catchup_ciclo_id = None
+                                _force_consolidation_catchup = False
+                                logger.error(
+                                    f"[Startup] CATCH-UP REFORÇADO ABORTADO: log strict de 'iniciado' falhou — "
+                                    f"lock liberado, scheduler interno (Timer 90s) assume. Erro: {_le_err}"
+                                )
                     else:
                         logger.info("[Startup] Consolidação 02h BRT já completou nas últimas 24h — catch-up reforçado não necessário.")
                 finally:
                     _cdb_catch.close()
         except Exception as _cc_err:
             logger.warning(f"[Startup] Falha no check de catch-up reforçado: {_cc_err}")
+
+        if ENABLE_BACKGROUND_MAGENTO_SYNC:
+            cache_scheduler.start(interval=2700)
+            logger.info("Cache auto-refresh scheduler started (45 min interval + daily 05:00 BRT)")
+        else:
+            logger.info("[Startup] cache_scheduler NOT started (ENABLE_BACKGROUND_MAGENTO_SYNC=false)")
 
         # Check if snapshots are fresh enough to skip consolidation at startup.
         # If snapshots were updated within the last 2 hours (e.g. after "Atualizar Tudo" or
@@ -1754,20 +1803,50 @@ async def lifespan(app: FastAPI):
             logger.warning(f"[Startup] Could not check snapshot freshness: {_snap_check_err}")
 
         def _run_snapshot_consolidation():
+            # Se o catch-up reforçado alocou um ciclo_id, fechamos esse ciclo
+            # no fim com 'concluido'/'parcial'/'falha' para que as camadas 2/3
+            # enxerguem corretamente que rodou hoje.
+            _ciclo_terminal_status = "concluido"
+            _ciclo_errors: list = []
             try:
                 from app.core.database import SessionLocal
                 from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
                 logger.info("Starting snapshot consolidation (parallel)...")
+                # Classifica dict.status como _run_step (cache.py): batches que retornam
+                # dict com status='falha_persistencia'/'parcial' NÃO lançam exception.
+                def _classify_ret(ret) -> str:
+                    if not isinstance(ret, dict):
+                        return "ok"
+                    raw = str(ret.get("status") or "").lower()
+                    if raw in ("ok", "concluido", "concluído", "sucesso", "success", ""):
+                        return "ok"
+                    if raw in ("skipped", "pulado", "ignorado", "sem_dados", "no_data"):
+                        return "pulado"
+                    if raw.startswith("falha") or raw in ("erro", "error", "failed", "failure"):
+                        return "falha"
+                    if raw == "parcial":
+                        return "parcial"
+                    return "ok"
+
+                def _run_step_startup(step: str, fn):
+                    try:
+                        ret = fn()
+                        cls = _classify_ret(ret)
+                        if cls in ("falha", "parcial"):
+                            logger.error(f"[Startup] {step} terminou {cls}: {ret}")
+                            _ciclo_errors.append(f"{step}: {cls} — {str(ret)[:200]}")
+                        else:
+                            logger.info(f"[Startup] {step}: {ret if isinstance(ret, (dict, int)) else 'ok'}")
+                    except Exception as ex:
+                        logger.error(f"[Startup] {step} lançou exception: {ex}")
+                        _ciclo_errors.append(f"{step}: {str(ex)[:200]}")
+
                 db = SessionLocal()
                 try:
-                    snapshot_diario_batch(db)
-                    consolidar_curvas_historicas_batch(db)
-                    sincronizar_hoje_batch(db)
-                    try:
-                        result_margem = sincronizar_margem_bundle_rev_batch(db)
-                        logger.info(f"[Startup] sincronizar_margem_bundle_rev_batch: {result_margem}")
-                    except Exception as _e_margem:
-                        logger.error(f"[Startup] sincronizar_margem_bundle_rev_batch falhou (não bloqueante): {_e_margem}")
+                    _run_step_startup("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
+                    _run_step_startup("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
+                    _run_step_startup("sincronizar_hoje_batch", lambda: sincronizar_hoje_batch(db))
+                    _run_step_startup("sincronizar_margem_bundle_rev_batch", lambda: sincronizar_margem_bundle_rev_batch(db))
                     logger.info("Startup snapshot consolidation completed")
                 finally:
                     db.close()
@@ -1777,8 +1856,38 @@ async def lifespan(app: FastAPI):
                     refresh_active_event_details()
                 except Exception as _e_eds:
                     logger.warning(f"[Startup] refresh_active_event_details failed: {_e_eds}")
+                    _ciclo_errors.append(f"event_details: {str(_e_eds)[:200]}")
             except Exception as e:
                 logger.error(f"Startup snapshot consolidation failed: {e}")
+                _ciclo_errors.append(f"outer: {str(e)[:200]}")
+                _ciclo_terminal_status = "falha"
+            finally:
+                # Se _force_consolidation_catchup foi True, fecha o ciclo logado
+                # no startup (camadas 2/3 dependem desse status terminal).
+                if _catchup_ciclo_id:
+                    if _ciclo_errors and _ciclo_terminal_status != "falha":
+                        _ciclo_terminal_status = "parcial"
+                    try:
+                        from app.services.sync_log_service import log_evento as _le_end
+                        _le_end(
+                            _catchup_ciclo_id,
+                            "consolidacao_diaria_04h",
+                            _ciclo_terminal_status,
+                            nivel="ciclo",
+                            detalhes=(f"Startup catch-up terminou: erros={len(_ciclo_errors)}. "
+                                      f"{' | '.join(_ciclo_errors)[:500] if _ciclo_errors else 'sem erros'}"),
+                        )
+                        logger.info(f"[Startup] Ciclo catch-up {_catchup_ciclo_id} fechado como '{_ciclo_terminal_status}'")
+                    except Exception as _le_end_err:
+                        logger.warning(f"[Startup] Falha ao fechar ciclo catch-up: {_le_end_err}")
+                # Libera advisory lock cross-process — SEMPRE, mesmo em erro.
+                if _catchup_lock_conn is not None:
+                    try:
+                        from app.services.sync_log_service import release_consolidation_lock as _rel_end
+                        _rel_end(_catchup_lock_conn)
+                        logger.info("[Startup] Advisory lock da consolidação liberado.")
+                    except Exception as _rel_err:
+                        logger.warning(f"[Startup] Falha ao liberar advisory lock: {_rel_err}")
 
         snapshot_thread = threading.Thread(target=_run_snapshot_consolidation, daemon=True, name="startup-snapshot")
         if not ENABLE_BACKGROUND_MAGENTO_SYNC:

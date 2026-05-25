@@ -1183,8 +1183,30 @@ class CacheRefreshScheduler:
         # Ciclo guarda-chuva: agrupa todos os sub-passos sob o mesmo ciclo_id
         # para que o painel de Sincronizações mostre o resumo do job das 04h
         # (o que rodou, o que falhou, o que foi pulado).
-        from app.services.sync_log_service import log_evento as _le_root, new_ciclo_id as _ncid_root, classify_motivo as _cm_root
+        from app.services.sync_log_service import (
+            log_evento as _le_root,
+            new_ciclo_id as _ncid_root,
+            classify_motivo as _cm_root,
+            acquire_consolidation_lock as _acq_root,
+            release_consolidation_lock as _rel_root,
+        )
         import time as _t_root
+
+        # ADVISORY LOCK cross-process — se endpoint /scheduled-jobs/... ou
+        # catch-up de startup já estiver rodando, pulamos esta execução
+        # interna (evita jobs paralelos). Re-agenda em 10min como branch (c).
+        _lock_conn_root = _acq_root()
+        if _lock_conn_root is None:
+            logger.warning("[Daily 02:00] Advisory lock NÃO obtido — outro processo já consolidando. Re-agendando em 10min.")
+            self._snapshot_timer = threading.Timer(10 * 60, self._schedule_snapshot_consolidation)
+            self._snapshot_timer.daemon = True
+            self._snapshot_timer.start()
+            return
+
+        # Marcador para o finally lá embaixo saber que o lock foi adquirido nesta
+        # execução (e não numa anterior). Garante release sob qualquer exception.
+        _lock_acquired_here = True
+
         _root_ciclo = _ncid_root()
         _root_job = "consolidacao_diaria_04h"
         _root_t0 = _t_root.time()
@@ -1196,156 +1218,168 @@ class CacheRefreshScheduler:
         _le_root(_root_ciclo, _root_job, "iniciado", nivel="ciclo",
                  detalhes="Job agendado das 02h BRT: snapshot diário, curvas históricas, sync hoje e margem por bundle")
 
-        # Idempotência por sub-passo: se este sub-passo JÁ concluiu hoje BRT
-        # em qualquer ciclo (ex.: backend reiniciou no meio do job das 04h e
-        # o catch-up está rodando de novo), pular para não duplicar trabalho
-        # pesado de Magento.
-        def _step_already_done_today(step_name: str) -> bool:
-            try:
-                from app.core.database import SessionLocal as _SL_idem
-                from app.models.sync_event_log import SyncEventLog as _SEL_idem
-                from sqlalchemy import and_ as _and_idem
-                _now_brt = datetime.now(ZoneInfo('America/Sao_Paulo'))
-                _today_brt_start = _now_brt.replace(hour=0, minute=0, second=0, microsecond=0)
-                _today_utc = _today_brt_start.astimezone(ZoneInfo('UTC'))
-                _db_idem = _SL_idem()
-                try:
-                    _hit = _db_idem.query(_SEL_idem.id).filter(
-                        _and_idem(
-                            _SEL_idem.job_name == _root_job,
-                            _SEL_idem.nivel == "grupo",
-                            _SEL_idem.grupo == step_name,
-                            _SEL_idem.status == "ok",
-                            _SEL_idem.created_at >= _today_utc,
-                        )
-                    ).first()
-                    return _hit is not None
-                finally:
-                    _db_idem.close()
-            except Exception as _e_idem:
-                logger.warning(f"[Daily 02:00] Falha ao checar idempotência de {step_name}: {_e_idem}")
-                return False
-
-        def _run_step(step_name: str, fn, *, optional: bool = False) -> bool:
-            """Executa um sub-passo logando início/fim no ciclo guarda-chuva.
-
-            Quando o sub-job retorna um `dict` com chave `status`, ela é
-            interpretada para evitar que retornos do tipo `{"status": "skipped"}`
-            ou `{"status": "falha_persistencia"}` apareçam falsamente como `ok`
-            no resumo do ciclo (visto no painel).
-            """
-            # Idempotência: pula se já concluiu OK hoje em outro ciclo.
-            if _step_already_done_today(step_name):
-                _le_root(_root_ciclo, _root_job, "pulado", nivel="grupo", grupo=step_name,
-                         motivo="ja_executado_hoje",
-                         detalhes=f"{step_name} já concluído hoje BRT — pulado (idempotência)")
-                _root_steps["pulado"] += 1
-                logger.info(f"[Daily 02:00] {step_name} pulado: já concluiu hoje BRT em outro ciclo")
-                return True
-            _t0 = _t_root.time()
-            _le_root(_root_ciclo, _root_job, "iniciado", nivel="grupo", grupo=step_name,
-                     detalhes=f"Iniciando {step_name}")
-            try:
-                _ret = fn()
-                _status_log = "ok"
-                _motivo_log = None
-                if isinstance(_ret, dict):
-                    _raw = str(_ret.get("status") or "").lower()
-                    if _raw in ("ok", "concluido", "concluído", "sucesso", "success"):
-                        _status_log = "ok"
-                    elif _raw in ("skipped", "pulado", "ignorado", "sem_dados", "no_data"):
-                        _status_log = "pulado"
-                        _motivo_log = _raw or "sem_dados"
-                    elif _raw.startswith("falha") or _raw in ("erro", "error", "failed", "failure"):
-                        _status_log = "falha"
-                        _motivo_log = _raw or "falha_runtime"
-                    elif _raw == "parcial":
-                        _status_log = "parcial"
-                        _motivo_log = "parcial"
-                _le_root(_root_ciclo, _root_job, _status_log, nivel="grupo", grupo=step_name,
-                         motivo=_motivo_log,
-                         detalhes=str(_ret) if _ret is not None else None,
-                         duracao_ms=int((_t_root.time() - _t0) * 1000))
-                if _status_log == "ok":
-                    _root_steps["ok"] += 1
-                elif _status_log == "pulado":
-                    _root_steps["pulado"] += 1
-                else:
-                    _root_steps["falha"] += 1
-                    if not optional:
-                        logger.error(f"[Daily 02:00] {step_name} retornou status='{_motivo_log}' (não exceção)")
-                return _status_log == "ok"
-            except Exception as _exc:
-                _status = "falha"
-                _motivo = _cm_root(_exc)
-                _le_root(_root_ciclo, _root_job, _status, nivel="grupo", grupo=step_name,
-                         motivo=_motivo, detalhes=str(_exc)[:1500],
-                         duracao_ms=int((_t_root.time() - _t0) * 1000))
-                _root_steps["falha"] += 1
-                if optional:
-                    logger.error(f"[Daily 02:00] {step_name} falhou (não bloqueante): {_exc}")
-                    return False
-                logger.error(f"[Daily 02:00] {step_name} falhou: {_exc}")
-                return False
-
-        _final_status = "concluido"
-        _final_motivo = None
-        _final_detalhes = None
+        # TRY/FINALLY top-level — release do advisory lock garantido sob
+        # qualquer exception (mesmo inesperada). Bloco originalmente terminava
+        # em self._schedule_snapshot_consolidation(); mantemos esse re-agendamento
+        # tanto em sucesso quanto em erro (mesma semântica original).
         try:
-            from app.core.database import SessionLocal
-            from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
-            db = SessionLocal()
+            # Idempotência por sub-passo: se este sub-passo JÁ concluiu hoje BRT
+            # em qualquer ciclo (ex.: backend reiniciou no meio do job das 04h e
+            # o catch-up está rodando de novo), pular para não duplicar trabalho
+            # pesado de Magento.
+            def _step_already_done_today(step_name: str) -> bool:
+                try:
+                    from app.core.database import SessionLocal as _SL_idem
+                    from app.models.sync_event_log import SyncEventLog as _SEL_idem
+                    from sqlalchemy import and_ as _and_idem
+                    _now_brt = datetime.now(ZoneInfo('America/Sao_Paulo'))
+                    _today_brt_start = _now_brt.replace(hour=0, minute=0, second=0, microsecond=0)
+                    _today_utc = _today_brt_start.astimezone(ZoneInfo('UTC'))
+                    _db_idem = _SL_idem()
+                    try:
+                        _hit = _db_idem.query(_SEL_idem.id).filter(
+                            _and_idem(
+                                _SEL_idem.job_name == _root_job,
+                                _SEL_idem.nivel == "grupo",
+                                _SEL_idem.grupo == step_name,
+                                _SEL_idem.status == "ok",
+                                _SEL_idem.created_at >= _today_utc,
+                            )
+                        ).first()
+                        return _hit is not None
+                    finally:
+                        _db_idem.close()
+                except Exception as _e_idem:
+                    logger.warning(f"[Daily 02:00] Falha ao checar idempotência de {step_name}: {_e_idem}")
+                    return False
+
+            def _run_step(step_name: str, fn, *, optional: bool = False) -> bool:
+                """Executa um sub-passo logando início/fim no ciclo guarda-chuva.
+
+                Quando o sub-job retorna um `dict` com chave `status`, ela é
+                interpretada para evitar que retornos do tipo `{"status": "skipped"}`
+                ou `{"status": "falha_persistencia"}` apareçam falsamente como `ok`
+                no resumo do ciclo (visto no painel).
+                """
+                # Idempotência: pula se já concluiu OK hoje em outro ciclo.
+                if _step_already_done_today(step_name):
+                    _le_root(_root_ciclo, _root_job, "pulado", nivel="grupo", grupo=step_name,
+                             motivo="ja_executado_hoje",
+                             detalhes=f"{step_name} já concluído hoje BRT — pulado (idempotência)")
+                    _root_steps["pulado"] += 1
+                    logger.info(f"[Daily 02:00] {step_name} pulado: já concluiu hoje BRT em outro ciclo")
+                    return True
+                _t0 = _t_root.time()
+                _le_root(_root_ciclo, _root_job, "iniciado", nivel="grupo", grupo=step_name,
+                         detalhes=f"Iniciando {step_name}")
+                try:
+                    _ret = fn()
+                    _status_log = "ok"
+                    _motivo_log = None
+                    if isinstance(_ret, dict):
+                        _raw = str(_ret.get("status") or "").lower()
+                        if _raw in ("ok", "concluido", "concluído", "sucesso", "success"):
+                            _status_log = "ok"
+                        elif _raw in ("skipped", "pulado", "ignorado", "sem_dados", "no_data"):
+                            _status_log = "pulado"
+                            _motivo_log = _raw or "sem_dados"
+                        elif _raw.startswith("falha") or _raw in ("erro", "error", "failed", "failure"):
+                            _status_log = "falha"
+                            _motivo_log = _raw or "falha_runtime"
+                        elif _raw == "parcial":
+                            _status_log = "parcial"
+                            _motivo_log = "parcial"
+                    _le_root(_root_ciclo, _root_job, _status_log, nivel="grupo", grupo=step_name,
+                             motivo=_motivo_log,
+                             detalhes=str(_ret) if _ret is not None else None,
+                             duracao_ms=int((_t_root.time() - _t0) * 1000))
+                    if _status_log == "ok":
+                        _root_steps["ok"] += 1
+                    elif _status_log == "pulado":
+                        _root_steps["pulado"] += 1
+                    else:
+                        _root_steps["falha"] += 1
+                        if not optional:
+                            logger.error(f"[Daily 02:00] {step_name} retornou status='{_motivo_log}' (não exceção)")
+                    return _status_log == "ok"
+                except Exception as _exc:
+                    _status = "falha"
+                    _motivo = _cm_root(_exc)
+                    _le_root(_root_ciclo, _root_job, _status, nivel="grupo", grupo=step_name,
+                             motivo=_motivo, detalhes=str(_exc)[:1500],
+                             duracao_ms=int((_t_root.time() - _t0) * 1000))
+                    _root_steps["falha"] += 1
+                    if optional:
+                        logger.error(f"[Daily 02:00] {step_name} falhou (não bloqueante): {_exc}")
+                        return False
+                    logger.error(f"[Daily 02:00] {step_name} falhou: {_exc}")
+                    return False
+
+            _final_status = "concluido"
+            _final_motivo = None
+            _final_detalhes = None
             try:
-                _run_step("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
-                _run_step("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
+                from app.core.database import SessionLocal
+                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
+                db = SessionLocal()
+                try:
+                    _run_step("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
+                    _run_step("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
 
-                def _sync_hoje():
-                    _c = sincronizar_hoje_batch(db)
-                    # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do
-                    # evento. Sem isso, mesmo após o sync das 04:00 ter rodado, o
-                    # badge continua mostrando o último horário do agendador da
-                    # noite anterior — o que dá a falsa impressão de dado velho.
-                    set_last_sync_hoje(_t_root.time())
-                    logger.info(f"[Daily 02:00] sincronizar_hoje_batch: {_c} grupos — last_sync_hoje atualizado")
-                    return f"{_c} grupos sincronizados"
-                _run_step("sincronizar_hoje_batch", _sync_hoje)
+                    def _sync_hoje():
+                        _c = sincronizar_hoje_batch(db)
+                        # Atualiza o carimbo "Inscrições às HH:MM" exibido no detalhe do
+                        # evento. Sem isso, mesmo após o sync das 04:00 ter rodado, o
+                        # badge continua mostrando o último horário do agendador da
+                        # noite anterior — o que dá a falsa impressão de dado velho.
+                        set_last_sync_hoje(_t_root.time())
+                        logger.info(f"[Daily 02:00] sincronizar_hoje_batch: {_c} grupos — last_sync_hoje atualizado")
+                        return f"{_c} grupos sincronizados"
+                    _run_step("sincronizar_hoje_batch", _sync_hoje)
 
-                _run_step("sincronizar_margem_bundle_rev_batch",
-                          lambda: sincronizar_margem_bundle_rev_batch(db),
-                          optional=True)
+                    _run_step("sincronizar_margem_bundle_rev_batch",
+                              lambda: sincronizar_margem_bundle_rev_batch(db),
+                              optional=True)
 
-                def _cleanup():
-                    from app.services.sync_log_service import cleanup_old as _sync_cleanup
-                    removed = _sync_cleanup(days=30)
-                    if removed:
-                        logger.info(f"[Daily 02:00] sync_event_log cleanup: {removed} linhas removidas (>30 dias)")
-                    return f"{removed or 0} linhas removidas (>30 dias)"
-                _run_step("sync_event_log_cleanup", _cleanup, optional=True)
-                logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")
-            finally:
-                db.close()
-        except Exception as e:
-            logger.error(f"Daily snapshot consolidation error: {e}")
-            _final_status = "falha"
-            _final_motivo = _cm_root(e)
-            _final_detalhes = str(e)[:1500]
+                    def _cleanup():
+                        from app.services.sync_log_service import cleanup_old as _sync_cleanup
+                        removed = _sync_cleanup(days=30)
+                        if removed:
+                            logger.info(f"[Daily 02:00] sync_event_log cleanup: {removed} linhas removidas (>30 dias)")
+                        return f"{removed or 0} linhas removidas (>30 dias)"
+                    _run_step("sync_event_log_cleanup", _cleanup, optional=True)
+                    logger.info("=== DAILY SNAPSHOT CONSOLIDATION COMPLETED ===")
+                finally:
+                    db.close()
+            except Exception as e:
+                logger.error(f"Daily snapshot consolidation error: {e}")
+                _final_status = "falha"
+                _final_motivo = _cm_root(e)
+                _final_detalhes = str(e)[:1500]
 
-        # Se algum sub-passo obrigatório falhou e nada explodiu acima, marca parcial.
-        if _final_status == "concluido" and _root_steps["falha"] > 0:
-            _final_status = "parcial"
-            _final_motivo = "sub_passo_falhou"
+            # Se algum sub-passo obrigatório falhou e nada explodiu acima, marca parcial.
+            if _final_status == "concluido" and _root_steps["falha"] > 0:
+                _final_status = "parcial"
+                _final_motivo = "sub_passo_falhou"
 
-        _le_root(
-            _root_ciclo, _root_job, _final_status, nivel="ciclo",
-            motivo=_final_motivo,
-            detalhes=(
-                _final_detalhes
-                or f"Sub-passos — ok: {_root_steps['ok']}, falha: {_root_steps['falha']}"
-            ),
-            duracao_ms=int((_t_root.time() - _root_t0) * 1000),
-        )
+            _le_root(
+                _root_ciclo, _root_job, _final_status, nivel="ciclo",
+                motivo=_final_motivo,
+                detalhes=(
+                    _final_detalhes
+                    or f"Sub-passos — ok: {_root_steps['ok']}, falha: {_root_steps['falha']}"
+                ),
+                duracao_ms=int((_t_root.time() - _root_t0) * 1000),
+            )
 
-        self._schedule_snapshot_consolidation()
+
+        finally:
+            try:
+                _rel_root(_lock_conn_root)
+                logger.info("[Daily 02:00] Advisory lock liberado.")
+            except Exception as _rel_err:
+                logger.warning(f"[Daily 02:00] Falha ao liberar advisory lock: {_rel_err}")
+            self._schedule_snapshot_consolidation()
 
     def _run_daily_refresh(self):
         with self._lock:

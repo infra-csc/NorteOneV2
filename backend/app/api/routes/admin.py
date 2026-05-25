@@ -304,9 +304,20 @@ def trigger_scheduled_daily_consolidation(
         sincronizar_hoje_batch as _shb_sd,
         sincronizar_margem_bundle_rev_batch as _smbrb_sd,
     )
+    from app.services.sync_log_service import (
+        log_evento as _le_sd,
+        log_evento_strict as _les_sd,
+        new_ciclo_id as _ncid_sd,
+        acquire_consolidation_lock as _acq_sd,
+        release_consolidation_lock as _rel_sd,
+    )
+    from fastapi.responses import JSONResponse as _JSON_sd
 
     _t0_sd = _time_sd.time()
+    _ciclo_sd = _ncid_sd()
+    _job_sd = "consolidacao_diaria_04h"  # MESMO job_name das camadas 2/3 — crítico p/ observabilidade
     _result_sd: dict = {
+        "ciclo_id": _ciclo_sd,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "snapshot_diario": None,
         "curvas": None,
@@ -316,62 +327,139 @@ def trigger_scheduled_daily_consolidation(
         "errors": [],
     }
 
-    _logger_sd.info("[ScheduledJob] === CONSOLIDAÇÃO DIÁRIA 02h BRT (via Scheduled Deployment) INICIADA ===")
+    _logger_sd.info(f"[ScheduledJob] === CONSOLIDAÇÃO DIÁRIA 02h BRT (Scheduled Deployment) INICIADA ciclo={_ciclo_sd} ===")
 
-    _db_sd = _SL_sd()
+    # ADVISORY LOCK cross-process — bloqueia execução paralela com catch-up
+    # de startup (main.py) ou scheduler interno (cache.py). Se outro processo
+    # detém o lock, retornamos 409 e o Scheduled Deployment vai retentar.
+    _lock_conn_sd = _acq_sd()
+    if _lock_conn_sd is None:
+        _logger_sd.warning(f"[ScheduledJob] Advisory lock NÃO obtido (outro processo já está consolidando) — abortando ciclo {_ciclo_sd}")
+        # Loga 'pulado' para auditoria (best-effort, sem strict pois é não-crítico).
+        try:
+            _le_sd(_ciclo_sd, _job_sd, "pulado", nivel="ciclo",
+                   motivo="lock_em_uso",
+                   detalhes="Outro processo (startup catch-up ou scheduler interno) já está rodando a consolidação")
+        except Exception:
+            pass
+        raise HTTPException(status_code=409, detail="Consolidação já em andamento por outro processo")
+
+    # Loga ciclo 'iniciado' com STRICT (re-raises): se falhar, abortamos com 500
+    # para evitar race condition. O lock JÁ foi adquirido, então liberamos antes.
     try:
+        _les_sd(_ciclo_sd, _job_sd, "iniciado", nivel="ciclo",
+                detalhes="Job 02h BRT via Scheduled Deployment externo (snapshot diário, curvas, hoje, margem)")
+    except Exception as _le_err:
+        _logger_sd.error(f"[ScheduledJob] Falha CRÍTICA ao logar ciclo 'iniciado' — liberando lock e abortando: {_le_err}")
+        _rel_sd(_lock_conn_sd)
+        raise HTTPException(status_code=500, detail=f"Falha ao registrar ciclo: {str(_le_err)[:200]}")
+
+    # Interpreta retorno dict.status dos batches que NÃO lançam exception
+    # (sincronizar_margem_bundle_rev_batch pode retornar status='falha_persistencia',
+    # 'parcial', 'sem_dados', etc.) — mesma lógica de _run_step em cache.py.
+    def _classify_return(ret) -> str:
+        """Retorna 'ok' | 'parcial' | 'falha' | 'pulado' baseado no retorno do batch."""
+        if not isinstance(ret, dict):
+            return "ok"
+        raw = str(ret.get("status") or "").lower()
+        if raw in ("ok", "concluido", "concluído", "sucesso", "success", ""):
+            return "ok"
+        if raw in ("skipped", "pulado", "ignorado", "sem_dados", "no_data"):
+            return "pulado"
+        if raw.startswith("falha") or raw in ("erro", "error", "failed", "failure"):
+            return "falha"
+        if raw == "parcial":
+            return "parcial"
+        return "ok"
+
+    # Tracker de classificação por passo (ok/parcial/falha/pulado) — usado para
+    # determinar _n_success real (não baseado em non-None, que conta dict.status='falha').
+    _step_outcomes: dict = {}
+
+    def _run_and_classify(step: str, fn):
+        """Executa, captura exception, e classifica dict.status. Popula errors e _step_outcomes."""
         try:
-            _result_sd["snapshot_diario"] = _sdb_sd(_db_sd)
-        except Exception as _e1:
-            _logger_sd.error(f"[ScheduledJob] snapshot_diario_batch falhou: {_e1}")
-            _result_sd["errors"].append(f"snapshot_diario: {str(_e1)[:300]}")
+            ret = fn()
+            _result_sd[step] = ret
+            cls = _classify_return(ret)
+            _step_outcomes[step] = cls
+            if cls == "falha":
+                _result_sd["errors"].append(f"{step}: retorno falha — {ret}")
+            elif cls == "parcial":
+                _result_sd["errors"].append(f"{step}: retorno parcial — {ret}")
+        except Exception as ex:
+            _logger_sd.error(f"[ScheduledJob] {step} lançou exception: {ex}")
+            _step_outcomes[step] = "falha"
+            _result_sd["errors"].append(f"{step}: {str(ex)[:300]}")
+
+    # Tudo daqui pra baixo está sob try/finally para garantir release do advisory lock.
+    try:
+        _db_sd = _SL_sd()
         try:
-            _result_sd["curvas"] = _cchb_sd(_db_sd)
-        except Exception as _e2:
-            _logger_sd.error(f"[ScheduledJob] consolidar_curvas_historicas_batch falhou: {_e2}")
-            _result_sd["errors"].append(f"curvas: {str(_e2)[:300]}")
+            _run_and_classify("snapshot_diario", lambda: _sdb_sd(_db_sd))
+            _run_and_classify("curvas", lambda: _cchb_sd(_db_sd))
+            _run_and_classify("hoje", lambda: _shb_sd(_db_sd))
+            _run_and_classify("margem", lambda: _smbrb_sd(_db_sd))
+        finally:
+            _db_sd.close()
+
         try:
-            _result_sd["hoje"] = _shb_sd(_db_sd)
-        except Exception as _e3:
-            _logger_sd.error(f"[ScheduledJob] sincronizar_hoje_batch falhou: {_e3}")
-            _result_sd["errors"].append(f"hoje: {str(_e3)[:300]}")
+            from app.services.event_detail_snapshot_service import refresh_active_event_details as _raed_sd
+            _result_sd["event_details"] = _raed_sd()
+            _step_outcomes["event_details"] = "ok"
+        except Exception as _e5:
+            _logger_sd.error(f"[ScheduledJob] refresh_active_event_details falhou: {_e5}")
+            _step_outcomes["event_details"] = "falha"
+            _result_sd["errors"].append(f"event_details: {str(_e5)[:300]}")
+
+        _result_sd["duration_s"] = round(_time_sd.time() - _t0_sd, 1)
+        _result_sd["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _result_sd["step_outcomes"] = _step_outcomes
+        _n_errors = len(_result_sd["errors"])
+        # _n_success: passos que terminaram como 'ok' ou 'pulado' (skipped é OK semântico).
+        _n_success = sum(1 for cls in _step_outcomes.values() if cls in ("ok", "pulado"))
+        if _n_errors == 0:
+            _result_sd["status"] = "concluido"
+            _http_status = 200
+        elif _n_success > 0:
+            # Parcial: usa 500 (não 207) para garantir que Scheduled Deployment trate
+            # como FAILURE e gere retry/alerta — alguns executores ignoram 207 como 2xx.
+            _result_sd["status"] = "parcial"
+            _http_status = 500
+        else:
+            _result_sd["status"] = "falha"
+            _http_status = 500
+
+        # Loga ciclo terminal — camadas 2/3 dependem desse log para saber se rodou hoje.
         try:
-            _result_sd["margem"] = _smbrb_sd(_db_sd)
-        except Exception as _e4:
-            _logger_sd.error(f"[ScheduledJob] sincronizar_margem_bundle_rev_batch falhou: {_e4}")
-            _result_sd["errors"].append(f"margem: {str(_e4)[:300]}")
+            _le_sd(_ciclo_sd, _job_sd, _result_sd["status"], nivel="ciclo",
+                   detalhes=(f"Scheduled Deployment 02h BRT terminou em {_result_sd['duration_s']}s. "
+                             f"sucessos={_n_success}, erros={_n_errors}. outcomes={_step_outcomes}. "
+                             f"errors={' | '.join(_result_sd['errors'])[:500] if _result_sd['errors'] else 'nenhum'}"))
+        except Exception as _le_err2:
+            _logger_sd.warning(f"[ScheduledJob] Falha ao logar ciclo terminal '{_result_sd['status']}': {_le_err2}")
+
+        _logger_sd.info(
+            f"[ScheduledJob] === CONSOLIDAÇÃO DIÁRIA 02h BRT TERMINOU em {_result_sd['duration_s']}s — "
+            f"status={_result_sd['status']}, sucessos={_n_success}, erros={_n_errors}, http={_http_status} ==="
+        )
+
+        if _result_sd["errors"]:
+            try:
+                from app.services.health_alert_service import log_and_alert as _laa_sd
+                _laa_sd(
+                    event_type="SCHEDULED_DAILY_PARTIAL",
+                    severity="HIGH",
+                    message=f"Consolidação 02h BRT terminou {_result_sd['status']}: {_n_errors} sub-passo(s) falharam",
+                    detail=" | ".join(_result_sd["errors"])[:2000],
+                )
+            except Exception as _alert_err:
+                _logger_sd.warning(f"[ScheduledJob] Falha ao registrar alerta: {_alert_err}")
+
+        return _JSON_sd(status_code=_http_status, content=_result_sd)
     finally:
-        _db_sd.close()
-
-    try:
-        from app.services.event_detail_snapshot_service import refresh_active_event_details as _raed_sd
-        _result_sd["event_details"] = _raed_sd()
-    except Exception as _e5:
-        _logger_sd.error(f"[ScheduledJob] refresh_active_event_details falhou: {_e5}")
-        _result_sd["errors"].append(f"event_details: {str(_e5)[:300]}")
-
-    _result_sd["duration_s"] = round(_time_sd.time() - _t0_sd, 1)
-    _result_sd["finished_at"] = datetime.now(timezone.utc).isoformat()
-    _result_sd["status"] = "ok" if not _result_sd["errors"] else "parcial"
-
-    _logger_sd.info(
-        f"[ScheduledJob] === CONSOLIDAÇÃO DIÁRIA 02h BRT CONCLUÍDA em {_result_sd['duration_s']}s — "
-        f"status={_result_sd['status']}, erros={len(_result_sd['errors'])} ==="
-    )
-
-    if _result_sd["errors"]:
-        try:
-            from app.services.health_alert_service import log_and_alert as _laa_sd
-            _laa_sd(
-                event_type="SCHEDULED_DAILY_PARTIAL",
-                severity="HIGH",
-                message=f"Consolidação 02h BRT terminou parcial: {len(_result_sd['errors'])} sub-passo(s) falharam",
-                detail=" | ".join(_result_sd["errors"])[:2000],
-            )
-        except Exception as _alert_err:
-            _logger_sd.warning(f"[ScheduledJob] Falha ao registrar alerta: {_alert_err}")
-
-    return _result_sd
+        # Libera advisory lock SEMPRE — mesmo em path de exception não previsto.
+        _rel_sd(_lock_conn_sd)
 
 
 @router.post("/snapshots/consolidar")

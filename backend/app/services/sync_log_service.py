@@ -59,6 +59,105 @@ def log_evento(
         logger.warning(f"[sync_log] gravação falhou (ignorado): {e}")
 
 
+def log_evento_strict(
+    ciclo_id: str,
+    job_name: str,
+    status: str,
+    *,
+    nivel: str = "grupo",
+    grupo: Optional[str] = None,
+    fonte: Optional[str] = None,
+    motivo: Optional[str] = None,
+    detalhes: Optional[str] = None,
+    qtd_antes: Optional[int] = None,
+    qtd_depois: Optional[int] = None,
+    data_floor: Optional[date] = None,
+    duracao_ms: Optional[int] = None,
+) -> None:
+    """Versão estrita que RE-RAISES em caso de falha.
+
+    Usar apenas para marcadores críticos de coordenação (ex.: 'iniciado' de
+    ciclo da consolidação diária) onde a ausência do log permitiria duplicidade.
+    """
+    db = SessionLocal()
+    try:
+        entry = SyncEventLog(
+            ciclo_id=ciclo_id,
+            job_name=job_name,
+            nivel=nivel,
+            grupo=grupo,
+            fonte=fonte,
+            status=status,
+            motivo=motivo,
+            detalhes=(detalhes[:2000] if detalhes else None),
+            qtd_antes=qtd_antes,
+            qtd_depois=qtd_depois,
+            data_floor=data_floor,
+            duracao_ms=duracao_ms,
+        )
+        db.add(entry)
+        db.commit()
+    finally:
+        db.close()
+
+
+# Chave fixa do advisory lock cross-process da consolidação diária 02h BRT.
+# Compartilhada entre: endpoint /api/admin/scheduled-jobs/consolidacao-diaria,
+# catch-up de startup (main.py) e scheduler interno (cache.py).
+CONSOLIDACAO_DIARIA_LOCK_KEY = 7423919204
+
+
+def acquire_consolidation_lock():
+    """Tenta adquirir advisory lock pg da consolidação diária.
+
+    Retorna o objeto connection se obteve o lock (caller DEVE chamar
+    release_consolidation_lock para liberar e fechar). Retorna None se outro
+    processo já o detém — caller deve abortar/pular execução para evitar
+    cycles duplicados em paralelo.
+    """
+    from sqlalchemy import text
+    from ..core.database import engine
+    try:
+        conn = engine.raw_connection()
+    except Exception as e:
+        logger.error(f"[ConsolidacaoLock] raw_connection falhou: {e}")
+        raise
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT pg_try_advisory_lock({CONSOLIDACAO_DIARIA_LOCK_KEY})")
+        got = bool(cur.fetchone()[0])
+        cur.close()
+        if not got:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return None
+        return conn
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        raise
+
+
+def release_consolidation_lock(conn) -> None:
+    """Libera o advisory lock e fecha a connection. Silencioso em caso de erro."""
+    if conn is None:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute(f"SELECT pg_advisory_unlock({CONSOLIDACAO_DIARIA_LOCK_KEY})")
+        cur.close()
+    except Exception as e:
+        logger.warning(f"[ConsolidacaoLock] unlock falhou (ignorado): {e}")
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
 def classify_motivo(exc: BaseException) -> str:
     """Heurística pra rotular falhas com códigos curtos exibíveis na UI."""
     msg = str(exc).lower()
