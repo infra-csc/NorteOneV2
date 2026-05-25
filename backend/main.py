@@ -189,8 +189,23 @@ def _scheduled_margem_rev_safety_check():
                     ).filter(_KC_sc.tipo_kit.isnot(None)).scalar() or 0
                     _coverage = _total_snap / _expected if _expected > 0 else 1.0
                     if _coverage < 0.85:
-                        _needs_sync = True
-                        _motivo = f"cobertura baixa ({_total_snap}/{_expected} = {_coverage:.0%})"
+                        # COOLDOWN ANTI-LOOP (Maio/2026): mesmo motivo do startup
+                        # (ver _maybe_sync_margem_rev). Bundles ausentes podem ser
+                        # estruturais (sem orders nos últimos 2 anos no Magento)
+                        # ou pulados por freeze. Persist-zero cura o caso comum,
+                        # mas se a cobertura permanecer baixa por outro motivo
+                        # (ex.: freeze removendo muitos bundles ativos), o scheduler
+                        # não deve disparar a cada tick (45min) — limita a 1x/6h.
+                        _SAFETY_COOLDOWN_H = 6
+                        if _age_h < _SAFETY_COOLDOWN_H:
+                            logger.debug(
+                                f"[SafetyCheck] cobertura baixa ({_total_snap}/{_expected} = "
+                                f"{_coverage:.0%}) MAS último sync há {_age_h:.1f}h "
+                                f"(< {_SAFETY_COOLDOWN_H}h cooldown) — sync de emergência ignorado (anti-loop)"
+                            )
+                        else:
+                            _needs_sync = True
+                            _motivo = f"cobertura baixa ({_total_snap}/{_expected} = {_coverage:.0%})"
                     else:
                         logger.debug(
                             f"[SafetyCheck] margem_bundle_rev_snapshot OK "
@@ -2066,7 +2081,31 @@ async def lifespan(app: FastAPI):
                             except Exception as _cov_err:
                                 logger.warning(f"[Startup] Erro ao checar cobertura de bundles: {_cov_err}")
 
-                    if _empty or _stale or _low_coverage:
+                    # COOLDOWN ANTI-LOOP (Maio/2026): bundles antigos sem orders
+                    # nos últimos 2 anos no Magento NUNCA entram no snapshot (query
+                    # retorna vazio → não há UPSERT). Cobertura fica em ~65%
+                    # permanentemente, então _low_coverage dispara em TODO restart,
+                    # martelando o Magento com 20+ batches a cada subida do app.
+                    # Persist-zero (no snapshot_service.py) cura a causa-raiz, mas
+                    # o cooldown é defesa em profundidade: se persist-zero falhar
+                    # por qualquer motivo, não martelamos o Magento mais de 1x a
+                    # cada 6h por restart. Para sync por "vazio" ou "desatualizado"
+                    # o gatilho continua imediato — só a heurística de cobertura
+                    # respeita o cooldown.
+                    _COVERAGE_RESYNC_COOLDOWN_H = 6
+                    _cov_in_cooldown = (
+                        _low_coverage
+                        and _age_h is not None
+                        and _age_h < _COVERAGE_RESYNC_COOLDOWN_H
+                    )
+                    if _cov_in_cooldown:
+                        logger.info(
+                            f"[Startup] margem_bundle_rev_snapshot cobertura baixa MAS "
+                            f"último sync há {_age_h:.1f}h (< {_COVERAGE_RESYNC_COOLDOWN_H}h cooldown) "
+                            f"— sync de cobertura ignorado (anti-loop)"
+                        )
+                    should_run = _empty or _stale or (_low_coverage and not _cov_in_cooldown)
+                    if should_run:
                         _motivo = (
                             "vazio" if _empty
                             else f"cobertura baixa ({_total} bundles no snapshot)"
@@ -2076,7 +2115,7 @@ async def lifespan(app: FastAPI):
                         logger.info(f"[Startup] margem_bundle_rev_snapshot {_motivo} — disparando sync em background")
                         result = _smrb(_db2)
                         logger.info(f"[Startup] margem_bundle_rev_snapshot sync: {result}")
-                    else:
+                    elif not _cov_in_cooldown:
                         logger.info(f"[Startup] margem_bundle_rev_snapshot fresco ({_age_h:.1f}h, cobertura OK) — sync ignorado")
                 finally:
                     _db2.close()

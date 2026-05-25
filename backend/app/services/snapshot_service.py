@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 from typing import Optional
 import os
+import time
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -2009,6 +2010,18 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     BATCH_SIZE = 80
     upserted_total = 0
     persist_failures = 0
+    # Throttle entre batches para dar oxigênio ao Magento (a query rev pesa
+    # 10-15s sob carga). Pausa CURTA — não muda lógica, só espaça lotes
+    # sequenciais. Aplicado a partir do 2º batch (i > 0).
+    BATCH_THROTTLE_S = 1.5
+    # Persist-zero tracking: bundles cujo batch RODOU COM SUCESSO (sem
+    # exceção) e ainda assim não retornaram linhas no Magento. Esses são
+    # bundles "verdadeiramente vazios" (sem orders nos últimos 2 anos) e
+    # podem ser persistidos como receita=0/qtd=0 com segurança, porque o
+    # _persist_batch usa GREATEST() — zero NUNCA sobrescreve um valor
+    # positivo já gravado. Bundles de batches que LANÇARAM exceção (timeout,
+    # SSH drop, etc.) NÃO entram aqui, para não serem zerados por engano.
+    successful_batch_bids: set = set()
 
     from app.core.db_retry import magento_run
     from app.core.database import SessionLocal as _PgSession
@@ -2083,6 +2096,11 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     sync_aborted = False
 
     for i in range(0, len(bundle_ids_all), BATCH_SIZE):
+        # Throttle a partir do 2º batch: dá oxigênio ao Magento entre lotes
+        # sequenciais. Não muda nenhum cálculo — só espaça a chegada das
+        # queries pesadas no servidor remoto.
+        if i > 0 and BATCH_THROTTLE_S > 0:
+            time.sleep(BATCH_THROTTLE_S)
         batch = bundle_ids_all[i:i + BATCH_SIZE]
         normal_batch = [b for b in batch if b not in cortesia_bundle_set]
         cortesia_batch = [b for b in batch if b in cortesia_bundle_set]
@@ -2132,6 +2150,10 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
                 f"{_crev} com receita, {_ccnt} com qtd"
             )
             consecutive_failures = 0
+            # Marca como "processados com sucesso" TODOS os bundles deste batch,
+            # incluindo os que não retornaram linhas. São candidatos a persist-zero
+            # ao final do loop (cura a causa-raiz do loop de cobertura baixa).
+            successful_batch_bids.update(batch)
         except Exception as e:
             consecutive_failures += 1
             logger.error(f"[MargemRevSync] Erro no batch {i // BATCH_SIZE + 1} (bundles {i}–{i + len(batch)}): {e}")
@@ -2154,6 +2176,35 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
             logger.error(
                 f"[MargemRevSync] Falha ao gravar batch {i // BATCH_SIZE + 1} no Postgres: {_e_persist}"
             )
+
+    # PERSIST-ZERO: bundles cujo batch rodou com SUCESSO mas que não retornaram
+    # linhas (sem orders no Magento na janela de 2 anos). Sem esta gravação,
+    # esses bundles ficariam permanentemente fora do snapshot, mantendo a
+    # cobertura abaixo do limiar de 85% e re-disparando o sync inteiro em
+    # todo restart (loop vicioso que martelava o Magento). _persist_batch
+    # usa GREATEST() no UPSERT — zero NUNCA sobrescreve valor positivo já
+    # gravado. Bundles que pertencem a batches que LANÇARAM exceção não estão
+    # em successful_batch_bids e portanto não são zerados.
+    empty_bids = successful_batch_bids - set(rev_by_bid.keys()) - set(qtd_by_bid.keys())
+    if empty_bids:
+        ZERO_CHUNK = 200
+        empty_list = list(empty_bids)
+        logger.info(
+            f"[MargemRevSync] Persistindo zero p/ {len(empty_bids)} bundles sem orders no Magento "
+            f"(GREATEST preserva positivos já gravados; quebra loop de cobertura baixa)"
+        )
+        for j in range(0, len(empty_list), ZERO_CHUNK):
+            chunk = empty_list[j:j + ZERO_CHUNK]
+            zero_rev = {b: 0.0 for b in chunk}
+            zero_cnt = {b: 0 for b in chunk}
+            try:
+                persisted = _persist_batch(zero_rev, zero_cnt)
+                upserted_total += persisted
+            except Exception as _e_zero:
+                persist_failures += 1
+                logger.error(
+                    f"[MargemRevSync] Falha ao gravar chunk de zeros (idx {j}): {_e_zero}"
+                )
 
     if upserted_total == 0:
         if not rev_by_bid:
