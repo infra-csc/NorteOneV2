@@ -516,6 +516,14 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             special_price_val = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
             current_price_val = float(row_dict["current_price"]) if row_dict.get("current_price") is not None else None
             price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
+            # Regra B (mai/2026, mesma do Mapeamento de Kits): se special_price >= price,
+            # não é uma promoção real (típico: fallback SQL traz MIN(lot_value) >= preço do
+            # componente EAV). Descarta o special_price para não inflar o ticket atual.
+            # Sem isso, kits como "Night Run João Pessoa Kit Básico" mostravam ticket de
+            # R$ 129,99 (lot_value fantasma) em vez de R$ 99,99 (preço real do componente).
+            if (special_price_val is not None and price_val is not None
+                    and special_price_val >= price_val):
+                special_price_val = None
             sp_base = (
                 special_price_val if (special_price_val is not None and special_price_val > 0)
                 else current_price_val if (current_price_val is not None and current_price_val > 0)
