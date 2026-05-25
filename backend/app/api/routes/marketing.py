@@ -4657,7 +4657,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "23"  # v23: ticket_atual usa special_price (preço de entrada) como prioridade sobre current_price
+_DETAIL_CACHE_VERSION = "24"  # v24: Regra B em _fetch_ticket_atual_map — descarta special_price quando >= price (evita lot_value fantasma inflar ticket atual)
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
