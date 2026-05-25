@@ -360,8 +360,16 @@ SELECT
     cpev_kit_name.value                     AS nome_kit,
     eaov_tipo.value                         AS tipo_categoria,
 
-    (
-        MAX(CASE 
+    -- price (De/strikethrough): MAX(componente Distância/Modalidade) + MAX(componente addon não-blacklisted).
+    -- A primeira parcela é COALESCE para 0: em bundles cujo componente "distância"
+    -- não usa a nomenclatura padrão (ex.: "BPC26SP1MB-5Km" em vez de "Distancia-5Km"),
+    -- a branch "distância" retorna NULL e, sem o COALESCE, `NULL + addon` zerava todo
+    -- o preço. Com COALESCE, a branch "addon" naturalmente acaba pegando o próprio
+    -- componente principal (preço da inscrição) e o resultado bate com o valor base
+    -- do bundle. NULLIF(...,0) garante que bundles totalmente sem preço retornem
+    -- NULL em vez de 0 (mantém semântica histórica).
+    NULLIF(
+        COALESCE(MAX(CASE 
             WHEN (
                 cpev_simple.value LIKE '%Distancia%'
              OR cpev_simple.value LIKE '%Distância%'
@@ -369,7 +377,7 @@ SELECT
             )
              AND cpep.value > 0
             THEN cpep.value ELSE NULL 
-        END)
+        END), 0)
         +
         COALESCE(MAX(CASE 
             WHEN cpep.value > 0
@@ -402,7 +410,8 @@ SELECT
              AND cpev_simple.value NOT LIKE '%Toalha%'
              AND cpev_simple.value NOT LIKE '%Corrida +%'
             THEN cpep.value ELSE NULL 
-        END), 0)
+        END), 0),
+        0
     )                                       AS price,
 
     -- lote_atual: nome do lote corrente (por bundle → fallback por evento)
@@ -446,6 +455,17 @@ SELECT
         -- fallback 4 (index_price). Sem isso, soma 0+0 = 0 bloqueava o
         -- fallback 4 e causava o bug "special_price R$ 0,00" em kits
         -- promocionais sem lote próprio (ex.: bundle 57843).
+        --
+        -- ADDON via subquery escopada ao bundle: além da blacklist textual,
+        -- exclui qualquer componente cujo preço seja >= MAX(preço do bundle).
+        -- O componente mais caro é, por definição, a "inscrição/distância"
+        -- (mesmo quando o nome NÃO bate com os padrões Distancia/Modalidade,
+        -- ex.: "BPC26SP1MB-5Km"). Sem essa exclusão, addon picava a própria
+        -- inscrição e somava ao lote do evento, gerando bugs como o "Kit
+        -- Bota Pra Correr - SP 2026" que devolvia 54.99 + 219.99 = 274.98
+        -- em vez do correto 54.99. Itens físicos (camiseta/etc.) priceados
+        -- continuam entrando normalmente pois são sempre mais baratos que
+        -- a inscrição.
         CASE
             WHEN (SELECT COUNT(*)
                   FROM catalog_product_entity_event_lot_price
@@ -458,38 +478,59 @@ SELECT
                         AND lot_value > 0
                         AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
                      0
-                 ) + COALESCE(MAX(CASE
-                     WHEN cpep.value > 0
-                      AND cpev_simple.value NOT LIKE '%Distancia%'
-                      AND cpev_simple.value NOT LIKE '%Distância%'
-                      AND cpev_simple.value NOT LIKE '%Modalidade%'
-                      AND cpev_simple.value NOT LIKE '%Personaliz%'
-                      AND cpev_simple.value NOT LIKE '%Aceite%'
-                      AND cpev_simple.value NOT LIKE '%aceito%'
-                      AND cpev_simple.value NOT LIKE '%Treinão%'
-                      AND cpev_simple.value NOT LIKE '%Horário%'
-                      AND cpev_simple.value NOT LIKE '%Bateria%'
-                      AND cpev_simple.value NOT LIKE '%Doar%'
-                      AND cpev_simple.value NOT LIKE '%Tênis%'
-                      AND cpev_simple.value NOT LIKE '%Tenis%'
-                      AND cpev_simple.value NOT LIKE '%Bike%'
-                      AND cpev_simple.value NOT LIKE '%Biciclet%'
-                      AND cpev_simple.value NOT LIKE '%Festival%'
-                      AND cpev_simple.value NOT LIKE '%Bag%'
-                      AND cpev_simple.value NOT LIKE '%Inscrição%'
-                      AND cpev_simple.value NOT LIKE '%Declaro%'
-                      AND cpev_simple.value NOT LIKE '%Pochete%'
-                      AND cpev_simple.value NOT LIKE '%Tarifa%'
-                      AND cpev_simple.value NOT LIKE '%Skate%'
-                      AND cpev_simple.value NOT LIKE '%Obstáculo%'
-                      AND cpev_simple.value NOT LIKE '%Bravinhos%'
-                      AND cpev_simple.value NOT LIKE '%teste%'
-                      AND cpev_simple.value NOT LIKE '%Porta%'
-                      AND cpev_simple.value NOT LIKE '%Luva%'
-                      AND cpev_simple.value NOT LIKE '%Toalha%'
-                      AND cpev_simple.value NOT LIKE '%Corrida +%'
-                     THEN cpep.value ELSE NULL
-                 END), 0),
+                 ) + (
+                     SELECT COALESCE(MAX(cpep_a.value), 0)
+                     FROM catalog_product_bundle_option cpbo_a
+                     JOIN catalog_product_bundle_selection cpbs_a
+                           ON cpbs_a.option_id = cpbo_a.option_id
+                     JOIN catalog_product_entity_decimal cpep_a
+                           ON cpep_a.entity_id    = cpbs_a.product_id
+                          AND cpep_a.attribute_id = 77
+                     LEFT JOIN catalog_product_entity_varchar cpev_a
+                           ON cpev_a.entity_id    = cpbs_a.product_id
+                          AND cpev_a.attribute_id = 73
+                     WHERE cpbo_a.parent_id = cpe_parent.entity_id
+                       AND cpep_a.value > 0
+                       AND cpep_a.value < (
+                           SELECT MAX(cpep_m.value)
+                           FROM catalog_product_bundle_option cpbo_m
+                           JOIN catalog_product_bundle_selection cpbs_m
+                                 ON cpbs_m.option_id = cpbo_m.option_id
+                           JOIN catalog_product_entity_decimal cpep_m
+                                 ON cpep_m.entity_id    = cpbs_m.product_id
+                                AND cpep_m.attribute_id = 77
+                           WHERE cpbo_m.parent_id = cpe_parent.entity_id
+                             AND cpep_m.value > 0
+                       )
+                       AND cpev_a.value NOT LIKE '%Distancia%'
+                       AND cpev_a.value NOT LIKE '%Distância%'
+                       AND cpev_a.value NOT LIKE '%Modalidade%'
+                       AND cpev_a.value NOT LIKE '%Personaliz%'
+                       AND cpev_a.value NOT LIKE '%Aceite%'
+                       AND cpev_a.value NOT LIKE '%aceito%'
+                       AND cpev_a.value NOT LIKE '%Treinão%'
+                       AND cpev_a.value NOT LIKE '%Horário%'
+                       AND cpev_a.value NOT LIKE '%Bateria%'
+                       AND cpev_a.value NOT LIKE '%Doar%'
+                       AND cpev_a.value NOT LIKE '%Tênis%'
+                       AND cpev_a.value NOT LIKE '%Tenis%'
+                       AND cpev_a.value NOT LIKE '%Bike%'
+                       AND cpev_a.value NOT LIKE '%Biciclet%'
+                       AND cpev_a.value NOT LIKE '%Festival%'
+                       AND cpev_a.value NOT LIKE '%Bag%'
+                       AND cpev_a.value NOT LIKE '%Inscrição%'
+                       AND cpev_a.value NOT LIKE '%Declaro%'
+                       AND cpev_a.value NOT LIKE '%Pochete%'
+                       AND cpev_a.value NOT LIKE '%Tarifa%'
+                       AND cpev_a.value NOT LIKE '%Skate%'
+                       AND cpev_a.value NOT LIKE '%Obstáculo%'
+                       AND cpev_a.value NOT LIKE '%Bravinhos%'
+                       AND cpev_a.value NOT LIKE '%teste%'
+                       AND cpev_a.value NOT LIKE '%Porta%'
+                       AND cpev_a.value NOT LIKE '%Luva%'
+                       AND cpev_a.value NOT LIKE '%Toalha%'
+                       AND cpev_a.value NOT LIKE '%Corrida +%'
+                 ),
                  0
             )
             ELSE NULL
