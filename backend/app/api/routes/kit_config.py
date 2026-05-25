@@ -1578,7 +1578,7 @@ def get_unconfigured_summary(
             return result
 
         _LIGHT_QUERY = """
-            SELECT
+            SELECT /*+ MAX_EXECUTION_TIME(45000) */
                 cpe.entity_id                   AS bundle_entity_id,
                 cpev_event_name.value           AS nome_evento,
                 cpev_kit_name.value             AS nome_kit,
@@ -2160,7 +2160,8 @@ def get_kit_configs_by_grupo(
                 from app.core.db_retry import magento_run as _magento_run
                 ids_csv = ",".join(str(b) for b in bundle_ids)
                 _price_sql = f"""
-                    SELECT entity_id,
+                    SELECT /*+ MAX_EXECUTION_TIME(15000) */
+                           entity_id,
                            COALESCE(min_price, price) AS sp_base
                     FROM   catalog_product_index_price
                     WHERE  entity_id IN ({ids_csv})

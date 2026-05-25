@@ -74,7 +74,7 @@ def get_sales_summary(current_user=Depends(get_current_user)):
 
     def _summary(conn):
         return conn.execute(text("""
-            SELECT 
+            SELECT /*+ MAX_EXECUTION_TIME(30000) */
                 COUNT(*) as total_orders,
                 SUM(grand_total) as total_revenue
             FROM sales_order

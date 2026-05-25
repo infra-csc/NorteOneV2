@@ -294,7 +294,7 @@ def fetch_eventos_magento(ano: int = None) -> List[Dict]:
         return []
     
     query = """
-    SELECT
+    SELECT /*+ MAX_EXECUTION_TIME(30000) */
         wl.location_id AS id_evento,
         REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
             REPLACE(wl.`name`, 'Retirada de kit - CE', 'Circuito das Estações'),
