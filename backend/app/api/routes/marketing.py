@@ -3440,7 +3440,7 @@ def get_margem_por_kit(
             fb_bundle_ids: list = []
             try:
                 _cpev1_q = text("""
-SELECT DISTINCT entity_id
+SELECT /*+ MAX_EXECUTION_TIME(10000) */ DISTINCT entity_id
 FROM   catalog_product_entity_varchar
 WHERE  attribute_id = 321
 AND    store_id     = 0
@@ -3654,7 +3654,7 @@ AND    value        IN :ev_ids_fb
             _supp_extra_bids: list = []
             try:
                 _cpev1_supp = text("""
-SELECT DISTINCT entity_id
+SELECT /*+ MAX_EXECUTION_TIME(10000) */ DISTINCT entity_id
 FROM   catalog_product_entity_varchar
 WHERE  attribute_id = 321
 AND    store_id     = 0
@@ -7014,7 +7014,7 @@ def _fetch_monthly_sales_magento(ano_atual: int, ano_anterior: int) -> list:
         return []
     try:
         query = """
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     YEAR(so.created_at) AS ano,
     MONTH(so.created_at) AS mes,
     COUNT(CASE WHEN (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%') 
@@ -7217,7 +7217,7 @@ def _fetch_monthly_sales_magento_by_ids(magento_event_ids: list, data_floor: Opt
             return []
         _floor_clause = "AND so.created_at >= :data_floor" if data_floor else ""
         query = text(f"""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     MONTH(so.created_at) AS mes,
     COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
@@ -8227,7 +8227,7 @@ def _fetch_category_sales_magento_by_ids_grouped(magento_event_ids: list) -> dic
         if not safe_ids:
             return {}
         query = text("""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     cpev1.value AS event_id,
     soi.name AS categoria,
     COUNT(CASE WHEN so.base_grand_total > 0
@@ -8286,7 +8286,7 @@ def _fetch_category_sales_magento_by_ids(magento_event_ids: list) -> list:
         if not safe_ids:
             return []
         query = text("""
-SELECT
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     soi.name AS categoria,
     COUNT(CASE WHEN so.base_grand_total > 0
         AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)
