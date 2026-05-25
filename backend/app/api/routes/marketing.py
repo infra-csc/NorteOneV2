@@ -7730,7 +7730,132 @@ GROUP BY cpev1.value
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Singleflight + ultra-short TTL para _fetch_daily_sales_magento_by_ids.
+# Motivo: a query 'daily-sales-by-ids' é a mais cara do sistema (full join
+# em sales_order/sales_order_item/cpev1 + persona subquery) e era disparada
+# de 12+ pontos por request, frequentemente em paralelo com IDs idênticos.
+# Este wrapper deduplica chamadas concorrentes (singleflight) e segura o
+# resultado por _DS_SF_TTL segundos pra absorver re-chamadas em sequência
+# rápida dentro da mesma request HTTP. Não muda lógica: o resultado servido
+# é exatamente o que o _impl produziria. Exceções são propagadas com o mesmo
+# critério de raise_on_error.
+# ---------------------------------------------------------------------------
+_DS_SF_LOCK = _threading.Lock()
+_DS_SF_INFLIGHT: dict = {}
+_DS_SF_RESULTS: dict = {}
+_DS_SF_TTL = 5.0
+_DS_SF_MAX_ENTRIES = 256
+
+
+def _ds_sf_key(magento_event_ids, cortesia_magento_ids, data_floor, ano,
+               force_magento_refresh, raise_on_error, db_provided, is_warmup):
+    return (
+        tuple(sorted(str(i) for i in magento_event_ids)),
+        tuple(sorted(str(i) for i in (cortesia_magento_ids or []))),
+        data_floor.isoformat() if data_floor else None,
+        ano,
+        bool(force_magento_refresh),
+        bool(raise_on_error),
+        bool(db_provided),
+        bool(is_warmup),
+    )
+
+
+def _ds_sf_prune_locked():
+    if len(_DS_SF_RESULTS) <= _DS_SF_MAX_ENTRIES:
+        return
+    cutoff = _time.time() - (_DS_SF_TTL * 3.0)
+    stale = [k for k, v in _DS_SF_RESULTS.items() if v[0] < cutoff]
+    for k in stale:
+        _DS_SF_RESULTS.pop(k, None)
+
+
 def _fetch_daily_sales_magento_by_ids(
+    magento_event_ids: list,
+    cortesia_magento_ids: Optional[set] = None,
+    raise_on_error: bool = False,
+    data_floor: Optional[date] = None,
+    *,
+    db: Optional[Session] = None,
+    ano: Optional[int] = None,
+    force_magento_refresh: bool = False,
+) -> list:
+    """Wrapper singleflight+TTL. Delega para _impl. Ver bloco acima."""
+    if not magento_event_ids:
+        return []
+    # Inclui is_warmup no key porque _impl tem branch específico para warmup
+    # thread (lê de _warmup_daily_cache em vez de Magento), o que produz
+    # resultados diferentes (ex.: receita=0). Sem essa dimensão, um warmup
+    # leader poderia poluir o cache para uma request normal por 5s.
+    try:
+        _is_warmup_ctx = _is_warmup_thread()
+    except Exception:
+        _is_warmup_ctx = False
+    key = _ds_sf_key(
+        magento_event_ids, cortesia_magento_ids, data_floor, ano,
+        force_magento_refresh, raise_on_error, db is not None, _is_warmup_ctx,
+    )
+    now = _time.time()
+    leader = False
+    wait_evt = None
+    with _DS_SF_LOCK:
+        cached = _DS_SF_RESULTS.get(key)
+        if cached and (now - cached[0]) < _DS_SF_TTL:
+            _, c_res, c_exc = cached
+            if c_exc is not None:
+                if raise_on_error:
+                    raise c_exc
+                return c_res if c_res is not None else []
+            return c_res if c_res is not None else []
+        evt = _DS_SF_INFLIGHT.get(key)
+        if evt is not None:
+            wait_evt = evt
+        else:
+            wait_evt = _threading.Event()
+            _DS_SF_INFLIGHT[key] = wait_evt
+            leader = True
+    if not leader:
+        # Waiter: aguarda o leader publicar o resultado.
+        wait_evt.wait(timeout=60.0)
+        with _DS_SF_LOCK:
+            cached = _DS_SF_RESULTS.get(key)
+        if cached:
+            _, c_res, c_exc = cached
+            if c_exc is not None:
+                if raise_on_error:
+                    raise c_exc
+                return c_res if c_res is not None else []
+            return c_res if c_res is not None else []
+        # Fallback raro: leader sumiu sem publicar — segue para computar direto.
+        leader = True
+    # Leader: executa o impl e publica o resultado.
+    result = None
+    exc_caught = None
+    try:
+        result = _fetch_daily_sales_magento_by_ids_impl(
+            magento_event_ids,
+            cortesia_magento_ids=cortesia_magento_ids,
+            raise_on_error=raise_on_error,
+            data_floor=data_floor,
+            db=db,
+            ano=ano,
+            force_magento_refresh=force_magento_refresh,
+        )
+    except BaseException as e:
+        exc_caught = e
+    finally:
+        with _DS_SF_LOCK:
+            _DS_SF_RESULTS[key] = (_time.time(), result, exc_caught)
+            _DS_SF_INFLIGHT.pop(key, None)
+            _ds_sf_prune_locked()
+        wait_evt.set()
+    if exc_caught is not None:
+        raise exc_caught
+    return result if result is not None else []
+
+
+def _fetch_daily_sales_magento_by_ids_impl(
     magento_event_ids: list,
     cortesia_magento_ids: Optional[set] = None,
     raise_on_error: bool = False,
