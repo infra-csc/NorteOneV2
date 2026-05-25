@@ -377,7 +377,34 @@ def trigger_scheduled_daily_consolidation(
     _step_outcomes: dict = {}
 
     def _run_and_classify(step: str, fn):
-        """Executa, captura exception, e classifica dict.status. Popula errors e _step_outcomes."""
+        """Executa, captura exception, e classifica dict.status. Popula errors e _step_outcomes.
+
+        Idempotência: pula se este sub-passo já concluiu OK hoje BRT em qualquer
+        ciclo (startup catch-up, scheduler interno, ou retentativa anterior do
+        próprio endpoint). Permite retentar o Scheduled Deployment sem refazer
+        trabalho pesado de Magento — só re-executa o que falhou.
+        """
+        try:
+            from app.services.sync_log_service import step_already_done_today as _sad
+            if _sad(_job_sd, step):
+                _step_outcomes[step] = "pulado"
+                _result_sd[step] = "ja_executado_hoje"
+                # Grava 'pulado' nivel='grupo' para rastreabilidade do ciclo.
+                try:
+                    _le_sd(_ciclo_sd, _job_sd, "pulado", nivel="grupo", grupo=step,
+                           motivo="ja_executado_hoje",
+                           detalhes=f"{step} já concluído hoje BRT — pulado (idempotência)")
+                except Exception:
+                    pass
+                _logger_sd.info(f"[ScheduledJob] {step} pulado: já concluiu hoje BRT (idempotência)")
+                return
+        except Exception as _e_idem:
+            _logger_sd.warning(f"[ScheduledJob] check idempotência de {step} falhou: {_e_idem}")
+        # Grava 'iniciado' do sub-passo para rastreabilidade.
+        try:
+            _le_sd(_ciclo_sd, _job_sd, "iniciado", nivel="grupo", grupo=step)
+        except Exception:
+            pass
         try:
             ret = fn()
             _result_sd[step] = ret
@@ -387,19 +414,32 @@ def trigger_scheduled_daily_consolidation(
                 _result_sd["errors"].append(f"{step}: retorno falha — {ret}")
             elif cls == "parcial":
                 _result_sd["errors"].append(f"{step}: retorno parcial — {ret}")
+            # Grava status terminal do sub-passo (CRÍTICO para idempotência cross-camada).
+            try:
+                _le_sd(_ciclo_sd, _job_sd, cls, nivel="grupo", grupo=step,
+                       detalhes=f"{step} terminou {cls}: {str(ret)[:200]}")
+            except Exception:
+                pass
         except Exception as ex:
             _logger_sd.error(f"[ScheduledJob] {step} lançou exception: {ex}")
             _step_outcomes[step] = "falha"
             _result_sd["errors"].append(f"{step}: {str(ex)[:300]}")
+            try:
+                _le_sd(_ciclo_sd, _job_sd, "falha", nivel="grupo", grupo=step,
+                       motivo="exception", detalhes=str(ex)[:300])
+            except Exception:
+                pass
 
     # Tudo daqui pra baixo está sob try/finally para garantir release do advisory lock.
     try:
         _db_sd = _SL_sd()
         try:
-            _run_and_classify("snapshot_diario", lambda: _sdb_sd(_db_sd))
-            _run_and_classify("curvas", lambda: _cchb_sd(_db_sd))
-            _run_and_classify("hoje", lambda: _shb_sd(_db_sd))
-            _run_and_classify("margem", lambda: _smbrb_sd(_db_sd))
+            # Nomes canônicos (mesmos do scheduler interno cache.py _run_step):
+            # essencial para compartilhar idempotência cross-camada via SyncEventLog.
+            _run_and_classify("snapshot_diario_batch", lambda: _sdb_sd(_db_sd))
+            _run_and_classify("consolidar_curvas_historicas_batch", lambda: _cchb_sd(_db_sd))
+            _run_and_classify("sincronizar_hoje_batch", lambda: _shb_sd(_db_sd))
+            _run_and_classify("sincronizar_margem_bundle_rev_batch", lambda: _smbrb_sd(_db_sd))
         finally:
             _db_sd.close()
 

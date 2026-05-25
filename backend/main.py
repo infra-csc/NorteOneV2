@@ -1808,10 +1808,58 @@ async def lifespan(app: FastAPI):
             # enxerguem corretamente que rodou hoje.
             _ciclo_terminal_status = "concluido"
             _ciclo_errors: list = []
+            # Sempre aloca um ciclo_id para sub-step logging (reusa _catchup_ciclo_id
+            # se já foi alocado pelo catch-up forçado). CRÍTICO p/ idempotência:
+            # outras camadas só enxergam steps concluídos via SyncEventLog nivel='grupo'.
+            try:
+                from app.services.sync_log_service import new_ciclo_id as _ncid_su
+                _step_ciclo_id = _catchup_ciclo_id or _ncid_su()
+            except Exception:
+                _step_ciclo_id = None
+
+            # ADVISORY LOCK obrigatório p/ startup normal (snapshot stale): impede
+            # execução paralela com Scheduled Deployment ou scheduler interno.
+            # Se catch-up forçado JÁ adquiriu o lock (_catchup_lock_conn set), reusa.
+            _local_lock_conn = None  # connection adquirida aqui dentro (release no finally)
+            if _catchup_lock_conn is None:
+                try:
+                    from app.services.sync_log_service import acquire_consolidation_lock as _acq_run
+                    _local_lock_conn = _acq_run()
+                    if _local_lock_conn is None:
+                        logger.warning(
+                            "[Startup] Snapshot consolidation PULADA: advisory lock detido por "
+                            "outro processo (Scheduled Deployment ou scheduler interno consolidando)."
+                        )
+                        if _step_ciclo_id:
+                            try:
+                                from app.services.sync_log_service import log_evento as _le_skip
+                                _le_skip(_step_ciclo_id, "consolidacao_diaria_04h", "pulado",
+                                         nivel="ciclo", motivo="lock_em_uso",
+                                         detalhes="Startup snapshot pulou: outro processo segura advisory lock")
+                            except Exception:
+                                pass
+                        return
+                except Exception as _e_acq:
+                    # FAIL-CLOSED: se a aquisição do lock lança exceção, NÃO executa
+                    # sem lock (evita execução paralela com endpoint/scheduler interno).
+                    # Scheduler interno (45min) ou Scheduled Deployment assumem.
+                    logger.error(
+                        f"[Startup] Snapshot consolidation ABORTADA (fail-closed): "
+                        f"acquire_consolidation_lock lançou exception — {_e_acq}"
+                    )
+                    if _step_ciclo_id:
+                        try:
+                            from app.services.sync_log_service import log_evento as _le_failclosed
+                            _le_failclosed(_step_ciclo_id, "consolidacao_diaria_04h", "falha",
+                                           nivel="ciclo", motivo="lock_acquire_error",
+                                           detalhes=f"acquire_consolidation_lock exception: {str(_e_acq)[:300]}")
+                        except Exception:
+                            pass
+                    return
             try:
                 from app.core.database import SessionLocal
                 from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
-                logger.info("Starting snapshot consolidation (parallel)...")
+                logger.info(f"Starting snapshot consolidation (parallel, step_ciclo={_step_ciclo_id})...")
                 # Classifica dict.status como _run_step (cache.py): batches que retornam
                 # dict com status='falha_persistencia'/'parcial' NÃO lançam exception.
                 def _classify_ret(ret) -> str:
@@ -1828,7 +1876,35 @@ async def lifespan(app: FastAPI):
                         return "parcial"
                     return "ok"
 
+                def _le_step(status: str, step: str, **kwargs):
+                    """Grava SyncEventLog nivel='grupo' p/ este sub-passo.
+                    CRÍTICO p/ idempotência: outras camadas só sabem que esse step
+                    concluiu OK hoje se houver linha 'ok' nivel='grupo' no SyncEventLog.
+                    """
+                    if not _step_ciclo_id:
+                        return
+                    try:
+                        from app.services.sync_log_service import log_evento as _le_su
+                        _le_su(_step_ciclo_id, "consolidacao_diaria_04h", status,
+                               nivel="grupo", grupo=step, **kwargs)
+                    except Exception:
+                        pass
+
                 def _run_step_startup(step: str, fn):
+                    # Idempotência: pula se este sub-passo já concluiu OK hoje BRT
+                    # em qualquer ciclo (Scheduled Deployment, scheduler interno, ou
+                    # um catch-up anterior). Garante que reinicializações sucessivas
+                    # do backend não refaçam trabalho pesado de Magento.
+                    try:
+                        from app.services.sync_log_service import step_already_done_today as _sad_su
+                        if _sad_su("consolidacao_diaria_04h", step):
+                            _le_step("pulado", step, motivo="ja_executado_hoje",
+                                     detalhes=f"{step} já concluído hoje BRT — pulado (idempotência)")
+                            logger.info(f"[Startup] {step} pulado: já concluiu hoje BRT (idempotência)")
+                            return
+                    except Exception as _e_idem_su:
+                        logger.warning(f"[Startup] check idempotência de {step} falhou: {_e_idem_su}")
+                    _le_step("iniciado", step)
                     try:
                         ret = fn()
                         cls = _classify_ret(ret)
@@ -1837,9 +1913,12 @@ async def lifespan(app: FastAPI):
                             _ciclo_errors.append(f"{step}: {cls} — {str(ret)[:200]}")
                         else:
                             logger.info(f"[Startup] {step}: {ret if isinstance(ret, (dict, int)) else 'ok'}")
+                        # Status terminal nivel='grupo' (alimenta idempotência cross-camada).
+                        _le_step(cls, step, detalhes=f"{step} terminou {cls}: {str(ret)[:200]}")
                     except Exception as ex:
                         logger.error(f"[Startup] {step} lançou exception: {ex}")
                         _ciclo_errors.append(f"{step}: {str(ex)[:200]}")
+                        _le_step("falha", step, motivo="exception", detalhes=str(ex)[:300])
 
                 db = SessionLocal()
                 try:
@@ -1881,10 +1960,13 @@ async def lifespan(app: FastAPI):
                     except Exception as _le_end_err:
                         logger.warning(f"[Startup] Falha ao fechar ciclo catch-up: {_le_end_err}")
                 # Libera advisory lock cross-process — SEMPRE, mesmo em erro.
-                if _catchup_lock_conn is not None:
+                # Cobre tanto _catchup_lock_conn (catch-up forçado) quanto
+                # _local_lock_conn (startup normal com snapshot stale).
+                _lock_to_release = _catchup_lock_conn or _local_lock_conn
+                if _lock_to_release is not None:
                     try:
                         from app.services.sync_log_service import release_consolidation_lock as _rel_end
-                        _rel_end(_catchup_lock_conn)
+                        _rel_end(_lock_to_release)
                         logger.info("[Startup] Advisory lock da consolidação liberado.")
                     except Exception as _rel_err:
                         logger.warning(f"[Startup] Falha ao liberar advisory lock: {_rel_err}")

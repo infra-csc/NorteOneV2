@@ -158,6 +158,41 @@ def release_consolidation_lock(conn) -> None:
         pass
 
 
+def step_already_done_today(job_name: str, step_name: str) -> bool:
+    """Verifica se um sub-passo já concluiu com 'ok' hoje (BRT) em qualquer ciclo.
+
+    Usado para resume parcial: se Magento estava fora às 02h e o snapshot_diario
+    rodou OK mas margem falhou, uma retentativa às 03h pula snapshot_diario (já
+    concluído) e só re-executa margem (Magento agora pode estar de volta).
+
+    O batch em si tem GREATEST() nos UPSERTs, então mesmo sem essa idempotência
+    re-rodar não corrompe dados — mas evita re-trabalho pesado em Magento.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        from sqlalchemy import and_
+        _now_brt = datetime.now(ZoneInfo('America/Sao_Paulo'))
+        _today_brt_start = _now_brt.replace(hour=0, minute=0, second=0, microsecond=0)
+        _today_utc = _today_brt_start.astimezone(ZoneInfo('UTC'))
+        db = SessionLocal()
+        try:
+            hit = db.query(SyncEventLog.id).filter(
+                and_(
+                    SyncEventLog.job_name == job_name,
+                    SyncEventLog.nivel == "grupo",
+                    SyncEventLog.grupo == step_name,
+                    SyncEventLog.status == "ok",
+                    SyncEventLog.created_at >= _today_utc,
+                )
+            ).first()
+            return hit is not None
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[sync_log] step_already_done_today({job_name}, {step_name}) falhou: {e}")
+        return False
+
+
 def classify_motivo(exc: BaseException) -> str:
     """Heurística pra rotular falhas com códigos curtos exibíveis na UI."""
     msg = str(exc).lower()
