@@ -2548,6 +2548,90 @@ _margem_magento_global_failure_ts: Optional[float] = None
 _margem_magento_global_failure_count: int = 0
 _MARGEM_GLOBAL_COOLDOWN_S = 300  # 5 minutos de cooldown global após qualquer falha
 
+
+# ---------------------------------------------------------------------------
+# Singleflight para as 4 queries pesadas do modal de Margem por Tipo de Kit.
+# As 4 (count primária, revenue primária, fallback count, fallback receita)
+# rodam contra sales_order/sales_order_item (~milhões de linhas, 2 anos de
+# histórico, join triplo, regex no increment_id). Os caches TTL pré-existentes
+# (_margem_rev_cache, _margem_cnt_cache, 4h cada) já cuidam de freshness; o
+# que faltava era dedup de CONCORRÊNCIA: N usuários abrindo o mesmo modal
+# logo após cache miss = N queries paralelas idênticas no Magento.
+#
+# Este wrapper colapsa essas chamadas em 1 execução compartilhada: o "leader"
+# executa work_fn; "followers" esperam o resultado dele. Não introduz cache
+# próprio (cuidado para não duplicar com os TTLs existentes), apenas dedup
+# de concorrência. Resultado/exceção propagam APENAS aos participantes do
+# voo corrente (estado por-flight em referência local, nunca global stale).
+#
+# Lógica preservada: work_fn é o mesmo código de antes (mesma query, mesmos
+# bindings, mesmo retry, mesmo cache TTL no caller). Singleflight é
+# transparente — se não há concorrência, a chamada se comporta exatamente
+# como `work_fn()` direto.
+# ---------------------------------------------------------------------------
+_MARGEM_SF_LOCK = _threading.Lock()
+_MARGEM_SF_FLIGHTS: dict = {}   # key -> {"event": Event, "result": Any, "exc": BaseException|None}
+
+
+def _margem_singleflight(key, work_fn, label: str):
+    """Singleflight wrapper genérico (sem TTL próprio) para as 4 queries de Margem.
+
+    `key` deve ser hashable e identificar unicamente o trabalho (ex.: tuple
+    contendo kind + frozenset(bundle_ids) + flag de cortesia).
+    `work_fn` é callable sem args; pode retornar qualquer shape (tuple, list).
+    Exceção do leader é re-raised em todos os followers daquele voo.
+    Follower que sofre timeout (120s) NÃO vira leader nem lê estado global;
+    executa direto com log de warning, e remove o flight órfão para que o
+    próximo caller possa se eleger normalmente.
+    """
+    with _MARGEM_SF_LOCK:
+        flight = _MARGEM_SF_FLIGHTS.get(key)
+        if flight is not None:
+            leader = False
+        else:
+            flight = {"event": _threading.Event(), "result": None, "exc": None}
+            _MARGEM_SF_FLIGHTS[key] = flight
+            leader = True
+
+    if not leader:
+        flight["event"].wait(timeout=120.0)
+        if flight["event"].is_set():
+            # Lê APENAS o resultado deste voo (referência local), nunca estado global stale.
+            if flight["exc"] is not None:
+                raise flight["exc"]
+            return flight["result"]
+        logger.warning(
+            f"[Margem] singleflight follower timeout (120s) on {label}; "
+            "leader não publicou — executando query direta sem dedup"
+        )
+        # Limpeza defensiva: libera flight órfão (compare-by-identity).
+        with _MARGEM_SF_LOCK:
+            if _MARGEM_SF_FLIGHTS.get(key) is flight:
+                _MARGEM_SF_FLIGHTS.pop(key, None)
+
+    result = None
+    exc_caught = None
+    try:
+        result = work_fn()
+    except BaseException as e:
+        exc_caught = e
+    finally:
+        if leader:
+            with _MARGEM_SF_LOCK:
+                flight["result"] = result
+                flight["exc"] = exc_caught
+                # Identity-safe pop: se um follower já fez cleanup por timeout
+                # (120s) e outro caller criou um flight NOVO para o mesmo key,
+                # não podemos remover o flight do sucessor. Só removemos se
+                # o slot ainda referencia o nosso voo.
+                if _MARGEM_SF_FLIGHTS.get(key) is flight:
+                    _MARGEM_SF_FLIGHTS.pop(key, None)
+            flight["event"].set()
+    if exc_caught is not None:
+        raise exc_caught
+    return result
+
+
 def _margem_rev_cooldown_for(n_failures: int) -> int:
     if n_failures <= 0:
         return 0
@@ -3004,8 +3088,13 @@ def get_margem_por_kit(
                 if not _cnt_snap_loaded:
                     _cnt_live_failed = False
                     try:
-                        _rows_cnt, _elapsed_cnt = _execute_magento_with_retry(
-                            magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
+                        def _cnt_work_sf():
+                            return _execute_magento_with_retry(
+                                magento_count_query, {"bundle_ids": bundle_ids}, label="count_query"
+                            )
+                        _cnt_sf_key = ("margem-count", frozenset(bundle_ids), bool(_skip_cortesia_filter))
+                        _rows_cnt, _elapsed_cnt = _margem_singleflight(
+                            _cnt_sf_key, _cnt_work_sf, "count_query"
                         )
                         for row in _rows_cnt:
                             qtd_by_bid[int(row[0])] = int(row[1] or 0)
@@ -3161,8 +3250,13 @@ def get_margem_por_kit(
                         _live_failed = True
                     else:
                         try:
-                            _rows_rev, _elapsed = _execute_magento_with_retry(
-                                magento_bundle_query, {"bundle_ids": bundle_ids}, label="revenue_query"
+                            def _rev_work_sf():
+                                return _execute_magento_with_retry(
+                                    magento_bundle_query, {"bundle_ids": bundle_ids}, label="revenue_query"
+                                )
+                            _rev_sf_key = ("margem-rev", frozenset(bundle_ids), bool(_skip_cortesia_filter))
+                            _rows_rev, _elapsed = _margem_singleflight(
+                                _rev_sf_key, _rev_work_sf, "revenue_query"
                             )
                             for row in _rows_rev:
                                 rev_by_bid[int(row[0])] = float(row[1] or 0)
@@ -3452,9 +3546,12 @@ AND    value        IN :ev_ids_fb
                 # Fallback count — bloco independente
                 def _fb_count_work(conn):
                     return conn.execute(fb_count_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall()
+                def _fb_count_sf():
+                    return magento_run(_fb_count_work, label="margem:fallback-count", profile="background")
+                _fb_count_sf_key = ("margem-fb-count", frozenset(fb_bundle_ids), bool(_skip_cortesia_filter))
                 try:
                     _t_fb0 = _time.monotonic()
-                    for fb_row in magento_run(_fb_count_work, label="margem:fallback-count", profile="background"):
+                    for fb_row in _margem_singleflight(_fb_count_sf_key, _fb_count_sf, "margem:fallback-count"):
                         fb_qtd_by_name[(fb_row[0] or "").strip()] = int(fb_row[1] or 0)
                     logger.info(f"[Margem] fallback count_query: {len(fb_bundle_ids)} bundles → {len(fb_qtd_by_name)} em {_time.monotonic()-_t_fb0:.2f}s")
                 except Exception as e:
@@ -3484,9 +3581,12 @@ AND    value        IN :ev_ids_fb
                     else:
                         def _fb_rev_work(conn):
                             return conn.execute(fb_rev_q, {"fb_bundle_ids": fb_bundle_ids}).fetchall()
+                        def _fb_rev_sf():
+                            return magento_run(_fb_rev_work, label="margem:fallback-revenue", profile="background")
+                        _fb_rev_sf_key = ("margem-fb-rev", frozenset(fb_bundle_ids), bool(_skip_cortesia_filter))
                         try:
                             _t_fb1 = _time.monotonic()
-                            for fb_row in magento_run(_fb_rev_work, label="margem:fallback-revenue", profile="background"):
+                            for fb_row in _margem_singleflight(_fb_rev_sf_key, _fb_rev_sf, "margem:fallback-revenue"):
                                 fb_rev_by_name[(fb_row[0] or "").strip()] = float(fb_row[1] or 0)
                             _elapsed_fb = _time.monotonic() - _t_fb1
                             logger.info(f"[Margem] fallback revenue_query: {len(fb_bundle_ids)} bundles → {len(fb_rev_by_name)} em {_elapsed_fb:.2f}s")
