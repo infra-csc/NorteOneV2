@@ -1,0 +1,1 @@
+- [Magento coupon lookup](magento-coupon-lookup.md) — sempre buscar por `salesrule.name` E `salesrule_label.label`; o nome que o usuário conhece é quase sempre o label, não o name interno.
