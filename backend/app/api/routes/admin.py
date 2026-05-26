@@ -1561,6 +1561,7 @@ def trigger_backfill(
     ano: int = Query(..., description="Ano para backfill"),
     data_inicio: str = Query(default=None, description="Data início (YYYY-MM-DD)"),
     data_fim: str = Query(default=None, description="Data fim (YYYY-MM-DD)"),
+    evento_grupo: str = Query(default=None, description="Filtra para um único evento_grupo (ex: 'Blue Run - Rio de Janeiro'). Se omitido, roda para todos os grupos do ano."),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("marketing")),
 ):
@@ -1572,7 +1573,7 @@ def trigger_backfill(
     end = date.fromisoformat(data_fim) if data_fim else None
 
     try:
-        result = backfill_historico(db, ano, data_inicio=start, data_fim=end)
+        result = backfill_historico(db, ano, data_inicio=start, data_fim=end, evento_grupo=evento_grupo)
         return {
             "status": "completed",
             "resultado": result

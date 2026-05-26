@@ -2234,7 +2234,7 @@ def sincronizar_margem_bundle_rev_batch(db: Session) -> dict:
     }
 
 
-def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None):
+def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, evento_grupo: Optional[str] = None):
     from ..api.routes.marketing import _build_sku_to_grupo_map
 
     sku_to_grupo = _build_sku_to_grupo_map(db, ano)
@@ -2243,6 +2243,15 @@ def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None
         return {"total_grupos": 0, "total_dias": 0}
 
     grupos_unicos = set(sku_to_grupo.values())
+    if evento_grupo:
+        # Filtro cirúrgico: roda só o grupo pedido. Match case-insensitive
+        # com strip para tolerar diferença de capitalização entre input e o
+        # valor canônico em sku_mappings.evento_grupo.
+        alvo = evento_grupo.strip().lower()
+        grupos_unicos = {g for g in grupos_unicos if (g or "").strip().lower() == alvo}
+        if not grupos_unicos:
+            logger.warning(f"backfill_historico: nenhum grupo casou com '{evento_grupo}' ano={ano}")
+            return {"total_grupos": 0, "total_dias": 0, "evento_grupo_filtro": evento_grupo}
     total_dias = 0
     erros = []
 
