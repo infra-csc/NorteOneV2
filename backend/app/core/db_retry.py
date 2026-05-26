@@ -60,20 +60,27 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 
 
 # ---------------------------------------------------------------------------
-# Semáforo global de concorrência Magento — limita quantas queries podem
-# rodar ao MESMO TEMPO contra o tunnel SSH/MySQL externo. Sem isso, basta
-# o usuário abrir 5 grupos diferentes em sequência para saturar o tunnel
-# (cada grupo dispara 3-7 queries pesadas via force_magento_refresh).
+# Semáforo de concorrência Magento — limita quantas queries podem rodar ao
+# MESMO TEMPO contra o tunnel SSH/MySQL externo. Sem isso, basta o usuário
+# abrir 5 grupos diferentes em sequência para saturar o tunnel (cada grupo
+# fan-out 3-7 queries pesadas via force_magento_refresh).
 #
-# Default 1 (serializado) — é o que mantém o Magento estável conforme
-# observado em produção. Configurável via env MAGENTO_MAX_CONCURRENCY.
+# Política por profile:
+#   - "request" (usuário/dia): serializado (default 1). Acquire SEM timeout
+#     agressivo — preferimos esperar na fila a derrubar a request. Cliente
+#     espera, queries drenam uma por vez. Timeout só pra evitar travar
+#     indefinido (default 180s = 3 min — suficiente pra fila de ~3 queries
+#     de 60s cada).
+#   - "background" (scheduler/warmup/job noturno): SEM limite. Concorrência
+#     livre, conforme já era antes do semáforo. O tunnel aguenta melhor
+#     quando a única carga é o lote noturno (sem clicks de usuário).
 #
-# Acquire tem timeout (MAGENTO_ACQUIRE_TIMEOUT_S, default 25s): se a fila
-# não anda, falha rápido como MagentoEngineUnavailable e o caller cai no
-# snapshot piso — melhor que travar a request até o cliente desistir.
+# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 1) controla apenas
+# o profile "request". MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o tempo
+# máximo na fila antes de cair pra snapshot piso.
 # ---------------------------------------------------------------------------
 _MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
-_MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "25"))
+_MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "180"))
 _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 
 _circuit_lock = threading.Lock()
@@ -292,32 +299,42 @@ def magento_run(
     backoff_base = float(cfg["backoff_base"])
     max_backoff = float(cfg["max_backoff"])
 
+    # Semáforo apenas para profile "request" (clicks de usuário durante o
+    # dia). Profile "background" (scheduler/warmup/job noturno) roda livre
+    # — é o cenário em que paralelismo é OK porque não há fan-out de
+    # múltiplos usuários competindo pelo tunnel.
+    _use_sem = profile == "request"
+
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
         _sem_acquired = False
         _wait_started = time.time()
         try:
-            # Serializa o acesso ao tunnel SSH/MySQL externo. Sem isso,
-            # 5+ grupos atualizados em paralelo saturam o Magento e
-            # geram timeouts em cascata. Default: 1 concorrente.
-            _sem_acquired = _magento_concurrency_sem.acquire(
-                timeout=_MAGENTO_ACQUIRE_TIMEOUT_S
-            )
-            if not _sem_acquired:
-                logger.warning(
-                    f"[Magento][{label}] fila cheia — desistiu após "
-                    f"{_MAGENTO_ACQUIRE_TIMEOUT_S:.0f}s aguardando vaga. "
-                    f"Cai para snapshot."
+            if _use_sem:
+                # Serializa o acesso ao tunnel SSH/MySQL externo. Sem isso,
+                # 5+ grupos atualizados em paralelo saturam o Magento e
+                # geram timeouts em cascata. Default: 1 concorrente.
+                # Timeout generoso (180s) — preferimos esperar na fila a
+                # derrubar a request: o usuário aceita esperar 30-60s mais,
+                # mas não aceita "snapshot stale" quando clicou Reconsolidar.
+                _sem_acquired = _magento_concurrency_sem.acquire(
+                    timeout=_MAGENTO_ACQUIRE_TIMEOUT_S
                 )
-                raise MagentoEngineUnavailable(
-                    f"Fila Magento cheia ({_MAGENTO_MAX_CONCURRENCY} concorrentes ocupados)"
-                )
-            _waited = time.time() - _wait_started
-            if _waited > 1.0:
-                logger.info(
-                    f"[Magento][{label}] esperou {_waited:.1f}s na fila "
-                    f"(concorrência={_MAGENTO_MAX_CONCURRENCY})"
-                )
+                if not _sem_acquired:
+                    logger.warning(
+                        f"[Magento][{label}] fila cheia — desistiu após "
+                        f"{_MAGENTO_ACQUIRE_TIMEOUT_S:.0f}s aguardando vaga. "
+                        f"Cai para snapshot."
+                    )
+                    raise MagentoEngineUnavailable(
+                        f"Fila Magento cheia ({_MAGENTO_MAX_CONCURRENCY} concorrentes ocupados)"
+                    )
+                _waited = time.time() - _wait_started
+                if _waited > 1.0:
+                    logger.info(
+                        f"[Magento][{label}] esperou {_waited:.1f}s na fila "
+                        f"(concorrência={_MAGENTO_MAX_CONCURRENCY}, profile={profile})"
+                    )
             with engine.connect() as conn:
                 result = work_fn(conn)
                 if attempt > 1:
