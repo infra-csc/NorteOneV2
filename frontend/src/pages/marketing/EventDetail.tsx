@@ -1379,6 +1379,16 @@ const EventDetail: React.FC = () => {
         curva_override: curvaGrupo
       });
       setShowOverrideModal(false);
+      // Invalida cache local da curva: sem isso, o useEffect que carrega
+      // /curva-snapshot pula refetch (guard "curvaSnapshot !== null") e a UI
+      // continua mostrando a curva antiga apesar do backend ter salvo.
+      try {
+        _curvaSnapshotModCache.delete(_detailCacheKey);
+        _curvaComparativaCache.delete(_detailCacheKey);
+      } catch { /* ok */ }
+      setCurvaSnapshot(null);
+      lastSnapshotTokenRef.current = -1;
+      setSecondaryRefreshToken(t => t + 1);
       if (fetchEventRef.current) {
         await fetchEventRef.current(true);
       }

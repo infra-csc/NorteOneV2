@@ -6752,6 +6752,107 @@ def get_curva_snapshot(
     }
 
 
+_diagnostico_curvas_cache: dict = {}
+_DIAGNOSTICO_CURVAS_TTL_S = 300  # 5 min — endpoint pesado (~200 grupos × várias queries)
+
+
+@router.get("/diagnostico-curvas")
+def get_diagnostico_curvas(
+    ano: int = Query(default=None, description="Ano de referência (default: atual)"),
+    force_refresh: bool = Query(default=False, description="Ignora cache e recalcula"),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_admin())
+):
+    """Lista, para todos os grupos de evento ativos, qual fonte de curva D-%
+    está sendo usada (manual override, histórico próprio, circuito+cidade,
+    circuito, regional, linear fabricada). Permite diagnosticar de uma vez
+    qual evento depende de qual padrão, sem precisar abrir cada detalhe.
+
+    Cache de 5min em memória — recalcular toda vez seria caro (~200 grupos ×
+    múltiplas queries cada via _resolve_hist_pattern). O usuário tem botão
+    Atualizar que envia force_refresh=true."""
+    from ...services.snapshot_service import is_curve_saturated
+    import time as _t
+
+    if ano is None:
+        ano = datetime.now().year
+
+    cache_key = f"diagcurvas:{ano}"
+    if not force_refresh:
+        cached = _diagnostico_curvas_cache.get(cache_key)
+        if cached and (_t.time() - cached["ts"]) < _DIAGNOSTICO_CURVAS_TTL_S:
+            return cached["payload"]
+
+    grupos = db.query(EventoGrupoModel).filter(
+        EventoGrupoModel.ativo == True
+    ).order_by(EventoGrupoModel.nome).all()
+
+    eventos = []
+    for grupo in grupos:
+        try:
+            mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo.nome, ano)
+            proj_skus = list({m.sku for m in mappings if m.sku})
+            data_evento = None
+            estado = None
+            sales_goal = 0
+            if proj_skus:
+                projetos = _wq_dim_projetos_by_codigos(db, proj_skus) or []
+                rep = None
+                for p in projetos:
+                    if getattr(p, "data_evento", None):
+                        if not data_evento or p.data_evento > data_evento:
+                            data_evento = p.data_evento
+                            rep = p
+                if rep and getattr(rep, "estado", None):
+                    estado = str(rep.estado)
+                try:
+                    sales_goal = get_meta_orcada_projetos(db, projetos)
+                except Exception:
+                    sales_goal = 0
+
+            pattern, curva_info = _resolve_hist_pattern(db, grupo.nome, ano, estado=estado)
+
+            saturated = bool(pattern) and is_curve_saturated(pattern)
+            tipo = (curva_info or {}).get("tipo_curva")
+            fonte = (curva_info or {}).get("fonte_curva")
+            ano_ref = (curva_info or {}).get("ano_referencia")
+            fabricated_linear = False
+            if (not pattern or saturated) and data_evento:
+                tipo = "linear"
+                fonte = None
+                ano_ref = None
+                fabricated_linear = True
+
+            eventos.append({
+                "evento_grupo": grupo.nome,
+                "circuito": grupo.circuito,
+                "cidade": grupo.cidade_normalizada,
+                "estado": estado,
+                "data_evento": data_evento.isoformat() if data_evento else None,
+                "tipo_curva": tipo,
+                "fonte_curva": fonte,
+                "ano_referencia": ano_ref,
+                "tem_override": bool(grupo.curva_override),
+                "override_target": grupo.curva_override,
+                "fabricated_linear": fabricated_linear,
+                "saturated_descartado": bool(saturated),
+                "sales_goal": int(sales_goal or 0),
+                "tem_mapeamento": bool(proj_skus),
+            })
+        except Exception as e:
+            logger.warning(f"[DiagnosticoCurvas] erro em '{grupo.nome}': {e}")
+            eventos.append({
+                "evento_grupo": grupo.nome,
+                "circuito": grupo.circuito,
+                "cidade": grupo.cidade_normalizada,
+                "erro": str(e),
+            })
+
+    payload = {"ano": ano, "total": len(eventos), "eventos": eventos}
+    _diagnostico_curvas_cache[cache_key] = {"ts": _t.time(), "payload": payload}
+    return payload
+
+
 @router.get("/eventos/{evento_id}/simulacao")
 def get_event_simulation(
     evento_id: str,

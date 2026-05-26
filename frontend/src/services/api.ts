@@ -1448,6 +1448,32 @@ export const marketingService = {
     const response = await api.get(`/marketing/eventos/${encodeURIComponent(eventoId)}/curva-snapshot`, { signal, params });
     return response.data;
   },
+  getDiagnosticoCurvas: async (ano?: number, signal?: AbortSignal, forceRefresh?: boolean): Promise<{
+    ano: number;
+    total: number;
+    eventos: Array<{
+      evento_grupo: string;
+      circuito: string | null;
+      cidade: string | null;
+      estado: string | null;
+      data_evento: string | null;
+      tipo_curva: string | null;
+      fonte_curva: string | null;
+      ano_referencia: number | null;
+      tem_override: boolean;
+      override_target: string | null;
+      fabricated_linear: boolean;
+      sales_goal: number;
+      tem_mapeamento: boolean;
+      erro?: string;
+    }>;
+  }> => {
+    const params: any = {};
+    if (ano) params.ano = ano;
+    if (forceRefresh) params.force_refresh = true;
+    const response = await api.get('/marketing/diagnostico-curvas', { signal, params });
+    return response.data;
+  },
   getSimulacao: async (eventoId: string, signal?: AbortSignal, ano?: number): Promise<any> => {
     const queryParams = new URLSearchParams();
     if (ano) queryParams.append('ano', ano.toString());

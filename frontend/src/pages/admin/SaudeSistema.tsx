@@ -7,6 +7,8 @@ import {
   ChevronLeft, ChevronRight, CheckCircle2, RotateCcw, Database
 } from 'lucide-react';
 import SincronizacoesPanel from './SincronizacoesPanel';
+import DiagnosticoCurvasPanel from './DiagnosticoCurvasPanel';
+import { TrendingUp } from 'lucide-react';
 
 interface HealthEvent {
   id: number;
@@ -121,7 +123,7 @@ const SaudeSistema: React.FC = () => {
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
   const [showConfig, setShowConfig] = useState(false);
   const [resolvingEvents, setResolvingEvents] = useState<Set<number>>(new Set());
-  const [activeTab, setActiveTab] = useState<'overview' | 'sync'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'sync' | 'curvas'>('overview');
   const [formConfig, setFormConfig] = useState<AlertConfig>({
     email_enabled: false, email_recipients: '', email_from: '', smtp_host: '',
     smtp_port: 587, smtp_user: '', smtp_password: '', slack_enabled: false,
@@ -341,9 +343,21 @@ const SaudeSistema: React.FC = () => {
           <Database className="w-4 h-4" />
           Sincronizações
         </button>
+        <button
+          onClick={() => setActiveTab('curvas')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === 'curvas'
+              ? 'border-blue-500 text-blue-500'
+              : `border-transparent ${textSecondary} hover:${textPrimary}`
+          }`}
+        >
+          <TrendingUp className="w-4 h-4" />
+          Diagnóstico de Curvas
+        </button>
       </div>
 
       {activeTab === 'sync' && <SincronizacoesPanel />}
+      {activeTab === 'curvas' && <DiagnosticoCurvasPanel />}
 
       {activeTab === 'overview' && summary && (
         <div className={`${cardBase} rounded-xl p-5 border-l-4 ${stt.border}`}>
