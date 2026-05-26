@@ -30,8 +30,16 @@ _SKIP_PREFIXES = (
 )
 
 
+# Endpoints onde force_refresh é barato (só lê PostgreSQL, não toca Magento).
+# Mesmo com force_refresh=true devem cair no limite normal, não no agressivo
+# de 6/min — caso contrário o usuário clica "Atualizar" 7x e fica bloqueado.
+_FORCE_REFRESH_CHEAP_PATHS = (
+    "/api/marketing/diagnostico-curvas",
+)
+
+
 def _resolve_limit(path: str, query_string: str) -> int:
-    if _FORCE_REFRESH_RE.search(query_string):
+    if _FORCE_REFRESH_RE.search(query_string) and not path.startswith(_FORCE_REFRESH_CHEAP_PATHS):
         return LIMIT_FORCE_REFRESH
     return LIMIT_NORMAL
 
