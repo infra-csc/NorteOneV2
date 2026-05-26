@@ -718,6 +718,47 @@ export const adminService = {
     const response = await api.get('/admin/sync/pause-status');
     return response.data as { paused: boolean; by: string | null; since: string | null };
   },
+  getSyncOverview: async () => {
+    const response = await api.get('/admin/sync/overview');
+    return response.data as {
+      scheduled_jobs: Array<{
+        key: string;
+        label: string;
+        next_run_iso: string | null;
+        seconds_until: number | null;
+        tipo: 'fixo' | 'rede_seguranca' | 'tick';
+        descricao: string;
+      }>;
+      today_summary: {
+        eventos_sincronizados: number;
+        eventos_ok: number;
+        eventos_parcial: number;
+        eventos_falha: number;
+        eventos_pulado: number;
+        ultimo_sync_iso: string | null;
+        eventos_recentes: Array<{ grupo: string; status: string; ts: string }>;
+        historico_jobs: Array<{
+          started_at: string | null;
+          duration_ms: number;
+          grupos_total: number;
+          grupos_ok: number;
+          grupos_parcial: number;
+          grupos_falha: number;
+          status: string;
+        }>;
+      };
+      kit_mapping: {
+        ultima_atualizacao_iso: string | null;
+        idade_horas: number | null;
+        bundles_com_snapshot: number;
+        bundles_esperados: number;
+        cobertura_pct: number | null;
+        kits_sem_configuracao: number;
+        status: 'ok' | 'atencao' | 'critico';
+      };
+      generated_at: string;
+    };
+  },
   pauseSync: async () => {
     const response = await api.post('/admin/sync/pause');
     return response.data as { status: string; message: string };

@@ -2090,6 +2090,206 @@ def get_sync_pause_status(
     return get_sync_pause_info()
 
 
+@router.get("/sync/overview")
+def get_sync_overview(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Visão consolidada para o painel "Sincronizações" da Saúde do Sistema.
+
+    Retorna 3 blocos:
+      - `scheduled_jobs`: próximas execuções dos jobs fixos (02h/05h/17h BRT) +
+        rede de segurança (HojeSyncLoop) e safety check de margem (~90min tick).
+      - `today_summary`: eventos/grupos sincronizados hoje, último sync e
+        métricas históricas (JobRunHealth) das últimas 7 execuções.
+      - `kit_mapping`: status do snapshot margem_bundle_rev (idade, cobertura,
+        bundles sem mapeamento — proxy direto pro aviso "X kits sem
+        configuração" no topo da tela).
+    """
+    from zoneinfo import ZoneInfo as _ZI
+    from ...models.vendas_snapshot import MargemBundleRevSnapshot
+    from ...models.kit_config import KitConfig
+    from ...models.job_run_health import JobRunHealth
+    from ...core.cache import get_last_sync_hoje
+
+    _now_brt = datetime.now(_ZI("America/Sao_Paulo"))
+    _now_utc = datetime.now(timezone.utc)
+
+    # ── Bloco 1: scheduled_jobs ────────────────────────────────────────────
+    def _next_at_hour(h: int) -> datetime:
+        """Próxima ocorrência de HH:00 BRT (hoje se ainda não passou, senão amanhã)."""
+        target = _now_brt.replace(hour=h, minute=0, second=0, microsecond=0)
+        if target <= _now_brt:
+            target += timedelta(days=1)
+        return target
+
+    _hoje_interval_h = max(1, int(_os.getenv("HOJE_SYNC_INTERVAL_HOURS", "12")))
+    _last_hoje_ts = get_last_sync_hoje()
+    _hoje_next_iso = None
+    _hoje_seconds_until = None
+    if _last_hoje_ts is not None:
+        _next_hoje_dt = datetime.fromtimestamp(
+            _last_hoje_ts + _hoje_interval_h * 3600, tz=_ZI("America/Sao_Paulo")
+        )
+        _hoje_next_iso = _next_hoje_dt.isoformat()
+        _hoje_seconds_until = max(0, int((_next_hoje_dt - _now_brt).total_seconds()))
+
+    _scheduled_jobs = [
+        {
+            "key": "snapshot_02h",
+            "label": "Consolidação diária (snapshot)",
+            "next_run_iso": _next_at_hour(2).isoformat(),
+            "seconds_until": int((_next_at_hour(2) - _now_brt).total_seconds()),
+            "tipo": "fixo",
+            "descricao": "Consolida snapshots de vendas do dia + curvas históricas",
+        },
+        {
+            "key": "daily_05h",
+            "label": "Refresh diário (manhã)",
+            "next_run_iso": _next_at_hour(5).isoformat(),
+            "seconds_until": int((_next_at_hour(5) - _now_brt).total_seconds()),
+            "tipo": "fixo",
+            "descricao": "Sincroniza vendas de hoje + reconstrói cache ISC",
+        },
+        {
+            "key": "evening_17h",
+            "label": "Refresh diário (tarde)",
+            "next_run_iso": _next_at_hour(17).isoformat(),
+            "seconds_until": int((_next_at_hour(17) - _now_brt).total_seconds()),
+            "tipo": "fixo",
+            "descricao": "Sincroniza vendas de hoje (segunda passada do dia)",
+        },
+        {
+            "key": "hoje_loop",
+            "label": "Rede de segurança (sync hoje)",
+            "next_run_iso": _hoje_next_iso,
+            "seconds_until": _hoje_seconds_until,
+            "tipo": "rede_seguranca",
+            "descricao": f"Só dispara se não houve sync nas últimas {_hoje_interval_h}h",
+        },
+        {
+            "key": "margem_safety",
+            "label": "Verificação de margem",
+            "next_run_iso": None,
+            "seconds_until": None,
+            "tipo": "tick",
+            "descricao": "A cada ~90min — só age se snapshot > 36h durante o dia ou > 25h à noite",
+        },
+    ]
+
+    # ── Bloco 2: today_summary ─────────────────────────────────────────────
+    _today_start_brt = _now_brt.replace(hour=0, minute=0, second=0, microsecond=0)
+    _today_start_utc = _today_start_brt.astimezone(timezone.utc)
+
+    _today_grupo_rows = db.query(
+        SyncEventLog.grupo,
+        SyncEventLog.status,
+        SyncEventLog.created_at,
+    ).filter(
+        SyncEventLog.created_at >= _today_start_utc,
+        SyncEventLog.nivel == "grupo",
+        SyncEventLog.grupo.isnot(None),
+    ).all()
+
+    _grupos_unicos: dict = {}
+    for _g, _st, _ts in _today_grupo_rows:
+        prev = _grupos_unicos.get(_g)
+        if prev is None or _ts > prev[1]:
+            _grupos_unicos[_g] = (_st, _ts)
+
+    _eventos_ok = sum(1 for v in _grupos_unicos.values() if v[0] == "ok")
+    _eventos_parcial = sum(1 for v in _grupos_unicos.values() if v[0] == "parcial")
+    _eventos_falha = sum(1 for v in _grupos_unicos.values() if v[0] == "falha")
+    _eventos_pulado = sum(1 for v in _grupos_unicos.values() if v[0] == "pulado")
+    _ultimo_sync_iso = (
+        max(v[1] for v in _grupos_unicos.values()).astimezone(timezone.utc).isoformat()
+        if _grupos_unicos else None
+    )
+
+    # Top 10 eventos mais recentes
+    _eventos_recentes = sorted(
+        [{"grupo": g, "status": v[0], "ts": v[1].astimezone(timezone.utc).isoformat()}
+         for g, v in _grupos_unicos.items()],
+        key=lambda x: x["ts"], reverse=True,
+    )[:10]
+
+    # JobRunHealth: últimas 7 execuções de sincronizar_hoje
+    _job_health_rows = db.query(JobRunHealth).filter(
+        JobRunHealth.job_name == "sincronizar_hoje"
+    ).order_by(desc(JobRunHealth.started_at)).limit(7).all()
+
+    _job_health = [
+        {
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "duration_ms": r.duration_ms,
+            "grupos_total": r.grupos_total,
+            "grupos_ok": r.grupos_ok,
+            "grupos_parcial": r.grupos_parcial,
+            "grupos_falha": r.grupos_falha,
+            "status": r.status,
+        }
+        for r in _job_health_rows
+    ]
+
+    _today_summary = {
+        "eventos_sincronizados": len(_grupos_unicos),
+        "eventos_ok": _eventos_ok,
+        "eventos_parcial": _eventos_parcial,
+        "eventos_falha": _eventos_falha,
+        "eventos_pulado": _eventos_pulado,
+        "ultimo_sync_iso": _ultimo_sync_iso,
+        "eventos_recentes": _eventos_recentes,
+        "historico_jobs": _job_health,
+    }
+
+    # ── Bloco 3: kit_mapping ───────────────────────────────────────────────
+    _newest_margem_ts = db.query(
+        sa_func.max(MargemBundleRevSnapshot.calculado_em)
+    ).scalar()
+    _idade_h = None
+    _ultima_atualizacao_iso = None
+    if _newest_margem_ts is not None:
+        if _newest_margem_ts.tzinfo is None:
+            _newest_margem_ts = _newest_margem_ts.replace(tzinfo=timezone.utc)
+        _idade_h = (_now_utc - _newest_margem_ts).total_seconds() / 3600
+        _ultima_atualizacao_iso = _newest_margem_ts.isoformat()
+
+    _total_snap = db.query(
+        sa_func.count(MargemBundleRevSnapshot.bundle_entity_id)
+    ).scalar() or 0
+    _bundles_esperados = db.query(
+        sa_func.count(sa_func.distinct(KitConfig.bundle_entity_id))
+    ).filter(KitConfig.tipo_kit.isnot(None)).scalar() or 0
+    _kits_sem_config = db.query(
+        sa_func.count(sa_func.distinct(KitConfig.bundle_entity_id))
+    ).filter(KitConfig.tipo_kit.is_(None)).scalar() or 0
+
+    _coverage = (_total_snap / _bundles_esperados) if _bundles_esperados > 0 else None
+
+    _kit_status = "ok"
+    if _idade_h is None or _idade_h > 36:
+        _kit_status = "critico"
+    elif _idade_h > 25 or (_coverage is not None and _coverage < 0.85):
+        _kit_status = "atencao"
+
+    _kit_mapping = {
+        "ultima_atualizacao_iso": _ultima_atualizacao_iso,
+        "idade_horas": round(_idade_h, 1) if _idade_h is not None else None,
+        "bundles_com_snapshot": _total_snap,
+        "bundles_esperados": _bundles_esperados,
+        "cobertura_pct": round(_coverage * 100, 1) if _coverage is not None else None,
+        "kits_sem_configuracao": _kits_sem_config,
+        "status": _kit_status,
+    }
+
+    return {
+        "scheduled_jobs": _scheduled_jobs,
+        "today_summary": _today_summary,
+        "kit_mapping": _kit_mapping,
+        "generated_at": _now_utc.isoformat(),
+    }
+
+
 @router.post("/alert-config/test")
 def test_alert(
     db: Session = Depends(get_db),

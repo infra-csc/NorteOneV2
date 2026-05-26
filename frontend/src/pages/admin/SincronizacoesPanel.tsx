@@ -5,8 +5,73 @@ import {
   RefreshCw, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle,
   XCircle, MinusCircle, Clock, Activity, Loader2, PauseCircle, PlayCircle,
   StopCircle, ArrowRight, DatabaseZap, X, Snowflake, CheckCheck, TrendingUp,
-  RotateCcw
+  RotateCcw, CalendarClock, ListChecks, Package
 } from 'lucide-react';
+
+interface ScheduledJob {
+  key: string;
+  label: string;
+  next_run_iso: string | null;
+  seconds_until: number | null;
+  tipo: 'fixo' | 'rede_seguranca' | 'tick';
+  descricao: string;
+}
+interface TodaySummary {
+  eventos_sincronizados: number;
+  eventos_ok: number;
+  eventos_parcial: number;
+  eventos_falha: number;
+  eventos_pulado: number;
+  ultimo_sync_iso: string | null;
+  eventos_recentes: Array<{ grupo: string; status: string; ts: string }>;
+  historico_jobs: Array<{
+    started_at: string | null;
+    duration_ms: number;
+    grupos_total: number;
+    grupos_ok: number;
+    grupos_parcial: number;
+    grupos_falha: number;
+    status: string;
+  }>;
+}
+interface KitMappingInfo {
+  ultima_atualizacao_iso: string | null;
+  idade_horas: number | null;
+  bundles_com_snapshot: number;
+  bundles_esperados: number;
+  cobertura_pct: number | null;
+  kits_sem_configuracao: number;
+  status: 'ok' | 'atencao' | 'critico';
+}
+interface SyncOverview {
+  scheduled_jobs: ScheduledJob[];
+  today_summary: TodaySummary;
+  kit_mapping: KitMappingInfo;
+  generated_at: string;
+}
+
+function fmtCountdown(secs: number | null): string {
+  if (secs == null) return '—';
+  if (secs <= 0) return 'agora';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 24) {
+    const d = Math.floor(h / 24);
+    return `${d}d ${h % 24}h`;
+  }
+  if (h > 0) return `${h}h ${m}min`;
+  if (m > 0) return `${m}min`;
+  return `${secs}s`;
+}
+
+function fmtTimeBRT(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit', month: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
 
 interface SyncCycle {
   ciclo_id: string;
@@ -171,6 +236,7 @@ const SincronizacoesPanel: React.FC = () => {
   const [paused, setPaused] = useState(false);
   const [pausedBy, setPausedBy] = useState<string | null>(null);
   const [pauseLoading, setPauseLoading] = useState(false);
+  const [overview, setOverview] = useState<SyncOverview | null>(null);
   const [interruptLoading, setInterruptLoading] = useState(false);
   const [interruptResult, setInterruptResult] = useState<string | null>(null);
   const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
@@ -296,14 +362,26 @@ const SincronizacoesPanel: React.FC = () => {
     }
   }, []);
 
+  const fetchOverview = useCallback(async () => {
+    try {
+      const ov = await adminService.getSyncOverview();
+      setOverview(ov);
+    } catch (e) {
+      console.error('overview fetch failed:', e);
+    }
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     fetchCycles();
     fetchPauseStatus();
+    fetchOverview();
     // Poll every 5s for near-real-time feel
     const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 5000);
-    return () => clearInterval(it);
-  }, [fetchCycles, fetchPauseStatus]);
+    // Overview muda mais devagar (timers + agregados) — 30s evita carga desnecessária
+    const itOv = setInterval(() => { fetchOverview(); }, 30000);
+    return () => { clearInterval(it); clearInterval(itOv); };
+  }, [fetchCycles, fetchPauseStatus, fetchOverview]);
 
   // ── Polling de progresso da consolidação full ──────────────────────────────
   useEffect(() => {
@@ -946,6 +1024,199 @@ const SincronizacoesPanel: React.FC = () => {
           </button>
         </div>
       )}
+      {/* ── 3 cards de visão geral (Próximas atualizações, Resumo de hoje, Mapeamento de Kit) ── */}
+      {overview && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+          {/* Card 1 — Próximas atualizações agendadas */}
+          <div className={`${cardBase} rounded-xl p-4`}>
+            <div className="flex items-center gap-2 mb-3">
+              <CalendarClock className={`w-5 h-5 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+              <h3 className={`text-base font-semibold ${textPrimary}`}>Próximas atualizações</h3>
+            </div>
+            <ul className="space-y-2">
+              {overview.scheduled_jobs.map(job => {
+                const isTick = job.tipo === 'tick';
+                const isSafetyNet = job.tipo === 'rede_seguranca';
+                return (
+                  <li key={job.key} className={`flex items-start justify-between gap-2 px-2.5 py-2 rounded-lg ${isDark ? 'bg-gray-900/30' : 'bg-gray-50/60'}`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-sm font-medium ${textPrimary} truncate`}>{job.label}</span>
+                        {isSafetyNet && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${isDark ? 'bg-blue-900/40 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>
+                            rede de segurança
+                          </span>
+                        )}
+                        {isTick && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-600'}`}>
+                            tick
+                          </span>
+                        )}
+                      </div>
+                      <p className={`text-[11px] ${textSecondary} mt-0.5 truncate`} title={job.descricao}>{job.descricao}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={`text-sm font-mono ${textPrimary}`}>
+                        {isTick ? '~90min' : `em ${fmtCountdown(job.seconds_until)}`}
+                      </div>
+                      {job.next_run_iso && (
+                        <div className={`text-[11px] ${textSecondary}`}>{fmtTimeBRT(job.next_run_iso)}</div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Card 2 — Resumo de hoje */}
+          <div className={`${cardBase} rounded-xl p-4`}>
+            <div className="flex items-center gap-2 mb-3">
+              <ListChecks className={`w-5 h-5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`} />
+              <h3 className={`text-base font-semibold ${textPrimary}`}>Resumo de hoje</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className={`px-3 py-2 rounded-lg ${isDark ? 'bg-gray-900/30' : 'bg-gray-50/60'}`}>
+                <div className={`text-[11px] ${textSecondary}`}>Eventos sincronizados</div>
+                <div className={`text-xl font-bold ${textPrimary}`}>{overview.today_summary.eventos_sincronizados}</div>
+              </div>
+              <div className={`px-3 py-2 rounded-lg ${isDark ? 'bg-gray-900/30' : 'bg-gray-50/60'}`}>
+                <div className={`text-[11px] ${textSecondary}`}>Último sync</div>
+                <div className={`text-sm font-semibold ${textPrimary}`}>
+                  {overview.today_summary.ultimo_sync_iso
+                    ? fmtTimeBRT(overview.today_summary.ultimo_sync_iso)
+                    : '—'}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs mb-3">
+              {overview.today_summary.eventos_ok > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                  <CheckCircle2 className="w-3 h-3" /> {overview.today_summary.eventos_ok} OK
+                </span>
+              )}
+              {overview.today_summary.eventos_parcial > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                  <AlertTriangle className="w-3 h-3" /> {overview.today_summary.eventos_parcial} parcial
+                </span>
+              )}
+              {overview.today_summary.eventos_falha > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                  <XCircle className="w-3 h-3" /> {overview.today_summary.eventos_falha} falha
+                </span>
+              )}
+              {overview.today_summary.eventos_pulado > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                  <MinusCircle className="w-3 h-3" /> {overview.today_summary.eventos_pulado} pulado
+                </span>
+              )}
+              {overview.today_summary.eventos_sincronizados === 0 && (
+                <span className={`text-xs ${textSecondary}`}>Nenhum evento sincronizado hoje ainda.</span>
+              )}
+            </div>
+            {overview.today_summary.historico_jobs.length > 0 && (
+              <div>
+                <div className={`text-[11px] font-medium ${textSecondary} mb-1`}>Últimas execuções (sincronizar_hoje)</div>
+                <div className="flex items-end gap-1 h-10">
+                  {overview.today_summary.historico_jobs.slice().reverse().map((h, idx) => {
+                    const ratio = h.grupos_total > 0 ? h.grupos_ok / h.grupos_total : 0;
+                    const color = ratio >= 0.95 ? 'bg-emerald-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-red-500';
+                    const heightPct = Math.max(15, Math.round(ratio * 100));
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex-1 ${color} rounded-t opacity-80 hover:opacity-100 transition-opacity`}
+                        style={{ height: `${heightPct}%` }}
+                        title={`${fmtTimeBRT(h.started_at)} — ${h.grupos_ok}/${h.grupos_total} OK (${h.grupos_parcial} parcial, ${h.grupos_falha} falha) · ${fmtDuration(h.duration_ms)}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Card 3 — Mapeamento de Kit */}
+          {(() => {
+            const km = overview.kit_mapping;
+            const statusCfg = km.status === 'critico'
+              ? { cls: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400', label: 'Crítico', Icon: XCircle }
+              : km.status === 'atencao'
+                ? { cls: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400', label: 'Atenção', Icon: AlertTriangle }
+                : { cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400', label: 'OK', Icon: CheckCircle2 };
+            const StatusIcon = statusCfg.Icon;
+            const coverageColor = km.cobertura_pct == null
+              ? 'bg-gray-400'
+              : km.cobertura_pct >= 95 ? 'bg-emerald-500'
+              : km.cobertura_pct >= 85 ? 'bg-amber-500'
+              : 'bg-red-500';
+            return (
+              <div className={`${cardBase} rounded-xl p-4`}>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Package className={`w-5 h-5 ${isDark ? 'text-purple-400' : 'text-purple-600'}`} />
+                    <h3 className={`text-base font-semibold ${textPrimary}`}>Mapeamento de Kit</h3>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${statusCfg.cls}`}>
+                    <StatusIcon className="w-3 h-3" />
+                    {statusCfg.label}
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className={textSecondary}>Última atualização</span>
+                    <span className={`font-medium ${textPrimary}`}>
+                      {km.ultima_atualizacao_iso
+                        ? <>há {km.idade_horas?.toFixed(1)}h</>
+                        : '—'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={textSecondary}>Cobertura</span>
+                      <span className={`font-medium ${textPrimary}`}>
+                        {km.cobertura_pct != null ? `${km.cobertura_pct.toFixed(1)}%` : '—'}
+                      </span>
+                    </div>
+                    <div className={`h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`}>
+                      <div
+                        className={`h-full ${coverageColor} transition-all`}
+                        style={{ width: `${km.cobertura_pct ?? 0}%` }}
+                      />
+                    </div>
+                    <p className={`text-[11px] ${textSecondary} mt-1`}>
+                      {km.bundles_com_snapshot} de {km.bundles_esperados} bundles com receita líquida
+                    </p>
+                  </div>
+
+                  {km.kits_sem_configuracao > 0 && (
+                    <a
+                      href="/admin/kit-config"
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors mt-2 ${
+                        isDark
+                          ? 'bg-amber-900/20 border-amber-700/50 text-amber-300 hover:bg-amber-900/30'
+                          : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                      }`}
+                      title="Abrir página de Mapeamento de Kits"
+                    >
+                      <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                      <span className="text-xs flex-1">
+                        <strong>{km.kits_sem_configuracao}</strong> kits sem configuração
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+        </div>
+      )}
+
       {(() => {
         const last04h = cycles.find(c => c.job_name === 'consolidacao_diaria_04h');
         const ref = last04h?.concluido_em || last04h?.iniciado_em || last04h?.ultima_atividade;
