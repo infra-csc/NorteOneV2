@@ -6753,7 +6753,139 @@ def get_curva_snapshot(
 
 
 _diagnostico_curvas_cache: dict = {}
-_DIAGNOSTICO_CURVAS_TTL_S = 300  # 5 min — endpoint pesado (~200 grupos × várias queries)
+_DIAGNOSTICO_CURVAS_TTL_S = 300  # 5 min
+
+
+def _resolve_hist_pattern_readonly(db: Session, evento_grupo: str, ano: int,
+                                    estado: Optional[str],
+                                    grupo_obj: Optional['EventoGrupoModel'],
+                                    snap_index: dict, sat_cache: dict) -> dict:
+    """Versão read-only de _resolve_hist_pattern: SÓ lê snapshots já gravados
+    em CurvaHistoricaSnapshot (PostgreSQL). NUNCA toca em Magento/Ativo.
+
+    snap_index: dict pre-carregado {(grupo, ano): {'pattern': dict, 'total': int}}
+    sat_cache: dict {(grupo, ano): bool} — cache de saturação por grupo/ano
+
+    Replica a cadeia: override → próprio → circuito+cidade → circuito (média) →
+    regional (média ≥2) → linear. Para cada padrão considerado, exige snapshot
+    persistido — se faltar, pula (e o diagnóstico informa snapshot_ausente)."""
+    from ...services.snapshot_service import is_curve_saturated
+    prev_ano = ano - 1
+    MIN_REF_SALES = 50
+    SATURATION_PCT = 0.95
+
+    def _saturated(grupo: str, ar: int) -> bool:
+        key = (grupo, ar)
+        if key in sat_cache:
+            return sat_cache[key]
+        entry = snap_index.get(key)
+        if not entry or not entry.get("pattern"):
+            sat_cache[key] = False
+            return False
+        try:
+            res = is_curve_saturated(entry["pattern"])
+        except Exception:
+            res = False
+        sat_cache[key] = res
+        return res
+
+    def _is_degenerate_snapshot(grupo: str, ar: int) -> bool:
+        entry = snap_index.get((grupo, ar))
+        if not entry:
+            return True  # sem snapshot conta como inválido pro readonly
+        ref_total = entry.get("total", 0)
+        pattern = entry.get("pattern")
+        if ref_total > 0 and ref_total < MIN_REF_SALES:
+            return True
+        if pattern:
+            try:
+                max_dm = max(pattern.keys())
+                if max_dm >= 30 and pattern[max_dm] >= SATURATION_PCT:
+                    return True
+            except (ValueError, KeyError):
+                pass
+        return False
+
+    # 1. Override manual
+    if grupo_obj and grupo_obj.curva_override:
+        target = grupo_obj.curva_override
+        # tenta prev_ano e, se faltar, mais recente disponível pra esse grupo
+        candidate_anos = [prev_ano]
+        for (g, ar) in snap_index.keys():
+            if g == target and ar not in candidate_anos:
+                candidate_anos.append(ar)
+        candidate_anos.sort(reverse=True)
+        for ar in candidate_anos:
+            if (target, ar) in snap_index and not _is_degenerate_snapshot(target, ar):
+                return {"tipo_curva": "manual", "fonte_curva": target,
+                        "ano_referencia": ar, "fabricated_linear": False,
+                        "saturated_descartado": False}
+        # override existe mas não tem snapshot válido — segue cadeia
+        return {"tipo_curva": "manual", "fonte_curva": target,
+                "ano_referencia": None, "fabricated_linear": True,
+                "saturated_descartado": True,
+                "obs": "override aponta para grupo sem snapshot válido — fallback ativo"}
+
+    # 2. Próprio
+    if (evento_grupo, prev_ano) in snap_index:
+        if not _is_degenerate_snapshot(evento_grupo, prev_ano):
+            return {"tipo_curva": "historico", "fonte_curva": evento_grupo,
+                    "ano_referencia": prev_ano, "fabricated_linear": False,
+                    "saturated_descartado": False}
+
+    circuito = grupo_obj.circuito if grupo_obj else None
+    cidade = grupo_obj.cidade_normalizada if grupo_obj else None
+
+    # 3. Circuito + cidade (primeiro sibling não-saturado)
+    if circuito and cidade:
+        siblings = db.query(EventoGrupoModel.nome).filter(
+            EventoGrupoModel.circuito == circuito,
+            EventoGrupoModel.cidade_normalizada == cidade,
+            EventoGrupoModel.nome != evento_grupo,
+            EventoGrupoModel.ativo == True
+        ).all()
+        for (sib_nome,) in siblings:
+            if (sib_nome, prev_ano) in snap_index and not _saturated(sib_nome, prev_ano):
+                return {"tipo_curva": "circuito", "fonte_curva": sib_nome,
+                        "ano_referencia": prev_ano, "fabricated_linear": False,
+                        "saturated_descartado": False}
+
+    # 4. Circuito (média)
+    if circuito:
+        siblings = db.query(EventoGrupoModel.nome).filter(
+            EventoGrupoModel.circuito == circuito,
+            EventoGrupoModel.nome != evento_grupo,
+            EventoGrupoModel.ativo == True
+        ).all()
+        usados = [s for (s,) in siblings
+                  if (s, prev_ano) in snap_index and not _saturated(s, prev_ano)]
+        if usados:
+            label = f"Média {circuito}" if len(usados) > 1 else usados[0]
+            return {"tipo_curva": "circuito_similar", "fonte_curva": label,
+                    "ano_referencia": prev_ano, "fabricated_linear": False,
+                    "saturated_descartado": False}
+
+    # 5. Regional (precisa ≥2)
+    if estado:
+        regional = db.query(EventoGrupoModel.nome).join(
+            SkuMapping, SkuMapping.evento_grupo == EventoGrupoModel.nome
+        ).join(
+            DimProjeto, DimProjeto.codigo == SkuMapping.sku
+        ).filter(
+            DimProjeto.estado == estado,
+            EventoGrupoModel.nome != evento_grupo,
+            EventoGrupoModel.ativo == True
+        ).distinct().all()
+        usados = [s for (s,) in regional
+                  if (s, prev_ano) in snap_index and not _saturated(s, prev_ano)]
+        if len(usados) >= 2:
+            return {"tipo_curva": "regional", "fonte_curva": estado,
+                    "ano_referencia": prev_ano, "fabricated_linear": False,
+                    "saturated_descartado": False}
+
+    return {"tipo_curva": "linear", "fonte_curva": None,
+            "ano_referencia": None, "fabricated_linear": True,
+            "saturated_descartado": False}
 
 
 @router.get("/diagnostico-curvas")
@@ -6763,15 +6895,10 @@ def get_diagnostico_curvas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_admin())
 ):
-    """Lista, para todos os grupos de evento ativos, qual fonte de curva D-%
-    está sendo usada (manual override, histórico próprio, circuito+cidade,
-    circuito, regional, linear fabricada). Permite diagnosticar de uma vez
-    qual evento depende de qual padrão, sem precisar abrir cada detalhe.
-
-    Cache de 5min em memória — recalcular toda vez seria caro (~200 grupos ×
-    múltiplas queries cada via _resolve_hist_pattern). O usuário tem botão
-    Atualizar que envia force_refresh=true."""
-    from ...services.snapshot_service import is_curve_saturated
+    """Diagnóstico read-only: lista, para todos os grupos ativos, qual fonte
+    de curva D-% será escolhida (override/próprio/circuito+cidade/circuito/
+    regional/linear). Lê APENAS snapshots persistidos — não dispara Magento."""
+    from ...models.vendas_snapshot import CurvaHistoricaSnapshot
     import time as _t
 
     if ano is None:
@@ -6782,6 +6909,24 @@ def get_diagnostico_curvas(
         cached = _diagnostico_curvas_cache.get(cache_key)
         if cached and (_t.time() - cached["ts"]) < _DIAGNOSTICO_CURVAS_TTL_S:
             return cached["payload"]
+
+    prev_ano = ano - 1
+    # Pre-carrega TODOS os snapshots em uma só query (evita N+1)
+    snap_rows = db.query(
+        CurvaHistoricaSnapshot.evento_grupo,
+        CurvaHistoricaSnapshot.ano_referencia,
+        CurvaHistoricaSnapshot.d_minus,
+        CurvaHistoricaSnapshot.pct_acumulado,
+        CurvaHistoricaSnapshot.total_vendas_referencia,
+    ).all()
+    snap_index: dict = {}
+    for eg, ar, dm, pct, tot in snap_rows:
+        key = (eg, ar)
+        entry = snap_index.setdefault(key, {"pattern": {}, "total": 0})
+        entry["pattern"][int(dm)] = float(pct or 0)
+        if tot and tot > entry["total"]:
+            entry["total"] = int(tot)
+    sat_cache: dict = {}
 
     grupos = db.query(EventoGrupoModel).filter(
         EventoGrupoModel.ativo == True
@@ -6810,18 +6955,15 @@ def get_diagnostico_curvas(
                 except Exception:
                     sales_goal = 0
 
-            pattern, curva_info = _resolve_hist_pattern(db, grupo.nome, ano, estado=estado)
-
-            saturated = bool(pattern) and is_curve_saturated(pattern)
-            tipo = (curva_info or {}).get("tipo_curva")
-            fonte = (curva_info or {}).get("fonte_curva")
-            ano_ref = (curva_info or {}).get("ano_referencia")
-            fabricated_linear = False
-            if (not pattern or saturated) and data_evento:
-                tipo = "linear"
-                fonte = None
-                ano_ref = None
-                fabricated_linear = True
+            curva_info = _resolve_hist_pattern_readonly(
+                db, grupo.nome, ano, estado=estado,
+                grupo_obj=grupo, snap_index=snap_index, sat_cache=sat_cache
+            )
+            tipo = curva_info.get("tipo_curva")
+            fonte = curva_info.get("fonte_curva")
+            ano_ref = curva_info.get("ano_referencia")
+            fabricated_linear = bool(curva_info.get("fabricated_linear"))
+            saturated = bool(curva_info.get("saturated_descartado"))
 
             eventos.append({
                 "grupo_id": grupo.id,
@@ -6836,9 +6978,10 @@ def get_diagnostico_curvas(
                 "tem_override": bool(grupo.curva_override),
                 "override_target": grupo.curva_override,
                 "fabricated_linear": fabricated_linear,
-                "saturated_descartado": bool(saturated),
+                "saturated_descartado": saturated,
                 "sales_goal": int(sales_goal or 0),
                 "tem_mapeamento": bool(proj_skus),
+                "obs": curva_info.get("obs"),
             })
         except Exception as e:
             logger.warning(f"[DiagnosticoCurvas] erro em '{grupo.nome}': {e}")
