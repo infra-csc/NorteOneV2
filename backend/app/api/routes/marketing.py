@@ -516,14 +516,17 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             special_price_val = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
             current_price_val = float(row_dict["current_price"]) if row_dict.get("current_price") is not None else None
             price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
-            # Regra B (mai/2026, mesma do Mapeamento de Kits): se special_price >= price,
-            # não é uma promoção real (típico: fallback SQL traz MIN(lot_value) >= preço do
-            # componente EAV). Descarta o special_price para não inflar o ticket atual.
+            # Regra B (mai/2026, mesma do Mapeamento de Kits): se special_price/current_price >= price,
+            # não é uma promoção real — o fallback SQL traz MIN(lot_value) / lote corrente >= preço do
+            # componente EAV, indicando lot_value fantasma maior que o ticket real do kit.
+            # Descarta ambos para não inflar o ticket atual.
             # Sem isso, kits como "Night Run João Pessoa Kit Básico" mostravam ticket de
             # R$ 129,99 (lot_value fantasma) em vez de R$ 99,99 (preço real do componente).
-            if (special_price_val is not None and price_val is not None
-                    and special_price_val >= price_val):
-                special_price_val = None
+            if price_val is not None and price_val > 0:
+                if special_price_val is not None and special_price_val >= price_val:
+                    special_price_val = None
+                if current_price_val is not None and current_price_val >= price_val:
+                    current_price_val = None
             sp_base = (
                 special_price_val if (special_price_val is not None and special_price_val > 0)
                 else current_price_val if (current_price_val is not None and current_price_val > 0)
@@ -4657,7 +4660,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "24"  # v24: Regra B em _fetch_ticket_atual_map — descarta special_price quando >= price (evita lot_value fantasma inflar ticket atual)
+_DETAIL_CACHE_VERSION = "25"  # v25: Regra B estendida a current_price em _fetch_ticket_atual_map (special já cobria, current não)
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""
