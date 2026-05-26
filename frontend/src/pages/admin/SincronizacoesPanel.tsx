@@ -258,6 +258,7 @@ const SincronizacoesPanel: React.FC = () => {
   // Tabela "Eventos e última atualização" — lazy load (não polled).
   const [eventosSync, setEventosSync] = useState<Awaited<ReturnType<typeof adminService.getEventosUltimaSync>> | null>(null);
   const [eventosSyncLoading, setEventosSyncLoading] = useState(false);
+  const [eventosSyncError, setEventosSyncError] = useState<string | null>(null);
   const [eventosSyncQuery, setEventosSyncQuery] = useState<string>('');
   const [eventosSyncFiltro, setEventosSyncFiltro] = useState<'todos' | 'sem_sync' | 'com_sync'>('todos');
   const [showEventosSync, setShowEventosSync] = useState(false);
@@ -1768,11 +1769,17 @@ const SincronizacoesPanel: React.FC = () => {
               setShowEventosSync(next);
               if (next && !eventosSync && !eventosSyncLoading) {
                 setEventosSyncLoading(true);
+                setEventosSyncError(null);
                 try {
                   const data = await adminService.getEventosUltimaSync();
                   setEventosSync(data);
-                } catch (e) {
+                } catch (e: any) {
                   console.error('Falha ao carregar eventos:', e);
+                  setEventosSyncError(
+                    e?.response?.status === 403
+                      ? 'Sem permissão para ver esta tabela (precisa de "admin_monitoramento").'
+                      : (e?.response?.data?.detail || e?.message || 'Erro desconhecido ao carregar eventos.')
+                  );
                 } finally {
                   setEventosSyncLoading(false);
                 }
@@ -1816,11 +1823,17 @@ const SincronizacoesPanel: React.FC = () => {
                 type="button"
                 onClick={async () => {
                   setEventosSyncLoading(true);
+                  setEventosSyncError(null);
                   try {
                     const data = await adminService.getEventosUltimaSync();
                     setEventosSync(data);
-                  } catch (e) {
+                  } catch (e: any) {
                     console.error('Falha ao recarregar:', e);
+                    setEventosSyncError(
+                      e?.response?.status === 403
+                        ? 'Sem permissão para ver esta tabela (precisa de "admin_monitoramento").'
+                        : (e?.response?.data?.detail || e?.message || 'Erro desconhecido ao recarregar eventos.')
+                    );
                   } finally {
                     setEventosSyncLoading(false);
                   }
@@ -1840,7 +1853,45 @@ const SincronizacoesPanel: React.FC = () => {
               </div>
             )}
 
-            {eventosSync && (() => {
+            {eventosSyncError && !eventosSyncLoading && (
+              <div className={`p-3 rounded-lg text-xs mb-2 flex items-start gap-2 ${isDark ? 'bg-red-900/30 text-red-300 border border-red-700/40' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="font-medium">Não foi possível carregar a tabela de eventos</p>
+                  <p className="opacity-80 mt-0.5">{eventosSyncError}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setEventosSyncLoading(true);
+                    setEventosSyncError(null);
+                    try {
+                      const data = await adminService.getEventosUltimaSync();
+                      setEventosSync(data);
+                    } catch (e: any) {
+                      setEventosSyncError(
+                        e?.response?.status === 403
+                          ? 'Sem permissão para ver esta tabela (precisa de "admin_monitoramento").'
+                          : (e?.response?.data?.detail || e?.message || 'Erro desconhecido.')
+                      );
+                    } finally {
+                      setEventosSyncLoading(false);
+                    }
+                  }}
+                  className={`text-xs px-2 py-1 rounded ${isDark ? 'bg-red-700/40 hover:bg-red-700/60 text-white' : 'bg-red-100 hover:bg-red-200 text-red-800'}`}
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            )}
+
+            {eventosSync && eventosSync.eventos.length === 0 && !eventosSyncLoading && (
+              <div className={`p-4 rounded-lg text-xs text-center ${isDark ? 'bg-gray-800/40 text-gray-400 border border-gray-700/40' : 'bg-gray-50 text-gray-500 border border-gray-200'}`}>
+                Nenhum cadastro de evento ativo encontrado no banco.
+              </div>
+            )}
+
+            {eventosSync && eventosSync.eventos.length > 0 && (() => {
               const q = eventosSyncQuery.trim().toLowerCase();
               const filtered = eventosSync.eventos.filter(e => {
                 if (eventosSyncFiltro === 'com_sync' && !e.ultima_sync_iso) return false;
