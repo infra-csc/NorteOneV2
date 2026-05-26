@@ -2134,6 +2134,44 @@ def get_sync_overview(
         _hoje_next_iso = _next_hoje_dt.isoformat()
         _hoje_seconds_until = max(0, int((_next_hoje_dt - _now_brt).total_seconds()))
 
+    # Safety check tick: usa last_safety_tick (módulo main) + intervalo do scheduler
+    # para mostrar countdown real. Se nunca rodou (ex.: ENABLE_BACKGROUND_MAGENTO_SYNC=false),
+    # next_run fica None e o frontend exibe "tick".
+    try:
+        from main import get_last_safety_tick as _gst
+        _last_tick_epoch = _gst()
+    except Exception:
+        _last_tick_epoch = None
+    _safety_interval_s = max(60, int(_os.getenv("CACHE_REFRESH_INTERVAL_SECONDS", "5400")))
+    _safety_next_iso = None
+    _safety_seconds_until = None
+    if _last_tick_epoch is not None:
+        _next_tick_dt = datetime.fromtimestamp(
+            _last_tick_epoch + _safety_interval_s, tz=_ZI("America/Sao_Paulo")
+        )
+        _safety_next_iso = _next_tick_dt.isoformat()
+        _safety_seconds_until = max(0, int((_next_tick_dt - _now_brt).total_seconds()))
+
+    # Detecta atraso do job 02h: se o último ciclo concluído está > 26h atrás,
+    # marcamos atrasado=True para o card mostrar badge inline (substitui o banner antigo).
+    _last_02h_row = db.query(
+        sa_func.max(SyncEventLog.created_at)
+    ).filter(
+        SyncEventLog.job_name == "consolidacao_diaria_04h",
+        SyncEventLog.nivel == "ciclo",
+        SyncEventLog.status.in_(["concluido", "ok", "parcial"]),
+    ).scalar()
+    _job_02h_atrasado = False
+    _job_02h_ultima_exec_iso = None
+    if _last_02h_row is not None:
+        if _last_02h_row.tzinfo is None:
+            _last_02h_row = _last_02h_row.replace(tzinfo=timezone.utc)
+        _job_02h_ultima_exec_iso = _last_02h_row.isoformat()
+        _age_02h_h = (_now_utc - _last_02h_row).total_seconds() / 3600
+        _job_02h_atrasado = _age_02h_h > 26
+    else:
+        _job_02h_atrasado = True  # nunca executou
+
     _scheduled_jobs = [
         {
             "key": "snapshot_02h",
@@ -2142,6 +2180,8 @@ def get_sync_overview(
             "seconds_until": int((_next_at_hour(2) - _now_brt).total_seconds()),
             "tipo": "fixo",
             "descricao": "Consolida snapshots de vendas do dia + curvas históricas",
+            "atrasado": _job_02h_atrasado,
+            "ultima_exec_iso": _job_02h_ultima_exec_iso,
         },
         {
             "key": "daily_05h",
@@ -2150,6 +2190,8 @@ def get_sync_overview(
             "seconds_until": int((_next_at_hour(5) - _now_brt).total_seconds()),
             "tipo": "fixo",
             "descricao": "Sincroniza vendas de hoje + reconstrói cache ISC",
+            "atrasado": False,
+            "ultima_exec_iso": None,
         },
         {
             "key": "evening_17h",
@@ -2158,6 +2200,8 @@ def get_sync_overview(
             "seconds_until": int((_next_at_hour(17) - _now_brt).total_seconds()),
             "tipo": "fixo",
             "descricao": "Sincroniza vendas de hoje (segunda passada do dia)",
+            "atrasado": False,
+            "ultima_exec_iso": None,
         },
         {
             "key": "hoje_loop",
@@ -2166,14 +2210,21 @@ def get_sync_overview(
             "seconds_until": _hoje_seconds_until,
             "tipo": "rede_seguranca",
             "descricao": f"Só dispara se não houve sync nas últimas {_hoje_interval_h}h",
+            "atrasado": False,
+            "ultima_exec_iso": None,
         },
         {
             "key": "margem_safety",
             "label": "Verificação de margem",
-            "next_run_iso": None,
-            "seconds_until": None,
+            "next_run_iso": _safety_next_iso,
+            "seconds_until": _safety_seconds_until,
             "tipo": "tick",
-            "descricao": "A cada ~90min — só age se snapshot > 36h durante o dia ou > 25h à noite",
+            "descricao": f"A cada ~{_safety_interval_s // 60}min — só age se snapshot > 36h durante o dia ou > 25h à noite",
+            "atrasado": False,
+            "ultima_exec_iso": (
+                datetime.fromtimestamp(_last_tick_epoch, tz=timezone.utc).isoformat()
+                if _last_tick_epoch is not None else None
+            ),
         },
     ]
 
@@ -2213,23 +2264,28 @@ def get_sync_overview(
         key=lambda x: x["ts"], reverse=True,
     )[:10]
 
-    # JobRunHealth: últimas 7 execuções de sincronizar_hoje
-    _job_health_rows = db.query(JobRunHealth).filter(
-        JobRunHealth.job_name == "sincronizar_hoje"
-    ).order_by(desc(JobRunHealth.started_at)).limit(7).all()
-
-    _job_health = [
-        {
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "duration_ms": r.duration_ms,
-            "grupos_total": r.grupos_total,
-            "grupos_ok": r.grupos_ok,
-            "grupos_parcial": r.grupos_parcial,
-            "grupos_falha": r.grupos_falha,
-            "status": r.status,
-        }
-        for r in _job_health_rows
-    ]
+    # JobRunHealth: últimas 7 execuções de CADA job (sincronizar_hoje + snapshot_diario).
+    # Frontend usa toggle para alternar entre os dois.
+    def _serialize_job_runs(job_name: str):
+        rows = db.query(JobRunHealth).filter(
+            JobRunHealth.job_name == job_name
+        ).order_by(desc(JobRunHealth.started_at)).limit(7).all()
+        return [
+            {
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "duration_ms": r.duration_ms,
+                "grupos_total": r.grupos_total,
+                "grupos_ok": r.grupos_ok,
+                "grupos_parcial": r.grupos_parcial,
+                "grupos_falha": r.grupos_falha,
+                "status": r.status,
+            }
+            for r in rows
+        ]
+    _job_health_by_name = {
+        "sincronizar_hoje": _serialize_job_runs("sincronizar_hoje"),
+        "snapshot_diario": _serialize_job_runs("snapshot_diario"),
+    }
 
     _today_summary = {
         "eventos_sincronizados": len(_grupos_unicos),
@@ -2239,7 +2295,7 @@ def get_sync_overview(
         "eventos_pulado": _eventos_pulado,
         "ultimo_sync_iso": _ultimo_sync_iso,
         "eventos_recentes": _eventos_recentes,
-        "historico_jobs": _job_health,
+        "historico_jobs_by_name": _job_health_by_name,
     }
 
     # ── Bloco 3: kit_mapping ───────────────────────────────────────────────
@@ -2272,6 +2328,33 @@ def get_sync_overview(
     elif _idade_h > 25 or (_coverage is not None and _coverage < 0.85):
         _kit_status = "atencao"
 
+    # Bundles configurados (tipo_kit != null) que NÃO têm snapshot — diagnóstico
+    # do "missing 550 bundles" sem precisar abrir o banco. Limita a 50 pra não inchar
+    # a resposta; a flag has_more avisa quando há mais.
+    _bundles_faltantes_rows = db.query(
+        KitConfig.bundle_entity_id,
+        KitConfig.kit_nome,
+        KitConfig.tipo_kit,
+        KitConfig.id_evento,
+    ).outerjoin(
+        MargemBundleRevSnapshot,
+        MargemBundleRevSnapshot.bundle_entity_id == KitConfig.bundle_entity_id,
+    ).filter(
+        KitConfig.tipo_kit.isnot(None),
+        MargemBundleRevSnapshot.bundle_entity_id.is_(None),
+    ).order_by(KitConfig.id_evento.desc().nullslast(), KitConfig.bundle_entity_id).limit(51).all()
+
+    _bundles_faltantes = [
+        {
+            "bundle_entity_id": int(r[0]),
+            "kit_nome": r[1],
+            "tipo_kit": r[2],
+            "id_evento": int(r[3]) if r[3] is not None else None,
+        }
+        for r in _bundles_faltantes_rows[:50]
+    ]
+    _bundles_faltantes_total = max(0, _bundles_esperados - _total_snap)
+
     _kit_mapping = {
         "ultima_atualizacao_iso": _ultima_atualizacao_iso,
         "idade_horas": round(_idade_h, 1) if _idade_h is not None else None,
@@ -2279,6 +2362,9 @@ def get_sync_overview(
         "bundles_esperados": _bundles_esperados,
         "cobertura_pct": round(_coverage * 100, 1) if _coverage is not None else None,
         "kits_sem_configuracao": _kits_sem_config,
+        "bundles_sem_snapshot_total": _bundles_faltantes_total,
+        "bundles_sem_snapshot_lista": _bundles_faltantes,
+        "bundles_sem_snapshot_truncated": len(_bundles_faltantes_rows) > 50,
         "status": _kit_status,
     }
 

@@ -15,6 +15,17 @@ interface ScheduledJob {
   seconds_until: number | null;
   tipo: 'fixo' | 'rede_seguranca' | 'tick';
   descricao: string;
+  atrasado: boolean;
+  ultima_exec_iso: string | null;
+}
+interface JobRunHistEntry {
+  started_at: string | null;
+  duration_ms: number;
+  grupos_total: number;
+  grupos_ok: number;
+  grupos_parcial: number;
+  grupos_falha: number;
+  status: string;
 }
 interface TodaySummary {
   eventos_sincronizados: number;
@@ -24,15 +35,16 @@ interface TodaySummary {
   eventos_pulado: number;
   ultimo_sync_iso: string | null;
   eventos_recentes: Array<{ grupo: string; status: string; ts: string }>;
-  historico_jobs: Array<{
-    started_at: string | null;
-    duration_ms: number;
-    grupos_total: number;
-    grupos_ok: number;
-    grupos_parcial: number;
-    grupos_falha: number;
-    status: string;
-  }>;
+  historico_jobs_by_name: {
+    sincronizar_hoje: JobRunHistEntry[];
+    snapshot_diario: JobRunHistEntry[];
+  };
+}
+interface BundleSemSnapshot {
+  bundle_entity_id: number;
+  kit_nome: string | null;
+  tipo_kit: string | null;
+  id_evento: number | null;
 }
 interface KitMappingInfo {
   ultima_atualizacao_iso: string | null;
@@ -41,6 +53,9 @@ interface KitMappingInfo {
   bundles_esperados: number;
   cobertura_pct: number | null;
   kits_sem_configuracao: number;
+  bundles_sem_snapshot_total: number;
+  bundles_sem_snapshot_lista: BundleSemSnapshot[];
+  bundles_sem_snapshot_truncated: boolean;
   status: 'ok' | 'atencao' | 'critico';
 }
 interface SyncOverview {
@@ -237,6 +252,12 @@ const SincronizacoesPanel: React.FC = () => {
   const [pausedBy, setPausedBy] = useState<string | null>(null);
   const [pauseLoading, setPauseLoading] = useState(false);
   const [overview, setOverview] = useState<SyncOverview | null>(null);
+  const [filterUltimas24h, setFilterUltimas24h] = useState<boolean>(false);
+  const [histJobName, setHistJobName] = useState<'sincronizar_hoje' | 'snapshot_diario'>('sincronizar_hoje');
+  const [showBundlesFaltantesModal, setShowBundlesFaltantesModal] = useState(false);
+  // Tick para "atualizado há Xs" — atualiza a cada 1s sem refazer fetch.
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const ciclosSectionRef = useRef<HTMLDivElement | null>(null);
   const [interruptLoading, setInterruptLoading] = useState(false);
   const [interruptResult, setInterruptResult] = useState<string | null>(null);
   const [selectedCycles, setSelectedCycles] = useState<Set<string>>(new Set());
@@ -380,7 +401,30 @@ const SincronizacoesPanel: React.FC = () => {
     const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 5000);
     // Overview muda mais devagar (timers + agregados) — 30s evita carga desnecessária
     const itOv = setInterval(() => { fetchOverview(); }, 30000);
-    return () => { clearInterval(it); clearInterval(itOv); };
+    // Tick de 1s só pra atualizar "atualizado há Xs" sem novo fetch.
+    const itTick = setInterval(() => setNowTick(Date.now()), 1000);
+    // Page Visibility API: pausa polling em background pra não martelar API
+    // quando o usuário não está olhando, e dispara refresh imediato ao voltar.
+    let pausedByHide = false;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        if (pausedByHide) {
+          fetchCycles();
+          fetchPauseStatus();
+          fetchOverview();
+          pausedByHide = false;
+        }
+      } else {
+        pausedByHide = true;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(it);
+      clearInterval(itOv);
+      clearInterval(itTick);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [fetchCycles, fetchPauseStatus, fetchOverview]);
 
   // ── Polling de progresso da consolidação full ──────────────────────────────
@@ -1038,6 +1082,12 @@ const SincronizacoesPanel: React.FC = () => {
               {overview.scheduled_jobs.map(job => {
                 const isTick = job.tipo === 'tick';
                 const isSafetyNet = job.tipo === 'rede_seguranca';
+                // Para "tick" (margem_safety) agora temos seconds_until real quando
+                // _last_safety_tick já foi populado. Se ainda for null, exibimos "~Xmin"
+                // como antes (texto extraído da descrição).
+                const countdownText = job.seconds_until != null
+                  ? `em ${fmtCountdown(job.seconds_until)}`
+                  : isTick ? '~90min' : '—';
                 return (
                   <li key={job.key} className={`flex items-start justify-between gap-2 px-2.5 py-2 rounded-lg ${isDark ? 'bg-gray-900/30' : 'bg-gray-50/60'}`}>
                     <div className="min-w-0 flex-1">
@@ -1053,13 +1103,22 @@ const SincronizacoesPanel: React.FC = () => {
                             tick
                           </span>
                         )}
+                        {job.atrasado && (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                            title={job.ultima_exec_iso
+                              ? `Última execução: ${fmtDateTime(job.ultima_exec_iso)} (> 26h)`
+                              : 'Nenhuma execução registrada ainda'}
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            atrasado
+                          </span>
+                        )}
                       </div>
                       <p className={`text-[11px] ${textSecondary} mt-0.5 truncate`} title={job.descricao}>{job.descricao}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className={`text-sm font-mono ${textPrimary}`}>
-                        {isTick ? '~90min' : `em ${fmtCountdown(job.seconds_until)}`}
-                      </div>
+                      <div className={`text-sm font-mono ${textPrimary}`}>{countdownText}</div>
                       {job.next_run_iso && (
                         <div className={`text-[11px] ${textSecondary}`}>{fmtTimeBRT(job.next_run_iso)}</div>
                       )}
@@ -1068,6 +1127,15 @@ const SincronizacoesPanel: React.FC = () => {
                 );
               })}
             </ul>
+            {/* "atualizado há Xs" — usa generated_at do payload + nowTick */}
+            {overview.generated_at && (() => {
+              const ageS = Math.max(0, Math.floor((nowTick - new Date(overview.generated_at).getTime()) / 1000));
+              return (
+                <p className={`text-[10px] ${textSecondary} mt-2 text-right`} title={`Snapshot servido em ${fmtTimeBRT(overview.generated_at)}`}>
+                  atualizado há {ageS < 60 ? `${ageS}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}min` : `${(ageS / 3600).toFixed(1)}h`}
+                </p>
+              );
+            })()}
           </div>
 
           {/* Card 2 — Resumo de hoje */}

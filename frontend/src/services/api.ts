@@ -728,6 +728,8 @@ export const adminService = {
         seconds_until: number | null;
         tipo: 'fixo' | 'rede_seguranca' | 'tick';
         descricao: string;
+        atrasado: boolean;
+        ultima_exec_iso: string | null;
       }>;
       today_summary: {
         eventos_sincronizados: number;
@@ -737,15 +739,26 @@ export const adminService = {
         eventos_pulado: number;
         ultimo_sync_iso: string | null;
         eventos_recentes: Array<{ grupo: string; status: string; ts: string }>;
-        historico_jobs: Array<{
-          started_at: string | null;
-          duration_ms: number;
-          grupos_total: number;
-          grupos_ok: number;
-          grupos_parcial: number;
-          grupos_falha: number;
-          status: string;
-        }>;
+        historico_jobs_by_name: {
+          sincronizar_hoje: Array<{
+            started_at: string | null;
+            duration_ms: number;
+            grupos_total: number;
+            grupos_ok: number;
+            grupos_parcial: number;
+            grupos_falha: number;
+            status: string;
+          }>;
+          snapshot_diario: Array<{
+            started_at: string | null;
+            duration_ms: number;
+            grupos_total: number;
+            grupos_ok: number;
+            grupos_parcial: number;
+            grupos_falha: number;
+            status: string;
+          }>;
+        };
       };
       kit_mapping: {
         ultima_atualizacao_iso: string | null;
@@ -754,6 +767,14 @@ export const adminService = {
         bundles_esperados: number;
         cobertura_pct: number | null;
         kits_sem_configuracao: number;
+        bundles_sem_snapshot_total: number;
+        bundles_sem_snapshot_lista: Array<{
+          bundle_entity_id: number;
+          kit_nome: string | null;
+          tipo_kit: string | null;
+          id_evento: number | null;
+        }>;
+        bundles_sem_snapshot_truncated: boolean;
         status: 'ok' | 'atencao' | 'critico';
       };
       generated_at: string;

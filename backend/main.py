@@ -175,6 +175,17 @@ def _start_hoje_sync_loop():
     logger.info(f"[HojeSyncLoop] Thread daemon iniciada (intervalo={interval_hours}h)")
 
 
+# Timestamp do último tick do safety check (epoch seg). Lido pelo endpoint
+# /api/admin/sync/overview para mostrar countdown real ao invés de "~90min".
+_last_safety_tick: "float | None" = None
+
+
+def get_last_safety_tick() -> "float | None":
+    """Retorna o epoch seg do último tick do margem safety check, ou None se ainda
+    não rodou nesta sessão. Usado pela aba Sincronizações."""
+    return _last_safety_tick
+
+
 def _scheduled_margem_rev_safety_check():
     """Rede de segurança: a cada tick do scheduler, verifica a idade E a cobertura
     do snapshot margem_bundle_rev_snapshot. Dispara o sync se:
@@ -279,6 +290,10 @@ def _scheduled_margem_rev_safety_check():
     finally:
         if db:
             db.close()
+        # Marca o tick mesmo em caso de erro — o próximo ainda virá no intervalo.
+        global _last_safety_tick
+        import time as _t_safety
+        _last_safety_tick = _t_safety.time()
 
 
 def _scheduled_cleanup_sessions():
