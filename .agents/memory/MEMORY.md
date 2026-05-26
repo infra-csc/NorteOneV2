@@ -1,1 +1,2 @@
-- [Magento coupon lookup](magento-coupon-lookup.md) — sempre buscar por `salesrule.name` E `salesrule_label.label`; o nome que o usuário conhece é quase sempre o label, não o name interno.
+- [Magento coupon lookup](magento-coupon-lookup.md) — sempre buscar cupons por name E label (salesrule_label), não só por name.
+- [Cadastro Evento schema gaps](cadastro-evento-schema-gaps.md) — colunas no model SQLAlchemy podem estar ausentes nos schemas Pydantic Update/Response e no formulário; checar contrato E2E (Base/Create/Update/Response + db_to_response + db_to_list_response + UI) antes de assumir que campo é editável.

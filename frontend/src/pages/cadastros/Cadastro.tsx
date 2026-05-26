@@ -54,6 +54,7 @@ interface CadastroEvento {
   id: number;
   projeto_id: number | null;
   nome: string;
+  id_evento_magento: number | null;
   circuito_produto: string;
   localizacao_evento: string;
   ano_evento: number | null;
@@ -97,6 +98,7 @@ interface CadastroEvento {
 interface FormData {
   projeto_id: number | null;
   nome: string;
+  id_evento_magento: number | null;
   circuito_produto: string;
   localizacao_evento: string;
   ano_evento: number;
@@ -431,6 +433,7 @@ const Cadastro: React.FC = () => {
   const initialFormData: FormData = {
     projeto_id: null,
     nome: '',
+    id_evento_magento: null,
     gratuito: false,
     circuito_produto: '',
     localizacao_evento: '',
@@ -686,6 +689,7 @@ const Cadastro: React.FC = () => {
     setForm({
       projeto_id: item.projeto_id,
       nome: item.nome,
+      id_evento_magento: item.id_evento_magento ?? null,
       circuito_produto: item.circuito_produto || '',
       localizacao_evento: item.localizacao_evento || '',
       ano_evento: item.ano_evento || new Date().getFullYear(),
@@ -795,6 +799,7 @@ const Cadastro: React.FC = () => {
       const payload = {
         projeto_id: form.projeto_id,
         nome: nomeFinal,
+        id_evento_magento: form.id_evento_magento,
         circuito_produto: form.circuito_produto,
         localizacao_evento: form.localizacao_evento,
         ano_evento: form.ano_evento,
@@ -1789,7 +1794,21 @@ const Cadastro: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-12 gap-3 mt-3">
-                <div className="col-span-6">
+                <div className="col-span-4">
+                  <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>ID Evento Magento</label>
+                  <input
+                    type="number"
+                    value={form.id_evento_magento ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      setForm(prev => ({ ...prev, id_evento_magento: v === '' ? null : Number(v) }));
+                    }}
+                    placeholder="Ex: 53171"
+                    title="ID do evento no Magento (necessário para puxar vendas, kits e bundles)"
+                    className={`w-full px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
+                  />
+                </div>
+                <div className="col-span-4">
                   <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Cidade</label>
                   <input
                     type="text"
@@ -1799,7 +1818,7 @@ const Cadastro: React.FC = () => {
                     className={`w-full px-2 py-1.5 text-sm rounded-lg border ${isDark ? 'bg-gray-700/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300'} focus:ring-2 focus:ring-purple-500`}
                   />
                 </div>
-                <div className="col-span-6">
+                <div className="col-span-4">
                   <label className={`block text-xs font-semibold mb-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Estado</label>
                   <select
                     value={form.estado}

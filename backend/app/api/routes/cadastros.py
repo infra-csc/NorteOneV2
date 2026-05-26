@@ -249,6 +249,7 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
         "id": cadastro.id,
         "projeto_id": cadastro.projeto_id,
         "nome": cadastro.nome,
+        "id_evento_magento": cadastro.id_evento_magento,
         "circuito_produto": cadastro.circuito_produto or None,
         "localizacao_evento": cadastro.localizacao_evento or None,
         "ano_evento": cadastro.ano_evento or None,
@@ -306,6 +307,7 @@ def db_to_list_response(cadastro: CadastroEvento) -> dict:
         "id": cadastro.id,
         "projeto_id": cadastro.projeto_id,
         "nome": cadastro.nome,
+        "id_evento_magento": cadastro.id_evento_magento,
         "circuito_produto": cadastro.circuito_produto or None,
         "localizacao_evento": cadastro.localizacao_evento or None,
         "ano_evento": cadastro.ano_evento or None,
@@ -457,6 +459,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db), cu
     cadastro = CadastroEvento(
         projeto_id=data.projeto_id,
         nome=data.nome,
+        id_evento_magento=getattr(data, 'id_evento_magento', None),
         circuito_produto=data.circuito_produto,
         localizacao_evento=data.localizacao_evento,
         ano_evento=data.ano_evento,
@@ -611,6 +614,9 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         cadastro.projeto_id = data.projeto_id
     if data.nome is not None:
         cadastro.nome = data.nome
+    if 'id_evento_magento' in data.model_fields_set:
+        v = data.id_evento_magento
+        cadastro.id_evento_magento = v if (v is not None and v > 0) else None
     if data.circuito_produto is not None:
         cadastro.circuito_produto = data.circuito_produto
     if data.localizacao_evento is not None:
