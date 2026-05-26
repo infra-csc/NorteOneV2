@@ -4,6 +4,7 @@ from typing import List, Optional, Dict
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.models.dimensoes import SkuMapping, EventoGrupo
+from app.models.cadastro_evento import CadastroEvento
 from app.models.vendas_snapshot import CurvaHistoricaSnapshot, VendasDiariaSnapshot
 from app.schemas.dimensoes import (
     SkuMappingCreate, SkuMappingUpdate, SkuMappingResponse,
@@ -32,6 +33,48 @@ router = APIRouter(prefix="/api/admin/sku-mappings", tags=["SKU Mappings"])
 _REBUILD_DEBOUNCE_SECONDS = 30
 _rebuild_debounce_lock = threading.Lock()
 _rebuild_debounce_ts: dict = {}
+
+
+def _sync_id_evento_magento_from_mapping(db: Session, mapping: SkuMapping) -> int:
+    """Quando um SkuMapping fonte=MAGENTO é salvo/atualizado, propaga
+    id_externo -> CadastroEvento.id_evento_magento para todo cadastro
+    que casa pelo SKU (case-insensitive, trim).
+
+    Por que isso existe: snapshot_service.sincronizar_margem_bundle_rev_batch
+    e outros consumidores leem cadastro_evento.id_evento_magento direto.
+    Sem este sync, o cadastro fica órfão de vendas mesmo quando o
+    mapeamento de SKU já tem o ID Magento correto, e o usuário fica
+    procurando um campo de "ID Magento" no cadastro do evento (que não
+    existe — a fonte canônica é o mapeamento de SKU).
+
+    Não faz commit; o caller controla a transação.
+    Retorna a quantidade de linhas atualizadas.
+    """
+    if not mapping or (mapping.fonte or '').upper() != 'MAGENTO':
+        return 0
+    if not mapping.sku or not mapping.id_externo:
+        return 0
+    sku_norm = mapping.sku.strip()
+    if not sku_norm:
+        return 0
+    updated = (
+        db.query(CadastroEvento)
+        .filter(func.lower(func.trim(CadastroEvento.sku)) == sku_norm.lower())
+        .filter(
+            (CadastroEvento.id_evento_magento == None)  # noqa: E711
+            | (CadastroEvento.id_evento_magento != mapping.id_externo)
+        )
+        .update(
+            {CadastroEvento.id_evento_magento: mapping.id_externo},
+            synchronize_session=False,
+        )
+    )
+    if updated:
+        logger.info(
+            f"[SkuMapping->Cadastro] Propagou id_evento_magento={mapping.id_externo} "
+            f"para {updated} cadastro(s) com sku='{sku_norm}'"
+        )
+    return updated
 
 
 def _should_dispatch_rebuild(evento_grupo: str, ano: int) -> bool:
@@ -402,6 +445,8 @@ def create_sku_mapping(
     
     db_mapping = SkuMapping(**mapping.model_dump())
     db.add(db_mapping)
+    db.flush()
+    _sync_id_evento_magento_from_mapping(db, db_mapping)
     db.commit()
     db.refresh(db_mapping)
     if db_mapping.data_evento:
@@ -450,7 +495,9 @@ def update_sku_mapping(
 
     for key, value in update_data.items():
         setattr(db_mapping, key, value)
-    
+
+    _sync_id_evento_magento_from_mapping(db, db_mapping)
+
     db.commit()
     db.refresh(db_mapping)
 
@@ -520,7 +567,11 @@ def bulk_create_sku_mappings(
             db_mapping = SkuMapping(**mapping.model_dump())
             db.add(db_mapping)
             created.append(db_mapping)
-    
+
+    db.flush()
+    for m in created:
+        _sync_id_evento_magento_from_mapping(db, m)
+
     db.commit()
     for m in created:
         db.refresh(m)

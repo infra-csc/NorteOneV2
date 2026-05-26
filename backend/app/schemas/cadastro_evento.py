@@ -185,7 +185,6 @@ class LocalizacaoSchema(BaseModel):
 class CadastroEventoBase(BaseModel):
     projeto_id: Optional[int] = None
     nome: str
-    id_evento_magento: Optional[int] = None
     circuito_produto: Optional[str] = None
     localizacao_evento: Optional[str] = None
     ano_evento: Optional[int] = None
@@ -218,7 +217,6 @@ class CadastroEventoCreate(CadastroEventoBase):
 class CadastroEventoUpdate(BaseModel):
     projeto_id: Optional[int] = None
     nome: Optional[str] = None
-    id_evento_magento: Optional[int] = None
     circuito_produto: Optional[str] = None
     localizacao_evento: Optional[str] = None
     ano_evento: Optional[int] = None

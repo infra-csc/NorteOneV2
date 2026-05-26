@@ -1,2 +1,2 @@
 - [Magento coupon lookup](magento-coupon-lookup.md) — sempre buscar cupons por name E label (salesrule_label), não só por name.
-- [Cadastro Evento schema gaps](cadastro-evento-schema-gaps.md) — colunas no model SQLAlchemy podem estar ausentes nos schemas Pydantic Update/Response e no formulário; checar contrato E2E (Base/Create/Update/Response + db_to_response + db_to_list_response + UI) antes de assumir que campo é editável.
+- [id_evento_magento canonical source](id-evento-magento-source.md) — fonte canônica é sku_mappings (fonte=MAGENTO); cadastro_evento.id_evento_magento é cache materializado e tem auto-sync no save do mapping.
