@@ -10154,6 +10154,31 @@ def get_marketing_event_by_id(
                                 else datetime.now().year)
         except Exception:
             _ano_for_persist = datetime.now().year
+
+    # ── Cooldown early-demote do force_magento_refresh ───────────────────────
+    # Helpers internos (fetch_real_daily_sales_for_projetos, get_margem_por_kit)
+    # já têm seu próprio cooldown, mas o endpoint dispara muita orquestração
+    # (cpev1 prefetch, kit-alignment, atualizar-hoje, etc.) antes de chegar
+    # nesses helpers. Aplicar o demote já na entrada evita o trabalho duplo
+    # quando o mesmo grupo é re-disparado dentro da janela.
+    # Compartilha o dict/lock com o cooldown interno (mesma chave grupo|ano)
+    # para que os dois níveis enxerguem o mesmo timestamp.
+    if force_magento_refresh and is_grouped:
+        import time as _ep_time
+        _grupo_for_cd = evento_id.replace("grp_", "")
+        _cd_key = f"{_grupo_for_cd}|{_ano_for_persist}"
+        _now_cd = _ep_time.time()
+        with _force_refresh_lock:
+            _last_cd = _force_refresh_last_ts.get(_cd_key)
+            if _last_cd is not None and (_now_cd - _last_cd) < _FORCE_REFRESH_COOLDOWN_SECONDS:
+                force_magento_refresh = False
+                logger.info(
+                    f"[force_magento_refresh] DEMOTED-EARLY p/ grupo='{_grupo_for_cd}' "
+                    f"ano={_ano_for_persist} — cooldown {int(_now_cd - _last_cd)}s "
+                    f"< {_FORCE_REFRESH_COOLDOWN_SECONDS}s (endpoint entry, evita fan-out)"
+                )
+            else:
+                _force_refresh_last_ts[_cd_key] = _now_cd
     # Snapshot-first read. O recomputo "force_refresh=True" só faz bypass quando
     # disparado internamente (scheduler/warmup com current_user=None). Cliques de
     # usuário com force_refresh=True são tratados como pedido de refresh em
