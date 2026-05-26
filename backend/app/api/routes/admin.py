@@ -1586,6 +1586,49 @@ def trigger_backfill(
         }
 
 
+@router.post("/snapshots/backfill-scheduled")
+def trigger_backfill_scheduled(
+    ano: int = Query(..., description="Ano para backfill"),
+    data_inicio: str = Query(default=None, description="Data início (YYYY-MM-DD)"),
+    data_fim: str = Query(default=None, description="Data fim (YYYY-MM-DD)"),
+    evento_grupo: str = Query(default=None, description="Filtra para um único evento_grupo. Se omitido, roda para todos os grupos do ano."),
+    x_scheduler_token: Optional[str] = Header(None, alias="X-Scheduler-Token"),
+    db: Session = Depends(get_db),
+):
+    """Variante scheduler-token do backfill histórico.
+
+    Protegida pelo mesmo shared-secret SCHEDULER_TOKEN usado pelo job
+    noturno. Existe para permitir disparo manual via curl quando o /docs
+    do Swagger não está acessível em produção (frontend SPA captura essa
+    rota).
+
+    NÃO substitui o endpoint /snapshots/backfill (que continua exigindo
+    JWT) — é só um caminho alternativo de autenticação.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    expected = (_os.environ.get("SCHEDULER_TOKEN") or "").strip()
+    if not expected:
+        raise HTTPException(status_code=500, detail="SCHEDULER_TOKEN não configurado no backend")
+    received = (x_scheduler_token or "").strip()
+    if not received or received != expected:
+        logger.warning("[BackfillScheduled] Token inválido/ausente")
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    from ...services.snapshot_service import backfill_historico
+    start = date.fromisoformat(data_inicio) if data_inicio else None
+    end = date.fromisoformat(data_fim) if data_fim else None
+
+    try:
+        result = backfill_historico(db, ano, data_inicio=start, data_fim=end, evento_grupo=evento_grupo)
+        logger.info(f"[BackfillScheduled] OK: {result}")
+        return {"status": "completed", "resultado": result}
+    except Exception as e:
+        logger.error(f"[BackfillScheduled] Falhou: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @router.get("/snapshots/status")
 def get_snapshot_status(
     db: Session = Depends(get_db),
