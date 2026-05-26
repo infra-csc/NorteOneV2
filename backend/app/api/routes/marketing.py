@@ -6613,11 +6613,13 @@ def get_curva_snapshot(
     is_grouped = evento_id.startswith("grp_")
 
     projetos_for_meta = []
+    grupo_id_resolved: Optional[int] = None
     if is_grouped:
         grupo_nome = evento_id.replace("grp_", "")
         grupo = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == grupo_nome).first()
         if not grupo:
             raise HTTPException(status_code=404, detail="Grupo de evento não encontrado")
+        grupo_id_resolved = grupo.id
         mappings = _wq_sku_mappings_by_grupo_single_year(db, grupo_nome, ano)
         proj_skus = list(set(m.sku for m in mappings))
         projetos_q = _wq_dim_projetos_by_codigos(db, proj_skus)
@@ -6641,6 +6643,19 @@ def get_curva_snapshot(
 
     if not evento_grupo:
         raise HTTPException(status_code=404, detail="Evento sem grupo configurado")
+
+    # Resolve grupo_id para qualquer caminho (inclusive standalone) — usado
+    # pelo frontend para chamar PUT /admin/evento-grupos/{id}/curva-override
+    # sem precisar fazer lookup por nome (que pode falhar com acentos/case).
+    if grupo_id_resolved is None:
+        try:
+            grupo_obj = db.query(EventoGrupoModel.id).filter(
+                EventoGrupoModel.nome == evento_grupo
+            ).first()
+            if grupo_obj:
+                grupo_id_resolved = grupo_obj[0]
+        except Exception:
+            grupo_id_resolved = None
 
     # Descobre estado e data do evento para alimentar o fallback regional
     # e a fabricação linear (último recurso).
@@ -6717,6 +6732,7 @@ def get_curva_snapshot(
         return {
             "status": "success",
             "evento_grupo": evento_grupo,
+            "grupo_id": grupo_id_resolved,
             "ano_referencia": prev_ano,
             "sales_goal": sales_goal,
             "data": [],
@@ -6743,6 +6759,7 @@ def get_curva_snapshot(
     return {
         "status": "success",
         "evento_grupo": evento_grupo,
+        "grupo_id": grupo_id_resolved,
         "ano_referencia": ano_ref,
         "sales_goal": sales_goal,
         "tipo_curva": (curva_info or {}).get("tipo_curva"),

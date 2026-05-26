@@ -428,7 +428,7 @@ const EventDetail: React.FC = () => {
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
   const [controleSubTab, setControleSubTab] = useState<'tabela' | 'curva'>('tabela');
-  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; ano_referencia: number | null; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string; tipo_curva?: string | null; fonte_curva?: string | null; fabricated_linear?: boolean } | null>(_snapModCached?.data ?? null);
+  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; grupo_id?: number | null; ano_referencia: number | null; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string; tipo_curva?: string | null; fonte_curva?: string | null; fabricated_linear?: boolean } | null>(_snapModCached?.data ?? null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
   const [showAllCurvaRows, setShowAllCurvaRows] = useState(false);
@@ -1360,22 +1360,29 @@ const EventDetail: React.FC = () => {
 
   const handleSetOverride = async (curvaGrupo: string | null) => {
     if (!id) return;
-    const grupoNome = curvaSnapshot?.evento_grupo || (isConsolidated ? id.replace(/^grp_/, '') : id);
     setSavingOverride(true);
     try {
-      const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: grupoNome } });
-      const norm = (s: string) => (s || '').normalize('NFKC').trim().toLowerCase();
-      const target = norm(grupoNome);
-      const matchedGrupo =
-        gruposRes.data?.find((g: any) => g.nome === grupoNome) ||
-        gruposRes.data?.find((g: any) => norm(g.nome) === target);
-      if (!matchedGrupo) {
-        console.error('Grupo não encontrado:', grupoNome, 'opções:', gruposRes.data?.map((g: any) => g.nome));
-        alert(`Não foi possível salvar: o grupo "${grupoNome}" não foi encontrado no cadastro.`);
-        setSavingOverride(false);
-        return;
+      // Caminho preferido: usar grupo_id que veio com o curvaSnapshot.
+      // Fallback (curvaSnapshot ainda não carregou): busca por nome,
+      // com normalização de acento/case.
+      let grupoId: number | null = curvaSnapshot?.grupo_id ?? null;
+      if (!grupoId) {
+        const grupoNome = curvaSnapshot?.evento_grupo || (isConsolidated ? id.replace(/^grp_/, '') : id);
+        const gruposRes = await api.get('/admin/evento-grupos', { params: { busca: grupoNome } });
+        const norm = (s: string) => (s || '').normalize('NFKC').trim().toLowerCase();
+        const target = norm(grupoNome);
+        const matchedGrupo =
+          gruposRes.data?.find((g: any) => g.nome === grupoNome) ||
+          gruposRes.data?.find((g: any) => norm(g.nome) === target);
+        if (!matchedGrupo) {
+          console.error('Grupo não encontrado:', grupoNome, 'opções:', gruposRes.data?.map((g: any) => g.nome));
+          alert(`Não foi possível salvar: o grupo "${grupoNome}" não foi encontrado no cadastro.`);
+          setSavingOverride(false);
+          return;
+        }
+        grupoId = matchedGrupo.id;
       }
-      await api.put(`/admin/evento-grupos/${matchedGrupo.id}/curva-override`, {
+      await api.put(`/admin/evento-grupos/${grupoId}/curva-override`, {
         curva_override: curvaGrupo
       });
       setShowOverrideModal(false);
