@@ -27,6 +27,7 @@ Design notes
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -56,6 +57,24 @@ logger = logging.getLogger(__name__)
 _CIRCUIT_WINDOW_S = 60.0
 _CIRCUIT_THRESHOLD = 5
 _CIRCUIT_OPEN_DURATION_S = 60.0
+
+
+# ---------------------------------------------------------------------------
+# Semáforo global de concorrência Magento — limita quantas queries podem
+# rodar ao MESMO TEMPO contra o tunnel SSH/MySQL externo. Sem isso, basta
+# o usuário abrir 5 grupos diferentes em sequência para saturar o tunnel
+# (cada grupo dispara 3-7 queries pesadas via force_magento_refresh).
+#
+# Default 1 (serializado) — é o que mantém o Magento estável conforme
+# observado em produção. Configurável via env MAGENTO_MAX_CONCURRENCY.
+#
+# Acquire tem timeout (MAGENTO_ACQUIRE_TIMEOUT_S, default 25s): se a fila
+# não anda, falha rápido como MagentoEngineUnavailable e o caller cai no
+# snapshot piso — melhor que travar a request até o cliente desistir.
+# ---------------------------------------------------------------------------
+_MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
+_MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "25"))
+_magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 
 _circuit_lock = threading.Lock()
 _circuit_failures: Dict[str, deque] = {}
@@ -275,7 +294,30 @@ def magento_run(
 
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
+        _sem_acquired = False
+        _wait_started = time.time()
         try:
+            # Serializa o acesso ao tunnel SSH/MySQL externo. Sem isso,
+            # 5+ grupos atualizados em paralelo saturam o Magento e
+            # geram timeouts em cascata. Default: 1 concorrente.
+            _sem_acquired = _magento_concurrency_sem.acquire(
+                timeout=_MAGENTO_ACQUIRE_TIMEOUT_S
+            )
+            if not _sem_acquired:
+                logger.warning(
+                    f"[Magento][{label}] fila cheia — desistiu após "
+                    f"{_MAGENTO_ACQUIRE_TIMEOUT_S:.0f}s aguardando vaga. "
+                    f"Cai para snapshot."
+                )
+                raise MagentoEngineUnavailable(
+                    f"Fila Magento cheia ({_MAGENTO_MAX_CONCURRENCY} concorrentes ocupados)"
+                )
+            _waited = time.time() - _wait_started
+            if _waited > 1.0:
+                logger.info(
+                    f"[Magento][{label}] esperou {_waited:.1f}s na fila "
+                    f"(concorrência={_MAGENTO_MAX_CONCURRENCY})"
+                )
             with engine.connect() as conn:
                 result = work_fn(conn)
                 if attempt > 1:
@@ -303,6 +345,15 @@ def magento_run(
                 f"({type(e).__name__}: {str(e)[:160]}), retry em {backoff:.1f}s"
             )
             time.sleep(backoff)
+        finally:
+            if _sem_acquired:
+                try:
+                    _magento_concurrency_sem.release()
+                except ValueError:
+                    # BoundedSemaphore lança se release for chamado a mais.
+                    # Não deve acontecer (acquire/release pareados), mas
+                    # protegemos pra não derrubar o caller.
+                    logger.debug(f"[Magento][{label}] semaphore release a mais — ignorado")
 
     # Defensive — loop above always returns or raises
     if last_exc is not None:
