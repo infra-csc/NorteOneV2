@@ -2386,6 +2386,102 @@ def get_sync_overview(
     }
 
 
+@router.get("/sync/eventos-ultima-atualizacao")
+def list_eventos_ultima_sync(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_monitoramento")),
+):
+    """Tabela: todos os cadastros de evento ativos com a última sincronização
+    conhecida (último SyncEventLog nivel='grupo' para o evento_grupo resolvido).
+
+    Resolução cadastro → evento_grupo:
+      1. id_evento_magento → SkuMapping(fonte='MAGENTO').evento_grupo
+      2. sku → SkuMapping(qualquer fonte).evento_grupo
+
+    Cadastros sem grupo resolvido retornam evento_grupo=None e ultima_sync=None
+    (ainda aparecem na tabela para diagnóstico de mapeamento ausente).
+    """
+    from ...models.cadastro_evento import CadastroEvento
+    from ...models.dimensoes import SkuMapping
+
+    # Dicts de resolução: magento_id → grupo, sku → grupo (qualquer fonte).
+    _magento_to_grupo: dict[int, str] = {}
+    _sku_to_grupo: dict[str, str] = {}
+    for _row in db.query(
+        SkuMapping.fonte, SkuMapping.id_externo, SkuMapping.sku, SkuMapping.evento_grupo
+    ).filter(
+        SkuMapping.ativo == True,  # noqa: E712
+        SkuMapping.evento_grupo.isnot(None),
+    ).all():
+        _fonte, _idext, _sku, _grupo = _row
+        if _fonte == "MAGENTO" and _idext is not None:
+            _magento_to_grupo.setdefault(int(_idext), _grupo)
+        if _sku:
+            _sku_to_grupo.setdefault(_sku, _grupo)
+
+    # Última sync por grupo via DISTINCT ON (PostgreSQL).
+    _last_sync_rows = db.query(
+        SyncEventLog.grupo, SyncEventLog.created_at, SyncEventLog.status,
+    ).filter(
+        SyncEventLog.nivel == "grupo",
+        SyncEventLog.grupo.isnot(None),
+    ).distinct(SyncEventLog.grupo).order_by(
+        SyncEventLog.grupo, SyncEventLog.created_at.desc(),
+    ).all()
+    _last_by_grupo: dict[str, tuple] = {
+        r[0]: (r[1], r[2]) for r in _last_sync_rows
+    }
+
+    # Cadastros ativos (não soft-deleted).
+    _cadastros = db.query(
+        CadastroEvento.id,
+        CadastroEvento.nome_evento,
+        CadastroEvento.data_evento,
+        CadastroEvento.status,
+        CadastroEvento.sku,
+        CadastroEvento.id_evento_magento,
+    ).filter(CadastroEvento.deleted_at.is_(None)).all()
+
+    _eventos: list[dict] = []
+    for c in _cadastros:
+        _grupo = None
+        if c.id_evento_magento is not None:
+            _grupo = _magento_to_grupo.get(int(c.id_evento_magento))
+        if _grupo is None and c.sku:
+            _grupo = _sku_to_grupo.get(c.sku)
+        _last = _last_by_grupo.get(_grupo) if _grupo else None
+        _eventos.append({
+            "id_cadastro": int(c.id),
+            "nome_evento": c.nome_evento,
+            "data_evento": c.data_evento.isoformat() if c.data_evento else None,
+            "status_cadastro": c.status,
+            "evento_grupo": _grupo,
+            "id_evento_magento": int(c.id_evento_magento) if c.id_evento_magento is not None else None,
+            "ultima_sync_iso": _last[0].astimezone(timezone.utc).isoformat() if _last else None,
+            "ultima_sync_status": _last[1] if _last else None,
+        })
+
+    # Ordena: nunca sincronizado primeiro (diagnóstico), depois por última sync desc.
+    _eventos.sort(key=lambda e: (
+        0 if e["ultima_sync_iso"] is None else 1,
+        e["ultima_sync_iso"] or "",
+    ), reverse=True)
+    # Após o reverse: 1 (com sync) vem antes de 0 (sem sync) — invertemos manualmente.
+    _com = [e for e in _eventos if e["ultima_sync_iso"] is not None]
+    _sem = [e for e in _eventos if e["ultima_sync_iso"] is None]
+    _com.sort(key=lambda e: e["ultima_sync_iso"], reverse=True)
+    _sem.sort(key=lambda e: e["nome_evento"] or "")
+    _eventos_final = _com + _sem
+
+    return {
+        "total": len(_eventos_final),
+        "com_sync": len(_com),
+        "sem_sync": len(_sem),
+        "eventos": _eventos_final,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @router.post("/alert-config/test")
 def test_alert(
     db: Session = Depends(get_db),

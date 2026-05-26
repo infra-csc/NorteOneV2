@@ -255,6 +255,12 @@ const SincronizacoesPanel: React.FC = () => {
   const [filterUltimas24h, setFilterUltimas24h] = useState<boolean>(false);
   const [histJobName, setHistJobName] = useState<'sincronizar_hoje' | 'snapshot_diario'>('sincronizar_hoje');
   const [showBundlesFaltantesModal, setShowBundlesFaltantesModal] = useState(false);
+  // Tabela "Eventos e última atualização" — lazy load (não polled).
+  const [eventosSync, setEventosSync] = useState<Awaited<ReturnType<typeof adminService.getEventosUltimaSync>> | null>(null);
+  const [eventosSyncLoading, setEventosSyncLoading] = useState(false);
+  const [eventosSyncQuery, setEventosSyncQuery] = useState<string>('');
+  const [eventosSyncFiltro, setEventosSyncFiltro] = useState<'todos' | 'sem_sync' | 'com_sync'>('todos');
+  const [showEventosSync, setShowEventosSync] = useState(false);
   // Tick para "atualizado há Xs" — atualiza a cada 1s sem refazer fetch.
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
   const ciclosSectionRef = useRef<HTMLDivElement | null>(null);
@@ -1740,6 +1746,178 @@ const SincronizacoesPanel: React.FC = () => {
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      {/* ── Eventos e última atualização ─────────────────────────────────── */}
+      <div className={`${cardBase} rounded-xl p-4 mt-4`}>
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <CalendarClock className={`w-5 h-5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`} />
+            <h3 className={`text-base font-semibold ${textPrimary}`}>Eventos e última atualização</h3>
+            {eventosSync && (
+              <span className={`text-xs ${textSecondary}`}>
+                ({eventosSync.com_sync} sincronizados / {eventosSync.sem_sync} sem sync / {eventosSync.total} total)
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const next = !showEventosSync;
+              setShowEventosSync(next);
+              if (next && !eventosSync && !eventosSyncLoading) {
+                setEventosSyncLoading(true);
+                try {
+                  const data = await adminService.getEventosUltimaSync();
+                  setEventosSync(data);
+                } catch (e) {
+                  console.error('Falha ao carregar eventos:', e);
+                } finally {
+                  setEventosSyncLoading(false);
+                }
+              }
+            }}
+            className={`text-xs px-3 py-1.5 rounded-lg border ${isDark ? 'border-gray-700 hover:bg-gray-800 text-gray-300' : 'border-gray-300 hover:bg-gray-100 text-gray-700'} flex items-center gap-1`}
+          >
+            {showEventosSync ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            {showEventosSync ? 'Recolher' : 'Mostrar tabela'}
+          </button>
+        </div>
+
+        {showEventosSync && (
+          <>
+            {/* Toolbar: busca + filtros + reload */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <input
+                type="text"
+                placeholder="Buscar por nome do evento ou grupo..."
+                value={eventosSyncQuery}
+                onChange={(e) => setEventosSyncQuery(e.target.value)}
+                className={`flex-1 min-w-[200px] text-xs px-3 py-1.5 rounded-lg border ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200 placeholder-gray-500' : 'bg-white border-gray-300 text-gray-800 placeholder-gray-400'}`}
+              />
+              <div className="flex gap-1">
+                {(['todos', 'com_sync', 'sem_sync'] as const).map(f => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setEventosSyncFiltro(f)}
+                    className={`text-xs px-2.5 py-1.5 rounded-lg border ${
+                      eventosSyncFiltro === f
+                        ? (isDark ? 'bg-blue-600 border-blue-500 text-white' : 'bg-blue-100 border-blue-300 text-blue-800')
+                        : (isDark ? 'border-gray-700 text-gray-400 hover:bg-gray-800' : 'border-gray-300 text-gray-600 hover:bg-gray-100')
+                    }`}
+                  >
+                    {f === 'todos' ? 'Todos' : f === 'com_sync' ? 'Com sync' : 'Sem sync'}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  setEventosSyncLoading(true);
+                  try {
+                    const data = await adminService.getEventosUltimaSync();
+                    setEventosSync(data);
+                  } catch (e) {
+                    console.error('Falha ao recarregar:', e);
+                  } finally {
+                    setEventosSyncLoading(false);
+                  }
+                }}
+                disabled={eventosSyncLoading}
+                className={`text-xs px-2.5 py-1.5 rounded-lg border ${isDark ? 'border-gray-700 hover:bg-gray-800 text-gray-300' : 'border-gray-300 hover:bg-gray-100 text-gray-700'} flex items-center gap-1 disabled:opacity-50`}
+                title="Recarregar"
+              >
+                <RefreshCw className={`w-3 h-3 ${eventosSyncLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+
+            {eventosSyncLoading && !eventosSync && (
+              <div className={`flex items-center gap-2 py-6 justify-center ${textSecondary}`}>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-xs">Carregando eventos...</span>
+              </div>
+            )}
+
+            {eventosSync && (() => {
+              const q = eventosSyncQuery.trim().toLowerCase();
+              const filtered = eventosSync.eventos.filter(e => {
+                if (eventosSyncFiltro === 'com_sync' && !e.ultima_sync_iso) return false;
+                if (eventosSyncFiltro === 'sem_sync' && e.ultima_sync_iso) return false;
+                if (!q) return true;
+                return (
+                  (e.nome_evento || '').toLowerCase().includes(q) ||
+                  (e.evento_grupo || '').toLowerCase().includes(q)
+                );
+              });
+              return (
+                <div className="overflow-auto max-h-[60vh] -mx-1 px-1">
+                  <table className="w-full text-xs">
+                    <thead className={`${textSecondary} border-b sticky top-0 ${isDark ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
+                      <tr className="text-left">
+                        <th className="py-2 pr-3">Evento</th>
+                        <th className="py-2 pr-3">Data</th>
+                        <th className="py-2 pr-3">Status</th>
+                        <th className="py-2 pr-3">Grupo (sync)</th>
+                        <th className="py-2 pr-3">Última sync</th>
+                        <th className="py-2 pr-3">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className={`py-4 text-center ${textSecondary}`}>
+                            Nenhum evento corresponde aos filtros.
+                          </td>
+                        </tr>
+                      ) : filtered.map(e => {
+                        const ageH = e.ultima_sync_iso
+                          ? (nowTick - new Date(e.ultima_sync_iso).getTime()) / 3600000
+                          : null;
+                        const ageColor = ageH === null
+                          ? (isDark ? 'text-gray-500' : 'text-gray-400')
+                          : ageH < 26 ? (isDark ? 'text-emerald-400' : 'text-emerald-600')
+                          : ageH < 72 ? (isDark ? 'text-yellow-400' : 'text-yellow-600')
+                          : (isDark ? 'text-red-400' : 'text-red-600');
+                        return (
+                          <tr key={e.id_cadastro} className={`border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
+                            <td className={`py-1.5 pr-3 ${textPrimary}`}>{e.nome_evento}</td>
+                            <td className={`py-1.5 pr-3 font-mono ${textSecondary}`}>{e.data_evento || '—'}</td>
+                            <td className={`py-1.5 pr-3 ${textSecondary}`}>{e.status_cadastro || '—'}</td>
+                            <td className={`py-1.5 pr-3 font-mono text-[11px] ${e.evento_grupo ? textSecondary : (isDark ? 'text-red-400' : 'text-red-600')}`}>
+                              {e.evento_grupo || '⚠ sem mapeamento'}
+                            </td>
+                            <td className={`py-1.5 pr-3 font-mono ${ageColor}`}>
+                              {e.ultima_sync_iso ? (
+                                <span title={fmtTimeBRT(e.ultima_sync_iso)}>
+                                  {fmtDateTime(e.ultima_sync_iso)}
+                                  {ageH !== null && (
+                                    <span className="ml-2 text-[10px] opacity-70">
+                                      ({ageH < 1 ? `${Math.floor(ageH * 60)}m` : ageH < 48 ? `${ageH.toFixed(1)}h` : `${Math.floor(ageH / 24)}d`})
+                                    </span>
+                                  )}
+                                </span>
+                              ) : <span className={isDark ? 'text-gray-500' : 'text-gray-400'}>nunca</span>}
+                            </td>
+                            <td className="py-1.5 pr-3">
+                              {e.ultima_sync_status ? <StatusBadge status={e.ultima_sync_status} /> : <span className={textSecondary}>—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+
+            {eventosSync && (
+              <p className={`text-[10px] ${textSecondary} mt-2 text-right`}>
+                Atualizado em {fmtTimeBRT(eventosSync.generated_at)}
+              </p>
+            )}
+          </>
         )}
       </div>
 

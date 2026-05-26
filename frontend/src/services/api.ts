@@ -780,6 +780,25 @@ export const adminService = {
       generated_at: string;
     };
   },
+  getEventosUltimaSync: async () => {
+    const response = await api.get('/admin/sync/eventos-ultima-atualizacao');
+    return response.data as {
+      total: number;
+      com_sync: number;
+      sem_sync: number;
+      generated_at: string;
+      eventos: Array<{
+        id_cadastro: number;
+        nome_evento: string;
+        data_evento: string | null;
+        status_cadastro: string | null;
+        evento_grupo: string | null;
+        id_evento_magento: number | null;
+        ultima_sync_iso: string | null;
+        ultima_sync_status: string | null;
+      }>;
+    };
+  },
   pauseSync: async () => {
     const response = await api.post('/admin/sync/pause');
     return response.data as { status: string; message: string };
