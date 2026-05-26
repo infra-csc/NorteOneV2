@@ -1629,6 +1629,86 @@ def trigger_backfill_scheduled(
         return {"status": "error", "message": str(e)}
 
 
+@router.get("/snapshots/diag-magento-bundle")
+def diag_magento_bundle(
+    bundle_id: int = Query(..., description="bundle_entity_id do Magento"),
+    x_scheduler_token: Optional[str] = Header(None, alias="X-Scheduler-Token"),
+):
+    """Compara duas leituras Magento para o mesmo bundle:
+
+    A) Contagem agregada (mesma query da Margem por Kit / kit-alignment).
+    B) Quebra diária (mesma query do consolidar_vendas_grupo, soma por dia).
+
+    Útil para confirmar se a diferença entre Vendas Global e Vendas Dia
+    é de fato resposta parcial Magento ou problema de filtro distinto.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    from sqlalchemy import text as _sa_text, bindparam as _sa_bind
+    from .. import database as _db_mod
+
+    expected = (_os.environ.get("SCHEDULER_TOKEN") or "").strip()
+    received = (x_scheduler_token or "").strip()
+    if not expected or received != expected:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    if _db_mod.engine_magento is None:
+        return {"status": "error", "message": "engine_magento indisponível"}
+
+    sql_count = (
+        "SELECT COUNT(DISTINCT soi_parent.item_id) AS qtd\n"
+        "FROM sales_order_item soi_parent\n"
+        "INNER JOIN sales_order so ON so.entity_id = soi_parent.order_id\n"
+        "WHERE soi_parent.product_type='bundle'\n"
+        "AND soi_parent.product_id = :bid\n"
+        "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+        "AND so.status IN ('processing','complete','approved','aprovado_link','reembolso_parcial','closed','retirado')\n"
+        "AND so.state != 'canceled'\n"
+        "AND so.base_grand_total > 0\n"
+        "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)\n"
+        "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+        "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+        "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+        "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+    )
+
+    sql_daily = (
+        "SELECT DATE(so.created_at) AS dia, COUNT(DISTINCT soi_parent.item_id) AS qtd\n"
+        "FROM sales_order_item soi_parent\n"
+        "INNER JOIN sales_order so ON so.entity_id = soi_parent.order_id\n"
+        "WHERE soi_parent.product_type='bundle'\n"
+        "AND soi_parent.product_id = :bid\n"
+        "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+        "AND so.status IN ('processing','complete','approved','aprovado_link','reembolso_parcial','closed','retirado')\n"
+        "AND so.state != 'canceled'\n"
+        "AND so.base_grand_total > 0\n"
+        "AND NOT (so.discount_description LIKE '%%CORTESIA%%' AND so.base_grand_total < 50)\n"
+        "AND so.created_at < CURDATE() + INTERVAL 1 DAY\n"
+        "AND (so.discount_description IS NULL OR so.discount_description NOT LIKE '%%GRUPOS%%')\n"
+        "AND (so.coupon_code IS NULL OR so.coupon_code NOT LIKE 'GRUP%%')\n"
+        "AND so.increment_id NOT REGEXP '-[0-9]'\n"
+        "GROUP BY DATE(so.created_at)\n"
+        "ORDER BY dia\n"
+    )
+
+    out = {"bundle_id": bundle_id}
+    try:
+        with _db_mod.engine_magento.connect() as conn:
+            r1 = conn.execute(_sa_text(sql_count), {"bid": bundle_id}).fetchone()
+            out["count_aggregate"] = int(r1[0]) if r1 and r1[0] is not None else 0
+            r2 = conn.execute(_sa_text(sql_daily), {"bid": bundle_id}).fetchall()
+            daily = [{"dia": str(row[0]), "qtd": int(row[1])} for row in r2]
+            out["count_daily_sum"] = sum(d["qtd"] for d in daily)
+            out["dias_distintos"] = len(daily)
+            out["daily_head"] = daily[:5]
+            out["daily_tail"] = daily[-10:]
+        out["diff"] = out["count_aggregate"] - out["count_daily_sum"]
+        return {"status": "ok", "data": out}
+    except Exception as e:
+        logger.error(f"[DiagBundle] Falhou: {e}")
+        return {"status": "error", "message": f"{type(e).__name__}: {e}"}
+
+
 @router.get("/snapshots/status")
 def get_snapshot_status(
     db: Session = Depends(get_db),
