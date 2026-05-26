@@ -80,7 +80,18 @@ def _run_sincronizar_hoje_com_warmup():
         db = SessionLocal()
         count = sincronizar_hoje_batch(db)
         logger.info(f"[SyncHoje] sincronizar_hoje_batch concluído: {count} grupos sincronizados")
-        set_last_sync_hoje(_time.time())
+        # Só marca "fresh" se sincronizou pelo menos 1 grupo. Caso contrário
+        # (Magento degradado retornando 0 sem exception, ou todos os grupos
+        # pulados por freeze/erro), deixa o last_sync_hoje antigo para que o
+        # HojeSyncLoop (12h) re-tente no próximo tick em vez de suprimir
+        # retry por 12h achando que tá fresco.
+        if count > 0:
+            set_last_sync_hoje(_time.time())
+        else:
+            logger.warning(
+                "[SyncHoje] count=0 — NÃO atualizando last_sync_hoje "
+                "(loop irá re-tentar no próximo tick)"
+            )
         def _refresh_details_bg():
             try:
                 from app.services.event_detail_snapshot_service import refresh_active_event_details
@@ -120,7 +131,13 @@ def _start_hoje_sync_loop():
     import threading as _thr
     from app.core.cache import try_acquire_sync_hoje, release_sync_hoje, get_last_sync_hoje
 
-    interval_hours = max(1, int(_os.getenv("HOJE_SYNC_INTERVAL_HOURS", "2")))
+    # Default 12h: o loop vira REDE DE SEGURANÇA. Em dia normal, o sync de
+    # Magento já é feito pelos jobs fixos do scheduler — 05h BRT (daily
+    # refresh) e 17h BRT (evening refresh), ambos em cache.py. O loop só
+    # dispara se algum desses dois falhou e o último sync ficou > 12h atrás.
+    # Antes era 2h, o que disparava ~10 syncs extras/dia e mantinha o tunnel
+    # SSH sob carga constante, dando a sensação de "sempre atualizando".
+    interval_hours = max(1, int(_os.getenv("HOJE_SYNC_INTERVAL_HOURS", "12")))
     interval_sec   = interval_hours * 3600
 
     def _loop():
