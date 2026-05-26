@@ -1,3 +1,4 @@
 - [Magento coupon lookup](magento-coupon-lookup.md) — sempre buscar cupons por name E label (salesrule_label), não só por name.
 - [id_evento_magento canonical source](id-evento-magento-source.md) — fonte canônica é sku_mappings (fonte=MAGENTO); cadastro_evento.id_evento_magento é cache materializado e tem auto-sync no save do mapping.
+- [Ambiguidade "from main"](main-py-import-ambiguity.md) — nunca importe estado de backend/main.py; o stub main.py na raiz colide. Use app.core/<feature>_state.py.
 - [Magento concurrency limit](magento-concurrency-limit.md) — tunnel SSH não aguenta paralelo; default MAGENTO_MAX_CONCURRENCY=1 via semáforo em magento_run. Nunca bypassar engine_magento.connect() direto.

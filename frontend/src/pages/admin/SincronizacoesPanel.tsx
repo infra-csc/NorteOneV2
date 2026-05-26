@@ -1158,21 +1158,46 @@ const SincronizacoesPanel: React.FC = () => {
                 </div>
               </div>
             </div>
+            {/* Pills clicáveis: aplicam filtro de status e rolam até a tabela de ciclos. */}
             <div className="flex flex-wrap gap-2 text-xs mb-3">
               {overview.today_summary.eventos_ok > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus('ok');
+                    ciclosSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 hover:ring-1 hover:ring-emerald-400 transition"
+                  title="Filtrar histórico por status OK"
+                >
                   <CheckCircle2 className="w-3 h-3" /> {overview.today_summary.eventos_ok} OK
-                </span>
+                </button>
               )}
               {overview.today_summary.eventos_parcial > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus('parcial');
+                    ciclosSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 hover:ring-1 hover:ring-amber-400 transition"
+                  title="Filtrar histórico por status parcial"
+                >
                   <AlertTriangle className="w-3 h-3" /> {overview.today_summary.eventos_parcial} parcial
-                </span>
+                </button>
               )}
               {overview.today_summary.eventos_falha > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterStatus('falha');
+                    ciclosSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 hover:ring-1 hover:ring-red-400 transition"
+                  title="Filtrar histórico por status falha"
+                >
                   <XCircle className="w-3 h-3" /> {overview.today_summary.eventos_falha} falha
-                </span>
+                </button>
               )}
               {overview.today_summary.eventos_pulado > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
@@ -1183,26 +1208,67 @@ const SincronizacoesPanel: React.FC = () => {
                 <span className={`text-xs ${textSecondary}`}>Nenhum evento sincronizado hoje ainda.</span>
               )}
             </div>
-            {overview.today_summary.historico_jobs.length > 0 && (
-              <div>
-                <div className={`text-[11px] font-medium ${textSecondary} mb-1`}>Últimas execuções (sincronizar_hoje)</div>
-                <div className="flex items-end gap-1 h-10">
-                  {overview.today_summary.historico_jobs.slice().reverse().map((h, idx) => {
-                    const ratio = h.grupos_total > 0 ? h.grupos_ok / h.grupos_total : 0;
-                    const color = ratio >= 0.95 ? 'bg-emerald-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-red-500';
-                    const heightPct = Math.max(15, Math.round(ratio * 100));
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex-1 ${color} rounded-t opacity-80 hover:opacity-100 transition-opacity`}
-                        style={{ height: `${heightPct}%` }}
-                        title={`${fmtTimeBRT(h.started_at)} — ${h.grupos_ok}/${h.grupos_total} OK (${h.grupos_parcial} parcial, ${h.grupos_falha} falha) · ${fmtDuration(h.duration_ms)}`}
-                      />
-                    );
-                  })}
+            {/* Histograma com toggle entre os dois jobs + eixo X com horas. */}
+            {(() => {
+              const hist = overview.today_summary.historico_jobs_by_name[histJobName] || [];
+              const tabBase = `text-[11px] px-2 py-0.5 rounded transition`;
+              const tabActive = isDark ? 'bg-indigo-700 text-white' : 'bg-indigo-600 text-white';
+              const tabIdle = isDark ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200';
+              return (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className={`text-[11px] font-medium ${textSecondary}`}>Últimas execuções</div>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setHistJobName('sincronizar_hoje')}
+                        className={`${tabBase} ${histJobName === 'sincronizar_hoje' ? tabActive : tabIdle}`}
+                        title="Sincronizar hoje (refresh diário das vendas do dia)"
+                      >
+                        sincronizar_hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHistJobName('snapshot_diario')}
+                        className={`${tabBase} ${histJobName === 'snapshot_diario' ? tabActive : tabIdle}`}
+                        title="Snapshot diário (consolidação das 02h)"
+                      >
+                        snapshot_diario
+                      </button>
+                    </div>
+                  </div>
+                  {hist.length === 0 ? (
+                    <p className={`text-xs ${textSecondary} py-2`}>Sem execuções registradas para este job.</p>
+                  ) : (
+                    <>
+                      <div className="flex items-end gap-1 h-10">
+                        {hist.slice().reverse().map((h, idx) => {
+                          const ratio = h.grupos_total > 0 ? h.grupos_ok / h.grupos_total : 0;
+                          const color = ratio >= 0.95 ? 'bg-emerald-500' : ratio >= 0.8 ? 'bg-amber-500' : 'bg-red-500';
+                          const heightPct = Math.max(15, Math.round(ratio * 100));
+                          return (
+                            <div
+                              key={idx}
+                              className={`flex-1 ${color} rounded-t opacity-80 hover:opacity-100 transition-opacity`}
+                              style={{ height: `${heightPct}%` }}
+                              title={`${fmtTimeBRT(h.started_at)} — ${h.grupos_ok}/${h.grupos_total} OK (${h.grupos_parcial} parcial, ${h.grupos_falha} falha) · ${fmtDuration(h.duration_ms)}`}
+                            />
+                          );
+                        })}
+                      </div>
+                      {/* Eixo X: hora de início (HH:MM) embaixo de cada barra. */}
+                      <div className="flex items-start gap-1 mt-0.5">
+                        {hist.slice().reverse().map((h, idx) => (
+                          <div key={idx} className={`flex-1 text-center text-[9px] font-mono ${textSecondary}`}>
+                            {h.started_at ? fmtTimeBRT(h.started_at).slice(0, 5) : '—'}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* Card 3 — Mapeamento de Kit */}
@@ -1260,6 +1326,7 @@ const SincronizacoesPanel: React.FC = () => {
                     </p>
                   </div>
 
+                  {/* (a) kits SEM configuração — exige ação humana (atribuir tipo_kit). */}
                   {km.kits_sem_configuracao > 0 && (
                     <a
                       href="/admin/kit-config"
@@ -1276,6 +1343,25 @@ const SincronizacoesPanel: React.FC = () => {
                       </span>
                       <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
                     </a>
+                  )}
+                  {/* (b) bundles configurados mas SEM snapshot — diagnóstico do sync. */}
+                  {km.bundles_sem_snapshot_total > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBundlesFaltantesModal(true)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors mt-2 w-full text-left ${
+                        isDark
+                          ? 'bg-orange-900/20 border-orange-700/50 text-orange-300 hover:bg-orange-900/30'
+                          : 'bg-orange-50 border-orange-200 text-orange-800 hover:bg-orange-100'
+                      }`}
+                      title="Bundles com tipo_kit configurado mas sem entrada em margem_bundle_rev_snapshot"
+                    >
+                      <DatabaseZap className="w-4 h-4 flex-shrink-0" />
+                      <span className="text-xs flex-1">
+                        <strong>{km.bundles_sem_snapshot_total}</strong> bundles configurados sem snapshot
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+                    </button>
                   )}
                 </div>
               </div>
@@ -1319,12 +1405,7 @@ const SincronizacoesPanel: React.FC = () => {
                   <h3 className={`text-base font-semibold ${textPrimary} flex items-center gap-2`}>
                     Job agendado das 04h
                     {last04h && <StatusBadge status={last04h.status} />}
-                    {late && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-                        <AlertTriangle className="w-3 h-3" />
-                        {last04h ? 'Atrasado' : 'Sem execução registrada'}
-                      </span>
-                    )}
+                    {/* Badge "atrasado" removido — agora mora no card "Próximas atualizações" (snapshot_02h). */}
                   </h3>
                   <p className={`text-xs ${textSecondary} mt-0.5`}>
                     {last04h ? (
@@ -1392,7 +1473,7 @@ const SincronizacoesPanel: React.FC = () => {
         );
       })()}
 
-      <div className={`${cardBase} rounded-xl p-4`}>
+      <div ref={ciclosSectionRef} className={`${cardBase} rounded-xl p-4`}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
             <h3 className={`text-lg font-semibold ${textPrimary} flex items-center gap-2`}>
@@ -1404,6 +1485,19 @@ const SincronizacoesPanel: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setFilterUltimas24h(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                filterUltimas24h
+                  ? (isDark ? 'bg-indigo-700 border-indigo-600 text-white' : 'bg-indigo-600 border-indigo-600 text-white')
+                  : (isDark ? 'bg-gray-800 border-gray-600 text-gray-300 hover:bg-gray-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50')
+              }`}
+              title="Mostrar apenas ciclos das últimas 24 horas"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Últimas 24h
+            </button>
             <button
               onClick={() => { setShowFullModal(true); }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
@@ -1541,7 +1635,12 @@ const SincronizacoesPanel: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {cycles.map(c => {
+                {cycles.filter(c => {
+                  if (!filterUltimas24h) return true;
+                  const ref = c.concluido_em || c.iniciado_em || c.ultima_atividade;
+                  if (!ref) return false;
+                  return (Date.now() - new Date(ref).getTime()) <= 24 * 3600 * 1000;
+                }).map(c => {
                   const isOpen = expanded.has(c.ciclo_id);
                   const isLoadingDetail = loadingDetail.has(c.ciclo_id);
                   const cycleDetails = details[c.ciclo_id];
@@ -1643,6 +1742,72 @@ const SincronizacoesPanel: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Modal: bundles configurados sem snapshot — diagnóstico do sync de margem. */}
+      {showBundlesFaltantesModal && overview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowBundlesFaltantesModal(false)}
+        >
+          <div
+            className={`${cardBase} rounded-xl p-5 max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className={`text-base font-semibold ${textPrimary} flex items-center gap-2`}>
+                  <DatabaseZap className={`w-5 h-5 ${isDark ? 'text-orange-400' : 'text-orange-600'}`} />
+                  Bundles configurados sem snapshot
+                </h3>
+                <p className={`text-xs ${textSecondary} mt-1`}>
+                  Estes bundles têm <code>tipo_kit</code> definido no Mapeamento de Kits, mas não aparecem
+                  em <code>margem_bundle_rev_snapshot</code>. Causa comum: sem orders no Magento nos últimos 2 anos,
+                  ou pulados por <em>freeze</em> de eventos finalizados.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBundlesFaltantesModal(false)}
+                className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 ${textSecondary}`}
+                aria-label="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className={`text-xs ${textSecondary} mb-2`}>
+              Mostrando <strong>{overview.kit_mapping.bundles_sem_snapshot_lista.length}</strong> de{' '}
+              <strong>{overview.kit_mapping.bundles_sem_snapshot_total}</strong>
+              {overview.kit_mapping.bundles_sem_snapshot_truncated && ' (lista truncada em 50)'}
+            </div>
+            <div className="overflow-auto flex-1 -mx-1 px-1">
+              {overview.kit_mapping.bundles_sem_snapshot_lista.length === 0 ? (
+                <p className={`text-xs ${textSecondary} py-4 text-center`}>Nenhum bundle pendente.</p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead className={`${textSecondary} border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <tr className="text-left">
+                      <th className="py-2 pr-3">Bundle ID</th>
+                      <th className="py-2 pr-3">Nome do kit</th>
+                      <th className="py-2 pr-3">Tipo</th>
+                      <th className="py-2 pr-3">Evento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.kit_mapping.bundles_sem_snapshot_lista.map(b => (
+                      <tr key={b.bundle_entity_id} className={`border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
+                        <td className={`py-1.5 pr-3 font-mono ${textPrimary}`}>{b.bundle_entity_id}</td>
+                        <td className={`py-1.5 pr-3 ${textPrimary}`}>{b.kit_nome || <span className={textSecondary}>—</span>}</td>
+                        <td className={`py-1.5 pr-3 ${textSecondary}`}>{b.tipo_kit}</td>
+                        <td className={`py-1.5 pr-3 font-mono ${textSecondary}`}>{b.id_evento ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -2138,7 +2138,7 @@ def get_sync_overview(
     # para mostrar countdown real. Se nunca rodou (ex.: ENABLE_BACKGROUND_MAGENTO_SYNC=false),
     # next_run fica None e o frontend exibe "tick".
     try:
-        from main import get_last_safety_tick as _gst
+        from app.core.sync_state import get_last_safety_tick as _gst
         _last_tick_epoch = _gst()
     except Exception:
         _last_tick_epoch = None
@@ -2353,7 +2353,17 @@ def get_sync_overview(
         }
         for r in _bundles_faltantes_rows[:50]
     ]
-    _bundles_faltantes_total = max(0, _bundles_esperados - _total_snap)
+    # COUNT real do LEFT JOIN (não a diferença de agregados) — evita
+    # subestimar quando há snapshots órfãos sem tipo_kit configurado.
+    _bundles_faltantes_total = db.query(
+        sa_func.count(KitConfig.bundle_entity_id)
+    ).outerjoin(
+        MargemBundleRevSnapshot,
+        MargemBundleRevSnapshot.bundle_entity_id == KitConfig.bundle_entity_id,
+    ).filter(
+        KitConfig.tipo_kit.isnot(None),
+        MargemBundleRevSnapshot.bundle_entity_id.is_(None),
+    ).scalar() or 0
 
     _kit_mapping = {
         "ultima_atualizacao_iso": _ultima_atualizacao_iso,
