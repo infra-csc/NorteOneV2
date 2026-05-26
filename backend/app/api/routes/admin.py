@@ -1645,7 +1645,7 @@ def diag_magento_bundle(
     import logging
     logger = logging.getLogger(__name__)
     from sqlalchemy import text as _sa_text, bindparam as _sa_bind
-    from .. import database as _db_mod
+    from ...core import database as _db_mod
 
     expected = (_os.environ.get("SCHEDULER_TOKEN") or "").strip()
     received = (x_scheduler_token or "").strip()
