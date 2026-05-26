@@ -2715,6 +2715,7 @@ const EventDetail: React.FC = () => {
                   showNormalized={showNormalized}
                   onAtualizarHoje={handleOpenSyncModal}
                   isLoading={!isFirstFetchDone}
+                  vendasGlobalOverride={event.currentSales ?? undefined}
                 />
               </Suspense>
             ) : (

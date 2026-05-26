@@ -27,6 +27,7 @@ interface DailySalesTableProps {
   showNormalized?: boolean;
   onAtualizarHoje?: () => void;
   isLoading?: boolean;
+  vendasGlobalOverride?: number;
 }
 
 const fmtInt = (v: number | undefined | null): string => {
@@ -50,7 +51,7 @@ const colorClass = (v: number | undefined | null, isDark: boolean): string => {
   return v > 0 ? 'text-emerald-400' : 'text-red-400';
 };
 
-const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false, onAtualizarHoje, isLoading = false }) => {
+const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySalesRaw, isDark, eventName, salesGoal, showNormalized = false, onAtualizarHoje, isLoading = false, vendasGlobalOverride }) => {
   const [sortAsc, setSortAsc] = useState(false);
 
   const dailySales = useMemo(() => {
@@ -105,7 +106,10 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
   const globalMetrics = useMemo(() => {
     if (!dailySales.length) return null;
     const lastRow = [...dailySales].sort((a, b) => a.date.localeCompare(b.date))[dailySales.length - 1];
-    const vendasGlobal = lastRow?.cumulativeSales ?? dailySales.reduce((s, d) => s + d.sales, 0);
+    const vendasGlobalFromDaily = lastRow?.cumulativeSales ?? dailySales.reduce((s, d) => s + d.sales, 0);
+    const vendasGlobal = (vendasGlobalOverride != null && vendasGlobalOverride > 0)
+      ? vendasGlobalOverride
+      : vendasGlobalFromDaily;
     const metaGlobal = salesGoal && salesGoal > 0
       ? salesGoal
       : (lastRow?.cumulativeExpected ?? dailySales.reduce((s, d) => s + (d.expected || 0), 0));
@@ -116,7 +120,7 @@ const DailySalesTable: React.FC<DailySalesTableProps> = ({ dailySales: dailySale
       vendasGlobal,
       atingGlobal,
     };
-  }, [dailySales, salesGoal]);
+  }, [dailySales, salesGoal, vendasGlobalOverride]);
 
   const handleExportCSV = () => {
     const headers = ['Data', 'D-', 'Meta Dia', 'Vendas Dia', 'Ating. Dia (%)', 'Meta Acum.', 'Vendas Acum.', 'Ating. Acum. (%)'];
