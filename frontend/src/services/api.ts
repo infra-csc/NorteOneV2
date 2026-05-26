@@ -1452,6 +1452,7 @@ export const marketingService = {
     ano: number;
     total: number;
     eventos: Array<{
+      grupo_id: number;
       evento_grupo: string;
       circuito: string | null;
       cidade: string | null;

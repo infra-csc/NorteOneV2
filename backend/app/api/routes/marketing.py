@@ -6824,6 +6824,7 @@ def get_diagnostico_curvas(
                 fabricated_linear = True
 
             eventos.append({
+                "grupo_id": grupo.id,
                 "evento_grupo": grupo.nome,
                 "circuito": grupo.circuito,
                 "cidade": grupo.cidade_normalizada,
@@ -6842,6 +6843,7 @@ def get_diagnostico_curvas(
         except Exception as e:
             logger.warning(f"[DiagnosticoCurvas] erro em '{grupo.nome}': {e}")
             eventos.append({
+                "grupo_id": grupo.id,
                 "evento_grupo": grupo.nome,
                 "circuito": grupo.circuito,
                 "cidade": grupo.cidade_normalizada,

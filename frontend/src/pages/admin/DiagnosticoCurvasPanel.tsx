@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { marketingService } from '../../services/api';
-import { RefreshCw, Search, TrendingUp, AlertTriangle, Pin, Activity, Zap, MapPin, Layers } from 'lucide-react';
+import api, { marketingService } from '../../services/api';
+import { RefreshCw, Search, TrendingUp, AlertTriangle, Pin, Activity, Zap, MapPin, Layers, Pencil, X, Check } from 'lucide-react';
 
 interface CurvaItem {
+  grupo_id: number;
   evento_grupo: string;
   circuito: string | null;
   cidade: string | null;
@@ -18,6 +19,13 @@ interface CurvaItem {
   sales_goal: number;
   tem_mapeamento: boolean;
   erro?: string;
+}
+
+interface AvailableCurve {
+  grupo: string;
+  anoReferencia: number;
+  pontos: number;
+  origem: string;
 }
 
 const TIPO_CONFIG: Record<string, { label: string; icon: any; classLight: string; classDark: string; desc: string }> = {
@@ -56,6 +64,14 @@ const DiagnosticoCurvasPanel: React.FC = () => {
   const [busca, setBusca] = useState<string>('');
   const [onlyFuture, setOnlyFuture] = useState<boolean>(true);
 
+  // Estado do modal de edição de override
+  const [editing, setEditing] = useState<CurvaItem | null>(null);
+  const [availableCurves, setAvailableCurves] = useState<AvailableCurve[]>([]);
+  const [loadingCurves, setLoadingCurves] = useState(false);
+  const [overrideSearch, setOverrideSearch] = useState('');
+  const [savingOverride, setSavingOverride] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
   const cardBase = isDark
     ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
     : 'bg-white/80 backdrop-blur-sm border border-gray-200 shadow-sm';
@@ -77,6 +93,49 @@ const DiagnosticoCurvasPanel: React.FC = () => {
   }, [ano]);
 
   useEffect(() => { fetchData(false); }, [fetchData]);
+
+  const openEdit = useCallback(async (item: CurvaItem) => {
+    setEditing(item);
+    setOverrideSearch('');
+    setSaveMsg(null);
+    if (availableCurves.length === 0) {
+      setLoadingCurves(true);
+      try {
+        const res = await api.get('/admin/evento-grupos/available-curves');
+        setAvailableCurves(res.data || []);
+      } catch (e) {
+        console.error('Erro ao buscar curvas disponíveis:', e);
+      } finally {
+        setLoadingCurves(false);
+      }
+    }
+  }, [availableCurves.length]);
+
+  const closeEdit = useCallback(() => {
+    if (savingOverride) return;
+    setEditing(null);
+    setOverrideSearch('');
+    setSaveMsg(null);
+  }, [savingOverride]);
+
+  const handleSetOverride = useCallback(async (curvaGrupo: string | null) => {
+    if (!editing) return;
+    setSavingOverride(true);
+    setSaveMsg(null);
+    try {
+      await api.put(`/admin/evento-grupos/${editing.grupo_id}/curva-override`, {
+        curva_override: curvaGrupo,
+      });
+      setSaveMsg('Salvo. Recalculando diagnóstico...');
+      setEditing(null);
+      await fetchData(true);
+      setTimeout(() => setSaveMsg(null), 3000);
+    } catch (e: any) {
+      setSaveMsg('Erro ao salvar: ' + (e?.response?.data?.detail || e?.message || 'desconhecido'));
+    } finally {
+      setSavingOverride(false);
+    }
+  }, [editing, fetchData]);
 
   const filtered = useMemo(() => {
     const q = busca.trim().toLowerCase();
@@ -119,10 +178,15 @@ const DiagnosticoCurvasPanel: React.FC = () => {
               Diagnóstico de Curvas D-%
             </h2>
             <p className={`text-xs ${textSecondary} mt-1`}>
-              Mostra qual fonte de curva cada evento ativo está usando — sem precisar abrir um por um.
+              Mostra qual fonte de curva cada evento ativo está usando e permite trocar o override sem abrir o detalhe.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {saveMsg && (
+              <span className={`text-xs px-2 py-1 rounded-lg ${saveMsg.startsWith('Erro') ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                {saveMsg}
+              </span>
+            )}
             <label className={`text-xs ${textSecondary}`}>Ano:</label>
             <select className={inputClass} value={ano} onChange={e => setAno(Number(e.target.value))}>
               {[new Date().getFullYear() - 1, new Date().getFullYear(), new Date().getFullYear() + 1].map(y => (
@@ -226,6 +290,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                   <th className="py-2 pr-3 font-medium">Fonte</th>
                   <th className="py-2 pr-3 font-medium">Ano Ref.</th>
                   <th className="py-2 pr-3 font-medium text-right">Meta</th>
+                  <th className="py-2 pr-3 font-medium text-center">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -236,7 +301,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                   const dias = daysUntil(item.data_evento);
                   return (
                     <tr
-                      key={`${item.evento_grupo}-${idx}`}
+                      key={`${item.grupo_id}-${idx}`}
                       className={`border-b ${isDark ? 'border-gray-700/50 hover:bg-gray-700/30' : 'border-gray-100 hover:bg-gray-50'}`}
                     >
                       <td className="py-2.5 pr-3">
@@ -283,6 +348,16 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                       <td className={`py-2.5 pr-3 text-xs text-right ${textPrimary} tabular-nums`}>
                         {item.sales_goal > 0 ? item.sales_goal.toLocaleString('pt-BR') : '—'}
                       </td>
+                      <td className="py-2.5 pr-3 text-center">
+                        <button
+                          onClick={() => openEdit(item)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${isDark ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                          title="Alterar curva de referência"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          Alterar
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -291,6 +366,85 @@ const DiagnosticoCurvasPanel: React.FC = () => {
           </div>
         )}
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800' : 'bg-white'} max-h-[80vh] flex flex-col`}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+              <div>
+                <h3 className={`font-semibold ${textPrimary}`}>Alterar curva de referência</h3>
+                <p className={`text-xs ${textSecondary} mt-0.5`}>{editing.evento_grupo}</p>
+              </div>
+              <button onClick={closeEdit} disabled={savingOverride} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <input
+                type="text"
+                placeholder="Buscar grupo..."
+                value={overrideSearch}
+                onChange={(e) => setOverrideSearch(e.target.value)}
+                className={`${inputClass} w-full`}
+                autoFocus
+              />
+            </div>
+            <div className="overflow-y-auto flex-1 px-4 py-2">
+              <button
+                onClick={() => handleSetOverride(null)}
+                disabled={savingOverride}
+                className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors flex items-center justify-between ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${!editing.tem_override ? 'ring-2 ring-amber-500/60' : ''} disabled:opacity-50`}
+              >
+                <span>
+                  <span className="text-amber-500 font-medium">Automático</span>
+                  <span className={`text-xs ml-2 ${textSecondary}`}>— usar cadeia de fallback padrão</span>
+                </span>
+                {!editing.tem_override && <Check className="w-4 h-4 text-amber-500" />}
+              </button>
+              {loadingCurves ? (
+                <div className={`text-center py-6 ${textSecondary}`}>
+                  <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+                  Carregando curvas disponíveis...
+                </div>
+              ) : (
+                <>
+                  {availableCurves
+                    .filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase()))
+                    .map(curve => {
+                      const isCurrent = editing.tem_override && editing.override_target === curve.grupo;
+                      return (
+                        <button
+                          key={curve.grupo}
+                          onClick={() => handleSetOverride(curve.grupo)}
+                          disabled={savingOverride}
+                          className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${isCurrent ? 'ring-2 ring-purple-500/60' : ''} disabled:opacity-50`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium truncate">{curve.grupo}</span>
+                            <span className="flex items-center gap-2 flex-shrink-0">
+                              <span className={`text-xs ${textSecondary}`}>
+                                {curve.pontos} pts · {curve.anoReferencia}
+                              </span>
+                              {isCurrent && <Check className="w-4 h-4 text-purple-500" />}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  {availableCurves.filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase())).length === 0 && (
+                    <p className={`text-sm text-center py-4 ${textSecondary}`}>Nenhuma curva encontrada</p>
+                  )}
+                </>
+              )}
+            </div>
+            {savingOverride && (
+              <div className={`p-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-center gap-2 text-sm ${textSecondary}`}>
+                <RefreshCw className="w-4 h-4 animate-spin" /> Salvando e recalculando...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
