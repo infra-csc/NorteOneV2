@@ -183,6 +183,12 @@ def _scheduled_margem_rev_safety_check():
 
     Garantia: mesmo se o startup hook não tiver disparado e o job das 4h falhar,
     o snapshot é refrescado dentro de no máximo o intervalo do scheduler (45min).
+
+    HORÁRIO COMERCIAL (Maio/2026): durante 08h-18h BRT, eleva o threshold de
+    idade de 25h para 36h — evita disparar sync Magento pesado competindo com
+    cliques de usuário. Os jobs fixos (02h consolidação, 05h refresh, 17h
+    refresh) cobrem a janela normal; se o snapshot passou de 36h é emergência
+    real (dois ciclos noturnos consecutivos falharam) e aí sim vale interromper.
     """
     from app.core.database import SessionLocal
     from app.models.vendas_snapshot import MargemBundleRevSnapshot
@@ -190,10 +196,18 @@ def _scheduled_margem_rev_safety_check():
     from app.services.snapshot_service import sincronizar_margem_bundle_rev_batch
     from sqlalchemy import func as _sfunc
     from datetime import datetime as _dt, timezone as _tz
+    try:
+        from zoneinfo import ZoneInfo as _ZI_sc
+        _now_brt_h = _dt.now(_ZI_sc("America/Sao_Paulo")).hour
+        _in_business_hours = 8 <= _now_brt_h < 18
+    except Exception:
+        _in_business_hours = False
     db = None
     try:
         db = SessionLocal()
-        _MAX_AGE_H = 25
+        # Em horário comercial, só dispara se MUITO desatualizado (>36h).
+        # Fora do horário comercial, mantém o critério antigo (>25h).
+        _MAX_AGE_H = 36 if _in_business_hours else 25
         _newest_ts = db.query(_sfunc.max(MargemBundleRevSnapshot.calculado_em)).scalar()
         _needs_sync = False
         _motivo = ""
