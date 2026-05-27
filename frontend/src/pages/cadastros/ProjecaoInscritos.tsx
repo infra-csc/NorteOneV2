@@ -918,6 +918,11 @@ const ProjecaoInscritos: React.FC = () => {
       if (parts.length !== 3 || parts.some(isNaN)) continue;
       const evUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
       const dias = Math.round((evUtc - todayUtc) / 86400000);
+      // Fallback por data: evento com data já passada é tratado como concluído
+      // mesmo se o status no banco ainda for "Em andamento" (auto-update no GET
+      // foi removido). Sem isso, cutoffs gerariam "alertas zumbis" para
+      // eventos já realizados.
+      if (dias < 0) continue;
       const rule = ruleByDias[dias];
       if (rule) map[ev.id] = { dias, rule };
     }
