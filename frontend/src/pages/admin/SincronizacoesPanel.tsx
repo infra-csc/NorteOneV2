@@ -405,11 +405,19 @@ const SincronizacoesPanel: React.FC = () => {
     fetchPauseStatus();
     fetchOverview();
     // Poll every 5s for near-real-time feel
-    const it = setInterval(() => { fetchCycles(); fetchPauseStatus(); }, 5000);
+    const it = setInterval(() => {
+      if (document.hidden) return;
+      fetchCycles();
+      fetchPauseStatus();
+    }, 5000);
     // Overview muda mais devagar (timers + agregados) — 30s evita carga desnecessária
-    const itOv = setInterval(() => { fetchOverview(); }, 30000);
+    const itOv = setInterval(() => {
+      if (!document.hidden) fetchOverview();
+    }, 30000);
     // Tick de 1s só pra atualizar "atualizado há Xs" sem novo fetch.
-    const itTick = setInterval(() => setNowTick(Date.now()), 1000);
+    const itTick = setInterval(() => {
+      if (!document.hidden) setNowTick(Date.now());
+    }, 1000);
     // Page Visibility API: pausa polling em background pra não martelar API
     // quando o usuário não está olhando, e dispara refresh imediato ao voltar.
     let pausedByHide = false;
@@ -448,7 +456,9 @@ const SincronizacoesPanel: React.FC = () => {
       } catch (e) { console.error(e); }
     };
     poll();
-    const it = setInterval(poll, 1500);
+    const it = setInterval(() => {
+      if (!document.hidden) poll();
+    }, 1500);
     // Page Visibility API: dispara re-poll imediato ao retornar ao tab/desbloquear tela.
     // Sem isso, o browser throttle o setInterval para ~60s em segundo plano e o
     // progresso fica parado por até 1 minuto após o usuário voltar.

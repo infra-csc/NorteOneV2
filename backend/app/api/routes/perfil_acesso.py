@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func as sa_func
 from typing import List
 import threading
@@ -80,7 +80,7 @@ def get_perfil(
     current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_visualizar"))
 ):
     perfil = db.query(PerfilAcesso).options(
-        joinedload(PerfilAcesso.permissoes)
+        selectinload(PerfilAcesso.permissoes)
     ).filter(PerfilAcesso.id == perfil_id).first()
     if not perfil:
         raise HTTPException(status_code=404, detail="Perfil não encontrado")
@@ -122,7 +122,7 @@ def create_perfil(
     db.refresh(perfil)
     _invalidate_user_permissions_cache()
     return db.query(PerfilAcesso).options(
-        joinedload(PerfilAcesso.permissoes)
+        selectinload(PerfilAcesso.permissoes)
     ).filter(PerfilAcesso.id == perfil.id).first()
 
 
@@ -179,7 +179,7 @@ def update_perfil(
     db.commit()
     _invalidate_user_permissions_cache()
     return db.query(PerfilAcesso).options(
-        joinedload(PerfilAcesso.permissoes)
+        selectinload(PerfilAcesso.permissoes)
     ).filter(PerfilAcesso.id == perfil.id).first()
 
 
@@ -302,8 +302,8 @@ def get_my_permissions(
             return cached["data"]
 
     perfil = db.query(PerfilAcesso).options(
-        joinedload(PerfilAcesso.permissoes),
-        joinedload(PerfilAcesso.permissoes_campo)
+        selectinload(PerfilAcesso.permissoes),
+        selectinload(PerfilAcesso.permissoes_campo)
     ).filter(PerfilAcesso.id == current_user.perfil_acesso_id).first()
 
     if not perfil:

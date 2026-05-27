@@ -16,6 +16,13 @@ from ...models.sync_event_log import SyncEventLog
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
+_SYNC_OVERVIEW_CACHE_TTL = 5
+_sync_overview_cache = {"data": None, "ts": 0.0}
+_sync_overview_cache_lock = _threading.Lock()
+_USER_ACTIVITY_CACHE_TTL = 10
+_user_activity_cache = {"data": None, "ts": 0.0}
+_user_activity_cache_lock = _threading.Lock()
+
 # ── Consolidação Full Manual — rastreamento em memória ──────────────────────
 _consolidation_full_lock = _threading.Lock()
 _consolidation_full_progress: dict = {
@@ -204,6 +211,12 @@ def get_user_activity(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_monitoramento")),
 ):
+    cache_now = _time_module.time()
+    with _user_activity_cache_lock:
+        cached = _user_activity_cache["data"]
+        if cached is not None and (cache_now - _user_activity_cache["ts"]) < _USER_ACTIVITY_CACHE_TTL:
+            return _copy.deepcopy(cached)
+
     now = datetime.utcnow()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -253,7 +266,7 @@ def get_user_activity(
             "last_activity": u.last_activity.isoformat() if u.last_activity else None,
         })
 
-    return {
+    response = {
         "resumo": {
             "total_usuarios": len(users),
             "online": online_count,
@@ -262,6 +275,10 @@ def get_user_activity(
         },
         "usuarios": user_list,
     }
+    with _user_activity_cache_lock:
+        _user_activity_cache["data"] = _copy.deepcopy(response)
+        _user_activity_cache["ts"] = cache_now
+    return response
 
 
 @router.post("/scheduled-jobs/consolidacao-diaria")
@@ -2106,6 +2123,12 @@ def get_sync_overview(
         bundles sem mapeamento — proxy direto pro aviso "X kits sem
         configuração" no topo da tela).
     """
+    cache_now = _time_module.time()
+    with _sync_overview_cache_lock:
+        cached = _sync_overview_cache["data"]
+        if cached is not None and (cache_now - _sync_overview_cache["ts"]) < _SYNC_OVERVIEW_CACHE_TTL:
+            return _copy.deepcopy(cached)
+
     from zoneinfo import ZoneInfo as _ZI
     from ...models.vendas_snapshot import MargemBundleRevSnapshot
     from ...models.kit_config import KitConfig
@@ -2378,12 +2401,16 @@ def get_sync_overview(
         "status": _kit_status,
     }
 
-    return {
+    response = {
         "scheduled_jobs": _scheduled_jobs,
         "today_summary": _today_summary,
         "kit_mapping": _kit_mapping,
         "generated_at": _now_utc.isoformat(),
     }
+    with _sync_overview_cache_lock:
+        _sync_overview_cache["data"] = _copy.deepcopy(response)
+        _sync_overview_cache["ts"] = cache_now
+    return response
 
 
 @router.get("/sync/eventos-ultima-atualizacao")
