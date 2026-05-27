@@ -6933,7 +6933,7 @@ def get_diagnostico_curvas(
         CurvaHistoricaSnapshot.evento_grupo,
         CurvaHistoricaSnapshot.ano_referencia,
         CurvaHistoricaSnapshot.d_minus,
-        CurvaHistoricaSnapshot.pct_acumulado,
+        CurvaHistoricaSnapshot.percentual_acumulado,
         CurvaHistoricaSnapshot.total_vendas_referencia,
     ).all()
     snap_index: dict = {}
