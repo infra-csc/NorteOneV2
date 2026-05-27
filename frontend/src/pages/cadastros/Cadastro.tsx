@@ -377,7 +377,6 @@ const Cadastro: React.FC = () => {
           const parts = item.info_geral.data.split('T')[0].split('-');
           const eventDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
           if (eventDate < today) {
-            cadastrosService.update(item.id!, { status: 'Concluído' }).catch(() => {});
             return { ...item, status: 'Concluído' };
           }
         }

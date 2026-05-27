@@ -1028,6 +1028,24 @@ def _prewarm_revenue_cache():
                         except (ValueError, TypeError):
                             pass
 
+                all_magento_ids = sorted({
+                    mid
+                    for ids in magento_ids_by_sku.values()
+                    for mid in ids
+                })
+                kit_configs_by_evento: dict[int, list] = {}
+                if all_magento_ids:
+                    kit_configs = db.query(KitConfig).filter(
+                        KitConfig.id_evento.in_(all_magento_ids),
+                        KitConfig.bundle_entity_id.isnot(None),
+                        KitConfig.tipo_kit.isnot(None),
+                    ).all()
+                    for kc in kit_configs:
+                        try:
+                            kit_configs_by_evento.setdefault(int(kc.id_evento), []).append(kc)
+                        except (ValueError, TypeError):
+                            continue
+
                 # Para cada projeto, determina os bundle_ids via KitConfig.id_evento
                 seen_cache_keys: set = set()
                 proj_bundle_map: list = []  # [(proj_id, bundle_ids)]
@@ -1036,11 +1054,11 @@ def _prewarm_revenue_cache():
                     magento_ids = magento_ids_by_sku.get(sku, [])
                     if not magento_ids:
                         continue
-                    kcs = db.query(KitConfig).filter(
-                        KitConfig.id_evento.in_(magento_ids),
-                        KitConfig.bundle_entity_id.isnot(None),
-                        KitConfig.tipo_kit.isnot(None),
-                    ).all()
+                    kcs = [
+                        kc
+                        for magento_id in magento_ids
+                        for kc in kit_configs_by_evento.get(int(magento_id), [])
+                    ]
                     bundle_ids = list({kc.bundle_entity_id for kc in kcs if kc.bundle_entity_id})
                     if not bundle_ids:
                         continue
@@ -1294,6 +1312,30 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_sync_event_log_created_at ON sync_event_log (created_at)",
             "CREATE INDEX IF NOT EXISTS ix_sync_log_ciclo_nivel ON sync_event_log (ciclo_id, nivel)",
             "CREATE INDEX IF NOT EXISTS ix_sync_log_job_created ON sync_event_log (job_name, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_dim_projeto_data_evento ON dim_projeto (data_evento)",
+            "CREATE INDEX IF NOT EXISTS ix_dim_projeto_produto ON dim_projeto (produto)",
+            "CREATE INDEX IF NOT EXISTS ix_dim_projeto_modalidade ON dim_projeto (modalidade)",
+            "CREATE INDEX IF NOT EXISTS ix_dim_projeto_cidade ON dim_projeto (cidade)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_evento_projeto_id ON cadastro_evento (projeto_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_evento_data_evento ON cadastro_evento (data_evento)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_evento_deleted_at ON cadastro_evento (deleted_at)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_cortesia_cadastro_id ON cadastro_cortesia (cadastro_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_taxa_cadastro_id ON cadastro_taxa (cadastro_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_kit_produto_cadastro_id ON cadastro_kit_produto (cadastro_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_kit_produto_item_kit_produto_id ON cadastro_kit_produto_item (kit_produto_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_merchan_cadastro_id ON cadastro_merchan (cadastro_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_merchan_item_merchan_id ON cadastro_merchan_item (merchan_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_faixa_preco_site_cadastro_id ON cadastro_faixa_preco_site (cadastro_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cadastro_faixa_preco_grupos_cadastro_id ON cadastro_faixa_preco_grupos (cadastro_id)",
+            "CREATE INDEX IF NOT EXISTS ix_viagem_cotacao_ano_competencia ON viagem_cotacao (ano_competencia)",
+            "CREATE INDEX IF NOT EXISTS ix_viagem_cotacao_status ON viagem_cotacao (status)",
+            "CREATE INDEX IF NOT EXISTS ix_viagem_cotacao_created_at ON viagem_cotacao (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_viagem_id ON cotacao (viagem_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_fornecedor_id ON cotacao (fornecedor_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_selecionado ON cotacao (selecionado)",
+            "CREATE INDEX IF NOT EXISTS ix_custo_importacao_viagem_id ON custo_importacao (viagem_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_evento_cotacao_id ON cotacao_evento (cotacao_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_evento_cadastro_evento_id ON cotacao_evento (cadastro_evento_id)",
             # consolidacao_checkpoint: checkpoint persistente para retomada da
             # reconsolidação completa após reinício/crash do backend.
             """CREATE TABLE IF NOT EXISTS consolidacao_checkpoint (

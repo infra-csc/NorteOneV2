@@ -151,6 +151,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const fetchHealthStatus = useCallback(async () => {
     if (!isAdmin) return;
+    if (document.hidden) return;
     try {
       const { adminService } = await import('../../services/api');
       const data = await adminService.getHealthSummary();
@@ -161,6 +162,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const fetchUnconfiguredKits = useCallback(async () => {
     if (!isAdmin) return;
+    if (document.hidden) return;
     try {
       const { kitConfigService } = await import('../../services/api');
       const data = await kitConfigService.getUnconfiguredSummary();
@@ -175,6 +177,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const fetchProjecaoPendencias = useCallback(async () => {
     if (!canViewProjecao) return;
+    if (document.hidden) return;
     try {
       const { projecaoService } = await import('../../services/api');
       const data = await projecaoService.getPendencias();
@@ -184,22 +187,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   }, [canViewProjecao]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     fetchHealthStatus();
     const interval = setInterval(fetchHealthStatus, 60000);
     return () => clearInterval(interval);
-  }, [fetchHealthStatus]);
+  }, [fetchHealthStatus, isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     fetchUnconfiguredKits();
     const interval = setInterval(fetchUnconfiguredKits, 300000);
     return () => clearInterval(interval);
-  }, [fetchUnconfiguredKits]);
+  }, [fetchUnconfiguredKits, isAdmin]);
 
   useEffect(() => {
+    if (!canViewProjecao) return;
     fetchProjecaoPendencias();
     const interval = setInterval(fetchProjecaoPendencias, 180000);
     return () => clearInterval(interval);
-  }, [fetchProjecaoPendencias]);
+  }, [fetchProjecaoPendencias, canViewProjecao]);
 
   const handleLogout = () => {
     logout();

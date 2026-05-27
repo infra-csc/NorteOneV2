@@ -77,6 +77,7 @@ const NoriAssistant: React.FC = () => {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const fetchAlerts = async () => {
+      if (document.hidden) return;
       try {
         const r = await marketingService.getCutoffAlerts();
         if (cancelled) return;

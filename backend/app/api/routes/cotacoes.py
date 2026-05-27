@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload, selectinload
 from typing import List, Optional
 from ...core.database import get_db
@@ -153,6 +153,8 @@ def delete_fornecedor(
 @router.get("/viagens", response_model=List[ViagemCotacaoListResponse])
 def list_viagens(
     ano: Optional[int] = None,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(_view_cotacao)
 ):
@@ -163,7 +165,7 @@ def list_viagens(
     )
     if ano:
         query = query.filter(ViagemCotacao.ano_competencia == ano)
-    viagens = query.order_by(ViagemCotacao.created_at.desc()).all()
+    viagens = query.order_by(ViagemCotacao.created_at.desc()).offset(skip).limit(limit).all()
 
     result = []
     for v in viagens:
@@ -620,7 +622,7 @@ def get_dashboard(
     )
     if ano:
         query = query.filter(ViagemCotacao.ano_competencia == ano)
-    viagens = query.all()
+    viagens = query.order_by(ViagemCotacao.created_at.desc()).limit(500).all()
 
     total_viagens = len(viagens)
     viagens_em_andamento = len([v for v in viagens if v.status == "Em Andamento"])

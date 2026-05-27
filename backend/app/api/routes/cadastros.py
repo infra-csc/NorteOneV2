@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _list_cache: dict = {"data": None, "json": None, "ts": 0.0}
 _list_cache_lock = threading.Lock()
 _LIST_CACHE_TTL = 300
+_LIST_CACHE_LIMIT = 1000
 
 
 def _invalidate_list_cache():
@@ -36,6 +37,7 @@ def warm_list_cache(db: Session):
             db.query(CadastroEvento)
             .filter(CadastroEvento.deleted_at.is_(None))
             .order_by(CadastroEvento.id.desc())
+            .limit(_LIST_CACHE_LIMIT)
             .all()
         )
         items = [db_to_list_response(c) for c in cadastros]
@@ -474,7 +476,7 @@ def listar_cadastros(
         restricted_view = _has_event_view_restrictions(db, current_user)
         if cached_json is not None and age < _LIST_CACHE_TTL and not restricted_view:
             logger.warning(f"[CadastrosCache] HIT: {len(cached_data)} eventos em {_time.time()-t0:.4f}s (age={age:.0f}s)")
-            return JSONResponse(content=cached_json)
+            return JSONResponse(content=cached_json[:limit])
         if cached_data is not None and age < _LIST_CACHE_TTL:
             logger.warning(f"[CadastrosCache] HIT(raw): {len(cached_data)} eventos em {_time.time()-t0:.4f}s")
             items = cached_data[:limit]

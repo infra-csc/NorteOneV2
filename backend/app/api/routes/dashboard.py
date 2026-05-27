@@ -21,6 +21,21 @@ def decimal_to_float(val):
     return val or 0
 
 
+def _date_range_for_filters(ano=None, mes=None):
+    if not ano:
+        return None, None
+    start_month = int(mes or 1)
+    start = date(int(ano), start_month, 1)
+    if mes:
+        if start_month == 12:
+            end = date(int(ano) + 1, 1, 1)
+        else:
+            end = date(int(ano), start_month + 1, 1)
+    else:
+        end = date(int(ano) + 1, 1, 1)
+    return start, end
+
+
 def user_can_view_campo(db: Session, user: Usuario, entidade: str, campo: str) -> bool:
     if is_user_admin(user):
         return True
@@ -90,10 +105,12 @@ def get_filtros(
 def build_project_filter(db, ano=None, mes=None, produto=None, tipo_evento=None,
                          projeto_id=None, modalidade=None, cidade=None):
     query = db.query(DimProjeto)
-    if ano:
-        query = query.filter(extract('year', DimProjeto.data_evento) == ano)
-    if mes:
-        query = query.filter(extract('month', DimProjeto.data_evento) == mes)
+    start_date, end_date = _date_range_for_filters(ano, mes)
+    if start_date and end_date:
+        query = query.filter(
+            DimProjeto.data_evento >= start_date,
+            DimProjeto.data_evento < end_date,
+        )
     if produto:
         query = query.filter(DimProjeto.produto == produto)
     if tipo_evento:

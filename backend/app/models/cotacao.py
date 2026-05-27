@@ -17,10 +17,10 @@ class ViagemCotacao(Base):
     id = Column(Integer, primary_key=True, index=True)
     titulo = Column(String(200), nullable=False)
     destino = Column(String(200), default="China")
-    ano_competencia = Column(Integer, nullable=False)
+    ano_competencia = Column(Integer, nullable=False, index=True)
     data_inicio = Column(Date, nullable=True)
     data_fim = Column(Date, nullable=True)
-    status = Column(String(50), default=StatusViagem.PLANEJADA.value)
+    status = Column(String(50), default=StatusViagem.PLANEJADA.value, index=True)
     observacoes = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     created_at = Column(DateTime, default=func.now())
@@ -49,8 +49,8 @@ class Cotacao(Base):
     __tablename__ = "cotacao"
 
     id = Column(Integer, primary_key=True, index=True)
-    viagem_id = Column(Integer, ForeignKey("viagem_cotacao.id", ondelete="CASCADE"), nullable=False)
-    fornecedor_id = Column(Integer, ForeignKey("fornecedor.id"), nullable=True)
+    viagem_id = Column(Integer, ForeignKey("viagem_cotacao.id", ondelete="CASCADE"), nullable=False, index=True)
+    fornecedor_id = Column(Integer, ForeignKey("fornecedor.id"), nullable=True, index=True)
     produto_nome = Column(String(200), nullable=False)
     descricao = Column(Text, nullable=True)
     valor_unitario_usd = Column(Numeric(12, 4), nullable=False, default=0)
@@ -59,7 +59,7 @@ class Cotacao(Base):
     valor_unitario_brl = Column(Numeric(12, 4), nullable=True)
     valor_total_usd = Column(Numeric(15, 4), nullable=True)
     valor_total_brl = Column(Numeric(15, 4), nullable=True)
-    selecionado = Column(Boolean, default=False)
+    selecionado = Column(Boolean, default=False, index=True)
     data_cotacao = Column(Date, nullable=True)
     observacoes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
@@ -74,7 +74,7 @@ class CustoImportacao(Base):
     __tablename__ = "custo_importacao"
 
     id = Column(Integer, primary_key=True, index=True)
-    viagem_id = Column(Integer, ForeignKey("viagem_cotacao.id", ondelete="CASCADE"), nullable=False)
+    viagem_id = Column(Integer, ForeignKey("viagem_cotacao.id", ondelete="CASCADE"), nullable=False, index=True)
     descricao = Column(String(200), nullable=False)
     tipo = Column(String(50), nullable=False)
     valor_usd = Column(Numeric(12, 4), default=0)
@@ -89,8 +89,8 @@ class CotacaoEvento(Base):
     __tablename__ = "cotacao_evento"
 
     id = Column(Integer, primary_key=True, index=True)
-    cotacao_id = Column(Integer, ForeignKey("cotacao.id", ondelete="CASCADE"), nullable=False)
-    cadastro_evento_id = Column(Integer, ForeignKey("cadastro_evento.id"), nullable=True)
+    cotacao_id = Column(Integer, ForeignKey("cotacao.id", ondelete="CASCADE"), nullable=False, index=True)
+    cadastro_evento_id = Column(Integer, ForeignKey("cadastro_evento.id"), nullable=True, index=True)
     evento_nome_manual = Column(String(300), nullable=True)
     quantidade = Column(Integer, default=1)
     observacoes = Column(Text, nullable=True)

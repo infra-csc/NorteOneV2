@@ -35,7 +35,7 @@ class CadastroEvento(Base):
     __tablename__ = "cadastro_evento"
     
     id = Column(Integer, primary_key=True, index=True)
-    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=True)
+    projeto_id = Column(Integer, ForeignKey("dim_projeto.id"), nullable=True, index=True)
     nome = Column(String(200), nullable=False)
     circuito_produto = Column(String(200))
     localizacao_evento = Column(String(200))
@@ -53,7 +53,7 @@ class CadastroEvento(Base):
     estado = Column(String(50))
     gratuito = Column(Boolean, default=False)
     
-    data_evento = Column(Date)
+    data_evento = Column(Date, index=True)
     horario_largada = Column(String(10))
     local = Column(String(300))
     distancias = Column(JSON, default=list)
@@ -80,7 +80,7 @@ class CadastroEvento(Base):
     
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
-    deleted_at = Column(DateTime, nullable=True, default=None)
+    deleted_at = Column(DateTime, nullable=True, default=None, index=True)
     
     projeto = relationship("DimProjeto")
     cortesias = relationship("CadastroCortesia", back_populates="cadastro", cascade="all, delete-orphan")
@@ -96,7 +96,7 @@ class CadastroCortesia(Base):
     __tablename__ = "cadastro_cortesia"
     
     id = Column(Integer, primary_key=True, index=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
     cliente = Column(String(200), nullable=False)
     quantidade = Column(Integer, default=0)
     
@@ -108,7 +108,7 @@ class CadastroTaxa(Base):
     __tablename__ = "cadastro_taxa"
     
     id = Column(Integer, primary_key=True, index=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
     valor_unitario = Column(Numeric(10, 2), default=0)
     percentual_inscricao = Column(Numeric(5, 2), default=0)
     validado = Column(Boolean, default=False)
@@ -122,7 +122,7 @@ class CadastroKitProduto(Base):
     __tablename__ = "cadastro_kit_produto"
     
     id = Column(Integer, primary_key=True, index=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
     kit = Column(String(100))
     ativo_categoria = Column(String(100), nullable=True)
     
@@ -135,7 +135,7 @@ class CadastroKitProdutoItem(Base):
     __tablename__ = "cadastro_kit_produto_item"
     
     id = Column(Integer, primary_key=True, index=True)
-    kit_produto_id = Column(Integer, ForeignKey("cadastro_kit_produto.id", ondelete="CASCADE"), nullable=False)
+    kit_produto_id = Column(Integer, ForeignKey("cadastro_kit_produto.id", ondelete="CASCADE"), nullable=False, index=True)
     nome = Column(String(100), nullable=False)
     valor_unitario = Column(Numeric(10, 2), default=0)
     
@@ -147,7 +147,7 @@ class CadastroMerchan(Base):
     __tablename__ = "cadastro_merchan"
 
     id = Column(Integer, primary_key=True, index=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
     kit = Column(String(100))
 
     cadastro = relationship("CadastroEvento", back_populates="merchan_kits")
@@ -159,7 +159,7 @@ class CadastroMerchanItem(Base):
     __tablename__ = "cadastro_merchan_item"
 
     id = Column(Integer, primary_key=True, index=True)
-    merchan_id = Column(Integer, ForeignKey("cadastro_merchan.id", ondelete="CASCADE"), nullable=False)
+    merchan_id = Column(Integer, ForeignKey("cadastro_merchan.id", ondelete="CASCADE"), nullable=False, index=True)
     nome = Column(String(100), nullable=False)
     valor_venda = Column(Numeric(10, 2), default=0)
 
@@ -171,7 +171,7 @@ class CadastroFaixaPrecoSite(Base):
     __tablename__ = "cadastro_faixa_preco_site"
     
     id = Column(Integer, primary_key=True, index=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
     tipo_kit = Column(String(50), nullable=False)
     faixa = Column(String(10), nullable=False)
     qtd = Column(Integer, default=0)
@@ -186,7 +186,7 @@ class CadastroFaixaPrecoGrupos(Base):
     __tablename__ = "cadastro_faixa_preco_grupos"
     
     id = Column(Integer, primary_key=True, index=True)
-    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
+    cadastro_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
     tipo_kit = Column(String(50), nullable=False)
     faixa = Column(String(10), nullable=False)
     qtd = Column(Integer, default=0)
