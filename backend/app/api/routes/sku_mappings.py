@@ -783,6 +783,16 @@ def list_available_curves(
     current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
 ):
     from sqlalchemy import and_
+    # Filtra do seletor de override:
+    # (1) curvas derivadas (origem=regional/circuito_similar/linear) — fabricadas
+    #     a partir de vizinhos, não refletem histórico real do grupo.
+    # (2) curvas degeneradas (max(total_vendas_referencia) < MIN_REF_SALES=50) —
+    #     mesma constante usada por _resolve_hist_pattern para descartar.
+    # NULL em origem é considerado "histórico legado" (anterior ao campo) e
+    # passa o filtro de origem; só será cortado pelo filtro de vendas mínimas.
+    MIN_REF_SALES = 50
+    DERIVED_ORIGENS = ("regional", "circuito_similar", "linear")
+
     max_ano_sub = db.query(
         CurvaHistoricaSnapshot.evento_grupo,
         func.max(CurvaHistoricaSnapshot.ano_referencia).label("max_ano")
@@ -792,7 +802,8 @@ def list_available_curves(
         CurvaHistoricaSnapshot.evento_grupo,
         max_ano_sub.c.max_ano,
         func.count(CurvaHistoricaSnapshot.id).label("pontos"),
-        func.min(CurvaHistoricaSnapshot.origem).label("origem")
+        func.min(CurvaHistoricaSnapshot.origem).label("origem"),
+        func.max(CurvaHistoricaSnapshot.total_vendas_referencia).label("vendas")
     ).join(
         max_ano_sub,
         and_(
@@ -803,11 +814,18 @@ def list_available_curves(
 
     result = []
     for row in grupos_with_curves:
+        origem = row.origem or "historico"
+        vendas = int(row.vendas or 0)
+        if origem in DERIVED_ORIGENS:
+            continue
+        if vendas < MIN_REF_SALES:
+            continue
         result.append({
             "grupo": row.evento_grupo,
             "anoReferencia": row.max_ano,
             "pontos": row.pontos,
-            "origem": row.origem or "historico"
+            "origem": origem,
+            "vendas": vendas,
         })
     return sorted(result, key=lambda x: x["grupo"])
 

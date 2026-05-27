@@ -26,6 +26,7 @@ interface AvailableCurve {
   anoReferencia: number;
   pontos: number;
   origem: string;
+  vendas: number;
 }
 
 const TIPO_CONFIG: Record<string, { label: string; icon: any; classLight: string; classDark: string; desc: string }> = {
@@ -453,7 +454,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                             <span className="font-medium truncate">{curve.grupo}</span>
                             <span className="flex items-center gap-2 flex-shrink-0">
                               <span className={`text-xs ${textSecondary}`}>
-                                {curve.pontos} pts · {curve.anoReferencia}
+                                {curve.vendas.toLocaleString('pt-BR')} vendas · {curve.anoReferencia}
                               </span>
                               {isCurrent && <Check className="w-4 h-4 text-purple-500" />}
                             </span>
