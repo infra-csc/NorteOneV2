@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import distinct, extract, func as sa_func
+from sqlalchemy import extract, func as sa_func
 from typing import Optional
 from datetime import date, timedelta, datetime as _datetime
 _CURRENT_YEAR = _datetime.now().year
 from ...core.database import get_db
-from ...core.security import get_current_user, is_user_admin
+from ...core.security import is_user_admin, require_permission
 from ...models.dimensoes import DimProjeto
 from ...models.cadastro_evento import CadastroEvento, CadastroKitProduto, CadastroKitProdutoItem
 from ...models.user import Usuario
@@ -39,17 +39,28 @@ def user_can_view_campo(db: Session, user: Usuario, entidade: str, campo: str) -
 @router.get("/filtros")
 def get_filtros(
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
     from datetime import datetime as _dt
     _cur_year = _dt.now().year
-    anos_raw = (
-        db.query(distinct(extract('year', DimProjeto.data_evento)))
-        .filter(DimProjeto.data_evento != None)
-        .order_by(extract('year', DimProjeto.data_evento).desc())
+    rows = (
+        db.query(
+            DimProjeto.id,
+            DimProjeto.evento,
+            DimProjeto.data_evento,
+            DimProjeto.produto,
+            DimProjeto.tipo_evento,
+            DimProjeto.modalidade,
+            DimProjeto.cidade,
+        )
+        .order_by(DimProjeto.evento)
         .all()
     )
-    anos = anos_raw or [(_cur_year,)]
+    anos = sorted({r.data_evento.year for r in rows if r.data_evento}, reverse=True) or [_cur_year]
+    produtos = sorted({r.produto for r in rows if r.produto})
+    tipos_evento = sorted({r.tipo_evento for r in rows if r.tipo_evento})
+    modalidades = sorted({r.modalidade for r in rows if r.modalidade})
+    cidades = sorted({r.cidade for r in rows if r.cidade})
     meses = [
         {"value": 1, "label": "Janeiro"},
         {"value": 2, "label": "Fevereiro"},
@@ -65,20 +76,14 @@ def get_filtros(
         {"value": 12, "label": "Dezembro"},
     ]
 
-    produtos = db.query(distinct(DimProjeto.produto)).filter(DimProjeto.produto != None).all()
-    tipos_evento = db.query(distinct(DimProjeto.tipo_evento)).filter(DimProjeto.tipo_evento != None).all()
-    projetos = db.query(DimProjeto.id, DimProjeto.evento).all()
-    modalidades = db.query(distinct(DimProjeto.modalidade)).filter(DimProjeto.modalidade != None).all()
-    cidades = db.query(distinct(DimProjeto.cidade)).filter(DimProjeto.cidade != None).all()
-
     return {
-        "anos": [{"value": int(a[0]), "label": str(int(a[0]))} for a in anos],
+        "anos": [{"value": int(ano), "label": str(int(ano))} for ano in anos],
         "meses": meses,
-        "produtos": [{"value": p[0], "label": p[0]} for p in produtos],
-        "tipos_evento": [{"value": t[0], "label": t[0]} for t in tipos_evento],
-        "projetos": [{"value": p.id, "label": p.evento} for p in projetos],
-        "modalidades": [{"value": m[0], "label": m[0]} for m in modalidades],
-        "cidades": [{"value": c[0], "label": c[0]} for c in cidades]
+        "produtos": [{"value": produto, "label": produto} for produto in produtos],
+        "tipos_evento": [{"value": tipo, "label": tipo} for tipo in tipos_evento],
+        "projetos": [{"value": r.id, "label": r.evento} for r in rows],
+        "modalidades": [{"value": modalidade, "label": modalidade} for modalidade in modalidades],
+        "cidades": [{"value": cidade, "label": cidade} for cidade in cidades]
     }
 
 
@@ -206,7 +211,7 @@ def get_resumo_geral(
     modalidade: Optional[str] = Query(None),
     cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
     return {
         "ano": ano,
@@ -228,7 +233,7 @@ def get_dashboard_operacional(
     modalidade: Optional[str] = Query(None),
     cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
     from .marketing import (
         fetch_isc_pricing_data, _build_sku_to_grupo_map, _get_isc_settings,
@@ -553,7 +558,7 @@ def get_dashboard_financeiro(
     modalidade: Optional[str] = Query(None),
     cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
     if not user_can_view_campo(db, current_user, "dashboard", "dados_financeiros"):
         raise HTTPException(
@@ -767,7 +772,7 @@ def get_relatorio_financeiro(
     modalidade: Optional[str] = Query(None),
     cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
     if not user_can_view_campo(db, current_user, "dashboard", "dados_financeiros"):
         raise HTTPException(
@@ -1082,7 +1087,7 @@ def get_dashboard_consolidado(
     modalidade: Optional[str] = Query(None),
     cidade: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_user)
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
     projetos = build_project_filter(db, ano, mes, produto, tipo_evento, projeto_id, modalidade, cidade)
     projeto_ids = [p.id for p in projetos]

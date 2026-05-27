@@ -9,7 +9,8 @@ import time as _time
 import logging
 
 from app.core.database import get_db
-from ...core.security import get_current_user, require_permission, require_admin
+from ...core.security import get_current_user, require_permission, require_admin, is_user_admin
+from ...models.perfil_acesso import PerfilPermissaoCampo
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,126 @@ _CADASTRO_EAGER = [
     selectinload(CadastroEvento.faixas_preco_site),
     selectinload(CadastroEvento.faixas_preco_grupos),
 ]
+
+_EVENT_FIELD_KEYS = [
+    "info_geral",
+    "retirada_kit",
+    "atletas",
+    "cortesias",
+    "kit_produto",
+    "merchan",
+    "faixas_preco_site",
+    "faixas_preco_grupos",
+    "taxas",
+]
+
+_INFO_GERAL_UPDATE_FIELDS = [
+    "projeto_id",
+    "nome",
+    "circuito_produto",
+    "localizacao_evento",
+    "ano_evento",
+    "imagem_kv",
+    "status",
+    "modalidade",
+    "sku",
+    "produto",
+    "tipo_evento",
+    "lei",
+    "capacidade_maxima",
+    "cidade",
+    "estado",
+    "gratuito",
+    "info_geral",
+]
+
+_EVENT_FIELD_UPDATE_ATTRS = {
+    "info_geral": _INFO_GERAL_UPDATE_FIELDS,
+    "retirada_kit": ["retirada_kit"],
+    "atletas": ["atletas"],
+    "cortesias": ["cortesias"],
+    "kit_produto": ["kit_produto"],
+    "merchan": ["merchan"],
+    "faixas_preco_site": ["faixas_preco_site"],
+    "faixas_preco_grupos": ["faixas_preco_grupos"],
+    "taxas": ["taxas"],
+}
+
+
+def _event_field_permissions(db: Session, user, permission_attr: str) -> dict:
+    if is_user_admin(user):
+        return {field: True for field in _EVENT_FIELD_KEYS}
+    if not getattr(user, "perfil_acesso_id", None):
+        return {field: False for field in _EVENT_FIELD_KEYS}
+
+    # Eventos keeps the historical UI behavior: fields are allowed unless a
+    # profile-specific row explicitly denies them.
+    perms = {field: True for field in _EVENT_FIELD_KEYS}
+    rows = db.query(PerfilPermissaoCampo).filter(
+        PerfilPermissaoCampo.perfil_acesso_id == user.perfil_acesso_id,
+        PerfilPermissaoCampo.entidade == "eventos",
+        PerfilPermissaoCampo.campo.in_(_EVENT_FIELD_KEYS),
+    ).all()
+    for row in rows:
+        perms[row.campo] = bool(getattr(row, permission_attr, False))
+    return perms
+
+
+def _has_event_view_restrictions(db: Session, user) -> bool:
+    return not all(_event_field_permissions(db, user, "pode_visualizar").values())
+
+
+def _empty_event_field_value(field: str):
+    if field == "info_geral":
+        return InfoGeral()
+    if field == "retirada_kit":
+        return RetiradaKit()
+    if field == "atletas":
+        return AtletasData()
+    if field in {"faixas_preco_site", "faixas_preco_grupos"}:
+        return FaixasPrecoByKit()
+    return []
+
+
+def _filter_event_response_by_permissions(payload: dict, view_permissions: dict) -> dict:
+    filtered = payload.copy()
+    for field, allowed in view_permissions.items():
+        if not allowed:
+            filtered[field] = _empty_event_field_value(field)
+    return filtered
+
+
+def _strip_forbidden_update_fields(data: CadastroEventoUpdate, edit_permissions: dict) -> None:
+    for field, allowed in edit_permissions.items():
+        if allowed:
+            continue
+        for attr in _EVENT_FIELD_UPDATE_ATTRS[field]:
+            if hasattr(data, attr):
+                setattr(data, attr, None)
+
+
+def _strip_forbidden_create_fields(data: CadastroEventoCreate, edit_permissions: dict) -> None:
+    if not edit_permissions.get("info_geral", False):
+        raise HTTPException(
+            status_code=403,
+            detail="Permissao insuficiente para criar evento sem acesso de edicao a Info Geral",
+        )
+    if not edit_permissions.get("retirada_kit", False):
+        data.retirada_kit = RetiradaKit()
+    if not edit_permissions.get("atletas", False):
+        data.atletas = AtletasData()
+    if not edit_permissions.get("cortesias", False):
+        data.cortesias = []
+    if not edit_permissions.get("kit_produto", False):
+        data.kit_produto = []
+    if not edit_permissions.get("merchan", False):
+        data.merchan = []
+    if not edit_permissions.get("faixas_preco_site", False):
+        data.faixas_preco_site = FaixasPrecoByKit()
+    if not edit_permissions.get("faixas_preco_grupos", False):
+        data.faixas_preco_grupos = FaixasPrecoByKit()
+    if not edit_permissions.get("taxas", False):
+        data.taxas = []
 
 
 def _update_projeto_fields(projeto: DimProjeto, cadastro: CadastroEvento):
@@ -350,12 +471,17 @@ def listar_cadastros(
             cached_json = _list_cache.get("json")
             cached_data = _list_cache["data"]
             age = _time.time() - _list_cache["ts"]
-        if cached_json is not None and age < _LIST_CACHE_TTL:
+        restricted_view = _has_event_view_restrictions(db, current_user)
+        if cached_json is not None and age < _LIST_CACHE_TTL and not restricted_view:
             logger.warning(f"[CadastrosCache] HIT: {len(cached_data)} eventos em {_time.time()-t0:.4f}s (age={age:.0f}s)")
             return JSONResponse(content=cached_json)
         if cached_data is not None and age < _LIST_CACHE_TTL:
             logger.warning(f"[CadastrosCache] HIT(raw): {len(cached_data)} eventos em {_time.time()-t0:.4f}s")
-            return cached_data[:limit]
+            items = cached_data[:limit]
+            if restricted_view:
+                view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
+                return [_filter_event_response_by_permissions(item, view_permissions) for item in items]
+            return items
 
     logger.warning(f"[CadastrosCache] MISS — consultando banco (status={status}, skip={skip})")
     query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
@@ -375,6 +501,9 @@ def listar_cadastros(
             _list_cache["json"] = json_data
             _list_cache["ts"] = _time.time()
 
+    if _has_event_view_restrictions(db, current_user):
+        view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
+        return [_filter_event_response_by_permissions(item, view_permissions) for item in items]
     return items
 
 
@@ -391,8 +520,12 @@ def listar_lixeira(db: Session = Depends(get_db), current_user=Depends(require_p
         .order_by(CadastroEvento.deleted_at.desc())
         .all()
     )
+    view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
     return [
-        {**db_to_response(c), "deleted_at": c.deleted_at.isoformat() if c.deleted_at else None}
+        {
+            **_filter_event_response_by_permissions(db_to_response(c), view_permissions),
+            "deleted_at": c.deleted_at.isoformat() if c.deleted_at else None,
+        }
         for c in cadastros
     ]
 
@@ -424,12 +557,16 @@ def obter_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_user
     if not cadastro:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado")
     
-    return db_to_response(cadastro)
+    view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
+    return _filter_event_response_by_permissions(db_to_response(cadastro), view_permissions)
 
 
 @router.post("/", response_model=CadastroEventoResponse)
 def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db), current_user=Depends(require_permission('eventos', 'pode_editar'))):
     """Cria um novo cadastro de evento"""
+    edit_permissions = _event_field_permissions(db, current_user, "pode_editar")
+    _strip_forbidden_create_fields(data, edit_permissions)
+
     
     if data.sku and data.sku.strip():
         existing_sku = db.query(CadastroEvento).filter(
@@ -586,7 +723,8 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db), cu
     db.commit()
     db.refresh(cadastro)
     _invalidate_list_cache()
-    return db_to_response(cadastro)
+    view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
+    return _filter_event_response_by_permissions(db_to_response(cadastro), view_permissions)
 
 
 @router.put("/{cadastro_id}", response_model=CadastroEventoResponse)
@@ -597,6 +735,9 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
     if not cadastro:
         raise HTTPException(status_code=404, detail="Cadastro não encontrado")
     
+    edit_permissions = _event_field_permissions(db, current_user, "pode_editar")
+    _strip_forbidden_update_fields(data, edit_permissions)
+
     if data.sku is not None and data.sku.strip():
         sku_trimmed = data.sku.strip()
         existing_sku = db.query(CadastroEvento).filter(
@@ -798,7 +939,8 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         except Exception:
             pass
     _invalidate_list_cache()
-    return db_to_response(cadastro)
+    view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
+    return _filter_event_response_by_permissions(db_to_response(cadastro), view_permissions)
 
 
 @router.post("/resync-projetos")

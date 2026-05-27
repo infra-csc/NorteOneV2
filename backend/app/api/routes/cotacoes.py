@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from typing import List, Optional
 from ...core.database import get_db
 from ...core.security import require_permission
@@ -157,7 +157,10 @@ def list_viagens(
     current_user: Usuario = Depends(_view_cotacao)
 ):
 
-    query = db.query(ViagemCotacao)
+    query = db.query(ViagemCotacao).options(
+        selectinload(ViagemCotacao.cotacoes),
+        joinedload(ViagemCotacao.criador),
+    )
     if ano:
         query = query.filter(ViagemCotacao.ano_competencia == ano)
     viagens = query.order_by(ViagemCotacao.created_at.desc()).all()
@@ -213,9 +216,9 @@ def get_viagem(
 ):
 
     v = db.query(ViagemCotacao).options(
-        joinedload(ViagemCotacao.cotacoes).joinedload(Cotacao.fornecedor),
-        joinedload(ViagemCotacao.cotacoes).joinedload(Cotacao.eventos),
-        joinedload(ViagemCotacao.custos_importacao),
+        selectinload(ViagemCotacao.cotacoes).joinedload(Cotacao.fornecedor),
+        selectinload(ViagemCotacao.cotacoes).selectinload(Cotacao.eventos).joinedload(CotacaoEvento.evento),
+        selectinload(ViagemCotacao.custos_importacao),
         joinedload(ViagemCotacao.criador),
     ).filter(ViagemCotacao.id == vid).first()
     if not v:
@@ -226,8 +229,7 @@ def get_viagem(
         eventos_resp = []
         for ce in c.eventos:
             if ce.cadastro_evento_id:
-                ev = db.query(CadastroEvento).filter(CadastroEvento.id == ce.cadastro_evento_id).first()
-                ev_nome = ev.nome if ev else None
+                ev_nome = ce.evento.nome if ce.evento else None
             else:
                 ev_nome = ce.evento_nome_manual
             eventos_resp.append(CotacaoEventoResponse(
@@ -387,17 +389,19 @@ def update_cotacao(
 
     db.commit()
     db.refresh(c)
+    c = db.query(Cotacao).options(
+        joinedload(Cotacao.fornecedor),
+        selectinload(Cotacao.eventos).joinedload(CotacaoEvento.evento),
+    ).filter(Cotacao.id == cid).first()
 
     fornecedor_nome = None
-    if c.fornecedor_id:
-        f = db.query(Fornecedor).filter(Fornecedor.id == c.fornecedor_id).first()
-        fornecedor_nome = f.nome if f else None
+    if c and c.fornecedor:
+        fornecedor_nome = c.fornecedor.nome
 
     eventos_resp = []
     for ce in c.eventos:
         if ce.cadastro_evento_id:
-            ev = db.query(CadastroEvento).filter(CadastroEvento.id == ce.cadastro_evento_id).first()
-            ev_nome = ev.nome if ev else None
+            ev_nome = ce.evento.nome if ce.evento else None
         else:
             ev_nome = ce.evento_nome_manual
         eventos_resp.append(CotacaoEventoResponse(
@@ -609,7 +613,11 @@ def get_dashboard(
 ):
 
 
-    query = db.query(ViagemCotacao)
+    query = db.query(ViagemCotacao).options(
+        selectinload(ViagemCotacao.cotacoes).joinedload(Cotacao.fornecedor),
+        selectinload(ViagemCotacao.cotacoes).selectinload(Cotacao.eventos).joinedload(CotacaoEvento.evento),
+        selectinload(ViagemCotacao.custos_importacao),
+    )
     if ano:
         query = query.filter(ViagemCotacao.ano_competencia == ano)
     viagens = query.all()
@@ -644,8 +652,7 @@ def get_dashboard(
             if ce.cadastro_evento_id:
                 key = ce.cadastro_evento_id
                 if key not in evento_custos:
-                    ev = db.query(CadastroEvento).filter(CadastroEvento.id == key).first()
-                    evento_custos[key] = {"evento": ev.nome if ev else f"ID {key}", "total_usd": 0, "total_brl": 0}
+                    evento_custos[key] = {"evento": ce.evento.nome if ce.evento else f"ID {key}", "total_usd": 0, "total_brl": 0}
             else:
                 key = ce.evento_nome_manual or "Evento sem nome"
                 if key not in evento_custos:

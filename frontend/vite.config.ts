@@ -51,6 +51,7 @@ export default defineConfig({
             // entre sessões em dispositivos compartilhados e mantém ações operacionais sempre online.
             urlPattern: ({ url, request }) => {
               if (request.method !== 'GET') return false;
+              if (request.headers.has('authorization')) return false;
               const p = url.pathname;
               if (!p.startsWith('/api/marketing/')) return false;
               if (

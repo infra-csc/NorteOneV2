@@ -721,8 +721,11 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     if (mountHandlingRef.current) return;
-    if (!loading && filters.ano) loadData(filters, false);
-  }, [filters]);
+    if (!loading && filters.ano) {
+      const timer = window.setTimeout(() => loadData(filters, false), 250);
+      return () => window.clearTimeout(timer);
+    }
+  }, [filters, loading, loadData]);
 
   const cardClass = `rounded-2xl p-6 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
 

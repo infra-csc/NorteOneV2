@@ -2400,12 +2400,12 @@ async def _log_validation_error(request, exc):
 from app.core.config import settings as app_settings
 
 cors_origins = [origin.strip() for origin in app_settings.CORS_ORIGINS.split(",") if origin.strip()]
-cors_origins.append("https://*.replit.app")
-cors_origins.append("https://*.replit.dev")
+cors_origin_regex = r"https://.*\.replit\.(app|dev)"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

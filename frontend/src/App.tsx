@@ -68,7 +68,7 @@ const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return user ? <>{children}</> : <Navigate to="/login" />;
 };
 
-const PermissionRoute: React.FC<{ children: React.ReactNode; module: string }> = ({ children, module }) => {
+const PermissionRoute: React.FC<{ children: React.ReactNode; module: string; fallback?: string }> = ({ children, module, fallback = '/manual' }) => {
   const { user, isLoading: authLoading } = useAuth();
   const { canView, isLoading: permLoading } = usePermissions();
 
@@ -81,7 +81,7 @@ const PermissionRoute: React.FC<{ children: React.ReactNode; module: string }> =
   }
 
   if (!user) return <Navigate to="/login" />;
-  if (!canView(module)) return <Navigate to="/" />;
+  if (!canView(module)) return <Navigate to={fallback} />;
   return <>{children}</>;
 };
 
@@ -95,7 +95,7 @@ function App() {
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/" element={<PrivateRoute><Layout><Dashboard /></Layout></PrivateRoute>} />
+              <Route path="/" element={<PermissionRoute module="dashboard"><Layout><Dashboard /></Layout></PermissionRoute>} />
               <Route path="/cadastros/categorias-atletas" element={<PermissionRoute module="categorias_atletas"><Layout><CategoriasAtletas /></Layout></PermissionRoute>} />
               <Route path="/cadastros/eventos" element={<PermissionRoute module="eventos"><Layout><Eventos /></Layout></PermissionRoute>} />
               <Route path="/marketing" element={<PermissionRoute module="marketing_dashboard"><Layout><MarketingDashboard /></Layout></PermissionRoute>} />

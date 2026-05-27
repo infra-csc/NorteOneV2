@@ -108,7 +108,7 @@ def get_resumo_tarefas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
-    from sqlalchemy import or_, and_
+    from sqlalchemy import or_, and_, func as sa_func, case
     
     minhas_tarefas_filter = or_(
         Tarefa.responsavel_id == current_user.id,
@@ -124,49 +124,46 @@ def get_resumo_tarefas(
         Tarefa.responsavel_id != current_user.id
     )
     
-    total = db.query(Tarefa).filter(minhas_tarefas_filter).count()
-    pendentes = db.query(Tarefa).filter(
-        minhas_tarefas_filter,
-        Tarefa.status == ModelStatusTarefa.PENDENTE
-    ).count()
-    em_andamento = db.query(Tarefa).filter(
-        minhas_tarefas_filter,
-        Tarefa.status == ModelStatusTarefa.EM_ANDAMENTO
-    ).count()
-    concluidas = db.query(Tarefa).filter(
-        minhas_tarefas_filter,
-        Tarefa.status == ModelStatusTarefa.CONCLUIDA
-    ).count()
-    
     hoje = datetime.now().date()
-    vencendo_hoje = db.query(Tarefa).filter(
-        minhas_tarefas_filter,
-        Tarefa.data_vencimento >= hoje,
-        Tarefa.data_vencimento < hoje + timedelta(days=1),
-        Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
-    ).count()
-    
-    atrasadas = db.query(Tarefa).filter(
-        minhas_tarefas_filter,
-        Tarefa.data_vencimento < hoje,
-        Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
-    ).count()
-    
-    delegadas_total = db.query(Tarefa).filter(delegadas_filter).count()
-    delegadas_pendentes = db.query(Tarefa).filter(
-        delegadas_filter,
-        Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
-    ).count()
+    amanha = hoje + timedelta(days=1)
+    status_ativos = [ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO]
+
+    minhas_counts = db.query(
+        sa_func.count(Tarefa.id).label("total"),
+        sa_func.sum(case((Tarefa.status == ModelStatusTarefa.PENDENTE, 1), else_=0)).label("pendentes"),
+        sa_func.sum(case((Tarefa.status == ModelStatusTarefa.EM_ANDAMENTO, 1), else_=0)).label("em_andamento"),
+        sa_func.sum(case((Tarefa.status == ModelStatusTarefa.CONCLUIDA, 1), else_=0)).label("concluidas"),
+        sa_func.sum(case((
+            and_(
+                Tarefa.data_vencimento >= hoje,
+                Tarefa.data_vencimento < amanha,
+                Tarefa.status.in_(status_ativos),
+            ),
+            1
+        ), else_=0)).label("vencendo_hoje"),
+        sa_func.sum(case((
+            and_(
+                Tarefa.data_vencimento < hoje,
+                Tarefa.status.in_(status_ativos),
+            ),
+            1
+        ), else_=0)).label("atrasadas"),
+    ).filter(minhas_tarefas_filter).one()
+
+    delegadas_counts = db.query(
+        sa_func.count(Tarefa.id).label("total"),
+        sa_func.sum(case((Tarefa.status.in_(status_ativos), 1), else_=0)).label("pendentes"),
+    ).filter(delegadas_filter).one()
     
     return {
-        "total": total,
-        "pendentes": pendentes,
-        "em_andamento": em_andamento,
-        "concluidas": concluidas,
-        "vencendo_hoje": vencendo_hoje,
-        "atrasadas": atrasadas,
-        "delegadas_total": delegadas_total,
-        "delegadas_pendentes": delegadas_pendentes
+        "total": int(minhas_counts.total or 0),
+        "pendentes": int(minhas_counts.pendentes or 0),
+        "em_andamento": int(minhas_counts.em_andamento or 0),
+        "concluidas": int(minhas_counts.concluidas or 0),
+        "vencendo_hoje": int(minhas_counts.vencendo_hoje or 0),
+        "atrasadas": int(minhas_counts.atrasadas or 0),
+        "delegadas_total": int(delegadas_counts.total or 0),
+        "delegadas_pendentes": int(delegadas_counts.pendentes or 0)
     }
 
 
