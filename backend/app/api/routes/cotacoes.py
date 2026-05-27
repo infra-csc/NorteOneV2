@@ -18,6 +18,7 @@ from ...schemas.cotacao import (
 import httpx
 import logging
 import time as _time
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,17 @@ _edit_cotacao = require_permission("cotacoes_importacao", "pode_editar")
 
 _cambio_cache: dict = {"taxa": 0, "variacao": 0, "data": "", "ts": 0}
 _CAMBIO_TTL = 300
+_fob_cache: dict = {"data": None, "circuitos": None, "produtos": None, "ts": 0.0}
+_fob_cache_lock = threading.Lock()
+_FOB_CACHE_TTL = 300
+
+
+def _invalidate_fob_cache():
+    with _fob_cache_lock:
+        _fob_cache["data"] = None
+        _fob_cache["circuitos"] = None
+        _fob_cache["produtos"] = None
+        _fob_cache["ts"] = 0.0
 
 
 @router.get("/cambio")
@@ -702,7 +714,16 @@ def list_cotacoes_fob(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(_view_cotacao)
 ):
-    return db.query(CotacaoFob).order_by(CotacaoFob.circuito, CotacaoFob.produto).all()
+    now = _time.time()
+    with _fob_cache_lock:
+        cached = _fob_cache["data"]
+        if cached is not None and (now - _fob_cache["ts"]) < _FOB_CACHE_TTL:
+            return cached
+    rows = db.query(CotacaoFob).order_by(CotacaoFob.circuito, CotacaoFob.produto).all()
+    with _fob_cache_lock:
+        _fob_cache["data"] = rows
+        _fob_cache["ts"] = now
+    return rows
 
 
 @router.get("/fob/circuitos")
@@ -710,8 +731,17 @@ def list_circuitos_fob(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(_view_cotacao)
 ):
+    now = _time.time()
+    with _fob_cache_lock:
+        cached = _fob_cache["circuitos"]
+        if cached is not None and (now - _fob_cache["ts"]) < _FOB_CACHE_TTL:
+            return cached
     rows = db.query(CotacaoFob.circuito).distinct().order_by(CotacaoFob.circuito).all()
-    return [r[0] for r in rows]
+    result = [r[0] for r in rows]
+    with _fob_cache_lock:
+        _fob_cache["circuitos"] = result
+        _fob_cache["ts"] = now
+    return result
 
 
 @router.get("/fob/produtos")
@@ -719,8 +749,17 @@ def list_produtos_fob(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(_view_cotacao)
 ):
+    now = _time.time()
+    with _fob_cache_lock:
+        cached = _fob_cache["produtos"]
+        if cached is not None and (now - _fob_cache["ts"]) < _FOB_CACHE_TTL:
+            return cached
     rows = db.query(CotacaoFob.produto).distinct().order_by(CotacaoFob.produto).all()
-    return [r[0] for r in rows]
+    result = [r[0] for r in rows]
+    with _fob_cache_lock:
+        _fob_cache["produtos"] = result
+        _fob_cache["ts"] = now
+    return result
 
 
 def _calc_nacionalizado(fob: float, indice: float | None, bec_percent: float | None, cotacao: float | None) -> float | None:
@@ -755,6 +794,7 @@ def create_cotacao_fob(
     db.add(item)
     db.commit()
     db.refresh(item)
+    _invalidate_fob_cache()
     return item
 
 
@@ -785,6 +825,7 @@ def update_cotacao_fob(
     item.valor_nacionalizado = valor_nac
     db.commit()
     db.refresh(item)
+    _invalidate_fob_cache()
     return item
 
 
@@ -799,4 +840,5 @@ def delete_cotacao_fob(
         raise HTTPException(status_code=404, detail="Cotacao FOB nao encontrada")
     db.delete(item)
     db.commit()
+    _invalidate_fob_cache()
     return {"message": "Cotacao FOB excluida"}

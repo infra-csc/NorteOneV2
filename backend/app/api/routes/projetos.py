@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import threading
+import time as _time
 from ...core.database import get_db
 from ...core.security import get_current_user, require_permission
 from ...models.dimensoes import DimProjeto
@@ -8,6 +10,15 @@ from ...models.user import Usuario
 from ...schemas.dimensoes import ProjetoCreate, ProjetoUpdate, ProjetoResponse
 
 router = APIRouter(prefix="/projetos", tags=["Projetos/Eventos"])
+_FILTROS_CACHE_TTL = 300
+_filtros_cache = {"data": None, "ts": 0.0}
+_filtros_cache_lock = threading.Lock()
+
+
+def _invalidate_filtros_cache():
+    with _filtros_cache_lock:
+        _filtros_cache["data"] = None
+        _filtros_cache["ts"] = 0.0
 
 
 @router.get("/", response_model=List[ProjetoResponse])
@@ -61,6 +72,12 @@ def get_filtros_disponiveis(
     """
     Retorna os valores disponíveis para os filtros.
     """
+    now = _time.time()
+    with _filtros_cache_lock:
+        cached = _filtros_cache["data"]
+        if cached is not None and (now - _filtros_cache["ts"]) < _FILTROS_CACHE_TTL:
+            return cached
+
     rows = db.query(
         DimProjeto.modalidade,
         DimProjeto.tipo_evento,
@@ -70,7 +87,7 @@ def get_filtros_disponiveis(
         DimProjeto.data_evento,
     ).all()
 
-    return {
+    result = {
         "modalidades": sorted({row.modalidade for row in rows if row.modalidade}),
         "tipos_evento": sorted({row.tipo_evento for row in rows if row.tipo_evento}),
         "leis": sorted({row.lei for row in rows if row.lei}),
@@ -79,6 +96,10 @@ def get_filtros_disponiveis(
         "anos": sorted({row.data_evento.year for row in rows if row.data_evento}, reverse=True),
         "status": ["EM_ANDAMENTO", "CONCLUIDO", "CANCELADO"]
     }
+    with _filtros_cache_lock:
+        _filtros_cache["data"] = result
+        _filtros_cache["ts"] = now
+    return result
 
 
 @router.post("/", response_model=ProjetoResponse)
@@ -95,6 +116,7 @@ def create_projeto(
     db.add(db_projeto)
     db.commit()
     db.refresh(db_projeto)
+    _invalidate_filtros_cache()
     return db_projeto
 
 
@@ -126,6 +148,7 @@ def update_projeto(
 
     db.commit()
     db.refresh(projeto)
+    _invalidate_filtros_cache()
     return projeto
 
 
@@ -141,4 +164,5 @@ def delete_projeto(
 
     setattr(projeto, 'status', 'CANCELADO')
     db.commit()
+    _invalidate_filtros_cache()
     return {"message": "Projeto cancelado"}

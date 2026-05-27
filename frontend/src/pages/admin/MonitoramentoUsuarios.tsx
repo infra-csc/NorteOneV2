@@ -69,7 +69,9 @@ const MonitoramentoUsuarios: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchData();
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchData]);
 

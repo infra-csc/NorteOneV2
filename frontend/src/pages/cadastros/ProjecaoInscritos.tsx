@@ -853,7 +853,9 @@ const ProjecaoInscritos: React.FC = () => {
     loadPendencias();
     loadCutoffRules();
     loadAutoLockConfig();
-    const interval = setInterval(loadPendencias, 180000);
+    const interval = setInterval(() => {
+      if (!document.hidden) loadPendencias();
+    }, 180000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

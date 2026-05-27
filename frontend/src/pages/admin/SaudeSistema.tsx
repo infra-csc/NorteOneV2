@@ -194,7 +194,9 @@ const SaudeSistema: React.FC = () => {
   useEffect(() => {
     fetchSummary();
     fetchConfig();
-    const interval = setInterval(fetchSummary, 30000);
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchSummary();
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchSummary, fetchConfig]);
 
