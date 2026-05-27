@@ -16,7 +16,7 @@ const modalidades = ['Beach', 'Ciclismo', 'Corrida', 'Cultura', 'Educação', 'E
 const tiposEvento = ['Próprio', 'Incentivado', 'Organização', 'Licenciado'];
 const leis = ['','LIE', 'PIE', 'FIA', 'ICMS RJ', 'PROAC', 'PRONAC', 'ROUANET', 'ISS RJ'];
 const statusList = ['Em andamento', 'Concluído', 'Cancelado'];
-
+const PROJETOS_RENDER_BATCH = 60;
 
 // Interface para filtros
 interface Filtros {
@@ -140,6 +140,7 @@ const Projetos: React.FC = () => {
     ano: '',
     busca: ''
   });
+  const [visibleProjetosCount, setVisibleProjetosCount] = useState(PROJETOS_RENDER_BATCH);
 
   // Estado do formulário
   const [form, setForm] = useState({
@@ -156,6 +157,10 @@ const Projetos: React.FC = () => {
       return dateA - dateB;
     });
   }, [projetos]);
+  const visibleProjetos = useMemo(
+    () => projetosOrdenados.slice(0, visibleProjetosCount),
+    [projetosOrdenados, visibleProjetosCount]
+  );
 
   // Carregar filtros disponíveis
   const loadFiltros = async () => {
@@ -188,7 +193,7 @@ const Projetos: React.FC = () => {
       if (filtros.ano) params.ano = filtros.ano;
       if (filtros.busca) params.busca = filtros.busca;
 
-      const data = await projetosService.list();
+      const data = await projetosService.list(params);
       setProjetos(data);
     } catch (error) {
       console.error('Erro:', error);
@@ -205,6 +210,10 @@ const Projetos: React.FC = () => {
   useEffect(() => { 
     loadData(); 
   }, [loadData]);
+
+  useEffect(() => {
+    setVisibleProjetosCount(PROJETOS_RENDER_BATCH);
+  }, [filtros.status, filtros.modalidade, filtros.tipo_evento, filtros.lei, filtros.ano, filtros.busca]);
 
   const handleClearFilters = () => {
     setFiltros({
@@ -597,7 +606,7 @@ const Projetos: React.FC = () => {
                 </button>
               )}
             </div>
-          ) : projetosOrdenados.map((projeto, index) => {
+          ) : visibleProjetos.map((projeto, index) => {
             const modalidadeStyle = getModalidadeStyle(projeto.modalidade);
             const statusStyle = getStatusStyle(projeto.status);
 
@@ -605,7 +614,7 @@ const Projetos: React.FC = () => {
               <div 
                 key={projeto.id} 
                 className={`group relative overflow-hidden rounded-3xl ${isDark ? 'bg-gray-800/80 backdrop-blur-xl' : 'bg-white/90 backdrop-blur-xl'} border ${isDark ? 'border-gray-700/50' : 'border-gray-200'} shadow-xl hover:shadow-2xl transition-all duration-500 hover:-translate-y-2`}
-                style={{ animationDelay: `${index * 100}ms` }}
+                style={{ animationDelay: `${Math.min(index, 20) * 40}ms` }}
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${modalidadeStyle.bg} opacity-0 group-hover:opacity-10 transition-opacity duration-500 pointer-events-none`} />
 
@@ -717,6 +726,16 @@ const Projetos: React.FC = () => {
               </div>
             );
           })}
+          {!loading && visibleProjetos.length < projetosOrdenados.length && (
+            <div className="col-span-full flex justify-center pt-4">
+              <button
+                onClick={() => setVisibleProjetosCount((count) => count + PROJETOS_RENDER_BATCH)}
+                className={`px-5 py-3 rounded-xl font-semibold transition-all ${isDark ? 'bg-gray-800 text-gray-200 hover:bg-gray-700' : 'bg-white text-gray-700 hover:bg-gray-100'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-sm`}
+              >
+                Carregar mais {Math.min(PROJETOS_RENDER_BATCH, projetosOrdenados.length - visibleProjetos.length)} projetos
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
