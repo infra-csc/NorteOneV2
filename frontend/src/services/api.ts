@@ -174,8 +174,9 @@ export const centrosCustoService = {
 };
 
 export const projetosService = {
-  list: async () => {
-    const response = await api.get('/projetos/');
+  list: async (params?: Record<string, string>) => {
+    const query = new URLSearchParams(params || {}).toString();
+    const response = await api.get(`/projetos/${query ? `?${query}` : ''}`);
     return response.data;
   },
 

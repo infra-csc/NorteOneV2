@@ -27,6 +27,10 @@ def list_projetos(
     limit: int = 100,
     status: Optional[str] = None,
     modalidade: Optional[str] = None,
+    tipo_evento: Optional[str] = None,
+    lei: Optional[str] = None,
+    ano: Optional[int] = None,
+    busca: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("eventos", "pode_visualizar"))
 ):
@@ -35,6 +39,24 @@ def list_projetos(
         query = query.filter(DimProjeto.status == status)
     if modalidade:
         query = query.filter(DimProjeto.modalidade == modalidade)
+    if tipo_evento:
+        query = query.filter(DimProjeto.tipo_evento == tipo_evento)
+    if lei:
+        query = query.filter(DimProjeto.lei == lei)
+    if ano:
+        from datetime import date
+        query = query.filter(
+            DimProjeto.data_evento >= date(int(ano), 1, 1),
+            DimProjeto.data_evento < date(int(ano) + 1, 1, 1),
+        )
+    if busca:
+        q = f"%{busca.strip()}%"
+        query = query.filter(
+            (DimProjeto.evento.ilike(q)) |
+            (DimProjeto.codigo.ilike(q)) |
+            (DimProjeto.cidade.ilike(q)) |
+            (DimProjeto.local_evento.ilike(q))
+        )
     projetos = query.offset(skip).limit(limit).all()
     return projetos
 
