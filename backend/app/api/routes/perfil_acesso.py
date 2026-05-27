@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func as sa_func
 from typing import List
+import threading
+import time as _time
 from ...core.database import get_db
 from ...core.security import require_permission, get_current_user, is_user_admin
 from ...models.perfil_acesso import PerfilAcesso, PerfilPermissao
@@ -15,6 +17,15 @@ from ...schemas.perfil_acesso import (
 from ...models.perfil_acesso import PerfilPermissaoCampo
 
 router = APIRouter(prefix="/perfis-acesso", tags=["Perfis de Acesso"])
+
+_USER_PERMISSIONS_CACHE_TTL = 300
+_user_permissions_cache: dict[int, dict] = {}
+_user_permissions_cache_lock = threading.Lock()
+
+
+def _invalidate_user_permissions_cache():
+    with _user_permissions_cache_lock:
+        _user_permissions_cache.clear()
 
 
 @router.get("/modulos", response_model=List[ModuloInfo])
@@ -109,6 +120,7 @@ def create_perfil(
 
     db.commit()
     db.refresh(perfil)
+    _invalidate_user_permissions_cache()
     return db.query(PerfilAcesso).options(
         joinedload(PerfilAcesso.permissoes)
     ).filter(PerfilAcesso.id == perfil.id).first()
@@ -165,6 +177,7 @@ def update_perfil(
             db.add(db_perm)
 
     db.commit()
+    _invalidate_user_permissions_cache()
     return db.query(PerfilAcesso).options(
         joinedload(PerfilAcesso.permissoes)
     ).filter(PerfilAcesso.id == perfil.id).first()
@@ -195,6 +208,7 @@ def delete_perfil(
 
     perfil.ativo = False
     db.commit()
+    _invalidate_user_permissions_cache()
     return {"message": "Perfil desativado com sucesso"}
 
 
@@ -235,6 +249,7 @@ def update_permissoes_campo(
         db.add(db_perm)
 
     db.commit()
+    _invalidate_user_permissions_cache()
     return {"message": "Permissões de campo atualizadas com sucesso"}
 
 
@@ -279,6 +294,13 @@ def get_my_permissions(
             permissoes_campo={},
         )
 
+    now = _time.time()
+    cache_key = int(current_user.perfil_acesso_id)
+    with _user_permissions_cache_lock:
+        cached = _user_permissions_cache.get(cache_key)
+        if cached and (now - cached["ts"]) < _USER_PERMISSIONS_CACHE_TTL:
+            return cached["data"]
+
     perfil = db.query(PerfilAcesso).options(
         joinedload(PerfilAcesso.permissoes),
         joinedload(PerfilAcesso.permissoes_campo)
@@ -309,10 +331,13 @@ def get_my_permissions(
             "pode_editar": pc.pode_editar,
         }
 
-    return UserPermissoesResponse(
+    response = UserPermissoesResponse(
         perfil_acesso_id=perfil.id,
         perfil_acesso_nome=perfil.nome,
         is_admin=False,
         permissoes=perms,
         permissoes_campo=campos,
     )
+    with _user_permissions_cache_lock:
+        _user_permissions_cache[cache_key] = {"data": response, "ts": now}
+    return response

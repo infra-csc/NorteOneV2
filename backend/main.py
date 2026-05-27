@@ -1334,6 +1334,13 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_tarefas_prioridade ON tarefas (prioridade)",
             "CREATE INDEX IF NOT EXISTS ix_tarefas_data_vencimento ON tarefas (data_vencimento)",
             "CREATE INDEX IF NOT EXISTS ix_tarefas_created_at ON tarefas (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_acesso_ativo ON perfil_acesso (ativo)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_acesso_is_admin ON perfil_acesso (is_admin)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_permissao_perfil_acesso_id ON perfil_permissao (perfil_acesso_id)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_permissao_modulo ON perfil_permissao (modulo)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_permissao_campo_perfil_acesso_id ON perfil_permissao_campo (perfil_acesso_id)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_permissao_campo_entidade ON perfil_permissao_campo (entidade)",
+            "CREATE INDEX IF NOT EXISTS ix_perfil_permissao_campo_campo ON perfil_permissao_campo (campo)",
             "CREATE INDEX IF NOT EXISTS ix_cadastro_evento_projeto_id ON cadastro_evento (projeto_id)",
             "CREATE INDEX IF NOT EXISTS ix_cadastro_evento_data_evento ON cadastro_evento (data_evento)",
             "CREATE INDEX IF NOT EXISTS ix_cadastro_evento_deleted_at ON cadastro_evento (deleted_at)",
@@ -1352,6 +1359,8 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_viagem_cotacao_ano_competencia ON viagem_cotacao (ano_competencia)",
             "CREATE INDEX IF NOT EXISTS ix_viagem_cotacao_status ON viagem_cotacao (status)",
             "CREATE INDEX IF NOT EXISTS ix_viagem_cotacao_created_at ON viagem_cotacao (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_fornecedor_nome ON fornecedor (nome)",
+            "CREATE INDEX IF NOT EXISTS ix_fornecedor_ativo ON fornecedor (ativo)",
             "CREATE INDEX IF NOT EXISTS ix_cotacao_viagem_id ON cotacao (viagem_id)",
             "CREATE INDEX IF NOT EXISTS ix_cotacao_fornecedor_id ON cotacao (fornecedor_id)",
             "CREATE INDEX IF NOT EXISTS ix_cotacao_selecionado ON cotacao (selecionado)",
@@ -1522,6 +1531,19 @@ def _run_column_migrations():
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_at TIMESTAMP",
             "ALTER TABLE projecao_inscritos ADD COLUMN IF NOT EXISTS locked_by INTEGER REFERENCES dim_usuario(id)",
             "ALTER TABLE projecao_inscritos_historico ALTER COLUMN campo_alterado TYPE VARCHAR(200)",
+            "CREATE INDEX IF NOT EXISTS ix_area_projecao_ativo ON area_projecao (ativo)",
+            "CREATE INDEX IF NOT EXISTS ix_area_projecao_usuario_area_id ON area_projecao_usuario (area_projecao_id)",
+            "CREATE INDEX IF NOT EXISTS ix_area_projecao_usuario_usuario_id ON area_projecao_usuario (usuario_id)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_created_by ON projecao_inscritos (created_by)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_updated_by ON projecao_inscritos (updated_by)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_locked_by ON projecao_inscritos (locked_by)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_locked_at ON projecao_inscritos (locked_at)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_deleted_at ON projecao_inscritos (deleted_at)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_active_evento_area ON projecao_inscritos (evento_id, area_projecao_id) WHERE deleted_at IS NULL",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_hist_usuario ON projecao_inscritos_historico (usuario_id)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_hist_created_at ON projecao_inscritos_historico (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_cliente_projecao_id ON projecao_inscritos_cliente (projecao_id)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_kit_projecao_id ON projecao_inscritos_kit (projecao_id)",
             """
             CREATE TABLE IF NOT EXISTS projecao_cutoff_rule (
                 id SERIAL PRIMARY KEY,
@@ -1533,6 +1555,7 @@ def _run_column_migrations():
             )
             """,
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_cutoff_dias ON projecao_cutoff_rule (dias_antes_evento)",
+            "CREATE INDEX IF NOT EXISTS ix_projecao_cutoff_rule_ativo ON projecao_cutoff_rule (ativo)",
             "ALTER TABLE area_projecao ADD COLUMN IF NOT EXISTS usa_cutoff_customizado BOOLEAN DEFAULT FALSE NOT NULL",
             """
             CREATE TABLE IF NOT EXISTS projecao_cutoff_evento_area (
@@ -1550,6 +1573,10 @@ def _run_column_migrations():
             """,
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_evento ON projecao_cutoff_evento_area (evento_id)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_area ON projecao_cutoff_evento_area (area_projecao_id)",
+            "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_created_by ON projecao_cutoff_evento_area (created_by)",
+            "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_updated_by ON projecao_cutoff_evento_area (updated_by)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_fob_circuito ON cotacao_fob (circuito)",
+            "CREATE INDEX IF NOT EXISTS ix_cotacao_fob_produto ON cotacao_fob (produto)",
             # gratuito flag added to cadastro_evento (task #3769e50)
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS gratuito BOOLEAN DEFAULT FALSE",
         ]

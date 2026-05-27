@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import extract
 from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
@@ -47,6 +47,9 @@ _areas_cache_lock = threading.Lock()
 _CUTOFF_RULES_CACHE_TTL = 300
 _cutoff_rules_cache: dict = {}
 _cutoff_rules_cache_lock = threading.Lock()
+_USER_AREA_IDS_CACHE_TTL = 300
+_user_area_ids_cache: dict[int, dict] = {}
+_user_area_ids_cache_lock = threading.Lock()
 
 
 def _invalidate_areas_cache():
@@ -60,11 +63,24 @@ def _invalidate_cutoff_rules_cache():
         _cutoff_rules_cache.clear()
 
 
+def _invalidate_user_area_ids_cache():
+    with _user_area_ids_cache_lock:
+        _user_area_ids_cache.clear()
+
+
 def _get_user_area_ids(db: Session, user_id: int) -> set:
+    now = _time.time()
+    with _user_area_ids_cache_lock:
+        cached = _user_area_ids_cache.get(user_id)
+        if cached and (now - cached["ts"]) < _USER_AREA_IDS_CACHE_TTL:
+            return cached["data"]
     rows = db.query(AreaProjecaoUsuario.area_projecao_id).filter(
         AreaProjecaoUsuario.usuario_id == user_id
     ).all()
-    return {r[0] for r in rows}
+    area_ids = {r[0] for r in rows}
+    with _user_area_ids_cache_lock:
+        _user_area_ids_cache[user_id] = {"data": area_ids, "ts": now}
+    return area_ids
 
 
 def _check_area_permission(db: Session, user, area_projecao_id: int):
@@ -116,7 +132,7 @@ def list_areas_detail(
     areas = (
         db.query(AreaProjecao)
         .filter(AreaProjecao.ativo == True)
-        .options(joinedload(AreaProjecao.usuarios).joinedload(AreaProjecaoUsuario.usuario))
+        .options(selectinload(AreaProjecao.usuarios).joinedload(AreaProjecaoUsuario.usuario))
         .order_by(AreaProjecao.nome)
         .all()
     )
@@ -186,6 +202,7 @@ def atribuir_usuarios_area(
         db.add(AreaProjecaoUsuario(area_projecao_id=data.area_projecao_id, usuario_id=uid))
 
     db.commit()
+    _invalidate_user_area_ids_cache()
     return {"message": f"Atribuições atualizadas para a área '{area.nome}'"}
 
 
@@ -226,8 +243,8 @@ def list_projecoes(
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
             joinedload(ProjecaoInscritos.travador),
-            joinedload(ProjecaoInscritos.clientes),
-            joinedload(ProjecaoInscritos.kits),
+            selectinload(ProjecaoInscritos.clientes),
+            selectinload(ProjecaoInscritos.kits),
         )
     )
 
@@ -581,8 +598,8 @@ def update_projecao(
         joinedload(ProjecaoInscritos.evento),
         joinedload(ProjecaoInscritos.area_projecao),
         joinedload(ProjecaoInscritos.criador),
-        joinedload(ProjecaoInscritos.clientes),
-        joinedload(ProjecaoInscritos.kits),
+        selectinload(ProjecaoInscritos.clientes),
+        selectinload(ProjecaoInscritos.kits),
     ).filter(
         ProjecaoInscritos.id == projecao_id,
         ProjecaoInscritos.deleted_at.is_(None),
@@ -971,8 +988,8 @@ def exportar_projecoes(
             joinedload(ProjecaoInscritos.area_projecao),
             joinedload(ProjecaoInscritos.criador),
             joinedload(ProjecaoInscritos.editor),
-            joinedload(ProjecaoInscritos.clientes),
-            joinedload(ProjecaoInscritos.kits),
+            selectinload(ProjecaoInscritos.clientes),
+            selectinload(ProjecaoInscritos.kits),
         )
         .filter(
             CadastroEvento.deleted_at.is_(None),
@@ -1211,6 +1228,7 @@ def create_cutoff_rule(
         db.rollback()
         raise HTTPException(status_code=400, detail="Já existe uma regra com esse valor de dias")
     db.refresh(rule)
+    _invalidate_cutoff_rules_cache()
     return rule
 
 
@@ -1252,6 +1270,7 @@ def update_cutoff_rule(
         db.rollback()
         raise HTTPException(status_code=400, detail="Já existe uma regra com esse valor de dias")
     db.refresh(rule)
+    _invalidate_cutoff_rules_cache()
     return rule
 
 
@@ -1268,6 +1287,7 @@ def delete_cutoff_rule(
         raise HTTPException(status_code=404, detail="Regra não encontrada")
     db.delete(rule)
     db.commit()
+    _invalidate_cutoff_rules_cache()
     return {"message": "Regra removida com sucesso"}
 
 
@@ -1517,6 +1537,7 @@ def toggle_area_cutoff_customizado(
     area.usa_cutoff_customizado = bool(data.ativo)
     db.commit()
     db.refresh(area)
+    _invalidate_areas_cache()
     return area
 
 

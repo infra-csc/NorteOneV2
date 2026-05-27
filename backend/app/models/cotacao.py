@@ -35,11 +35,11 @@ class Fornecedor(Base):
     __tablename__ = "fornecedor"
 
     id = Column(Integer, primary_key=True, index=True)
-    nome = Column(String(200), nullable=False)
+    nome = Column(String(200), nullable=False, index=True)
     contato = Column(String(200), nullable=True)
     localizacao = Column(String(200), nullable=True)
     observacoes = Column(Text, nullable=True)
-    ativo = Column(Boolean, default=True)
+    ativo = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=func.now())
 
     cotacoes = relationship("Cotacao", back_populates="fornecedor")
@@ -104,8 +104,8 @@ class CotacaoFob(Base):
     __tablename__ = "cotacao_fob"
 
     id = Column(Integer, primary_key=True, index=True)
-    circuito = Column(String(200), nullable=False)
-    produto = Column(String(200), nullable=False)
+    circuito = Column(String(200), nullable=False, index=True)
+    produto = Column(String(200), nullable=False, index=True)
     valor_fob = Column(Numeric(12, 4), nullable=False, default=0)
     indice_importacao = Column(Numeric(10, 6), nullable=True)
     bec = Column(Numeric(10, 6), nullable=True)

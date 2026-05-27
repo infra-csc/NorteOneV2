@@ -14,7 +14,7 @@ class AreaProjecao(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), unique=True, nullable=False)
-    ativo = Column(Boolean, default=True)
+    ativo = Column(Boolean, default=True, index=True)
     usa_cutoff_customizado = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, onupdate=_now_brasilia)
@@ -27,8 +27,8 @@ class AreaProjecaoUsuario(Base):
     __tablename__ = "area_projecao_usuario"
 
     id = Column(Integer, primary_key=True, index=True)
-    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False)
-    usuario_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="CASCADE"), nullable=False)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
+    usuario_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime, default=_now_brasilia)
 
     area = relationship("AreaProjecao", back_populates="usuarios")
@@ -43,16 +43,16 @@ class ProjecaoInscritos(Base):
     __tablename__ = "projecao_inscritos"
 
     id = Column(Integer, primary_key=True, index=True)
-    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
-    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
     quantidade = Column(Integer, nullable=False, default=0)
-    created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
-    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
-    locked_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False, index=True)
+    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
+    locked_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, onupdate=_now_brasilia)
-    locked_at = Column(DateTime, nullable=True)
-    deleted_at = Column(DateTime, nullable=True)
+    locked_at = Column(DateTime, nullable=True, index=True)
+    deleted_at = Column(DateTime, nullable=True, index=True)
 
     evento = relationship("CadastroEvento")
     area_projecao = relationship("AreaProjecao", back_populates="projecoes")
@@ -68,13 +68,13 @@ class ProjecaoInscritosHistorico(Base):
     __tablename__ = "projecao_inscritos_historico"
 
     id = Column(Integer, primary_key=True, index=True)
-    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False)
+    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False, index=True)
     acao = Column(String(20), nullable=False)
     campo_alterado = Column(String(50), nullable=True)
     valor_anterior = Column(Text, nullable=True)
     valor_novo = Column(Text, nullable=True)
-    usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False)
-    created_at = Column(DateTime, default=_now_brasilia)
+    usuario_id = Column(Integer, ForeignKey("dim_usuario.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=_now_brasilia, index=True)
 
     projecao = relationship("ProjecaoInscritos", back_populates="historico")
     usuario = relationship("Usuario")
@@ -84,7 +84,7 @@ class ProjecaoInscritosCliente(Base):
     __tablename__ = "projecao_inscritos_cliente"
 
     id = Column(Integer, primary_key=True, index=True)
-    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False)
+    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False, index=True)
     nome_cliente = Column(String(200), nullable=False)
     quantidade = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=_now_brasilia)
@@ -96,7 +96,7 @@ class ProjecaoInscritosKit(Base):
     __tablename__ = "projecao_inscritos_kit"
 
     id = Column(Integer, primary_key=True, index=True)
-    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False)
+    projecao_id = Column(Integer, ForeignKey("projecao_inscritos.id", ondelete="CASCADE"), nullable=False, index=True)
     nome_kit = Column(String(200), nullable=False)
     quantidade = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=_now_brasilia)
@@ -109,8 +109,8 @@ class ProjecaoCutoffRule(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nome = Column(String(100), nullable=False)
-    dias_antes_evento = Column(Integer, nullable=False)
-    ativo = Column(Boolean, default=True, nullable=False)
+    dias_antes_evento = Column(Integer, nullable=False, index=True)
+    ativo = Column(Boolean, default=True, nullable=False, index=True)
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, onupdate=_now_brasilia)
 
@@ -123,12 +123,12 @@ class ProjecaoCutoffEventoArea(Base):
     __tablename__ = "projecao_cutoff_evento_area"
 
     id = Column(Integer, primary_key=True, index=True)
-    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False)
-    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
     data_corte_1 = Column(Date, nullable=True)
     data_corte_2 = Column(Date, nullable=True)
-    created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
-    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
+    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, onupdate=_now_brasilia)
 
@@ -159,7 +159,7 @@ class SimuladorProjetadoFaixas(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     evento_id = Column(String(100), nullable=False, index=True)
-    usuario_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="CASCADE"), nullable=False)
+    usuario_id = Column(Integer, ForeignKey("dim_usuario.id", ondelete="CASCADE"), nullable=False, index=True)
     faixas = Column(Text, nullable=False, default="[]")
     created_at = Column(DateTime, default=_now_brasilia)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
