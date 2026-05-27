@@ -38,12 +38,18 @@ def list_perfis(
     current_user: Usuario = Depends(require_permission("admin_perfis_acesso", "pode_visualizar"))
 ):
     perfis = db.query(PerfilAcesso).filter(PerfilAcesso.ativo == True).all()
+    perfil_ids = [perfil.id for perfil in perfis]
+    user_counts = dict(
+        db.query(Usuario.perfil_acesso_id, sa_func.count(Usuario.id))
+        .filter(
+            Usuario.ativo == True,
+            Usuario.perfil_acesso_id.in_(perfil_ids),
+        )
+        .group_by(Usuario.perfil_acesso_id)
+        .all()
+    ) if perfil_ids else {}
     result = []
     for perfil in perfis:
-        total = db.query(sa_func.count(Usuario.id)).filter(
-            Usuario.perfil_acesso_id == perfil.id,
-            Usuario.ativo == True
-        ).scalar()
         result.append(PerfilAcessoListResponse(
             id=perfil.id,
             nome=perfil.nome,
@@ -51,7 +57,7 @@ def list_perfis(
             is_sistema=perfil.is_sistema,
             is_admin=perfil.is_admin,
             ativo=perfil.ativo,
-            total_usuarios=total or 0
+            total_usuarios=user_counts.get(perfil.id, 0)
         ))
     return result
 

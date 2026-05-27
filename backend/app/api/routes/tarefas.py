@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -15,6 +15,7 @@ router = APIRouter(prefix="/tarefas", tags=["Tarefas"])
 def list_tarefas(
     status: Optional[StatusTarefa] = None,
     prioridade: Optional[PrioridadeTarefa] = None,
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -34,12 +35,13 @@ def list_tarefas(
     if prioridade:
         query = query.filter(Tarefa.prioridade == prioridade)
     
-    tarefas = query.order_by(Tarefa.data_vencimento.asc().nullsfirst()).all()
+    tarefas = query.order_by(Tarefa.data_vencimento.asc().nullsfirst()).limit(limit).all()
     return tarefas
 
 
 @router.get("/pendentes", response_model=List[TarefaResponse])
 def list_tarefas_pendentes(
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -53,12 +55,13 @@ def list_tarefas_pendentes(
             )
         ),
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
-    ).order_by(Tarefa.data_vencimento.asc().nullsfirst()).all()
+    ).order_by(Tarefa.data_vencimento.asc().nullsfirst()).limit(limit).all()
     return tarefas
 
 
 @router.get("/hoje", response_model=List[TarefaResponse])
 def list_tarefas_hoje(
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -77,13 +80,14 @@ def list_tarefas_hoje(
         Tarefa.data_vencimento >= hoje,
         Tarefa.data_vencimento < amanha,
         Tarefa.status.in_([ModelStatusTarefa.PENDENTE, ModelStatusTarefa.EM_ANDAMENTO])
-    ).order_by(Tarefa.data_vencimento.asc()).all()
+    ).order_by(Tarefa.data_vencimento.asc()).limit(limit).all()
     return tarefas
 
 
 @router.get("/delegadas", response_model=List[TarefaResponse])
 def list_tarefas_delegadas(
     status: Optional[StatusTarefa] = None,
+    limit: int = Query(200, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(get_current_user)
 ):
@@ -99,7 +103,7 @@ def list_tarefas_delegadas(
     if status:
         query = query.filter(Tarefa.status == status)
     
-    tarefas = query.order_by(Tarefa.created_at.desc()).all()
+    tarefas = query.order_by(Tarefa.created_at.desc()).limit(limit).all()
     return tarefas
 
 

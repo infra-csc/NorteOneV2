@@ -18,6 +18,9 @@ _list_cache: dict = {"data": None, "json": None, "ts": 0.0}
 _list_cache_lock = threading.Lock()
 _LIST_CACHE_TTL = 300
 _LIST_CACHE_LIMIT = 1000
+_opcoes_cache: dict = {"circuitos": None, "localizacoes": None, "ts": 0.0}
+_opcoes_cache_lock = threading.Lock()
+_OPCOES_CACHE_TTL = 300
 
 
 def _invalidate_list_cache():
@@ -25,6 +28,16 @@ def _invalidate_list_cache():
         _list_cache["data"] = None
         _list_cache["json"] = None
         _list_cache["ts"] = 0.0
+
+
+def _invalidate_opcoes_cache(kind: str | None = None):
+    with _opcoes_cache_lock:
+        if kind:
+            _opcoes_cache[kind] = None
+        else:
+            _opcoes_cache["circuitos"] = None
+            _opcoes_cache["localizacoes"] = None
+        _opcoes_cache["ts"] = 0.0
 
 
 def warm_list_cache(db: Session):
@@ -1007,7 +1020,16 @@ def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_us
 
 @router.get("/opcoes/circuitos", response_model=List[CircuitoProdutoSchema])
 def listar_circuitos(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
-    return db.query(CircuitoProduto).order_by(CircuitoProduto.nome).all()
+    now = _time.time()
+    with _opcoes_cache_lock:
+        cached = _opcoes_cache["circuitos"]
+        if cached is not None and (now - _opcoes_cache["ts"]) < _OPCOES_CACHE_TTL:
+            return cached
+    rows = db.query(CircuitoProduto).order_by(CircuitoProduto.nome).all()
+    with _opcoes_cache_lock:
+        _opcoes_cache["circuitos"] = rows
+        _opcoes_cache["ts"] = now
+    return rows
 
 
 @router.post("/opcoes/circuitos", response_model=CircuitoProdutoSchema)
@@ -1019,6 +1041,7 @@ def criar_circuito(data: CircuitoProdutoSchema, db: Session = Depends(get_db), c
     db.add(item)
     db.commit()
     db.refresh(item)
+    _invalidate_opcoes_cache("circuitos")
     return item
 
 
@@ -1030,6 +1053,7 @@ def atualizar_circuito(item_id: int, data: CircuitoProdutoSchema, db: Session = 
     item.nome = data.nome
     db.commit()
     db.refresh(item)
+    _invalidate_opcoes_cache("circuitos")
     return item
 
 
@@ -1040,12 +1064,22 @@ def deletar_circuito(item_id: int, db: Session = Depends(get_db), current_user=D
         raise HTTPException(status_code=404, detail="Circuito não encontrado")
     db.delete(item)
     db.commit()
+    _invalidate_opcoes_cache("circuitos")
     return {"message": "Circuito deletado"}
 
 
 @router.get("/opcoes/localizacoes", response_model=List[LocalizacaoSchema])
 def listar_localizacoes(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
-    return db.query(Localizacao).order_by(Localizacao.nome).all()
+    now = _time.time()
+    with _opcoes_cache_lock:
+        cached = _opcoes_cache["localizacoes"]
+        if cached is not None and (now - _opcoes_cache["ts"]) < _OPCOES_CACHE_TTL:
+            return cached
+    rows = db.query(Localizacao).order_by(Localizacao.nome).all()
+    with _opcoes_cache_lock:
+        _opcoes_cache["localizacoes"] = rows
+        _opcoes_cache["ts"] = now
+    return rows
 
 
 @router.post("/opcoes/localizacoes", response_model=LocalizacaoSchema)
@@ -1057,6 +1091,7 @@ def criar_localizacao(data: LocalizacaoSchema, db: Session = Depends(get_db), cu
     db.add(item)
     db.commit()
     db.refresh(item)
+    _invalidate_opcoes_cache("localizacoes")
     return item
 
 
@@ -1068,6 +1103,7 @@ def atualizar_localizacao(item_id: int, data: LocalizacaoSchema, db: Session = D
     item.nome = data.nome
     db.commit()
     db.refresh(item)
+    _invalidate_opcoes_cache("localizacoes")
     return item
 
 
@@ -1078,4 +1114,5 @@ def deletar_localizacao(item_id: int, db: Session = Depends(get_db), current_use
         raise HTTPException(status_code=404, detail="Localização não encontrada")
     db.delete(item)
     db.commit()
+    _invalidate_opcoes_cache("localizacoes")
     return {"message": "Localização deletada"}

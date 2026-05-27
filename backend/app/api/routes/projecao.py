@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 import logging
 import csv
 import io
+import threading
+import time as _time
 
 from ...core.database import get_db
 from ...core.security import get_current_user, is_user_admin, require_permission
@@ -39,6 +41,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projecao", tags=["Projeção de Inscritos"])
 
 PROJECAO_PERMISSION = "projecao_inscritos"
+_AREAS_CACHE_TTL = 300
+_areas_cache = {"data": None, "ts": 0.0}
+_areas_cache_lock = threading.Lock()
+_CUTOFF_RULES_CACHE_TTL = 300
+_cutoff_rules_cache: dict = {}
+_cutoff_rules_cache_lock = threading.Lock()
+
+
+def _invalidate_areas_cache():
+    with _areas_cache_lock:
+        _areas_cache["data"] = None
+        _areas_cache["ts"] = 0.0
+
+
+def _invalidate_cutoff_rules_cache():
+    with _cutoff_rules_cache_lock:
+        _cutoff_rules_cache.clear()
 
 
 def _get_user_area_ids(db: Session, user_id: int) -> set:
@@ -74,7 +93,16 @@ def list_areas(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
-    return db.query(AreaProjecao).filter(AreaProjecao.ativo == True).order_by(AreaProjecao.nome).all()
+    now = _time.time()
+    with _areas_cache_lock:
+        cached = _areas_cache["data"]
+        if cached is not None and (now - _areas_cache["ts"]) < _AREAS_CACHE_TTL:
+            return cached
+    rows = db.query(AreaProjecao).filter(AreaProjecao.ativo == True).order_by(AreaProjecao.nome).all()
+    with _areas_cache_lock:
+        _areas_cache["data"] = rows
+        _areas_cache["ts"] = now
+    return rows
 
 
 @router.get("/areas/detail", response_model=List[AreaProjecaoDetailResponse])
@@ -133,6 +161,7 @@ def create_area(
     db.add(area)
     db.commit()
     db.refresh(area)
+    _invalidate_areas_cache()
     return area
 
 
@@ -1135,10 +1164,19 @@ def list_cutoff_rules(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
+    now = _time.time()
+    cache_key = bool(incluir_inativas)
+    with _cutoff_rules_cache_lock:
+        cached = _cutoff_rules_cache.get(cache_key)
+        if cached and (now - cached["ts"]) < _CUTOFF_RULES_CACHE_TTL:
+            return cached["data"]
     query = db.query(ProjecaoCutoffRule)
     if not incluir_inativas:
         query = query.filter(ProjecaoCutoffRule.ativo == True)
-    return query.order_by(ProjecaoCutoffRule.dias_antes_evento.desc()).all()
+    rows = query.order_by(ProjecaoCutoffRule.dias_antes_evento.desc()).all()
+    with _cutoff_rules_cache_lock:
+        _cutoff_rules_cache[cache_key] = {"data": rows, "ts": now}
+    return rows
 
 
 @router.post("/cutoff-rules", response_model=CutoffRuleResponse)

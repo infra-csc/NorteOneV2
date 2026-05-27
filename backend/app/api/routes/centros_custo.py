@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+import threading
+import time as _time
 from ...core.database import get_db
 from ...core.security import get_current_user, require_permission
 from ...models.dimensoes import DimCentroCusto
@@ -8,6 +10,14 @@ from ...models.user import Usuario
 from ...schemas.dimensoes import CentroCustoCreate, CentroCustoUpdate, CentroCustoResponse
 
 router = APIRouter(prefix="/centros-custo", tags=["Centros de Custo"])
+_CENTROS_CACHE_TTL = 300
+_centros_cache: dict = {}
+_centros_cache_lock = threading.Lock()
+
+
+def _invalidate_centros_cache():
+    with _centros_cache_lock:
+        _centros_cache.clear()
 
 @router.get("/", response_model=List[CentroCustoResponse])
 def list_centros_custo(
@@ -16,7 +26,15 @@ def list_centros_custo(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("admin_centros_custo", "pode_visualizar"))
 ):
+    now = _time.time()
+    cache_key = (skip, limit)
+    with _centros_cache_lock:
+        cached = _centros_cache.get(cache_key)
+        if cached and (now - cached["ts"]) < _CENTROS_CACHE_TTL:
+            return cached["data"]
     centros = db.query(DimCentroCusto).filter(DimCentroCusto.ativo == True).offset(skip).limit(limit).all()
+    with _centros_cache_lock:
+        _centros_cache[cache_key] = {"data": centros, "ts": now}
     return centros
 
 @router.post("/", response_model=CentroCustoResponse)
@@ -33,6 +51,7 @@ def create_centro_custo(
     db.add(db_centro)
     db.commit()
     db.refresh(db_centro)
+    _invalidate_centros_cache()
     return db_centro
 
 @router.get("/{centro_id}", response_model=CentroCustoResponse)
@@ -62,6 +81,7 @@ def update_centro_custo(
     
     db.commit()
     db.refresh(centro)
+    _invalidate_centros_cache()
     return centro
 
 @router.delete("/{centro_id}")
@@ -76,4 +96,5 @@ def delete_centro_custo(
     
     centro.ativo = False
     db.commit()
+    _invalidate_centros_cache()
     return {"message": "Centro de custo desativado"}

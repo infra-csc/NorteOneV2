@@ -33,6 +33,9 @@ _CAMBIO_TTL = 300
 _fob_cache: dict = {"data": None, "circuitos": None, "produtos": None, "ts": 0.0}
 _fob_cache_lock = threading.Lock()
 _FOB_CACHE_TTL = 300
+_fornecedores_cache: dict = {"data": None, "ts": 0.0}
+_fornecedores_cache_lock = threading.Lock()
+_FORNECEDORES_CACHE_TTL = 300
 
 
 def _invalidate_fob_cache():
@@ -41,6 +44,12 @@ def _invalidate_fob_cache():
         _fob_cache["circuitos"] = None
         _fob_cache["produtos"] = None
         _fob_cache["ts"] = 0.0
+
+
+def _invalidate_fornecedores_cache():
+    with _fornecedores_cache_lock:
+        _fornecedores_cache["data"] = None
+        _fornecedores_cache["ts"] = 0.0
 
 
 @router.get("/cambio")
@@ -112,7 +121,16 @@ def list_fornecedores(
     current_user: Usuario = Depends(_view_cotacao)
 ):
 
-    return db.query(Fornecedor).filter(Fornecedor.ativo == True).order_by(Fornecedor.nome).all()
+    now = _time.time()
+    with _fornecedores_cache_lock:
+        cached = _fornecedores_cache["data"]
+        if cached is not None and (now - _fornecedores_cache["ts"]) < _FORNECEDORES_CACHE_TTL:
+            return cached
+    rows = db.query(Fornecedor).filter(Fornecedor.ativo == True).order_by(Fornecedor.nome).all()
+    with _fornecedores_cache_lock:
+        _fornecedores_cache["data"] = rows
+        _fornecedores_cache["ts"] = now
+    return rows
 
 
 @router.post("/fornecedores", response_model=FornecedorResponse, status_code=201)
@@ -126,6 +144,7 @@ def create_fornecedor(
     db.add(f)
     db.commit()
     db.refresh(f)
+    _invalidate_fornecedores_cache()
     return f
 
 
@@ -144,6 +163,7 @@ def update_fornecedor(
         setattr(f, k, v)
     db.commit()
     db.refresh(f)
+    _invalidate_fornecedores_cache()
     return f
 
 
@@ -159,6 +179,7 @@ def delete_fornecedor(
         raise HTTPException(status_code=404, detail="Fornecedor não encontrado")
     f.ativo = False
     db.commit()
+    _invalidate_fornecedores_cache()
     return {"message": "Fornecedor desativado"}
 
 

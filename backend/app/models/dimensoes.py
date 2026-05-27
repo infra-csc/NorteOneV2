@@ -23,9 +23,9 @@ class DimCentroCusto(Base):
     id = Column(Integer, primary_key=True, index=True)
     codigo = Column(String(20), unique=True, nullable=False)
     nome = Column(String(100), nullable=False)
-    area = Column(String(50))
+    area = Column(String(50), index=True)
     gestor_responsavel = Column(String(100))
-    ativo = Column(Boolean, default=True)
+    ativo = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
@@ -59,12 +59,12 @@ class DimCategoriaAtleta(Base):
     codigo = Column(String(20), unique=True, nullable=False)
     nome = Column(String(100), nullable=False)
     faixa_etaria = Column(String(50))
-    genero = Column(String(20))
-    modalidade = Column(String(50))
+    genero = Column(String(20), index=True)
+    modalidade = Column(String(50), index=True)
     is_pcd = Column(Boolean, default=False)
     valor_inscricao_padrao = Column(Numeric(10, 2))
     custo_kit_padrao = Column(Numeric(10, 2))
-    ativo = Column(Boolean, default=True)
+    ativo = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=func.now())
 
 class AcaoComercial(Base):
