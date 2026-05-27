@@ -3,7 +3,7 @@ import os
 import time as _time
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
-from sqlalchemy import text, bindparam, func, extract
+from sqlalchemy import text, bindparam, func
 from typing import Optional, List
 from pydantic import BaseModel
 from datetime import datetime, date, timedelta
@@ -5774,13 +5774,18 @@ def get_marketing_events(
                 # data_evento é nullable e o cadastro pode ter apenas
                 # ano_evento. Confirmamos "vazio canônico" exigindo ambas
                 # condições negativas: nenhum match nem por ano_evento nem
-                # por extract(year, data_evento).
+                # pelo intervalo indexavel de data_evento.
+                _year_start = date(int(ano), 1, 1)
+                _year_end = date(int(ano) + 1, 1, 1)
                 _canonical_count_for_year = (
                     db.query(_CadEvt)
                     .filter(
                         _or(
                             _CadEvt.ano_evento == ano,
-                            extract('year', _CadEvt.data_evento) == ano,
+                            (
+                                (_CadEvt.data_evento >= _year_start)
+                                & (_CadEvt.data_evento < _year_end)
+                            ),
                         )
                     )
                     .count()

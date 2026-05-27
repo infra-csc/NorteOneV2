@@ -275,6 +275,8 @@ const tabs = [
   { id: 'taxas', label: 'Taxas', icon: DollarSign },  
 ];
 
+const CADASTROS_RENDER_BATCH = 60;
+
 const Cadastro: React.FC = () => {
   const { isDark } = useTheme();
   const { permissions, canViewCampo, canEditCampo } = usePermissions();
@@ -295,6 +297,7 @@ const Cadastro: React.FC = () => {
   const [filterTipoEvento, setFilterTipoEvento] = useState('');
   const [filterLei, setFilterLei] = useState('');
   const [filterLocalizacao, setFilterLocalizacao] = useState('');
+  const [visibleCadastrosCount, setVisibleCadastrosCount] = useState(CADASTROS_RENDER_BATCH);
   
   const [circuitos, setCircuitos] = useState<{id: number; nome: string}[]>([]);
   const [localizacoes, setLocalizacoes] = useState<{id: number; nome: string}[]>([]);
@@ -648,6 +651,14 @@ const Cadastro: React.FC = () => {
 
   const activeFilterCount = [filterMes, filterModalidade, filterTipoEvento, filterLei, filterLocalizacao].filter(Boolean).length;
   const hasActiveFilters = !!(busca || activeFilterCount);
+  const visibleCadastros = useMemo(
+    () => filteredCadastros.slice(0, visibleCadastrosCount),
+    [filteredCadastros, visibleCadastrosCount]
+  );
+
+  useEffect(() => {
+    setVisibleCadastrosCount(CADASTROS_RENDER_BATCH);
+  }, [busca, filterMes, filterModalidade, filterTipoEvento, filterLei, filterLocalizacao]);
 
   const clearAllFilters = () => {
     setBusca('');
@@ -3480,7 +3491,7 @@ const Cadastro: React.FC = () => {
                 {hasActiveFilters ? 'Tente ajustar os filtros ou limpar a busca' : 'Crie seu primeiro cadastro clicando no botão acima'}
               </p>
             </div>
-          ) : filteredCadastros.map((cadastro, index) => {
+          ) : visibleCadastros.map((cadastro, index) => {
             const statusStyle = getStatusStyle(cadastro.status);
             const totalAtletasCad = getTotalAtletasCadastro(cadastro);
             const tktMedioGeral = ((cadastro.atletas.site.tkt_medio || 0) + (cadastro.atletas.grupos.tkt_medio || 0)) / 2;
@@ -3489,7 +3500,7 @@ const Cadastro: React.FC = () => {
               <div 
                 key={cadastro.id} 
                 className={`group relative overflow-hidden rounded-3xl ${isDark ? 'bg-gray-800/80 backdrop-blur-xl' : 'bg-white/90 backdrop-blur-xl'} border ${isDark ? 'border-gray-700/50' : 'border-gray-200'} shadow-xl hover:shadow-2xl transition-all duration-500 hover:-translate-y-2`}
-                style={{ animationDelay: `${index * 100}ms` }}
+                style={{ animationDelay: `${Math.min(index, 20) * 40}ms` }}
               >
                 <div className="relative h-48 overflow-hidden">
                   {cadastro.imagem_kv ? (
@@ -3599,6 +3610,16 @@ const Cadastro: React.FC = () => {
               </div>
             );
           })}
+          {!loading && !loadError && visibleCadastros.length < filteredCadastros.length && (
+            <div className="col-span-full flex justify-center pt-4">
+              <button
+                onClick={() => setVisibleCadastrosCount((count) => count + CADASTROS_RENDER_BATCH)}
+                className={`px-5 py-3 rounded-xl font-semibold transition-all ${isDark ? 'bg-gray-800 text-gray-200 hover:bg-gray-700' : 'bg-white text-gray-700 hover:bg-gray-100'} border ${isDark ? 'border-gray-700' : 'border-gray-200'} shadow-sm`}
+              >
+                Carregar mais {Math.min(CADASTROS_RENDER_BATCH, filteredCadastros.length - visibleCadastros.length)} eventos
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

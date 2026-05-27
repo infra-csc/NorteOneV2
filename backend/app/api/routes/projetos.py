@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 from typing import List, Optional
 from ...core.database import get_db
 from ...core.security import get_current_user, require_permission
@@ -62,20 +61,22 @@ def get_filtros_disponiveis(
     """
     Retorna os valores disponíveis para os filtros.
     """
-    modalidades = db.query(DimProjeto.modalidade).distinct().all()
-    tipos_evento = db.query(DimProjeto.tipo_evento).distinct().all()
-    leis = db.query(DimProjeto.lei).distinct().all()
-    estados = db.query(DimProjeto.estado).filter(DimProjeto.estado.isnot(None)).distinct().all()
-    cidades = db.query(DimProjeto.cidade).filter(DimProjeto.cidade.isnot(None)).distinct().all()
-    anos = db.query(func.extract('year', DimProjeto.data_evento).label('ano')).distinct().order_by(func.extract('year', DimProjeto.data_evento).desc()).all()
+    rows = db.query(
+        DimProjeto.modalidade,
+        DimProjeto.tipo_evento,
+        DimProjeto.lei,
+        DimProjeto.estado,
+        DimProjeto.cidade,
+        DimProjeto.data_evento,
+    ).all()
 
     return {
-        "modalidades": [mod[0] for mod in modalidades if mod[0]],
-        "tipos_evento": [tipo[0] for tipo in tipos_evento if tipo[0]],
-        "leis": [lei_item[0] for lei_item in leis if lei_item[0]],
-        "estados": [est[0] for est in estados if est[0]],
-        "cidades": [cid[0] for cid in cidades if cid[0]],
-        "anos": [int(ano_item[0]) for ano_item in anos if ano_item[0]],
+        "modalidades": sorted({row.modalidade for row in rows if row.modalidade}),
+        "tipos_evento": sorted({row.tipo_evento for row in rows if row.tipo_evento}),
+        "leis": sorted({row.lei for row in rows if row.lei}),
+        "estados": sorted({row.estado for row in rows if row.estado}),
+        "cidades": sorted({row.cidade for row in rows if row.cidade}),
+        "anos": sorted({row.data_evento.year for row in rows if row.data_evento}, reverse=True),
         "status": ["EM_ANDAMENTO", "CONCLUIDO", "CANCELADO"]
     }
 

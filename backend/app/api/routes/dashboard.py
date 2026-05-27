@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import extract, func as sa_func
+from sqlalchemy import func as sa_func
 from typing import Optional
 from datetime import date, timedelta, datetime as _datetime
 _CURRENT_YEAR = _datetime.now().year
+import threading
+import time as _time
 from ...core.database import get_db
 from ...core.security import is_user_admin, require_permission
 from ...models.dimensoes import DimProjeto
@@ -13,6 +15,9 @@ from ...models.perfil_acesso import PerfilPermissaoCampo
 from decimal import Decimal
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+_FILTROS_CACHE_TTL = 300
+_filtros_cache = {"data": None, "ts": 0.0}
+_filtros_cache_lock = threading.Lock()
 
 
 def decimal_to_float(val):
@@ -56,6 +61,12 @@ def get_filtros(
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
 ):
+    now = _time.time()
+    with _filtros_cache_lock:
+        cached = _filtros_cache["data"]
+        if cached is not None and (now - _filtros_cache["ts"]) < _FILTROS_CACHE_TTL:
+            return cached
+
     from datetime import datetime as _dt
     _cur_year = _dt.now().year
     rows = (
@@ -91,7 +102,7 @@ def get_filtros(
         {"value": 12, "label": "Dezembro"},
     ]
 
-    return {
+    result = {
         "anos": [{"value": int(ano), "label": str(int(ano))} for ano in anos],
         "meses": meses,
         "produtos": [{"value": produto, "label": produto} for produto in produtos],
@@ -100,6 +111,10 @@ def get_filtros(
         "modalidades": [{"value": modalidade, "label": modalidade} for modalidade in modalidades],
         "cidades": [{"value": cidade, "label": cidade} for cidade in cidades]
     }
+    with _filtros_cache_lock:
+        _filtros_cache["data"] = result
+        _filtros_cache["ts"] = now
+    return result
 
 
 def build_project_filter(db, ano=None, mes=None, produto=None, tipo_evento=None,
