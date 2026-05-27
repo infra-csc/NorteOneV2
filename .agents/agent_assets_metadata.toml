@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Pmpnk0LOUEmR-lXDBhph8"
+uri = "file://exports/DW_Financeiro_Alteracoes_18-05_a_27-05.pdf"
+type = "pdf"
+title = "DW Financeiro — Alterações 18/05 a 27/05/2026"

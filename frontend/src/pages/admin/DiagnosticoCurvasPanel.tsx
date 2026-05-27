@@ -71,6 +71,8 @@ const DiagnosticoCurvasPanel: React.FC = () => {
   const [overrideSearch, setOverrideSearch] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [highlightedGrupoId, setHighlightedGrupoId] = useState<number | null>(null);
 
   const cardBase = isDark
     ? 'bg-gray-800/50 backdrop-blur-sm border border-gray-700/50'
@@ -81,6 +83,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
 
   const fetchData = useCallback(async (forceRefresh = false) => {
     setLoading(true);
+    setRefreshing(true);
     setError(null);
     try {
       const res = await marketingService.getDiagnosticoCurvas(ano, undefined, forceRefresh);
@@ -89,6 +92,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
       setError(e?.response?.data?.detail || e?.message || 'Erro ao carregar diagnóstico de curvas');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [ano]);
 
@@ -120,16 +124,37 @@ const DiagnosticoCurvasPanel: React.FC = () => {
 
   const handleSetOverride = useCallback(async (curvaGrupo: string | null) => {
     if (!editing) return;
+    const editedGrupoId = editing.grupo_id;
     setSavingOverride(true);
     setSaveMsg(null);
     try {
-      await api.put(`/admin/evento-grupos/${editing.grupo_id}/curva-override`, {
+      await api.put(`/admin/evento-grupos/${editedGrupoId}/curva-override`, {
         curva_override: curvaGrupo,
       });
-      setSaveMsg('Salvo. Recalculando diagnóstico...');
+
+      // Atualização OTIMISTA: já reflete a mudança na linha antes do refetch,
+      // pra o usuário ter feedback imediato de que a alteração foi aplicada.
+      setData(prev => prev.map(item => {
+        if (item.grupo_id !== editedGrupoId) return item;
+        return {
+          ...item,
+          tem_override: !!curvaGrupo,
+          override_target: curvaGrupo,
+          // marca como "atualizando" — backend vai sobrescrever em ~1s
+          tipo_curva: curvaGrupo ? 'manual' : item.tipo_curva,
+          fonte_curva: curvaGrupo,
+          fabricated_linear: false,
+        };
+      }));
+      setHighlightedGrupoId(editedGrupoId);
+      setSaveMsg(curvaGrupo ? `✓ Override salvo: ${curvaGrupo}` : '✓ Override removido (modo automático)');
       setEditing(null);
       await fetchData(true);
-      setTimeout(() => setSaveMsg(null), 3000);
+      // mantém highlight por 4s pra usuário ver
+      setTimeout(() => {
+        setHighlightedGrupoId(null);
+        setSaveMsg(null);
+      }, 4000);
     } catch (e: any) {
       setSaveMsg('Erro ao salvar: ' + (e?.response?.data?.detail || e?.message || 'desconhecido'));
     } finally {
@@ -299,10 +324,15 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                   const cfg = TIPO_CONFIG[tipo];
                   const Icon = cfg?.icon || AlertTriangle;
                   const dias = daysUntil(item.data_evento);
+                  const isHighlighted = highlightedGrupoId === item.grupo_id;
+                  const baseRowClass = isDark ? 'border-gray-700/50 hover:bg-gray-700/30' : 'border-gray-100 hover:bg-gray-50';
+                  const highlightClass = isHighlighted
+                    ? (isDark ? 'bg-purple-900/40 ring-2 ring-purple-500/60 animate-pulse' : 'bg-purple-100 ring-2 ring-purple-400/60 animate-pulse')
+                    : '';
                   return (
                     <tr
                       key={`${item.grupo_id}-${idx}`}
-                      className={`border-b ${isDark ? 'border-gray-700/50 hover:bg-gray-700/30' : 'border-gray-100 hover:bg-gray-50'}`}
+                      className={`border-b transition-all ${baseRowClass} ${highlightClass}`}
                     >
                       <td className="py-2.5 pr-3">
                         <div className={`font-medium ${textPrimary}`}>{item.evento_grupo}</div>

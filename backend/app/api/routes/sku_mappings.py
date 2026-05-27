@@ -862,6 +862,16 @@ def set_curva_override(
             f"[CurvaOverride] Falha ao invalidar curva_cache de '{db_grupo.nome}': {e}"
         )
 
+    # Invalida o cache em memória do painel de diagnóstico de curvas (TTL 5min),
+    # garantindo que o próximo GET (mesmo sem force_refresh) já reflita o novo
+    # override para qualquer usuário que abrir o painel.
+    try:
+        from .marketing import _diagnostico_curvas_cache
+        _diagnostico_curvas_cache.clear()
+        logger.info("[CurvaOverride] _diagnostico_curvas_cache limpo")
+    except Exception as e:
+        logger.warning(f"[CurvaOverride] Falha ao limpar _diagnostico_curvas_cache: {e}")
+
     return {"message": "Override atualizado", "curva_override": db_grupo.curva_override}
 
 

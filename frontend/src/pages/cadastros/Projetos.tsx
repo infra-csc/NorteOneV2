@@ -346,9 +346,22 @@ const Projetos: React.FC = () => {
   };
 
   // Stats cards data
+  // Fallback por data: evento com data passada conta como Concluído mesmo que
+  // o status no banco ainda esteja "Em andamento" (auto-update no GET foi
+  // removido para evitar N PUTs em paralelo a cada listagem).
+  const _hojeKpi = new Date(); _hojeKpi.setHours(0, 0, 0, 0);
+  const _isConcluidoPorData = (p: typeof projetos[number]) => {
+    if (!p.data_evento) return false;
+    const d = new Date(p.data_evento);
+    return !isNaN(d.getTime()) && d < _hojeKpi;
+  };
   const totalProjetos = projetos.length;
-  const emAndamento = projetos.filter(p => p.status === 'Em andamento').length;
-  const concluidos = projetos.filter(p => p.status === 'Concluído').length;
+  const emAndamento = projetos.filter(
+    p => p.status === 'Em andamento' && !_isConcluidoPorData(p)
+  ).length;
+  const concluidos = projetos.filter(
+    p => p.status === 'Concluído' || (p.status !== 'Cancelado' && _isConcluidoPorData(p))
+  ).length;
   return (
     <div className="min-h-screen">
       {/* Background effects */}
