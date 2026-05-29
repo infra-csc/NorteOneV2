@@ -12972,7 +12972,11 @@ def _atualizar_hoje_inner(
         eventos_list_cache.invalidate()
         _smart_isc_cache.invalidate()
         event_detail_cache.invalidate(f"{ano}_{evento_id}_detail")
-        logger.info(f"atualizar-hoje: caches invalidated for {evento_id}")
+        # Também limpa o cache do "Ticket Atual (Kit)" para que o preço/kits
+        # reflitam mudanças de mapeamento (SKU/cadastro) imediatamente após o
+        # sync manual — sem ter que esperar o TTL de 30min ou republicar o app.
+        clear_ticket_atual_cache()
+        logger.info(f"atualizar-hoje: caches invalidated for {evento_id} (incl. ticket_atual)")
     except Exception as _ci:
         logger.warning(f"atualizar-hoje: cache invalidation error: {_ci}")
 
