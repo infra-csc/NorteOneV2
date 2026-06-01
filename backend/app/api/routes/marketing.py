@@ -3991,7 +3991,7 @@ FROM (
     GROUP BY
         b.id_evento,
         h.ds_categoria,
-        CASE
+        CASE 
             WHEN a.nr_preco = 0               THEN 'Cortesia'
             WHEN h.ds_categoria LIKE '%%Grup%%' THEN 'Grupos/B2B'
             ELSE                                   'Site'
