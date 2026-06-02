@@ -2286,6 +2286,7 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
         ProjecaoCorteConfig as _Cfg,
         ProjecaoCorteSnapshot as _Snap,
         ProjecaoInscritos as _Proj,
+        ProjecaoCutoffEventoArea as _CutEA,
     )
     from ..models.cadastro_evento import CadastroEvento as _Ev
 
@@ -2301,6 +2302,17 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
         _Ev.data_evento.isnot(None),
     ).all()
 
+    # "Data de corte Envio" (data_corte_1) por evento — regra PRINCIPAL do Corte 1.
+    # Na prática só uma área a preenche por evento; se houver mais de uma, usa a mais
+    # antiga. Quando ausente, o Corte 1 cai no fallback D-N (config.dias_corte_1).
+    data_envio_por_evento: dict[int, date] = {}
+    for (ev_id, dc1) in db.query(_CutEA.evento_id, _CutEA.data_corte_1).filter(
+        _CutEA.data_corte_1.isnot(None)
+    ).all():
+        atual = data_envio_por_evento.get(ev_id)
+        if atual is None or dc1 < atual:
+            data_envio_por_evento[ev_id] = dc1
+
     snaps = {s.evento_id: s for s in db.query(_Snap).all()}
     congelados = 0
 
@@ -2311,7 +2323,12 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
         if dias < 0:
             continue
 
-        need_1 = dias <= config.dias_corte_1
+        # Corte 1: data de corte Envio é a regra principal; D-N é só fallback.
+        data_envio = data_envio_por_evento.get(ev.id)
+        if data_envio is not None:
+            need_1 = today >= data_envio
+        else:
+            need_1 = dias <= config.dias_corte_1
         need_2 = dias <= config.dias_corte_2
         if not (need_1 or need_2):
             continue

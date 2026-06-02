@@ -158,6 +158,8 @@ class ConsolidadoEventoResponse(BaseModel):
     corte_congelado_1_em: Optional[datetime] = None
     corte_valor_2: Optional[int] = None
     corte_congelado_2_em: Optional[datetime] = None
+    # Data de corte Envio (regra principal do Corte 1; None = usa fallback D-N)
+    corte_data_envio: Optional[str] = None
 
 
 class CutoffRuleCreate(BaseModel):

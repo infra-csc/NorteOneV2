@@ -1275,6 +1275,20 @@ def get_consolidado(
     ).all()
     snaps_by_evento = {s.evento_id: s for s in corte_snaps}
 
+    # "Data de corte Envio" (data_corte_1) por evento — regra principal do Corte 1.
+    # Na prática só uma área a preenche; se houver mais de uma, usa a mais antiga.
+    data_envio_by_evento: dict[int, str] = {}
+    for (ev_id, dc1) in db.query(
+        ProjecaoCutoffEventoArea.evento_id, ProjecaoCutoffEventoArea.data_corte_1
+    ).filter(
+        ProjecaoCutoffEventoArea.evento_id.in_(evento_ids),
+        ProjecaoCutoffEventoArea.data_corte_1.isnot(None),
+    ).all():
+        atual = data_envio_by_evento.get(ev_id)
+        iso = dc1.isoformat()
+        if atual is None or iso < atual:
+            data_envio_by_evento[ev_id] = iso
+
     result = []
     for evento in eventos:
         projecoes = projecoes_by_evento.get(evento.id)
@@ -1325,6 +1339,7 @@ def get_consolidado(
             corte_congelado_1_em=snap.congelado_corte_1_em if snap else None,
             corte_valor_2=snap.valor_corte_2 if snap else None,
             corte_congelado_2_em=snap.congelado_corte_2_em if snap else None,
+            corte_data_envio=data_envio_by_evento.get(evento.id),
         ))
 
     return result

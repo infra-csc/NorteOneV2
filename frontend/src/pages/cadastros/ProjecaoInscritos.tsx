@@ -205,6 +205,7 @@ interface ConsolidadoEvento {
   corte_congelado_1_em?: string | null;
   corte_valor_2?: number | null;
   corte_congelado_2_em?: string | null;
+  corte_data_envio?: string | null;
 }
 
 interface AreaDetail {
@@ -2265,6 +2266,9 @@ const ProjecaoInscritos: React.FC = () => {
                                   const isFrozen = valor !== null && valor !== undefined;
                                   const busy = corteActionBusy === `${c.evento_id}-${corte}`;
                                   const congeladoTxt = congeladoEm ? formatDate(congeladoEm) : null;
+                                  const congelaEmTxt = (corte === 1 && c.corte_data_envio)
+                                    ? `em ${formatDate(c.corte_data_envio)}`
+                                    : `em D-${dias ?? '?'}`;
                                   return (
                                     <div
                                       key={corte}
@@ -2284,7 +2288,7 @@ const ProjecaoInscritos: React.FC = () => {
                                         {isFrozen
                                           ? `congelado${congeladoTxt ? ` em ${congeladoTxt}` : ''}`
                                           : (c.corte_ativo
-                                              ? `prévia · congela em D-${dias ?? '?'}`
+                                              ? `prévia · congela ${congelaEmTxt}`
                                               : 'prévia · congelamento inativo')}
                                       </span>
                                       {isAdmin && (
