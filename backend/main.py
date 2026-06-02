@@ -2033,7 +2033,7 @@ async def lifespan(app: FastAPI):
                     return
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
+                from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
                 logger.info(f"Starting snapshot consolidation (parallel, step_ciclo={_step_ciclo_id})...")
                 # Classifica dict.status como _run_step (cache.py): batches que retornam
                 # dict com status='falha_persistencia'/'parcial' NÃO lançam exception.
@@ -2102,6 +2102,7 @@ async def lifespan(app: FastAPI):
                         return auto_concluir_eventos_passados(db)
                     _run_step_startup("auto_concluir_eventos_passados", _auto_concluir_startup)
                     _run_step_startup("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
+                    _run_step_startup("rebuild_rolling_grupos_batch", lambda: rebuild_rolling_grupos_batch(db))
                     _run_step_startup("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
                     _run_step_startup("sincronizar_hoje_batch", lambda: sincronizar_hoje_batch(db))
                     _run_step_startup("sincronizar_margem_bundle_rev_batch", lambda: sincronizar_margem_bundle_rev_batch(db))

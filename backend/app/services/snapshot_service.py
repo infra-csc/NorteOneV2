@@ -49,6 +49,27 @@ def _snapshot_lookback_days() -> int:
         return 3
 
 
+def _rolling_rebuild_count() -> int:
+    """Quantos grupos ativos recebem rebuild COMPLETO por ciclo noturno.
+
+    O job incremental (``snapshot_diario_batch``) só reprocessa a janela
+    rolante (``DAILY_SNAPSHOT_LOOKBACK_DAYS``), então cancelamentos/estornos de
+    pedidos ANTIGOS nunca são refletidos e o total do snapshot vai divergindo
+    (drift) acima da contagem real. Este rebuild rolante refaz, a cada noite, os
+    N grupos ativos cujo snapshot está mais "vencido" (menor ``MIN(updated_at)``),
+    rotacionando todo o conjunto ativo ao longo de ~(total/N) noites.
+
+    Configurável via env ``ROLLING_REBUILD_GROUPS_PER_NIGHT`` (default 10).
+    - 0 desativa o rebuild rolante.
+    - Teto de 60 para limitar a carga noturna no Magento mesmo com env
+      mal configurada.
+    """
+    try:
+        return max(0, min(60, int(os.getenv("ROLLING_REBUILD_GROUPS_PER_NIGHT", "10"))))
+    except (TypeError, ValueError):
+        return 10
+
+
 def is_event_frozen(data_evento: Optional[date], freeze_days: Optional[int] = None) -> bool:
     """Retorna True quando data_evento + freeze_days < hoje.
 
@@ -584,7 +605,7 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
     logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
 
 
-def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False, ciclo_id: Optional[str] = None, parent_job_name: Optional[str] = None, lookback_days: int = 0):
+def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False, ciclo_id: Optional[str] = None, parent_job_name: Optional[str] = None, lookback_days: int = 0, delete_scope_ano: bool = False):
     """Reconstrói o snapshot diário de vendas de um grupo.
 
     Modo padrão (incremental=False): varre histórico completo no Magento/Ativo
@@ -862,6 +883,13 @@ def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inici
         )
         if data_fim:
             delete_q = delete_q.filter(VendasDiariaSnapshot.data_venda <= data_fim)
+        if delete_scope_ano:
+            # Escopo de edição-ano: só apaga linhas da edição atual (ano==ano),
+            # preservando o snapshot de edições anteriores do MESMO grupo
+            # recorrente (ex.: Circuito SP 2025 vs 2026). Sem isto, o DELETE
+            # amplo apagaria o histórico da edição anterior e o rebuild — que
+            # usa apenas mappings da edição atual — não o reconstruiria.
+            delete_q = delete_q.filter(VendasDiariaSnapshot.ano == ano)
         deleted = delete_q.delete(synchronize_session=False)
         if deleted:
             logger.debug(f"Snapshot full refresh: deleted {deleted} old rows for '{evento_grupo}'")
@@ -1112,6 +1140,127 @@ def snapshot_diario_batch(db: Session):
     except Exception as _e_jh:
         logger.warning(f"[JobHealth] snapshot_diario_batch: falha ao registrar métrica: {_e_jh}")
     return len(grupos_processados)
+
+
+def rebuild_rolling_grupos_batch(db: Session) -> dict:
+    """Rebuild COMPLETO (``incremental=False``) de uma fatia rolante de grupos ativos.
+
+    Seleciona os N grupos ativos com snapshot mais "vencido" (menor
+    ``MIN(updated_at)`` entre as linhas CONSOLIDADO do ano-edição) e refaz cada
+    um por inteiro, re-consultando todo o histórico no Magento/Ativo. Isso
+    corrige o drift de dias ANTIGOS (cancelamentos/estornos) que o
+    incremental+lookback do ``snapshot_diario_batch`` nunca alcança.
+
+    A rotação cobre todo o conjunto ativo em ~(total/N) noites: um rebuild
+    completo carimba ``updated_at=now`` em todas as linhas do grupo, então
+    ordenar por ``MIN(updated_at)`` cria uma fila natural — sem schema novo.
+
+    Peso: cada rebuild é UMA query ``GROUP BY`` por fonte (janela ~24 meses),
+    executada serialmente. A carga por noite é limitada pela fatia N (env
+    ``ROLLING_REBUILD_GROUPS_PER_NIGHT``, default 10), não pelo total de grupos.
+    """
+    from .sync_log_service import log_evento, new_ciclo_id, classify_motivo
+    import time as _t_rr
+
+    _n = _rolling_rebuild_count()
+    _ciclo = new_ciclo_id()
+    _t_start = _t_rr.time()
+
+    if _n <= 0:
+        log_evento(_ciclo, "rebuild_rolling_grupos_batch", "pulado", nivel="ciclo",
+                   motivo="desativado", detalhes="ROLLING_REBUILD_GROUPS_PER_NIGHT=0")
+        return {"status": "pulado", "motivo": "desativado", "grupos": 0}
+
+    log_evento(_ciclo, "rebuild_rolling_grupos_batch", "iniciado", nivel="ciclo",
+               detalhes=f"fatia={_n}")
+
+    ano = date.today().year
+    yesterday = date.today() - timedelta(days=1)
+
+    freeze_days = _freeze_after_days()
+    active_grupos = _load_active_grupos(db, freeze_days)
+    if not active_grupos:
+        log_evento(_ciclo, "rebuild_rolling_grupos_batch", "concluido", nivel="ciclo",
+                   detalhes="sem grupos ativos",
+                   duracao_ms=int((_t_rr.time() - _t_start) * 1000))
+        return {"status": "ok", "grupos": 0}
+
+    # Fila de rotação: grupos ativos ordenados pelo snapshot mais antigo
+    # (menor MIN(updated_at)). O incremental só atualiza o updated_at dos dias
+    # recentes, então MIN(updated_at) reflete o último rebuild COMPLETO — o que
+    # garante rotação justa de todo o conjunto ativo sem coluna extra.
+    rows = (
+        db.query(
+            VendasDiariaSnapshot.evento_grupo,
+            sa_func.min(VendasDiariaSnapshot.updated_at).label("oldest"),
+        )
+        .filter(
+            VendasDiariaSnapshot.fonte == "CONSOLIDADO",
+            VendasDiariaSnapshot.ano == ano,
+            VendasDiariaSnapshot.evento_grupo.in_(active_grupos),
+        )
+        .group_by(VendasDiariaSnapshot.evento_grupo)
+        .order_by(sa_func.min(VendasDiariaSnapshot.updated_at).asc())
+        .limit(_n)
+        .all()
+    )
+    grupos_alvo = [r.evento_grupo for r in rows]
+
+    _ok = 0
+    _falha = 0
+    for grupo in grupos_alvo:
+        from ..core.cache import is_sync_paused
+        if is_sync_paused():
+            logger.warning(f"rebuild_rolling_grupos_batch: pausa ativada — interrompendo após {_ok} grupos")
+            log_evento(_ciclo, "rebuild_rolling_grupos_batch", "interrompido", nivel="ciclo",
+                       detalhes=f"Pausa manual após {_ok} grupos",
+                       duracao_ms=int((_t_rr.time() - _t_start) * 1000))
+            return {"status": "parcial", "grupos": _ok, "interrompido": True}
+        try:
+            # incremental=False → DELETE + reconstrução da janela completa,
+            # re-consultando todos os dias no Magento/Ativo (reflete estornos
+            # antigos). data_fim=yesterday: o dia corrente fica a cargo do
+            # sincronizar_hoje_batch (que usa GREATEST como piso).
+            consolidar_vendas_grupo(
+                db, grupo, ano, data_fim=yesterday, incremental=False,
+                ciclo_id=_ciclo, parent_job_name="rebuild_rolling_grupos_batch",
+                delete_scope_ano=True,
+            )
+            _ok += 1
+        except Exception as e:
+            _falha += 1
+            logger.error(f"rebuild_rolling_grupos_batch: erro no rebuild de '{grupo}': {e}")
+            try:
+                log_evento(_ciclo, "rebuild_rolling_grupos_batch", "falha", grupo=grupo,
+                           motivo=classify_motivo(e), detalhes=str(e)[:500])
+            except Exception:
+                pass
+
+    logger.info(
+        f"rebuild_rolling_grupos_batch: {_ok}/{len(grupos_alvo)} grupos refeitos "
+        f"(fatia={_n}, ativos={len(active_grupos)}, falhas={_falha})"
+    )
+    log_evento(
+        _ciclo, "rebuild_rolling_grupos_batch", "concluido", nivel="ciclo",
+        detalhes=f"{_ok} refeitos, {_falha} falhas (fatia={_n}, ativos={len(active_grupos)})",
+        duracao_ms=int((_t_rr.time() - _t_start) * 1000),
+    )
+    try:
+        from datetime import datetime as _dt_jh, timezone as _tz_jh
+        from .job_health_service import record_job_run as _rjr
+        _rjr(
+            "rebuild_rolling",
+            started_at=_dt_jh.fromtimestamp(_t_start, tz=_tz_jh.utc),
+            grupos_total=len(grupos_alvo),
+            grupos_ok=_ok,
+            grupos_falha=_falha,
+            status="concluido" if _falha == 0 else "parcial",
+            extra=f"fatia={_n} ativos={len(active_grupos)}",
+        )
+    except Exception as _e_jh:
+        logger.warning(f"[JobHealth] rebuild_rolling_grupos_batch: falha ao registrar métrica: {_e_jh}")
+
+    return {"status": "ok" if _falha == 0 else "parcial", "grupos": _ok, "falhas": _falha, "fatia": _n}
 
 
 def consolidar_curvas_historicas_batch(db: Session):

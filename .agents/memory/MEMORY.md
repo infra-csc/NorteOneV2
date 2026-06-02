@@ -4,5 +4,6 @@
 - [Ambiguidade "from main"](main-py-import-ambiguity.md) — nunca importe estado de backend/main.py; o stub main.py na raiz colide. Use app.core/<feature>_state.py.
 - [Magento concurrency limit](magento-concurrency-limit.md) — tunnel SSH não aguenta paralelo; default MAGENTO_MAX_CONCURRENCY=1 via semáforo em magento_run. Nunca bypassar engine_magento.connect() direto.
 - [Corte 1 freeze rule](projecao-corte1-data-envio.md) — congelamento noturno do Corte 1 usa data_corte_1 (Data de corte Envio) como regra principal, D-N só fallback; Corte 2 só D-N. Batch e consolidado em lockstep.
-- [Daily job step drift](daily-job-step-drift.md) — nightly batch sequence is duplicated in 3 paths (cache.py scheduler, admin scheduled endpoint, admin manual /snapshots/consolidar); add new steps to all 3.
+- [Daily job step drift](daily-job-step-drift.md) — nightly batch sequence is duplicated in 4 paths (cache.py scheduler, admin scheduled endpoint, admin manual /snapshots/consolidar, main.py startup catch-up); add new steps to all 4.
+- [Rolling rebuild drift](rolling-rebuild-drift.md) — nightly incremental never re-queries old-day cancellations (snapshot drifts high); rolling full-rebuild fixes it. Full DELETE must be ano-scoped for recurring events or it wipes prior editions.
 - [medias-vendas window](medias-vendas-window.md) — ISC sales averages/windows must anchor ref_date to ontem, not today; partial current day deflates short windows.

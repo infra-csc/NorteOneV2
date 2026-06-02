@@ -317,6 +317,7 @@ def trigger_scheduled_daily_consolidation(
     from app.core.database import SessionLocal as _SL_sd
     from app.services.snapshot_service import (
         snapshot_diario_batch as _sdb_sd,
+        rebuild_rolling_grupos_batch as _rrgb_sd,
         consolidar_curvas_historicas_batch as _cchb_sd,
         sincronizar_hoje_batch as _shb_sd,
         sincronizar_margem_bundle_rev_batch as _smbrb_sd,
@@ -459,6 +460,7 @@ def trigger_scheduled_daily_consolidation(
                 return auto_concluir_eventos_passados(_db_sd)
             _run_and_classify("auto_concluir_eventos_passados", _auto_concluir_sd)
             _run_and_classify("snapshot_diario_batch", lambda: _sdb_sd(_db_sd))
+            _run_and_classify("rebuild_rolling_grupos_batch", lambda: _rrgb_sd(_db_sd))
             _run_and_classify("consolidar_curvas_historicas_batch", lambda: _cchb_sd(_db_sd))
             _run_and_classify("sincronizar_hoje_batch", lambda: _shb_sd(_db_sd))
             _run_and_classify("sincronizar_margem_bundle_rev_batch", lambda: _smbrb_sd(_db_sd))
@@ -536,7 +538,7 @@ def trigger_snapshot_consolidation(
 
     def _run():
         from app.core.database import SessionLocal
-        from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, congelar_cortes_projecao_batch
+        from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, congelar_cortes_projecao_batch
         local_db = SessionLocal()
         try:
             try:
@@ -546,6 +548,11 @@ def trigger_snapshot_consolidation(
             except Exception as ace:
                 logger.error(f"Manual snapshot consolidation: auto_concluir_eventos_passados falhou: {ace}")
             grupos = snapshot_diario_batch(local_db)
+            try:
+                rolling = rebuild_rolling_grupos_batch(local_db)
+                logger.info(f"Manual snapshot consolidation: rebuild rolante={rolling}")
+            except Exception as rre:
+                logger.error(f"Manual snapshot consolidation: rebuild_rolling_grupos_batch falhou: {rre}")
             curvas = consolidar_curvas_historicas_batch(local_db)
             hoje = sincronizar_hoje_batch(local_db)
             try:
