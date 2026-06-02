@@ -1671,6 +1671,48 @@ def _seed_cutoff_rules():
         logger.error(f"Seed regras de corte failed: {e}")
 
 
+def _resync_id_sequences():
+    """Idempotente: alinha cada sequence de coluna `id` com o MAX(id) da tabela.
+
+    Corrige o caso em que dados foram inseridos com IDs explícitos (seed/importação)
+    sem avançar o sequence, causando `UniqueViolation` no PK em INSERTs subsequentes
+    (ex.: criação de projeção falhando em produção).
+    """
+    from app.core.database import SessionLocal
+    try:
+        db = SessionLocal()
+        db.execute(text("""
+            DO $$
+            DECLARE
+                r RECORD;
+                seq TEXT;
+                maxid BIGINT;
+                curval BIGINT;
+            BEGIN
+                FOR r IN
+                    SELECT table_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND column_name = 'id'
+                LOOP
+                    seq := pg_get_serial_sequence(quote_ident(r.table_name), 'id');
+                    IF seq IS NOT NULL THEN
+                        EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I', r.table_name) INTO maxid;
+                        IF maxid > 0 THEN
+                            -- Monotônico: nunca recua a sequence, apenas avança quando atrás do MAX(id).
+                            EXECUTE format('SELECT last_value FROM %s', seq) INTO curval;
+                            PERFORM setval(seq, GREATEST(curval, maxid), true);
+                        END IF;
+                    END IF;
+                END LOOP;
+            END $$;
+        """))
+        db.commit()
+        db.close()
+        logger.info("Resync de sequences de id concluído")
+    except Exception as e:
+        logger.error(f"Resync de sequences de id failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     register_full_warmup_fn(_full_cache_warmup)
@@ -1726,6 +1768,7 @@ async def lifespan(app: FastAPI):
             _seed_kit_config()
             _seed_areas_projecao()
             _seed_cutoff_rules()
+            _resync_id_sequences()
         except Exception as e:
             logger.error(f"Schema/seed setup failed: {e}")
 

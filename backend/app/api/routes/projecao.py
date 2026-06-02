@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import extract
+from sqlalchemy import extract, text
 from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
 from typing import List, Optional
@@ -347,6 +347,33 @@ def _validate_distribuicao_sums(quantidade: int, clientes, kits):
             )
 
 
+def _is_pk_violation(exc: IntegrityError) -> bool:
+    """Detecta UniqueViolation no PK (sequence dessincronizada)."""
+    msg = str(getattr(exc, "orig", exc)).lower()
+    return "duplicate key" in msg and "_pkey" in msg
+
+
+def _resync_projecao_sequences(db: Session):
+    """Realinha (monotônico) as sequences das tabelas de projeção com o MAX(id)."""
+    for tabela in (
+        "projecao_inscritos",
+        "projecao_inscritos_historico",
+        "projecao_inscritos_cliente",
+        "projecao_inscritos_kit",
+    ):
+        db.execute(text("""
+            SELECT setval(
+                pg_get_serial_sequence(:tabela, 'id'),
+                GREATEST(
+                    (SELECT last_value FROM pg_sequences WHERE schemaname = 'public' AND sequencename = :tabela || '_id_seq'),
+                    (SELECT COALESCE(MAX(id), 1) FROM """ + tabela + """)
+                ),
+                true
+            )
+        """), {"tabela": tabela})
+    db.commit()
+
+
 @router.post("/", response_model=ProjecaoInscritosResponse)
 def create_projecao(
     data: ProjecaoInscritosCreate,
@@ -378,48 +405,66 @@ def create_projecao(
     if existing_active:
         raise HTTPException(status_code=409, detail="Já existe uma projeção para este evento e área")
 
-    projecao = ProjecaoInscritos(
-        evento_id=data.evento_id,
-        area_projecao_id=data.area_projecao_id,
-        quantidade=data.quantidade,
-        created_by=current_user.id,
-    )
-    db.add(projecao)
-    db.flush()
+    def _build_and_commit():
+        projecao = ProjecaoInscritos(
+            evento_id=data.evento_id,
+            area_projecao_id=data.area_projecao_id,
+            quantidade=data.quantidade,
+            created_by=current_user.id,
+        )
+        db.add(projecao)
+        db.flush()
 
-    clientes_salvos = []
-    if data.clientes:
-        for c in data.clientes:
-            cliente = ProjecaoInscritosCliente(
-                projecao_id=projecao.id,
-                nome_cliente=c.nome_cliente.strip(),
-                quantidade=c.quantidade,
-            )
-            db.add(cliente)
-            clientes_salvos.append(cliente)
+        clientes_salvos = []
+        if data.clientes:
+            for c in data.clientes:
+                cliente = ProjecaoInscritosCliente(
+                    projecao_id=projecao.id,
+                    nome_cliente=c.nome_cliente.strip(),
+                    quantidade=c.quantidade,
+                )
+                db.add(cliente)
+                clientes_salvos.append(cliente)
 
-    kits_salvos = []
-    if data.kits:
-        for k in data.kits:
-            kit = ProjecaoInscritosKit(
-                projecao_id=projecao.id,
-                nome_kit=k.nome_kit.strip(),
-                quantidade=k.quantidade,
-            )
-            db.add(kit)
-            kits_salvos.append(kit)
+        kits_salvos = []
+        if data.kits:
+            for k in data.kits:
+                kit = ProjecaoInscritosKit(
+                    projecao_id=projecao.id,
+                    nome_kit=k.nome_kit.strip(),
+                    quantidade=k.quantidade,
+                )
+                db.add(kit)
+                kits_salvos.append(kit)
 
-    _record_history(db, projecao.id, "CRIACAO", current_user.id,
-                    campo="quantidade", novo=str(data.quantidade))
-    for c in clientes_salvos:
         _record_history(db, projecao.id, "CRIACAO", current_user.id,
-                        campo="Cliente adicionado",
-                        anterior=None, novo=f"{c.nome_cliente} ({c.quantidade})")
-    for k in kits_salvos:
-        _record_history(db, projecao.id, "CRIACAO", current_user.id,
-                        campo="Kit adicionado",
-                        anterior=None, novo=f"{k.nome_kit} ({k.quantidade})")
-    db.commit()
+                        campo="quantidade", novo=str(data.quantidade))
+        for c in clientes_salvos:
+            _record_history(db, projecao.id, "CRIACAO", current_user.id,
+                            campo="Cliente adicionado",
+                            anterior=None, novo=f"{c.nome_cliente} ({c.quantidade})")
+        for k in kits_salvos:
+            _record_history(db, projecao.id, "CRIACAO", current_user.id,
+                            campo="Kit adicionado",
+                            anterior=None, novo=f"{k.nome_kit} ({k.quantidade})")
+        db.commit()
+        return projecao, clientes_salvos, kits_salvos
+
+    try:
+        projecao, clientes_salvos, kits_salvos = _build_and_commit()
+    except IntegrityError as exc:
+        # Auto-cura: sequence de id dessincronizada (PK duplicada) — realinha e tenta 1x.
+        db.rollback()
+        if not _is_pk_violation(exc):
+            raise
+        logger.warning("[ProjecaoCreate] PK collision detectada — realinhando sequence e tentando novamente")
+        _resync_projecao_sequences(db)
+        try:
+            projecao, clientes_salvos, kits_salvos = _build_and_commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=500, detail="Erro ao criar projeção")
+
     db.refresh(projecao)
     for c in clientes_salvos:
         db.refresh(c)
