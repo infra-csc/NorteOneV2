@@ -2318,7 +2318,7 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
 
     config = db.query(_Cfg).first()
     if not config or not config.ativo:
-        return {"status": "pulado", "motivo": "config_inativa", "congelados": 0, "snaps": {}}
+        return {"status": "pulado", "motivo": "config_inativa", "congelados": 0, "descongelados": 0, "snaps": {}}
 
     today = datetime.now(_ZI('America/Sao_Paulo')).date()
     now = datetime.now(_ZI('America/Sao_Paulo')).replace(tzinfo=None)
@@ -2329,11 +2329,11 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
     )
     if evento_ids is not None:
         if not evento_ids:
-            return {"status": "ok", "congelados": 0, "snaps": {}}
+            return {"status": "ok", "congelados": 0, "descongelados": 0, "snaps": {}}
         ev_q = ev_q.filter(_Ev.id.in_(evento_ids))
     eventos = ev_q.all()
     if not eventos:
-        return {"status": "ok", "congelados": 0, "snaps": {}}
+        return {"status": "ok", "congelados": 0, "descongelados": 0, "snaps": {}}
 
     ev_ids = [e.id for e in eventos]
 
@@ -2364,22 +2364,40 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         for s in db.query(_Snap).filter(_Snap.evento_id.in_(ev_ids)).all()
     }
     congelados = 0
+    descongelados = 0
 
     for ev in eventos:
         if (ev.status or 'Em andamento') != 'Em andamento':
             continue
         dias = (ev.data_evento - today).days
+
+        data_envio = data_envio_por_evento.get(ev.id)
+        need_1, need_2 = corte_freeze_decision(dias, data_envio, today, config)
+        snap = snaps.get(ev.id)
+
+        # Auto-DESCONGELAR Corte 1: se há uma "Data de corte Envio" cadastrada que
+        # ainda não chegou (today < data_envio => need_1 False), a regra do campo
+        # passa a valer sobre o fallback D-N. Um corte que tinha sido congelado
+        # antes (ex.: pelo D-N, quando a data ainda não existia) deve voltar a
+        # acompanhar ao vivo. Só dispara quando HÁ data de envio — congelamentos
+        # por D-N puro (sem data) e o Corte 2 não são afetados.
+        if (
+            snap is not None
+            and snap.valor_corte_1 is not None
+            and data_envio is not None
+            and not need_1
+        ):
+            snap.valor_corte_1 = None
+            snap.congelado_corte_1_em = None
+            descongelados += 1
+
         if dias < 0:
             continue
         if ev.id not in totais_por_evento:  # sem projeções
             continue
-
-        data_envio = data_envio_por_evento.get(ev.id)
-        need_1, need_2 = corte_freeze_decision(dias, data_envio, today, config)
         if not (need_1 or need_2):
             continue
 
-        snap = snaps.get(ev.id)
         c1_done = bool(snap and snap.valor_corte_1 is not None)
         c2_done = bool(snap and snap.valor_corte_2 is not None)
         if (not need_1 or c1_done) and (not need_2 or c2_done):
@@ -2403,7 +2421,7 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             congelados += 1
 
     db.commit()
-    return {"status": "ok", "congelados": congelados, "snaps": snaps}
+    return {"status": "ok", "congelados": congelados, "descongelados": descongelados, "snaps": snaps}
 
 
 def congelar_cortes_projecao_batch(db: Session) -> dict:
@@ -2416,5 +2434,9 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
     """
     res = congelar_cortes_para_eventos(db, evento_ids=None)
     congelados = res.get("congelados", 0)
-    logger.info(f"congelar_cortes_projecao_batch: {congelados} corte(s) congelado(s)")
+    descongelados = res.get("descongelados", 0)
+    logger.info(
+        f"congelar_cortes_projecao_batch: {congelados} corte(s) congelado(s), "
+        f"{descongelados} descongelado(s)"
+    )
     return {k: v for k, v in res.items() if k != "snaps"}

@@ -24,6 +24,16 @@ consolidado, para nunca congelar total parcial.
   a **data mais antiga** quando há mais de uma (determinístico nos dois lados).
 - Ações manuais de admin ("Congelar agora" / "Reabrir") ignoram a data — congelam/
   reabrem no momento do clique. A regra de data vale só para o job noturno.
+- **Auto-DESCONGELAR Corte 1:** se um corte já congelado tem `data_corte_1` cadastrada
+  e ela ainda NÃO chegou (`hoje < data_corte_1` => need_1 False), o snapshot é
+  limpo (`valor_corte_1`/`congelado_corte_1_em` = None) e volta a acompanhar ao vivo.
+  Caso típico: congelou pelo fallback D-N quando a data não existia, e depois o
+  usuário cadastrou uma data de envio futura. SÓ dispara quando `data_envio is not
+  None` — congelamentos por D-N puro (sem data) e o Corte 2 ficam intactos. Roda no
+  mesmo loop do freeze, ANTES das escritas, então não oscila (após descongelar,
+  need_1 é False e nada re-congela na mesma passada). Como `hoje` só cresce, um corte
+  legitimamente congelado por data (hoje>=data) nunca descongela. Retorna contador
+  `descongelados`.
 
 **Why:** o usuário define a data real de envio da projeção por evento; o D-N fixo
 não reflete isso. A data específica deve mandar quando existir.
