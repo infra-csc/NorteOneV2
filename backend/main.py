@@ -2097,6 +2097,10 @@ async def lifespan(app: FastAPI):
 
                 db = SessionLocal()
                 try:
+                    def _auto_concluir_startup():
+                        from app.services.event_status_service import auto_concluir_eventos_passados
+                        return auto_concluir_eventos_passados(db)
+                    _run_step_startup("auto_concluir_eventos_passados", _auto_concluir_startup)
                     _run_step_startup("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
                     _run_step_startup("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
                     _run_step_startup("sincronizar_hoje_batch", lambda: sincronizar_hoje_batch(db))

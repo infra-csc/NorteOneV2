@@ -481,6 +481,12 @@ def listar_cadastros(
 ):
     """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
     t0 = _time.time()
+    try:
+        from app.services.event_status_service import auto_concluir_eventos_passados
+        if auto_concluir_eventos_passados(db) > 0:
+            _invalidate_list_cache()
+    except Exception as _auto_err:
+        logger.error(f"[CadastrosCache] auto-conclusão de eventos falhou (não bloqueante): {_auto_err}")
     if not status and skip == 0:
         with _list_cache_lock:
             cached_json = _list_cache.get("json")

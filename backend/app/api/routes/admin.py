@@ -454,6 +454,10 @@ def trigger_scheduled_daily_consolidation(
         try:
             # Nomes canônicos (mesmos do scheduler interno cache.py _run_step):
             # essencial para compartilhar idempotência cross-camada via SyncEventLog.
+            def _auto_concluir_sd():
+                from app.services.event_status_service import auto_concluir_eventos_passados
+                return auto_concluir_eventos_passados(_db_sd)
+            _run_and_classify("auto_concluir_eventos_passados", _auto_concluir_sd)
             _run_and_classify("snapshot_diario_batch", lambda: _sdb_sd(_db_sd))
             _run_and_classify("consolidar_curvas_historicas_batch", lambda: _cchb_sd(_db_sd))
             _run_and_classify("sincronizar_hoje_batch", lambda: _shb_sd(_db_sd))
@@ -535,6 +539,12 @@ def trigger_snapshot_consolidation(
         from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, congelar_cortes_projecao_batch
         local_db = SessionLocal()
         try:
+            try:
+                from app.services.event_status_service import auto_concluir_eventos_passados
+                concluidos = auto_concluir_eventos_passados(local_db)
+                logger.info(f"Manual snapshot consolidation: auto-conclusão {concluidos} evento(s)")
+            except Exception as ace:
+                logger.error(f"Manual snapshot consolidation: auto_concluir_eventos_passados falhou: {ace}")
             grupos = snapshot_diario_batch(local_db)
             curvas = consolidar_curvas_historicas_batch(local_db)
             hoje = sincronizar_hoje_batch(local_db)

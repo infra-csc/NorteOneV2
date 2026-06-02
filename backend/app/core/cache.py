@@ -1350,6 +1350,12 @@ class CacheRefreshScheduler:
                 from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch, congelar_cortes_projecao_batch
                 db = SessionLocal()
                 try:
+                    def _auto_concluir():
+                        from app.services.event_status_service import auto_concluir_eventos_passados
+                        _n = auto_concluir_eventos_passados(db)
+                        return f"{_n} evento(s) concluído(s) por data"
+                    _run_step("auto_concluir_eventos_passados", _auto_concluir, optional=True)
+
                     _run_step("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
                     _run_step("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
 

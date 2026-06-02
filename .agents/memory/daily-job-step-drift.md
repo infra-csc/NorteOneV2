@@ -1,10 +1,10 @@
 ---
 name: Daily consolidation job step drift
-description: The nightly batch sequence is duplicated across 3 execution paths that must stay in sync.
+description: The nightly batch sequence is duplicated across 4 execution paths that must stay in sync.
 ---
 
-The daily snapshot/consolidation step list is hand-duplicated in THREE places, with no
-shared helper. When you add a new nightly batch step you MUST add it to all three or
+The daily snapshot/consolidation step list is hand-duplicated in FOUR places, with no
+shared helper. When you add a new nightly batch step you MUST add it to all four or
 behavior silently diverges (e.g. manual rebuild not refreshing what the nightly run does):
 
 1. `backend/app/core/cache.py` — internal scheduler (`_run_step(...)` sequence, ~02h BRT).
@@ -12,6 +12,8 @@ behavior silently diverges (e.g. manual rebuild not refreshing what the nightly 
    (`_run_and_classify(...)` sequence).
 3. `backend/app/api/routes/admin.py` — manual admin endpoint `POST /admin/snapshots/consolidar`
    (`_run()` inner thread, plain calls, easy to forget — it has no canonical-name loop).
+4. `backend/main.py` — startup catch-up consolidation (`_run_step_startup(...)` sequence),
+   runs when the 02h run was missed. Easy to forget; the architect caught it being skipped.
 
 **Why:** during the "Cortes de Projeção" freeze feature, the batch was added to (1) and (2)
 but (3) was missed; a manual reconsolidation would not freeze cortes. Caught in review.
