@@ -2270,3 +2270,85 @@ def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None
     }
     logger.info(f"Backfill concluído: {result}")
     return result
+
+
+def congelar_cortes_projecao_batch(db: Session) -> dict:
+    """Congela (por evento) os dois cortes de projeção quando o evento atinge o D-.
+
+    Lê a config single-row `ProjecaoCorteConfig`. Para cada evento "Em andamento"
+    com data futura (D- >= 0) e que tenha pelo menos uma projeção, congela o
+    total de projeção do momento em cada corte cujo D- já foi atingido e que
+    ainda não está congelado. Idempotente: nunca sobrescreve um valor já
+    congelado (admin usa o endpoint de recongelar para isso).
+    """
+    from zoneinfo import ZoneInfo as _ZI
+    from ..models.projecao import (
+        ProjecaoCorteConfig as _Cfg,
+        ProjecaoCorteSnapshot as _Snap,
+        ProjecaoInscritos as _Proj,
+    )
+    from ..models.cadastro_evento import CadastroEvento as _Ev
+
+    config = db.query(_Cfg).first()
+    if not config or not config.ativo:
+        return {"status": "pulado", "motivo": "config_inativa", "congelados": 0}
+
+    today = datetime.now(_ZI('America/Sao_Paulo')).date()
+    now = datetime.now(_ZI('America/Sao_Paulo')).replace(tzinfo=None)
+
+    eventos = db.query(_Ev).filter(
+        _Ev.deleted_at.is_(None),
+        _Ev.data_evento.isnot(None),
+    ).all()
+
+    snaps = {s.evento_id: s for s in db.query(_Snap).all()}
+    congelados = 0
+
+    for ev in eventos:
+        if (ev.status or 'Em andamento') != 'Em andamento':
+            continue
+        dias = (ev.data_evento - today).days
+        if dias < 0:
+            continue
+
+        need_1 = dias <= config.dias_corte_1
+        need_2 = dias <= config.dias_corte_2
+        if not (need_1 or need_2):
+            continue
+
+        snap = snaps.get(ev.id)
+        c1_done = bool(snap and snap.valor_corte_1 is not None)
+        c2_done = bool(snap and snap.valor_corte_2 is not None)
+        if (not need_1 or c1_done) and (not need_2 or c2_done):
+            continue
+
+        # Só congela eventos que têm projeções (mesma regra do consolidado).
+        total = sum(int(q or 0) for (q,) in db.query(_Proj.quantidade).filter(
+            _Proj.evento_id == ev.id,
+            _Proj.deleted_at.is_(None),
+        ).all())
+        has_proj = db.query(_Proj.id).filter(
+            _Proj.evento_id == ev.id,
+            _Proj.deleted_at.is_(None),
+        ).first() is not None
+        if not has_proj:
+            continue
+
+        if snap is None:
+            snap = _Snap(evento_id=ev.id)
+            db.add(snap)
+            db.flush()
+            snaps[ev.id] = snap
+
+        if need_1 and snap.valor_corte_1 is None:
+            snap.valor_corte_1 = total
+            snap.congelado_corte_1_em = now
+            congelados += 1
+        if need_2 and snap.valor_corte_2 is None:
+            snap.valor_corte_2 = total
+            snap.congelado_corte_2_em = now
+            congelados += 1
+
+    db.commit()
+    logger.info(f"congelar_cortes_projecao_batch: {congelados} corte(s) congelado(s)")
+    return {"status": "ok", "congelados": congelados}

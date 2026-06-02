@@ -19,6 +19,7 @@ from ...models.projecao import (
     AreaProjecao, AreaProjecaoUsuario, ProjecaoInscritos,
     ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoInscritosKit, ProjecaoCutoffRule,
     ProjecaoCutoffEventoArea, ProjecaoAutoLockConfig,
+    ProjecaoCorteConfig, ProjecaoCorteSnapshot,
 )
 from ...models.cadastro_evento import CadastroEvento
 from ...models.user import Usuario
@@ -34,6 +35,7 @@ from ...schemas.projecao import (
     PendenciaItem, PendenciasResponse, AreaPendenteItem,
     AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
     AutoLockConfigUpdate, AutoLockConfigResponse,
+    CorteConfigUpdate, CorteConfigResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -512,6 +514,145 @@ def update_auto_lock_config(
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
     )
+
+
+# ============================================================
+# CORTES DE PROJEÇÃO (congelamento por evento: envio / convicta)
+# ============================================================
+
+def _compute_total_projecoes(db: Session, evento_id: int) -> int:
+    """Soma das quantidades de todas as áreas ativas (não-deletadas) do evento.
+
+    Mesma base que `get_consolidado` usa em `total_projecoes` — é o número
+    exibido nos dois cards de corte.
+    """
+    rows = db.query(ProjecaoInscritos.quantidade).filter(
+        ProjecaoInscritos.evento_id == evento_id,
+        ProjecaoInscritos.deleted_at.is_(None),
+    ).all()
+    return sum(int(q or 0) for (q,) in rows)
+
+
+def _get_corte_config(db: Session) -> Optional[ProjecaoCorteConfig]:
+    return db.query(ProjecaoCorteConfig).first()
+
+
+@router.get("/corte-config", response_model=CorteConfigResponse)
+def get_corte_config(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    config = _get_corte_config(db)
+    if config is None:
+        # Defaults sugeridos (ainda inativo até admin salvar).
+        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, ativo=False)
+    editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
+    return CorteConfigResponse(
+        dias_corte_1=config.dias_corte_1,
+        dias_corte_2=config.dias_corte_2,
+        ativo=config.ativo,
+        updated_by_nome=editor.nome if editor else None,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/corte-config", response_model=CorteConfigResponse)
+def update_corte_config(
+    data: CorteConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar os cortes de projeção")
+    for label, val in (("Corte 1", data.dias_corte_1), ("Corte 2", data.dias_corte_2)):
+        if val < 0 or val > 365:
+            raise HTTPException(status_code=400, detail=f"{label}: dias deve estar entre 0 e 365")
+
+    config = _get_corte_config(db)
+    if config is None:
+        config = ProjecaoCorteConfig(
+            dias_corte_1=data.dias_corte_1,
+            dias_corte_2=data.dias_corte_2,
+            ativo=data.ativo,
+            updated_by=current_user.id,
+        )
+        db.add(config)
+    else:
+        config.dias_corte_1 = data.dias_corte_1
+        config.dias_corte_2 = data.dias_corte_2
+        config.ativo = data.ativo
+        config.updated_by = current_user.id
+    db.commit()
+    db.refresh(config)
+    return CorteConfigResponse(
+        dias_corte_1=config.dias_corte_1,
+        dias_corte_2=config.dias_corte_2,
+        ativo=config.ativo,
+        updated_by_nome=current_user.nome,
+        updated_at=config.updated_at,
+    )
+
+
+def _get_or_create_corte_snapshot(db: Session, evento_id: int) -> ProjecaoCorteSnapshot:
+    snap = db.query(ProjecaoCorteSnapshot).filter(ProjecaoCorteSnapshot.evento_id == evento_id).first()
+    if snap is None:
+        snap = ProjecaoCorteSnapshot(evento_id=evento_id)
+        db.add(snap)
+        db.flush()
+    return snap
+
+
+@router.post("/eventos/{evento_id}/corte/{corte}/reabrir")
+def reabrir_corte(
+    evento_id: int,
+    corte: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Admin: apaga o valor congelado de um corte (volta a acompanhar ao vivo)."""
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem reabrir cortes")
+    if corte not in (1, 2):
+        raise HTTPException(status_code=400, detail="Corte deve ser 1 ou 2")
+    snap = db.query(ProjecaoCorteSnapshot).filter(ProjecaoCorteSnapshot.evento_id == evento_id).first()
+    if snap is None:
+        return {"status": "ok", "corte": corte, "congelado": False}
+    if corte == 1:
+        snap.valor_corte_1 = None
+        snap.congelado_corte_1_em = None
+    else:
+        snap.valor_corte_2 = None
+        snap.congelado_corte_2_em = None
+    db.commit()
+    return {"status": "ok", "corte": corte, "congelado": False}
+
+
+@router.post("/eventos/{evento_id}/corte/{corte}/recongelar")
+def recongelar_corte(
+    evento_id: int,
+    corte: int,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Admin: regrava o valor do corte com o total de projeção atual."""
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem recongelar cortes")
+    if corte not in (1, 2):
+        raise HTTPException(status_code=400, detail="Corte deve ser 1 ou 2")
+    evento = db.query(CadastroEvento).filter(CadastroEvento.id == evento_id, CadastroEvento.deleted_at.is_(None)).first()
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    total = _compute_total_projecoes(db, evento_id)
+    snap = _get_or_create_corte_snapshot(db, evento_id)
+    now = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+    if corte == 1:
+        snap.valor_corte_1 = total
+        snap.congelado_corte_1_em = now
+    else:
+        snap.valor_corte_2 = total
+        snap.congelado_corte_2_em = now
+    db.commit()
+    return {"status": "ok", "corte": corte, "congelado": True, "valor": total}
 
 
 @router.put("/cutoff-evento-area", response_model=CutoffEventoAreaResponse)
@@ -1124,6 +1265,16 @@ def get_consolidado(
     for p in all_projecoes:
         projecoes_by_evento.setdefault(p.evento_id, []).append(p)
 
+    # Config de cortes (single-row) + snapshots congelados por evento
+    corte_config = _get_corte_config(db)
+    corte_dias_1 = corte_config.dias_corte_1 if corte_config else None
+    corte_dias_2 = corte_config.dias_corte_2 if corte_config else None
+    corte_ativo = bool(corte_config.ativo) if corte_config else False
+    corte_snaps = db.query(ProjecaoCorteSnapshot).filter(
+        ProjecaoCorteSnapshot.evento_id.in_(evento_ids)
+    ).all()
+    snaps_by_evento = {s.evento_id: s for s in corte_snaps}
+
     result = []
     for evento in eventos:
         projecoes = projecoes_by_evento.get(evento.id)
@@ -1157,6 +1308,7 @@ def get_consolidado(
         outras_projecoes = total_projecoes - projecao_site
         total_geral = site_efetivo + outras_projecoes
 
+        snap = snaps_by_evento.get(evento.id)
         result.append(ConsolidadoEventoResponse(
             evento_id=evento.id,
             evento_nome=evento.nome,
@@ -1166,6 +1318,13 @@ def get_consolidado(
             total_projecoes=total_projecoes,
             projecao_site=projecao_site,
             total_geral=total_geral,
+            corte_dias_1=corte_dias_1,
+            corte_dias_2=corte_dias_2,
+            corte_ativo=corte_ativo,
+            corte_valor_1=snap.valor_corte_1 if snap else None,
+            corte_congelado_1_em=snap.congelado_corte_1_em if snap else None,
+            corte_valor_2=snap.valor_corte_2 if snap else None,
+            corte_congelado_2_em=snap.congelado_corte_2_em if snap else None,
         ))
 
     return result

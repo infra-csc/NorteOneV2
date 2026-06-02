@@ -320,6 +320,7 @@ def trigger_scheduled_daily_consolidation(
         consolidar_curvas_historicas_batch as _cchb_sd,
         sincronizar_hoje_batch as _shb_sd,
         sincronizar_margem_bundle_rev_batch as _smbrb_sd,
+        congelar_cortes_projecao_batch as _ccpb_sd,
     )
     from app.services.sync_log_service import (
         log_evento as _le_sd,
@@ -457,6 +458,7 @@ def trigger_scheduled_daily_consolidation(
             _run_and_classify("consolidar_curvas_historicas_batch", lambda: _cchb_sd(_db_sd))
             _run_and_classify("sincronizar_hoje_batch", lambda: _shb_sd(_db_sd))
             _run_and_classify("sincronizar_margem_bundle_rev_batch", lambda: _smbrb_sd(_db_sd))
+            _run_and_classify("congelar_cortes_projecao_batch", lambda: _ccpb_sd(_db_sd))
         finally:
             _db_sd.close()
 
@@ -530,13 +532,18 @@ def trigger_snapshot_consolidation(
 
     def _run():
         from app.core.database import SessionLocal
-        from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch
+        from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, congelar_cortes_projecao_batch
         local_db = SessionLocal()
         try:
             grupos = snapshot_diario_batch(local_db)
             curvas = consolidar_curvas_historicas_batch(local_db)
             hoje = sincronizar_hoje_batch(local_db)
-            logger.info(f"Manual snapshot consolidation: {grupos} grupos, {curvas} curvas, {hoje} hoje")
+            try:
+                cortes = congelar_cortes_projecao_batch(local_db)
+            except Exception as ce:
+                logger.error(f"Manual snapshot consolidation: congelar_cortes_projecao_batch falhou: {ce}")
+                cortes = {"status": "erro"}
+            logger.info(f"Manual snapshot consolidation: {grupos} grupos, {curvas} curvas, {hoje} hoje, cortes={cortes}")
         except Exception as e:
             logger.error(f"Manual snapshot consolidation failed: {e}")
         finally:

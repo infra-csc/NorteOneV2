@@ -1722,6 +1722,22 @@ export const projecaoService = {
     const response = await api.put('/projecao/auto-lock-config', data);
     return response.data;
   },
+  getCorteConfig: async () => {
+    const response = await api.get('/projecao/corte-config');
+    return response.data;
+  },
+  updateCorteConfig: async (data: { dias_corte_1: number; dias_corte_2: number; ativo: boolean }) => {
+    const response = await api.put('/projecao/corte-config', data);
+    return response.data;
+  },
+  reabrirCorte: async (eventoId: number, corte: 1 | 2) => {
+    const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/reabrir`);
+    return response.data;
+  },
+  recongelarCorte: async (eventoId: number, corte: 1 | 2) => {
+    const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/recongelar`);
+    return response.data;
+  },
 };
 
 export default api;

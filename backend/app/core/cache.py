@@ -1347,7 +1347,7 @@ class CacheRefreshScheduler:
             _final_detalhes = None
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
+                from app.services.snapshot_service import snapshot_diario_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch, congelar_cortes_projecao_batch
                 db = SessionLocal()
                 try:
                     _run_step("snapshot_diario_batch", lambda: snapshot_diario_batch(db))
@@ -1366,6 +1366,10 @@ class CacheRefreshScheduler:
 
                     _run_step("sincronizar_margem_bundle_rev_batch",
                               lambda: sincronizar_margem_bundle_rev_batch(db),
+                              optional=True)
+
+                    _run_step("congelar_cortes_projecao_batch",
+                              lambda: congelar_cortes_projecao_batch(db),
                               optional=True)
 
                     def _cleanup():

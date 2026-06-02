@@ -150,6 +150,14 @@ class ConsolidadoEventoResponse(BaseModel):
     total_projecoes: int
     projecao_site: int = 0
     total_geral: int
+    # Cortes congelados (None = ainda não congelado, mostra prévia ao vivo)
+    corte_dias_1: Optional[int] = None
+    corte_dias_2: Optional[int] = None
+    corte_ativo: bool = False
+    corte_valor_1: Optional[int] = None
+    corte_congelado_1_em: Optional[datetime] = None
+    corte_valor_2: Optional[int] = None
+    corte_congelado_2_em: Optional[datetime] = None
 
 
 class CutoffRuleCreate(BaseModel):
@@ -235,6 +243,34 @@ class AutoLockConfigResponse(BaseModel):
     ativo: bool
     updated_by_nome: Optional[str] = None
     updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CorteConfigUpdate(BaseModel):
+    dias_corte_1: int
+    dias_corte_2: int
+    ativo: bool
+
+
+class CorteConfigResponse(BaseModel):
+    dias_corte_1: int
+    dias_corte_2: int
+    ativo: bool
+    updated_by_nome: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CorteSnapshotResponse(BaseModel):
+    evento_id: int
+    valor_corte_1: Optional[int] = None
+    congelado_corte_1_em: Optional[datetime] = None
+    valor_corte_2: Optional[int] = None
+    congelado_corte_2_em: Optional[datetime] = None
 
     class Config:
         from_attributes = True

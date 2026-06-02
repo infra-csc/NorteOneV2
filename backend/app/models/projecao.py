@@ -154,6 +154,44 @@ class ProjecaoAutoLockConfig(Base):
     editor = relationship("Usuario", foreign_keys=[updated_by])
 
 
+class ProjecaoCorteConfig(Base):
+    """Config global (single-row) dos dois cortes de congelamento por evento.
+
+    dias_corte_1 → Projeção envio (D-N do corte 1)
+    dias_corte_2 → Projeção convicta (D-N do corte 2)
+    Quando o evento atinge cada D-, o job noturno congela o total de projeção.
+    """
+    __tablename__ = "projecao_corte_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dias_corte_1 = Column(Integer, nullable=False, default=30)
+    dias_corte_2 = Column(Integer, nullable=False, default=7)
+    ativo = Column(Boolean, default=False, nullable=False)
+    updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    editor = relationship("Usuario", foreign_keys=[updated_by])
+
+
+class ProjecaoCorteSnapshot(Base):
+    """Valores congelados (por evento) de cada corte. Uma linha por evento."""
+    __tablename__ = "projecao_corte_snapshot"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
+    valor_corte_1 = Column(Integer, nullable=True)
+    congelado_corte_1_em = Column(DateTime, nullable=True)
+    valor_corte_2 = Column(Integer, nullable=True)
+    congelado_corte_2_em = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    evento = relationship("CadastroEvento")
+
+    __table_args__ = (
+        UniqueConstraint("evento_id", name="uq_corte_snapshot_evento"),
+    )
+
+
 class SimuladorProjetadoFaixas(Base):
     __tablename__ = "simulador_projetado_faixas"
 

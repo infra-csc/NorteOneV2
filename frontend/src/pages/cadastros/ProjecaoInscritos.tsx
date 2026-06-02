@@ -198,6 +198,13 @@ interface ConsolidadoEvento {
   total_projecoes: number;
   projecao_site: number;
   total_geral: number;
+  corte_dias_1?: number | null;
+  corte_dias_2?: number | null;
+  corte_ativo?: boolean;
+  corte_valor_1?: number | null;
+  corte_congelado_1_em?: string | null;
+  corte_valor_2?: number | null;
+  corte_congelado_2_em?: string | null;
 }
 
 interface AreaDetail {
@@ -484,6 +491,11 @@ const ProjecaoInscritos: React.FC = () => {
   const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; ativo: boolean }>({ dias: '0', ativo: false });
   const [savingAutoLock, setSavingAutoLock] = useState(false);
 
+  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, ativo: false });
+  const [corteDraft, setCorteDraft] = useState<{ dias1: string; dias2: string; ativo: boolean }>({ dias1: '30', dias2: '7', ativo: false });
+  const [savingCorte, setSavingCorte] = useState(false);
+  const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
+
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -650,6 +662,62 @@ const ProjecaoInscritos: React.FC = () => {
       showToast(err?.response?.data?.detail || 'Erro ao salvar trava automática');
     } finally {
       setSavingAutoLock(false);
+    }
+  };
+
+  const loadCorteConfig = async () => {
+    try {
+      const data = await projecaoService.getCorteConfig();
+      setCorteConfig(data);
+      setCorteDraft({ dias1: String(data.dias_corte_1), dias2: String(data.dias_corte_2), ativo: data.ativo });
+    } catch {
+      // silently ignore — config pode não existir ainda
+    }
+  };
+
+  const saveCorteConfig = async () => {
+    const d1 = parseInt(corteDraft.dias1, 10);
+    const d2 = parseInt(corteDraft.dias2, 10);
+    if (isNaN(d1) || d1 < 0 || d1 > 365 || isNaN(d2) || d2 < 0 || d2 > 365) {
+      showToast('Dias deve ser um número entre 0 e 365');
+      return;
+    }
+    setSavingCorte(true);
+    try {
+      const updated = await projecaoService.updateCorteConfig({ dias_corte_1: d1, dias_corte_2: d2, ativo: corteDraft.ativo });
+      setCorteConfig(updated);
+      setCorteDraft({ dias1: String(updated.dias_corte_1), dias2: String(updated.dias_corte_2), ativo: updated.ativo });
+      showToast('Cortes de projeção atualizados com sucesso', 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar cortes de projeção');
+    } finally {
+      setSavingCorte(false);
+    }
+  };
+
+  const handleReabrirCorte = async (eventoId: number, corte: 1 | 2) => {
+    setCorteActionBusy(`${eventoId}-${corte}`);
+    try {
+      await projecaoService.reabrirCorte(eventoId, corte);
+      await loadConsolidado();
+      showToast(`Corte ${corte} reaberto`, 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao reabrir corte');
+    } finally {
+      setCorteActionBusy(null);
+    }
+  };
+
+  const handleRecongelarCorte = async (eventoId: number, corte: 1 | 2) => {
+    setCorteActionBusy(`${eventoId}-${corte}`);
+    try {
+      await projecaoService.recongelarCorte(eventoId, corte);
+      await loadConsolidado();
+      showToast(`Corte ${corte} congelado`, 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao congelar corte');
+    } finally {
+      setCorteActionBusy(null);
     }
   };
 
@@ -835,7 +903,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); loadAutoLockConfig(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); loadAutoLockConfig(); loadCorteConfig(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
@@ -2190,22 +2258,47 @@ const ProjecaoInscritos: React.FC = () => {
                               </div>
 
                               <div className="mt-4 flex items-stretch gap-3 flex-wrap">
-                                <div className={`px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-900/40 border-gray-700/50' : 'bg-gray-50 border-gray-200'}`}>
-                                  <span className={`block text-[11px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                    Projeção envio
-                                  </span>
-                                  <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>
-                                    {formatNumber(c.total_projecoes)}
-                                  </span>
-                                </div>
-                                <div className={`px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-900/40 border-gray-700/50' : 'bg-gray-50 border-gray-200'}`}>
-                                  <span className={`block text-[11px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                    Projeção convicta
-                                  </span>
-                                  <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
-                                    {formatNumber(c.total_projecoes)}
-                                  </span>
-                                </div>
+                                {([
+                                  { corte: 1 as const, label: 'Projeção envio', dias: c.corte_dias_1, valor: c.corte_valor_1, congeladoEm: c.corte_congelado_1_em, accent: isDark ? 'text-violet-400' : 'text-violet-600' },
+                                  { corte: 2 as const, label: 'Projeção convicta', dias: c.corte_dias_2, valor: c.corte_valor_2, congeladoEm: c.corte_congelado_2_em, accent: isDark ? 'text-purple-400' : 'text-purple-600' },
+                                ]).map(({ corte, label, dias, valor, congeladoEm, accent }) => {
+                                  const isFrozen = valor !== null && valor !== undefined;
+                                  const busy = corteActionBusy === `${c.evento_id}-${corte}`;
+                                  const congeladoTxt = congeladoEm ? formatDate(congeladoEm) : null;
+                                  return (
+                                    <div
+                                      key={corte}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`px-4 py-2.5 rounded-xl border ${isFrozen
+                                        ? (isDark ? 'bg-gray-900/40 border-gray-700/50' : 'bg-gray-50 border-gray-200')
+                                        : (isDark ? 'bg-gray-900/20 border-dashed border-gray-700/50' : 'bg-gray-50/50 border-dashed border-gray-300')}`}
+                                    >
+                                      <span className={`flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                        {isFrozen ? <Lock className="w-3 h-3" /> : <LockOpen className="w-3 h-3" />}
+                                        {label}
+                                      </span>
+                                      <span className={`text-2xl font-black tracking-tight ${isFrozen ? accent : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>
+                                        {formatNumber(isFrozen ? (valor as number) : c.total_projecoes)}
+                                      </span>
+                                      <span className={`block text-[10px] mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                        {isFrozen
+                                          ? `congelado${congeladoTxt ? ` em ${congeladoTxt}` : ''}`
+                                          : (c.corte_ativo
+                                              ? `prévia · congela em D-${dias ?? '?'}`
+                                              : 'prévia · congelamento inativo')}
+                                      </span>
+                                      {isAdmin && (
+                                        <button
+                                          disabled={busy}
+                                          onClick={() => isFrozen ? handleReabrirCorte(c.evento_id, corte) : handleRecongelarCorte(c.evento_id, corte)}
+                                          className={`mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-colors disabled:opacity-50 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                                        >
+                                          {isFrozen ? <><LockOpen className="w-3 h-3" /> Reabrir</> : <><Lock className="w-3 h-3" /> Congelar agora</>}
+                                        </button>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
 
                             </div>
@@ -2349,6 +2442,79 @@ const ProjecaoInscritos: React.FC = () => {
                 <p className={`mt-3 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                   Última atualização por <span className="font-semibold">{autoLockConfig.updated_by_nome}</span>
                   {autoLockConfig.updated_at ? ` em ${new Date(autoLockConfig.updated_at).toLocaleDateString('pt-BR')}` : ''}
+                </p>
+              )}
+            </div>
+
+            {/* ── Cortes de Projeção (congelamento envio / convicta) ── */}
+            <div className={`rounded-2xl p-5 border ${isDark ? 'bg-gray-800/60 border-violet-500/30' : 'bg-violet-50/80 border-violet-300/60'}`}>
+              <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Lock className={`w-5 h-5 flex-shrink-0 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                  <div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Cortes de Projeção</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Congela automaticamente o total de projeção de cada evento em dois momentos: <strong>Projeção envio</strong> (corte 1) e <strong>Projeção convicta</strong> (corte 2). O valor é gravado no job noturno quando o evento atinge o D- configurado e permanece fixo a partir daí.
+                    </p>
+                  </div>
+                </div>
+                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                  corteConfig.ativo
+                    ? isDark ? 'bg-violet-500/20 text-violet-300 border-violet-500/40' : 'bg-violet-100 text-violet-700 border-violet-300'
+                    : isDark ? 'bg-gray-700 text-gray-400 border-gray-600' : 'bg-gray-100 text-gray-500 border-gray-200'
+                }`}>
+                  {corteConfig.ativo
+                    ? <><Lock className="w-3 h-3" /> Ativo — D-{corteConfig.dias_corte_1} / D-{corteConfig.dias_corte_2}</>
+                    : <><LockOpen className="w-3 h-3" /> Inativo</>}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="flex flex-col gap-1">
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Corte 1 — Projeção envio (D-N)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={corteDraft.dias1}
+                    onChange={e => setCorteDraft(d => ({ ...d, dias1: e.target.value }))}
+                    className={`w-28 px-3 py-2 rounded-xl border text-sm font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-violet-500/50`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Corte 2 — Projeção convicta (D-N)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={365}
+                    value={corteDraft.dias2}
+                    onChange={e => setCorteDraft(d => ({ ...d, dias2: e.target.value }))}
+                    className={`w-28 px-3 py-2 rounded-xl border text-sm font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-violet-500/50`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Congelamento automático</label>
+                  <button
+                    onClick={() => setCorteDraft(d => ({ ...d, ativo: !d.ativo }))}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all border ${corteDraft.ativo ? 'bg-violet-500 text-white border-violet-600 hover:bg-violet-600' : (isDark ? 'bg-gray-700 text-gray-300 border-gray-600 hover:bg-gray-600' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50')}`}
+                  >
+                    {corteDraft.ativo ? <><Lock className="w-4 h-4" /> Ativo</> : <><LockOpen className="w-4 h-4" /> Inativo</>}
+                  </button>
+                </div>
+                <button
+                  onClick={saveCorteConfig}
+                  disabled={savingCorte}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {savingCorte ? 'Salvando…' : 'Salvar'}
+                </button>
+              </div>
+              <p className={`mt-3 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                Cada corte congela uma única vez por evento. Para regravar com o valor atual ou voltar a acompanhar ao vivo, use os botões <strong>Congelar agora</strong> / <strong>Reabrir</strong> em cada card da aba Visão Consolidada.
+              </p>
+              {corteConfig.updated_by_nome && (
+                <p className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                  Última atualização por <span className="font-semibold">{corteConfig.updated_by_nome}</span>
                 </p>
               )}
             </div>
