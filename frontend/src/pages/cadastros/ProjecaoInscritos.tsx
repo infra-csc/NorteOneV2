@@ -2310,11 +2310,14 @@ const ProjecaoInscritos: React.FC = () => {
                                           <Clock className="w-3 h-3" />
                                           {congeladoData ? `Congelado em ${congeladoData}` : 'Valor congelado'}
                                         </span>
+                                      ) : c.corte_ativo ? (
+                                        <span className={`inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-lg text-[11px] font-bold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                                          <Clock className="w-3 h-3" />
+                                          {`Congela em ${congelaEmTxt}`}
+                                        </span>
                                       ) : (
                                         <span className={`block text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                          {c.corte_ativo
-                                            ? `Congela em ${congelaEmTxt}`
-                                            : 'Congelamento inativo'}
+                                          Congelamento inativo
                                         </span>
                                       )}
                                       {isAdmin && (
