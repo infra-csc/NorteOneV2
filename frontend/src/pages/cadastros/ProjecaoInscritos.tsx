@@ -2144,6 +2144,20 @@ const ProjecaoInscritos: React.FC = () => {
                     const isExpanded = expandedConsolidado.has(c.evento_id);
                     const effectiveQtd = (p: { area_projecao_nome: string; quantidade: number }) => p.quantidade;
                     const maxAreaQtd = Math.max(...c.projecoes.map(effectiveQtd), 1);
+                    const diasAteEvento = (() => {
+                      if (!c.evento_data) return null;
+                      const datePart = c.evento_data.slice(0, 10);
+                      const parts = datePart.split('-').map(Number);
+                      if (parts.length !== 3 || parts.some(isNaN)) return null;
+                      const fmt = new Intl.DateTimeFormat('en-CA', {
+                        timeZone: 'America/Sao_Paulo',
+                        year: 'numeric', month: '2-digit', day: '2-digit',
+                      });
+                      const tp = fmt.format(new Date()).split('-').map(Number);
+                      const todayUtc = Date.UTC(tp[0], tp[1] - 1, tp[2]);
+                      const evUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+                      return Math.round((evUtc - todayUtc) / 86400000);
+                    })();
 
                     return (
                       <div
@@ -2168,15 +2182,28 @@ const ProjecaoInscritos: React.FC = () => {
                                     {formatDate(c.evento_data)}
                                   </span>
                                 )}
+                                {diasAteEvento !== null && diasAteEvento >= 0 && (
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
+                                    D-{diasAteEvento}
+                                  </span>
+                                )}
                               </div>
 
-                              <div className="mt-4 flex items-end gap-8 flex-wrap">
-                                <div className="flex items-baseline gap-2">
-                                  <span className={`text-3xl font-black tracking-tight ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>
+                              <div className="mt-4 flex items-stretch gap-3 flex-wrap">
+                                <div className={`px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-900/40 border-gray-700/50' : 'bg-gray-50 border-gray-200'}`}>
+                                  <span className={`block text-[11px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                    Projeção envio
+                                  </span>
+                                  <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-violet-400' : 'text-violet-600'}`}>
                                     {formatNumber(c.total_projecoes)}
                                   </span>
-                                  <span className={`text-sm font-medium ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                    total de projeção
+                                </div>
+                                <div className={`px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-900/40 border-gray-700/50' : 'bg-gray-50 border-gray-200'}`}>
+                                  <span className={`block text-[11px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                    Projeção convicta
+                                  </span>
+                                  <span className={`text-2xl font-black tracking-tight ${isDark ? 'text-purple-400' : 'text-purple-600'}`}>
+                                    {formatNumber(c.total_projecoes)}
                                   </span>
                                 </div>
                               </div>
