@@ -2260,42 +2260,63 @@ const ProjecaoInscritos: React.FC = () => {
 
                               <div className="mt-4 flex items-stretch gap-3 flex-wrap">
                                 {([
-                                  { corte: 1 as const, label: 'Projeção envio', dias: c.corte_dias_1, valor: c.corte_valor_1, congeladoEm: c.corte_congelado_1_em, accent: isDark ? 'text-violet-400' : 'text-violet-600' },
-                                  { corte: 2 as const, label: 'Projeção convicta', dias: c.corte_dias_2, valor: c.corte_valor_2, congeladoEm: c.corte_congelado_2_em, accent: isDark ? 'text-purple-400' : 'text-purple-600' },
-                                ]).map(({ corte, label, dias, valor, congeladoEm, accent }) => {
+                                  { corte: 1 as const, label: 'Projeção envio', dias: c.corte_dias_1, valor: c.corte_valor_1, congeladoEm: c.corte_congelado_1_em,
+                                    text: isDark ? 'text-violet-300' : 'text-violet-700',
+                                    iconBadge: isDark ? 'bg-violet-500/15 text-violet-300' : 'bg-violet-100 text-violet-600',
+                                    frozenBg: isDark ? 'bg-violet-500/[0.07] border-violet-500/25' : 'bg-violet-50 border-violet-200' },
+                                  { corte: 2 as const, label: 'Projeção convicta', dias: c.corte_dias_2, valor: c.corte_valor_2, congeladoEm: c.corte_congelado_2_em,
+                                    text: isDark ? 'text-purple-300' : 'text-purple-700',
+                                    iconBadge: isDark ? 'bg-purple-500/15 text-purple-300' : 'bg-purple-100 text-purple-600',
+                                    frozenBg: isDark ? 'bg-purple-500/[0.07] border-purple-500/25' : 'bg-purple-50 border-purple-200' },
+                                ]).map(({ corte, label, dias, valor, congeladoEm, text, iconBadge, frozenBg }) => {
                                   const isFrozen = valor !== null && valor !== undefined;
                                   const busy = corteActionBusy === `${c.evento_id}-${corte}`;
-                                  const congeladoTxt = congeladoEm ? formatDate(congeladoEm) : null;
+                                  const congeladoData = congeladoEm ? new Date(congeladoEm).toLocaleDateString('pt-BR') : null;
                                   const congelaEmTxt = (corte === 1 && c.corte_data_envio)
-                                    ? `em ${formatDate(c.corte_data_envio)}`
-                                    : `em D-${dias ?? '?'}`;
+                                    ? formatDate(c.corte_data_envio)
+                                    : `D-${dias ?? '?'}`;
                                   return (
                                     <div
                                       key={corte}
                                       onClick={(e) => e.stopPropagation()}
-                                      className={`px-4 py-2.5 rounded-xl border ${isFrozen
-                                        ? (isDark ? 'bg-gray-900/40 border-gray-700/50' : 'bg-gray-50 border-gray-200')
-                                        : (isDark ? 'bg-gray-900/20 border-dashed border-gray-700/50' : 'bg-gray-50/50 border-dashed border-gray-300')}`}
+                                      className={`relative min-w-[180px] flex-1 px-4 py-3 rounded-2xl border transition-all ${isFrozen
+                                        ? frozenBg
+                                        : (isDark ? 'bg-gray-900/20 border-dashed border-gray-700/60' : 'bg-gray-50/60 border-dashed border-gray-300')}`}
                                     >
-                                      <span className={`flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                        {isFrozen ? <Lock className="w-3 h-3" /> : <LockOpen className="w-3 h-3" />}
-                                        {label}
-                                      </span>
-                                      <span className={`text-2xl font-black tracking-tight ${isFrozen ? accent : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>
+                                      <div className="flex items-center justify-between gap-2 mb-2">
+                                        <span className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
+                                          <span className={`flex items-center justify-center w-5 h-5 rounded-lg ${isFrozen ? iconBadge : (isDark ? 'bg-gray-700/50 text-gray-400' : 'bg-gray-200 text-gray-500')}`}>
+                                            {isFrozen ? <Lock className="w-3 h-3" /> : <LockOpen className="w-3 h-3" />}
+                                          </span>
+                                          {label}
+                                        </span>
+                                        {isFrozen ? (
+                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
+                                            <Lock className="w-2.5 h-2.5" /> Congelado
+                                          </span>
+                                        ) : (
+                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${c.corte_ativo
+                                            ? (isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700')
+                                            : (isDark ? 'bg-gray-700/50 text-gray-400' : 'bg-gray-200 text-gray-500')}`}>
+                                            {c.corte_ativo ? 'Prévia' : 'Inativo'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className={`block text-2xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
                                         {formatNumber(isFrozen ? (valor as number) : c.total_projecoes)}
                                       </span>
-                                      <span className={`block text-[10px] mt-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                      <span className={`block text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                                         {isFrozen
-                                          ? `congelado${congeladoTxt ? ` em ${congeladoTxt}` : ''}`
+                                          ? (congeladoData ? `Congelado em ${congeladoData}` : 'Valor congelado')
                                           : (c.corte_ativo
-                                              ? `prévia · congela ${congelaEmTxt}`
-                                              : 'prévia · congelamento inativo')}
+                                              ? `Congela em ${congelaEmTxt}`
+                                              : 'Congelamento inativo')}
                                       </span>
                                       {isAdmin && (
                                         <button
                                           disabled={busy}
                                           onClick={() => isFrozen ? handleReabrirCorte(c.evento_id, corte) : handleRecongelarCorte(c.evento_id, corte)}
-                                          className={`mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-colors disabled:opacity-50 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                                          className={`mt-2 inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-50 ${isDark ? 'border-gray-600/70 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
                                         >
                                           {isFrozen ? <><LockOpen className="w-3 h-3" /> Reabrir</> : <><Lock className="w-3 h-3" /> Congelar agora</>}
                                         </button>
