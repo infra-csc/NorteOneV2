@@ -1265,6 +1265,17 @@ def get_consolidado(
     for p in all_projecoes:
         projecoes_by_evento.setdefault(p.evento_id, []).append(p)
 
+    # Congelamento AO VIVO: avalia e congela os cortes atingidos neste exato
+    # momento (mesma regra do job noturno, via fonte única em snapshot_service),
+    # para que o travamento aconteça assim que a data de corte chega — sem
+    # esperar o job da madrugada. Idempotente e seguro: nunca rebaixa valores.
+    from ...services.snapshot_service import congelar_cortes_para_eventos
+    try:
+        congelar_cortes_para_eventos(db, evento_ids=evento_ids)
+    except Exception as _e:
+        logger.warning(f"[Consolidado] congelamento ao vivo falhou (segue exibindo): {_e}")
+        db.rollback()
+
     # Config de cortes (single-row) + snapshots congelados por evento
     corte_config = _get_corte_config(db)
     corte_dias_1 = corte_config.dias_corte_1 if corte_config else None

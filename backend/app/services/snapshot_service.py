@@ -2272,14 +2272,40 @@ def backfill_historico(db: Session, ano: int, data_inicio: Optional[date] = None
     return result
 
 
-def congelar_cortes_projecao_batch(db: Session) -> dict:
-    """Congela (por evento) os dois cortes de projeção quando o evento atinge o D-.
+def corte_freeze_decision(dias: int, data_envio, today: date, config) -> tuple[bool, bool]:
+    """Decide se cada corte já deve estar congelado para um evento.
 
-    Lê a config single-row `ProjecaoCorteConfig`. Para cada evento "Em andamento"
-    com data futura (D- >= 0) e que tenha pelo menos uma projeção, congela o
-    total de projeção do momento em cada corte cujo D- já foi atingido e que
-    ainda não está congelado. Idempotente: nunca sobrescreve um valor já
-    congelado (admin usa o endpoint de recongelar para isso).
+    Corte 1 (Projeção envio): a "Data de corte Envio" (`data_envio` =
+    `data_corte_1` por evento) é a regra PRINCIPAL — congela quando `today >=
+    data_envio`. O D-N (`config.dias_corte_1`) é apenas fallback quando não há
+    data de envio cadastrada.
+    Corte 2 (Projeção convicta): somente D-N (`config.dias_corte_2`).
+
+    Fonte única de verdade usada tanto pelo job noturno quanto pelo congelamento
+    ao vivo (no `get_consolidado`), garantindo que prévia e congelamento real
+    nunca divirjam.
+    """
+    if data_envio is not None:
+        need_1 = today >= data_envio
+    else:
+        need_1 = dias <= config.dias_corte_1
+    need_2 = dias <= config.dias_corte_2
+    return need_1, need_2
+
+
+def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None) -> dict:
+    """Avalia e congela (por evento) os dois cortes de projeção.
+
+    Para cada evento "Em andamento" com data futura (D- >= 0) e com pelo menos
+    uma projeção, congela o total de projeção do momento em cada corte cuja
+    condição já foi atingida (ver `corte_freeze_decision`) e que ainda não está
+    congelado. Idempotente: nunca sobrescreve um valor já congelado (admin usa o
+    endpoint de recongelar para isso).
+
+    Quando `evento_ids` é informado, limita a avaliação a esses eventos — usado
+    pelo congelamento AO VIVO disparado no carregamento do consolidado. Quando é
+    None, varre todos os eventos (job noturno). Retorna também o dicionário de
+    snapshots resultantes em `snaps`.
     """
     from zoneinfo import ZoneInfo as _ZI
     from ..models.projecao import (
@@ -2292,28 +2318,51 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
 
     config = db.query(_Cfg).first()
     if not config or not config.ativo:
-        return {"status": "pulado", "motivo": "config_inativa", "congelados": 0}
+        return {"status": "pulado", "motivo": "config_inativa", "congelados": 0, "snaps": {}}
 
     today = datetime.now(_ZI('America/Sao_Paulo')).date()
     now = datetime.now(_ZI('America/Sao_Paulo')).replace(tzinfo=None)
 
-    eventos = db.query(_Ev).filter(
+    ev_q = db.query(_Ev).filter(
         _Ev.deleted_at.is_(None),
         _Ev.data_evento.isnot(None),
-    ).all()
+    )
+    if evento_ids is not None:
+        if not evento_ids:
+            return {"status": "ok", "congelados": 0, "snaps": {}}
+        ev_q = ev_q.filter(_Ev.id.in_(evento_ids))
+    eventos = ev_q.all()
+    if not eventos:
+        return {"status": "ok", "congelados": 0, "snaps": {}}
+
+    ev_ids = [e.id for e in eventos]
 
     # "Data de corte Envio" (data_corte_1) por evento — regra PRINCIPAL do Corte 1.
     # Na prática só uma área a preenche por evento; se houver mais de uma, usa a mais
     # antiga. Quando ausente, o Corte 1 cai no fallback D-N (config.dias_corte_1).
     data_envio_por_evento: dict[int, date] = {}
     for (ev_id, dc1) in db.query(_CutEA.evento_id, _CutEA.data_corte_1).filter(
-        _CutEA.data_corte_1.isnot(None)
+        _CutEA.evento_id.in_(ev_ids),
+        _CutEA.data_corte_1.isnot(None),
     ).all():
         atual = data_envio_por_evento.get(ev_id)
         if atual is None or dc1 < atual:
             data_envio_por_evento[ev_id] = dc1
 
-    snaps = {s.evento_id: s for s in db.query(_Snap).all()}
+    # Total completo de projeção por evento (uma única query agregada — evita N+1
+    # e ignora qualquer filtro de área que exista no consumidor). Eventos sem
+    # nenhuma linha de projeção não aparecem aqui e não são congelados.
+    totais_por_evento = dict(
+        db.query(_Proj.evento_id, sa_func.coalesce(sa_func.sum(_Proj.quantidade), 0))
+        .filter(_Proj.evento_id.in_(ev_ids), _Proj.deleted_at.is_(None))
+        .group_by(_Proj.evento_id)
+        .all()
+    )
+
+    snaps = {
+        s.evento_id: s
+        for s in db.query(_Snap).filter(_Snap.evento_id.in_(ev_ids)).all()
+    }
     congelados = 0
 
     for ev in eventos:
@@ -2322,14 +2371,11 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
         dias = (ev.data_evento - today).days
         if dias < 0:
             continue
+        if ev.id not in totais_por_evento:  # sem projeções
+            continue
 
-        # Corte 1: data de corte Envio é a regra principal; D-N é só fallback.
         data_envio = data_envio_por_evento.get(ev.id)
-        if data_envio is not None:
-            need_1 = today >= data_envio
-        else:
-            need_1 = dias <= config.dias_corte_1
-        need_2 = dias <= config.dias_corte_2
+        need_1, need_2 = corte_freeze_decision(dias, data_envio, today, config)
         if not (need_1 or need_2):
             continue
 
@@ -2339,17 +2385,7 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
         if (not need_1 or c1_done) and (not need_2 or c2_done):
             continue
 
-        # Só congela eventos que têm projeções (mesma regra do consolidado).
-        total = sum(int(q or 0) for (q,) in db.query(_Proj.quantidade).filter(
-            _Proj.evento_id == ev.id,
-            _Proj.deleted_at.is_(None),
-        ).all())
-        has_proj = db.query(_Proj.id).filter(
-            _Proj.evento_id == ev.id,
-            _Proj.deleted_at.is_(None),
-        ).first() is not None
-        if not has_proj:
-            continue
+        total = int(totais_por_evento.get(ev.id) or 0)
 
         if snap is None:
             snap = _Snap(evento_id=ev.id)
@@ -2367,5 +2403,18 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
             congelados += 1
 
     db.commit()
+    return {"status": "ok", "congelados": congelados, "snaps": snaps}
+
+
+def congelar_cortes_projecao_batch(db: Session) -> dict:
+    """Job noturno: varre todos os eventos e congela cortes atingidos.
+
+    Mantido para compatibilidade com o scheduler/endpoints existentes; delega
+    para `congelar_cortes_para_eventos` (fonte única). O congelamento também
+    ocorre ao vivo no `get_consolidado`; o job é uma rede de segurança para
+    eventos que ninguém abriu na tela.
+    """
+    res = congelar_cortes_para_eventos(db, evento_ids=None)
+    congelados = res.get("congelados", 0)
     logger.info(f"congelar_cortes_projecao_batch: {congelados} corte(s) congelado(s)")
-    return {"status": "ok", "congelados": congelados}
+    return {k: v for k, v in res.items() if k != "snaps"}
