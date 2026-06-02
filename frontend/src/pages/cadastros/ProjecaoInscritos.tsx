@@ -2305,13 +2305,18 @@ const ProjecaoInscritos: React.FC = () => {
                                       <span className={`block text-2xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
                                         {formatNumber(isFrozen ? (valor as number) : c.total_projecoes)}
                                       </span>
-                                      <span className={`block text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                        {isFrozen
-                                          ? (congeladoData ? `Congelado em ${congeladoData}` : 'Valor congelado')
-                                          : (c.corte_ativo
-                                              ? `Congela em ${congelaEmTxt}`
-                                              : 'Congelamento inativo')}
-                                      </span>
+                                      {isFrozen ? (
+                                        <span className={`inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-lg text-[11px] font-bold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
+                                          <Clock className="w-3 h-3" />
+                                          {congeladoData ? `Congelado em ${congeladoData}` : 'Valor congelado'}
+                                        </span>
+                                      ) : (
+                                        <span className={`block text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                          {c.corte_ativo
+                                            ? `Congela em ${congelaEmTxt}`
+                                            : 'Congelamento inativo'}
+                                        </span>
+                                      )}
                                       {isAdmin && (
                                         <button
                                           disabled={busy}
