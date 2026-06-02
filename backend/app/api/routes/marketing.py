@@ -6533,14 +6533,23 @@ def get_sales_averages(
                 d = date.fromisoformat(row['dia']) if isinstance(row['dia'], str) else row['dia']
                 all_raw_sales[d] = all_raw_sales.get(d, 0) + row['qtd']
 
+    # As médias e janelas de vendas devem terminar em ONTEM (último dia
+    # fechado), nunca em "hoje". Incluir o dia corrente — que é sempre parcial
+    # (o dia ainda não acabou e o snapshot só tem as vendas até o último sync) —
+    # arrasta as médias para baixo, com efeito tanto maior quanto menor a
+    # janela (7d > 14d > 30d). Isso causava a divergência observada contra o
+    # controle externo "até ontem". Alinhado também com o card "Inscrições
+    # acumuladas até ontem" e com o fallback de médias do frontend, que já
+    # filtram `< hoje`.
+    yesterday = today - timedelta(days=1)
     if all_raw_sales:
         latest_sale = max(all_raw_sales.keys())
         if (today - latest_sale).days > 30:
             ref_date = latest_sale
         else:
-            ref_date = today
+            ref_date = yesterday
     else:
-        ref_date = today
+        ref_date = yesterday
     
     start_date = ref_date - timedelta(days=periodo)
     all_daily_sales = {d: v for d, v in all_raw_sales.items() if d > start_date and d <= ref_date}
