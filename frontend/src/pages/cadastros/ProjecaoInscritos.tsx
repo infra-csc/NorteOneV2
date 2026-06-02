@@ -2302,17 +2302,17 @@ const ProjecaoInscritos: React.FC = () => {
                                           </span>
                                         )}
                                       </div>
-                                      <span className={`block text-2xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
+                                      <span className={`block text-3xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
                                         {formatNumber(isFrozen ? (valor as number) : c.total_projecoes)}
                                       </span>
                                       {isFrozen ? (
-                                        <span className={`inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-lg text-[11px] font-bold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
-                                          <Clock className="w-3 h-3" />
+                                        <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
+                                          <Clock className="w-2.5 h-2.5" />
                                           {congeladoData ? `Congelado em ${congeladoData}` : 'Valor congelado'}
                                         </span>
                                       ) : c.corte_ativo ? (
-                                        <span className={`inline-flex items-center gap-1.5 mt-1.5 px-2 py-1 rounded-lg text-[11px] font-bold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
-                                          <Clock className="w-3 h-3" />
+                                        <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                                          <Clock className="w-2.5 h-2.5" />
                                           {`Congela em ${congelaEmTxt}`}
                                         </span>
                                       ) : (
