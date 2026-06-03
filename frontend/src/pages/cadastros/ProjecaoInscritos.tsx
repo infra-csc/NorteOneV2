@@ -9,7 +9,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
-  Package,
+  Package, Shirt,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -194,10 +194,12 @@ interface ConsolidadoEvento {
   evento_nome: string;
   evento_data: string | null;
   inscritos_reais: number;
-  projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number }[];
+  projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number; kits?: { nome_kit: string; quantidade: number }[] }[];
   total_projecoes: number;
   projecao_site: number;
   total_geral: number;
+  inscricao_participacao?: number;
+  projecao_camisetas?: number;
   corte_dias_1?: number | null;
   corte_dias_2?: number | null;
   corte_ativo?: boolean;
@@ -2332,6 +2334,32 @@ const ProjecaoInscritos: React.FC = () => {
                                     </div>
                                   );
                                 })}
+
+                                {(() => {
+                                  const participacao = c.inscricao_participacao ?? 0;
+                                  const camisetas = c.projecao_camisetas ?? (c.total_projecoes - participacao);
+                                  return (
+                                    <div
+                                      onClick={(e) => e.stopPropagation()}
+                                      className={`relative min-w-[180px] flex-1 px-4 py-3 rounded-2xl border transition-all ${isDark ? 'bg-teal-500/[0.07] border-teal-500/25' : 'bg-teal-50 border-teal-200'}`}
+                                    >
+                                      <div className="flex items-center justify-between gap-2 mb-2">
+                                        <span className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
+                                          <span className={`flex items-center justify-center w-5 h-5 rounded-lg ${isDark ? 'bg-teal-500/15 text-teal-300' : 'bg-teal-100 text-teal-600'}`}>
+                                            <Shirt className="w-3 h-3" />
+                                          </span>
+                                          Projeção camisetas
+                                        </span>
+                                      </div>
+                                      <span className={`block text-3xl font-black tracking-tight ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
+                                        {formatNumber(camisetas)}
+                                      </span>
+                                      <span className={`block text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                        {`Total ${formatNumber(c.total_projecoes)} − ${formatNumber(participacao)} insc. participação`}
+                                      </span>
+                                    </div>
+                                  );
+                                })()}
                               </div>
 
                             </div>
@@ -2383,6 +2411,23 @@ const ProjecaoInscritos: React.FC = () => {
                                             style={{ width: `${barPct}%` }}
                                           />
                                         </div>
+                                        {p.kits && p.kits.length > 0 && (
+                                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                                            {p.kits
+                                              .slice()
+                                              .sort((a, b) => b.quantidade - a.quantidade)
+                                              .map((k, kidx) => (
+                                                <span
+                                                  key={`${k.nome_kit}-${kidx}`}
+                                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${isDark ? 'bg-gray-900/40 text-gray-300 border border-gray-700/50' : 'bg-white/70 text-gray-600 border border-gray-200'}`}
+                                                >
+                                                  <Package className="w-2.5 h-2.5 opacity-60" />
+                                                  <span className="truncate max-w-[140px]">{k.nome_kit}</span>
+                                                  <span className={`font-bold tabular-nums ${color.text}`}>{formatNumber(k.quantidade)}</span>
+                                                </span>
+                                              ))}
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   })}

@@ -139,6 +139,7 @@ class ConsolidadoAreaItem(BaseModel):
     area_projecao_id: int
     area_projecao_nome: str
     quantidade: int
+    kits: List[KitProjecaoItem] = []
 
 
 class ConsolidadoEventoResponse(BaseModel):
@@ -150,6 +151,10 @@ class ConsolidadoEventoResponse(BaseModel):
     total_projecoes: int
     projecao_site: int = 0
     total_geral: int
+    # Projeção de camisetas = total de projeções - "Inscrição Participação"
+    # alocada na distribuição por kit (inscrições sem camiseta).
+    inscricao_participacao: int = 0
+    projecao_camisetas: int = 0
     # Cortes congelados (None = ainda não congelado, mostra prévia ao vivo)
     corte_dias_1: Optional[int] = None
     corte_dias_2: Optional[int] = None

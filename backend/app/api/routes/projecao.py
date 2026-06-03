@@ -28,7 +28,7 @@ from ...schemas.projecao import (
     AreaProjecaoCreate, AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
     AreaProjecaoUsuarioBulk,
     ProjecaoInscritosCreate, ProjecaoInscritosUpdate, ProjecaoInscritosResponse,
-    ClienteProjecaoResponse, KitProjecaoResponse,
+    ClienteProjecaoResponse, KitProjecaoResponse, KitProjecaoItem,
     HistoricoResponse,
     ConsolidadoEventoResponse, ConsolidadoAreaItem,
     CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
@@ -43,6 +43,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projecao", tags=["Projeção de Inscritos"])
 
 PROJECAO_PERMISSION = "projecao_inscritos"
+
+
+def _normalize_kit_nome(nome: str) -> str:
+    """Normaliza nome de kit p/ comparação: sem acentos, minúsculo,
+    espaços internos colapsados. Evita drift no cálculo de camisetas."""
+    if not nome:
+        return ""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", nome)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(s.lower().split())
+
+
 _AREAS_CACHE_TTL = 300
 _areas_cache = {"data": None, "ts": 0.0}
 _areas_cache_lock = threading.Lock()
@@ -1294,7 +1307,8 @@ def get_consolidado(
 
     # Fetch all projections for all events in a single query (avoids N+1)
     proj_query = db.query(ProjecaoInscritos).options(
-        joinedload(ProjecaoInscritos.area_projecao)
+        joinedload(ProjecaoInscritos.area_projecao),
+        selectinload(ProjecaoInscritos.kits),
     ).filter(
         ProjecaoInscritos.evento_id.in_(evento_ids),
         ProjecaoInscritos.deleted_at.is_(None),
@@ -1360,16 +1374,25 @@ def get_consolidado(
         projecoes_items = []
         total_projecoes = 0
         projecao_site = 0
+        inscricao_participacao = 0
         for p in projecoes:
             nome_area = p.area_projecao.nome if p.area_projecao else "N/A"
+            kits_items = [
+                KitProjecaoItem(nome_kit=k.nome_kit, quantidade=k.quantidade)
+                for k in sorted(p.kits, key=lambda k: k.quantidade, reverse=True)
+            ]
             projecoes_items.append(ConsolidadoAreaItem(
                 area_projecao_id=p.area_projecao_id,
                 area_projecao_nome=nome_area,
                 quantidade=p.quantidade,
+                kits=kits_items,
             ))
             total_projecoes += p.quantidade
             if nome_area.strip().lower() == "site":
                 projecao_site += p.quantidade
+            for k in p.kits:
+                if _normalize_kit_nome(k.nome_kit) == "inscricao participacao":
+                    inscricao_participacao += k.quantidade
 
         # Inscritos reais (vindos do site) substituem a parte "Site" da projeção:
         # se ainda não atingiram, a projeção_site cobre o restante;
@@ -1388,6 +1411,8 @@ def get_consolidado(
             total_projecoes=total_projecoes,
             projecao_site=projecao_site,
             total_geral=total_geral,
+            inscricao_participacao=inscricao_participacao,
+            projecao_camisetas=total_projecoes - inscricao_participacao,
             corte_dias_1=corte_dias_1,
             corte_dias_2=corte_dias_2,
             corte_ativo=corte_ativo,
