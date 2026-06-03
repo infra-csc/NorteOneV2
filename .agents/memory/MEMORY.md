@@ -8,3 +8,4 @@
 - [Rolling rebuild drift](rolling-rebuild-drift.md) — nightly incremental never re-queries old-day cancellations (snapshot drifts high); rolling full-rebuild fixes it. Full DELETE must be ano-scoped for recurring events or it wipes prior editions.
 - [medias-vendas window](medias-vendas-window.md) — ISC sales averages/windows must anchor ref_date to ontem, not today; partial current day deflates short windows.
 - [id sequence desync](id-sequence-desync.md) — explicit-id seeds/imports leave _id_seq behind MAX(id) → PK UniqueViolation; fixed by monotonic startup resync + in-route self-heal retry. Prod fixes on deploy.
+- [PWA stale-cache](pwa-stale-cache.md) — "produção mostra vazio mesmo com dados" geralmente é bundle JS antigo no service worker, não bug de backend; confirmar via replica SQL + 200 OK, depois autoUpdate + update() periódico.

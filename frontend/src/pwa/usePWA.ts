@@ -93,6 +93,23 @@ export function usePWA(): PWAState {
       }, 1500);
     };
 
+    let periodicTimer: number | undefined;
+    let swRegistration: ServiceWorkerRegistration | undefined;
+
+    const checkForUpdate = () => {
+      if (!swRegistration) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      // Re-busca o service worker no servidor. Se houver versão nova,
+      // dispara onNeedRefresh → triggerAutoReload (aplica e recarrega).
+      swRegistration.update().catch(() => {
+        // offline ou falha transitória: ignora, tenta de novo no próximo ciclo
+      });
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') checkForUpdate();
+    };
+
     const fn = registerSW({
       immediate: true,
       onNeedRefresh() {
@@ -104,8 +121,23 @@ export function usePWA(): PWAState {
       onRegisterError(err) {
         console.warn('[PWA] Service worker registration failed', err);
       },
+      onRegisteredSW(_swUrl, registration) {
+        swRegistration = registration;
+        // Apps instalados (celular/tablet) costumam ficar abertos por horas/dias
+        // sem um reload completo. Sem isto, o service worker só checaria por
+        // atualização no carregamento inicial, deixando o usuário preso a um
+        // bundle antigo (tela "congelada" no cache). Checa a cada 60s e também
+        // quando o app volta ao primeiro plano.
+        periodicTimer = window.setInterval(checkForUpdate, 60 * 1000);
+        document.addEventListener('visibilitychange', onVisible);
+      },
     });
     updateSWRef.current = fn;
+
+    return () => {
+      if (periodicTimer !== undefined) window.clearInterval(periodicTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   useEffect(() => {

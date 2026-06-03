@@ -1,0 +1,33 @@
+---
+name: PWA stale-cache (produção mostra vazio com dados existentes)
+description: Quando uma tela só em produção aparece vazia/desatualizada apesar de o backend retornar os dados, suspeitar do bundle JS antigo no service worker do PWA antes de procurar bug de backend.
+---
+
+# PWA stale-cache: "produção mostra vazio mesmo tendo dados"
+
+Sintoma clássico do usuário: uma tela (ex.: Projeção Inscritos → Visão Consolidada)
+mostra estado vazio **apenas no app publicado/PWA**, enquanto os dados existem e o
+endpoint responde `200 OK`.
+
+**Como confirmar que NÃO é backend (faça nesta ordem):**
+1. Replicar a lógica do endpoint via SQL contra a réplica de produção (`executeSql environment:"production"`) — confirma que os dados existem e quantas linhas o endpoint retornaria.
+2. Conferir nos deployment logs que o endpoint retorna `200 OK` e que o deploy ativo é o commit atual.
+3. Rodar a própria função do endpoint contra a DB em dev — se retorna os dados, o código está correto.
+4. Conferir que não há cache de resposta no frontend (axios) nem no service worker (`runtimeCaching` do `vite.config.ts` cobre só `/api/marketing/*`, não `/api/projecao/*`).
+
+Se tudo acima passa → a causa é **bundle JS antigo servido pelo service worker** no dispositivo do usuário.
+
+**Why:** o PWA precacheia `index.html` + chunks JS. Apps instalados (iOS/iPadOS/Android)
+ficam abertos por horas/dias sem reload completo; se o SW só checa atualização no
+carregamento inicial, o usuário fica preso a um bundle antigo.
+
+**How to apply / correção definitiva:**
+- `registerType: 'autoUpdate'` no `vite.config.ts` (injeta skipWaiting + clientsClaim).
+- Em `usePWA.ts`, no `onRegisteredSW` guardar o `registration` e chamar `registration.update()`
+  periodicamente (60s) + em `visibilitychange` (com guard `navigator.onLine` e cleanup do interval/listener).
+- Mantém `onNeedRefresh → triggerAutoReload` (aplica e recarrega).
+- Workaround imediato para o usuário: Ctrl+Shift+R no navegador, ou fechar/reabrir o app instalado.
+
+**Nota de diagnóstico:** a réplica de leitura de produção tem lag — a mesma query pode
+retornar contagens diferentes em chamadas seguidas enquanto replica. Não confundir lag de
+réplica com "dados sumindo".
