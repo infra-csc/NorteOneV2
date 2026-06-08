@@ -2648,16 +2648,39 @@ if os.path.isdir(frontend_dist):
     if os.path.isdir(assets_dir):
         app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
 
+    # Arquivos que NUNCA podem ser cacheados pelo navegador, senão o usuário
+    # fica preso numa versão antiga do app:
+    #  - sw.js: se cacheado, o navegador não detecta um service worker novo e a
+    #    auto-atualização (registerType: 'autoUpdate') nunca dispara.
+    #  - index.html: a "casca" do SPA que aponta para os bundles JS com hash.
+    #  - *.webmanifest / manifest.webmanifest: metadados do PWA.
+    # Os assets sob /assets têm hash no nome (imutáveis) e continuam cacheáveis.
+    _NO_STORE_HEADERS = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+    def _is_no_store(name: str) -> bool:
+        base = os.path.basename(name).lower()
+        return (
+            base == "index.html"
+            or base == "sw.js"
+            or base.endswith(".webmanifest")
+            or base == "registersw.js"
+        )
+
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             return {"detail": "Not Found"}
         file_path = os.path.join(frontend_dist, full_path)
         if full_path and os.path.isfile(file_path):
-            return FileResponse(file_path)
+            headers = _NO_STORE_HEADERS if _is_no_store(full_path) else None
+            return FileResponse(file_path, headers=headers)
         index_path = os.path.join(frontend_dist, "index.html")
         if os.path.isfile(index_path):
-            return FileResponse(index_path)
+            return FileResponse(index_path, headers=_NO_STORE_HEADERS)
         return {"detail": "Not Found"}
 
 if __name__ == "__main__":

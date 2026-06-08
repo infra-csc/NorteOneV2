@@ -28,6 +28,17 @@ carregamento inicial, o usuário fica preso a um bundle antigo.
 - Mantém `onNeedRefresh → triggerAutoReload` (aplica e recarrega).
 - Workaround imediato para o usuário: Ctrl+Shift+R no navegador, ou fechar/reabrir o app instalado.
 
+**Causa raiz que faz até o Ctrl+Shift+R falhar (MUITO importante):** quando o backend
+FastAPI serve o SPA buildado (catch-all `serve_spa` com `FileResponse`), o `sw.js` e o
+`index.html` saem **sem cabeçalho anti-cache**. Se o `sw.js` for cacheado, o navegador
+nunca enxerga um service worker novo → o `registerType:'autoUpdate'` + `registration.update()`
+**nunca disparam** e o usuário fica preso eternamente no bundle antigo, mesmo com hard refresh.
+**Why:** a cadeia de auto-update depende de o browser baixar um `sw.js` byte-diferente; um
+`sw.js` cacheado quebra toda a corrente. **How to apply:** no `serve_spa`, aplicar
+`Cache-Control: no-cache, no-store, must-revalidate` (+ `Pragma: no-cache`, `Expires: 0`)
+em `index.html`, `sw.js`, `*.webmanifest` e `registerSW.js`. Os assets sob `/assets` têm hash
+no nome (imutáveis) e **devem continuar cacheáveis**. Só toma efeito após republicar.
+
 **Nota de diagnóstico:** a réplica de leitura de produção tem lag — a mesma query pode
 retornar contagens diferentes em chamadas seguidas enquanto replica. Não confundir lag de
 réplica com "dados sumindo".
