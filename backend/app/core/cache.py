@@ -817,6 +817,10 @@ daily_sales_cache = SmartCache("daily_sales")
 curva_cache = SmartCache("curva_comparativa")
 medias_cache = SmartCache("medias_vendas")
 eventos_list_cache = SmartCache("eventos_list")
+# Visão Consolidada da Projeção de Inscritos: agregação pesada (ISC snapshot +
+# congelamento ao vivo). TTL curto + SWR garante resposta imediata e refresh em
+# background. TTL=300 alinhado ao isc_cache, que é a fonte mais volátil aqui.
+projecao_consolidado_cache = SmartCache("projecao_consolidado", ttl=300)
 
 _warmup_metadata_cache: dict = {}
 _warmup_metadata_lock = threading.Lock()
@@ -897,7 +901,7 @@ def get_warmup_all_dim_projetos() -> Optional[list]:
     with _warmup_metadata_lock:
         return _warmup_metadata_cache.get("all_projetos")
 
-ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache]
+ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, projecao_consolidado_cache]
 
 _warmup_event_results_store: dict = {}
 _warmup_event_results_lock = threading.Lock()

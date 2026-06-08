@@ -461,6 +461,7 @@ def create_projecao(
                             campo="Kit adicionado",
                             anterior=None, novo=f"{k.nome_kit} ({k.quantidade})")
         db.commit()
+        invalidate_consolidado_cache()
         return projecao, clientes_salvos, kits_salvos
 
     try:
@@ -642,6 +643,7 @@ def update_corte_config(
         config.updated_by = current_user.id
     db.commit()
     db.refresh(config)
+    invalidate_consolidado_cache()
     return CorteConfigResponse(
         dias_corte_1=config.dias_corte_1,
         dias_corte_2=config.dias_corte_2,
@@ -682,6 +684,7 @@ def reabrir_corte(
         snap.valor_corte_2 = None
         snap.congelado_corte_2_em = None
     db.commit()
+    invalidate_consolidado_cache()
     return {"status": "ok", "corte": corte, "congelado": False}
 
 
@@ -710,6 +713,7 @@ def recongelar_corte(
         snap.valor_corte_2 = total
         snap.congelado_corte_2_em = now
     db.commit()
+    invalidate_consolidado_cache()
     return {"status": "ok", "corte": corte, "congelado": True, "valor": total}
 
 
@@ -772,6 +776,7 @@ def upsert_cutoff_evento_area(
         row.updated_by = current_user.id
         db.commit()
     db.refresh(row)
+    invalidate_consolidado_cache()
     editor = db.query(Usuario).filter(Usuario.id == row.updated_by).first() if row.updated_by else None
     return CutoffEventoAreaResponse(
         id=row.id,
@@ -898,6 +903,7 @@ def update_projecao(
 
     db.commit()
     db.refresh(projecao)
+    invalidate_consolidado_cache()
 
     clientes_atuais = db.query(ProjecaoInscritosCliente).filter(
         ProjecaoInscritosCliente.projecao_id == projecao.id
@@ -1000,6 +1006,7 @@ def delete_projecao(
     projecao.deleted_at = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
     projecao.updated_by = current_user.id
     db.commit()
+    invalidate_consolidado_cache()
     return {"message": "Projeção removida"}
 
 
@@ -1037,6 +1044,7 @@ def toggle_lock_evento(
             _record_history(db, p.id, "DESTRAVAMENTO", current_user.id,
                             campo="travamento", anterior="Travado", novo="Destravado")
         db.commit()
+        invalidate_consolidado_cache()
         return {"action": "unlocked", "count": len(projecoes)}
     else:
         now = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
@@ -1053,6 +1061,7 @@ def toggle_lock_evento(
                                 campo="travamento", anterior="Editável", novo="Travado")
                 locked_count += 1
         db.commit()
+        invalidate_consolidado_cache()
         return {"action": "locked", "count": locked_count}
 
 
@@ -1142,6 +1151,7 @@ def restaurar_projecao(
     _record_history(db, projecao.id, "RESTAURACAO", current_user.id,
                     campo="quantidade", novo=str(projecao.quantidade))
     db.commit()
+    invalidate_consolidado_cache()
     return {"message": "Projeção restaurada com sucesso"}
 
 
@@ -1166,6 +1176,7 @@ def delete_permanente(
     ).delete()
     db.delete(projecao)
     db.commit()
+    invalidate_consolidado_cache()
     return {"message": "Projeção excluída permanentemente"}
 
 
@@ -1262,6 +1273,37 @@ def exportar_projecoes(
     )
 
 
+def _consolidado_cache_key(
+    mes: Optional[str],
+    tipo_evento: Optional[str],
+    modalidade: Optional[str],
+    area_projecao_id: Optional[str],
+    evento_id: Optional[int],
+) -> str:
+    """Chave estável por combinação de filtros + ano-edição corrente."""
+    return "|".join([
+        str(datetime.now().year),
+        (mes or "").strip(),
+        (tipo_evento or "").strip(),
+        (modalidade or "").strip(),
+        (area_projecao_id or "").strip(),
+        str(evento_id) if evento_id is not None else "",
+    ])
+
+
+def invalidate_consolidado_cache():
+    """Limpa todas as variações (filtros) do cache da Visão Consolidada.
+
+    Chamado após qualquer mutação que altere projeções ou cortes, garantindo
+    que a próxima leitura reflita o estado novo (a recomputação acontece em
+    background via SWR nas leituras seguintes)."""
+    try:
+        from ...core.cache import projecao_consolidado_cache
+        projecao_consolidado_cache.invalidate()
+    except Exception as _e:
+        logger.warning(f"[Consolidado] falha ao invalidar cache: {_e}")
+
+
 @router.get("/consolidado", response_model=List[ConsolidadoEventoResponse])
 def get_consolidado(
     mes: Optional[str] = Query(None),
@@ -1269,9 +1311,40 @@ def get_consolidado(
     modalidade: Optional[str] = Query(None),
     area_projecao_id: Optional[str] = Query(None),
     evento_id: Optional[int] = Query(None),
+    force_refresh: bool = Query(False),
     db: Session = Depends(get_db),
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
+    from ...core.cache import projecao_consolidado_cache
+    cache_key = _consolidado_cache_key(mes, tipo_evento, modalidade, area_projecao_id, evento_id)
+
+    if not force_refresh:
+        def _swr_refresh():
+            from ...core.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                fresh = _compute_consolidado(_db, mes, tipo_evento, modalidade, area_projecao_id, evento_id)
+                projecao_consolidado_cache.set(cache_key, fresh)
+            finally:
+                _db.close()
+
+        cached, _is_stale = projecao_consolidado_cache.get_or_revalidate(cache_key, refresh_fn=_swr_refresh)
+        if cached is not None:
+            return cached
+
+    result = _compute_consolidado(db, mes, tipo_evento, modalidade, area_projecao_id, evento_id)
+    projecao_consolidado_cache.set(cache_key, result)
+    return result
+
+
+def _compute_consolidado(
+    db: Session,
+    mes: Optional[str],
+    tipo_evento: Optional[str],
+    modalidade: Optional[str],
+    area_projecao_id: Optional[str],
+    evento_id: Optional[int],
+) -> list:
     query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
     if mes:
         mes_list = [int(m) for m in mes.split(',') if m.strip().isdigit()]
@@ -1423,7 +1496,9 @@ def get_consolidado(
             corte_data_envio=data_envio_by_evento.get(evento.id),
         ))
 
-    return result
+    # Retorna dicts JSON-safe: o resultado é cacheado em memória e persistido no
+    # PostgreSQL (CacheEntry) pelo SmartCache; objetos Pydantic não serializam lá.
+    return [r.model_dump(mode="json") for r in result]
 
 
 # ============================================================

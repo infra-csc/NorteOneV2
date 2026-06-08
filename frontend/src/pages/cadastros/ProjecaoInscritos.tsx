@@ -420,6 +420,8 @@ const ProjecaoInscritos: React.FC = () => {
   const [myAreaIds, setMyAreaIds] = useState<Set<number>>(new Set());
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [consolidado, setConsolidado] = useState<ConsolidadoEvento[]>([]);
+  const [consolidadoLoading, setConsolidadoLoading] = useState(false);
+  const [consolidadoLoaded, setConsolidadoLoaded] = useState(false);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
   const [allUsers, setAllUsers] = useState<SimpleUser[]>([]);
   const [lixeira, setLixeira] = useState<Projecao[]>([]);
@@ -578,11 +580,17 @@ const ProjecaoInscritos: React.FC = () => {
   };
 
   const loadConsolidado = async () => {
+    // Só exibe o spinner enquanto ainda não há nenhum dado carregado; em
+    // recargas (filtros/SWR) mantém os dados atuais visíveis para não "piscar".
+    if (!consolidadoLoaded) setConsolidadoLoading(true);
     try {
       const data = await projecaoService.getConsolidado(buildFilters());
       setConsolidado(data);
+      setConsolidadoLoaded(true);
     } catch (error) {
       console.error('Erro ao carregar consolidado:', error);
+    } finally {
+      setConsolidadoLoading(false);
     }
   };
 
@@ -2201,7 +2209,26 @@ const ProjecaoInscritos: React.FC = () => {
 
         {activeTab === 'consolidado' && (
           <div className="space-y-6">
-            {filteredConsolidado.length === 0 ? (
+            {consolidadoLoading && filteredConsolidado.length === 0 ? (
+              <div className="space-y-4">
+                {[0, 1, 2].map(i => (
+                  <div
+                    key={i}
+                    className={`relative overflow-hidden rounded-2xl p-5 pl-6 animate-pulse ${isDark ? 'bg-gray-800/60 border border-gray-700/50' : 'bg-white/80 border border-gray-200'}`}
+                  >
+                    <div className={`absolute top-0 left-0 h-full w-1 bg-gradient-to-b from-violet-400/40 to-purple-500/40`} />
+                    <div className={`h-5 w-1/3 rounded-lg ${isDark ? 'bg-gray-700/70' : 'bg-gray-200'}`} />
+                    <div className="mt-4 flex gap-3">
+                      <div className={`h-20 flex-1 rounded-2xl ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`} />
+                      <div className={`h-20 flex-1 rounded-2xl ${isDark ? 'bg-gray-700/50' : 'bg-gray-100'}`} />
+                    </div>
+                  </div>
+                ))}
+                <p className={`text-center text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Carregando visão consolidada...
+                </p>
+              </div>
+            ) : filteredConsolidado.length === 0 ? (
               <div className={`text-center py-16 rounded-2xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50 text-gray-400' : 'bg-white/70 border border-gray-200 text-gray-500'}`}>
                 <Eye className="w-14 h-14 mx-auto mb-4 opacity-20" />
                 <p className="text-lg font-semibold">Nenhum evento com projeções</p>
