@@ -347,7 +347,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
               <Th k="data_evento" align="center">Data</Th>
               <Th k="inscritos_total" align="center">Inscritos Site</Th>
               <Th k="inscritos_projetados" align="center">Projeção Site</Th>
-              <Th k="total_geral" align="center">Total Site</Th>
               <Th k="inscritos_ontem" align="center">Ontem</Th>
               <Th k="inscritos_hoje" align="center">Hoje</Th>
               <Th align="center">Δ Hoje</Th>
@@ -358,11 +357,10 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           </thead>
           <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
             {!collapsed && sorted.length === 0 && (
-              <tr><td colSpan={11} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
+              <tr><td colSpan={10} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
             )}
             {!collapsed && sorted.map(r => {
               const projSite = r.inscritos_projetados_site || 0;
-              const totalSite = (r.inscritos_total || 0) + projSite;
               return (
                 <tr key={r.id} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-indigo-50/40'}>
                   <td className="px-4 py-3">
@@ -381,15 +379,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                   </td>
                   <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(r.inscritos_total)}</td>
                   <td className={`px-4 py-3 text-center ${projSite > 0 ? 'text-indigo-400 font-semibold' : (isDark ? 'text-gray-500' : 'text-gray-400')}`}>{fmtNum(projSite)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
-                      isDark
-                        ? 'bg-gradient-to-br from-indigo-500/30 to-purple-500/20 text-white ring-1 ring-indigo-400/40'
-                        : 'bg-gradient-to-br from-indigo-100 to-purple-100 text-indigo-900 ring-1 ring-indigo-300/60'
-                    }`}>
-                      {fmtNum(totalSite)}
-                    </span>
-                  </td>
                   <td className={`px-4 py-3 text-center ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{fmtNum(r.inscritos_ontem)}</td>
                   <td className={`px-4 py-3 text-center font-semibold ${r.inscritos_hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-300' : 'text-gray-700')}`}>{fmtNum(r.inscritos_hoje)}</td>
                   <td className="px-4 py-3 text-center">{deltaCell(r.inscritos_hoje, r.inscritos_ontem)}</td>
@@ -406,15 +395,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
                 <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
                 <td className={`px-4 py-3 text-center font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>{fmtNum(totals.total)}</td>
                 <td className={`px-4 py-3 text-center font-bold ${totals.projetados_site > 0 ? 'text-indigo-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.projetados_site)}</td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
-                    isDark
-                      ? 'bg-gradient-to-br from-indigo-500/40 to-purple-500/30 text-white ring-1 ring-indigo-400/50'
-                      : 'bg-gradient-to-br from-indigo-200 to-purple-200 text-indigo-900 ring-1 ring-indigo-400/60'
-                  }`}>
-                    {fmtNum(totals.total + totals.projetados_site)}
-                  </span>
-                </td>
                 <td className={`px-4 py-3 text-center font-bold ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{fmtNum(totals.ontem)}</td>
                 <td className={`px-4 py-3 text-center font-bold ${totals.hoje > 0 ? 'text-emerald-400' : (isDark ? 'text-gray-200' : 'text-gray-800')}`}>{fmtNum(totals.hoje)}</td>
                 <td className="px-4 py-3 text-center">{deltaCell(totals.hoje, totals.ontem)}</td>
