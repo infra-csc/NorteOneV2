@@ -442,6 +442,10 @@ def get_dashboard_operacional(
         ocupacao_numerador = current_sales + proj_cadastro
         taxa_ocupacao = round((ocupacao_numerador / cap * 100), 1) if cap > 0 else 0
 
+        # Ocupação da tabela "Inscrições por Evento" = Inscritos Site / Qtd Site (Site Pago do cadastro)
+        qtd_site = int(cadastro.atletas_site_pago or 0) if cadastro else 0
+        taxa_ocupacao_site = round((current_sales / qtd_site * 100), 1) if qtd_site > 0 else 0
+
         isc_components = calculate_isc_components(
             current_sales, cap, d_minus_inscricoes,
             media_7d=m7d, media_14d=m14d, media_30d=m30d,
@@ -546,7 +550,7 @@ def get_dashboard_operacional(
             "media_7d": round(m7d or 0.0, 1),
             "media_14d": round(m14d or 0.0, 1),
             "isc_status": isc_status,
-            "taxa_ocupacao": taxa_ocupacao,
+            "taxa_ocupacao": taxa_ocupacao_site,
             "capacidade": cap,
         })
 
