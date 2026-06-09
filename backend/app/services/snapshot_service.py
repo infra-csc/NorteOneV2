@@ -2527,16 +2527,17 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         need_1, need_2 = corte_freeze_decision(dias, data_envio, today, config)
         snap = snaps.get(ev.id)
 
-        # Auto-DESCONGELAR Corte 1: se há uma "Data de corte Envio" cadastrada que
-        # ainda não chegou (today < data_envio => need_1 False), a regra do campo
-        # passa a valer sobre o fallback D-N. Um corte que tinha sido congelado
-        # antes (ex.: pelo D-N, quando a data ainda não existia) deve voltar a
-        # acompanhar ao vivo. Só dispara quando HÁ data de envio — congelamentos
-        # por D-N puro (sem data) e o Corte 2 não são afetados.
+        # Auto-DESCONGELAR: se um corte foi congelado mas a sua condição deixou de
+        # ser atingida, ele volta a acompanhar ao vivo. Cobre os casos:
+        #   - Corte 1 por "Data de corte Envio": today < data_envio (need_1 False);
+        #   - Corte 1 por fallback D-N: a data do evento foi adiada e dias passou a
+        #     ser > dias_corte_1 (evento "saiu" do corte);
+        #   - Corte 2 (D-N): idem, dias passou a ser > dias_corte_2.
+        # `need_1`/`need_2` já consolidam a regra correta (data de envio ou D-N),
+        # então basta descongelar quando a necessidade some.
         if (
             snap is not None
             and snap.valor_corte_1 is not None
-            and data_envio is not None
             and not need_1
         ):
             snap.valor_corte_1 = None
@@ -2545,6 +2546,15 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             # Coerência: ao descongelar o Corte 1, o piso da "Camiseta avulsa"
             # deixa de valer — o campo volta a ser "Kit Completo - Sem camiseta".
             db.query(_KitSnap).filter(_KitSnap.evento_id == ev.id).delete()
+
+        if (
+            snap is not None
+            and snap.valor_corte_2 is not None
+            and not need_2
+        ):
+            snap.valor_corte_2 = None
+            snap.congelado_corte_2_em = None
+            descongelados += 1
 
         if dias < 0:
             continue
