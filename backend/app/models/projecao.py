@@ -198,6 +198,11 @@ class ProjecaoCorteSnapshot(Base):
     # clica em "Congelar agora" (recongelar). Limpo no recongelamento manual.
     reaberto_manual_corte_1 = Column(Boolean, default=False, nullable=False)
     reaberto_manual_corte_2 = Column(Boolean, default=False, nullable=False)
+    # Congelamento manual (admin clicou "Congelar agora"): quando True, o
+    # auto-descongelamento NÃO reverte este corte mesmo que a janela D-N ainda
+    # não tenha sido atingida. Limpo na reabertura manual.
+    congelado_manual_corte_1 = Column(Boolean, default=False, nullable=False)
+    congelado_manual_corte_2 = Column(Boolean, default=False, nullable=False)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
 
     evento = relationship("CadastroEvento")

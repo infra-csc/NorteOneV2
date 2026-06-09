@@ -2535,10 +2535,16 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         #   - Corte 2 (D-N): idem, dias passou a ser > dias_corte_2.
         # `need_1`/`need_2` já consolidam a regra correta (data de envio ou D-N),
         # então basta descongelar quando a necessidade some.
+        # Congelamento manual (admin clicou "Congelar agora") persiste mesmo fora
+        # da janela D-N — só o admin reabre. Não é alvo do auto-descongelamento.
+        c1_manual = bool(snap and getattr(snap, 'congelado_manual_corte_1', False))
+        c2_manual = bool(snap and getattr(snap, 'congelado_manual_corte_2', False))
+
         if (
             snap is not None
             and snap.valor_corte_1 is not None
             and not need_1
+            and not c1_manual
         ):
             snap.valor_corte_1 = None
             snap.congelado_corte_1_em = None
@@ -2551,6 +2557,7 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             snap is not None
             and snap.valor_corte_2 is not None
             and not need_2
+            and not c2_manual
         ):
             snap.valor_corte_2 = None
             snap.congelado_corte_2_em = None

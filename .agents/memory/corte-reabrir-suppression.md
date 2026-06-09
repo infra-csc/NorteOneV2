@@ -16,3 +16,17 @@ corte still gets frozen when the OTHER corte needs freezing.
 
 **Why:** User chose manual control — a reopened corte only re-freezes on explicit
 "Congelar agora", never automatically.
+
+## Manual freeze must persist outside the D-N window
+`congelar_cortes_para_eventos` also has an auto-DESCONGELAR block that clears any
+frozen corte whose window is NOT currently reached (`not need_X`). So a manual
+"Congelar agora" on a corte before its D-N window (common for corte 2 / Projeção
+de Ajuste, whose window sits closer to the event) was reverted on the next read.
+
+**Rule:** A manual freeze needs its OWN persistent flag (`congelado_manual_corte_1/2`),
+set True by recongelar and False by reabrir, and the auto-descongelar block must
+skip cortes where it is set. `reaberto_manual_*` and `congelado_manual_*` are
+mutually exclusive by construction (each endpoint sets one True, the other False).
+
+**Why:** "Congelar agora" is an explicit admin choice — it must hold regardless of
+the automatic window, and only "Reabrir" undoes it.

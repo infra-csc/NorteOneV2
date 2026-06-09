@@ -749,10 +749,12 @@ def reabrir_corte(
         snap.valor_corte_1 = None
         snap.congelado_corte_1_em = None
         snap.reaberto_manual_corte_1 = True
+        snap.congelado_manual_corte_1 = False
     else:
         snap.valor_corte_2 = None
         snap.congelado_corte_2_em = None
         snap.reaberto_manual_corte_2 = True
+        snap.congelado_manual_corte_2 = False
     db.commit()
     invalidate_consolidado_cache()
     return {"status": "ok", "corte": corte, "congelado": False}
@@ -780,10 +782,12 @@ def recongelar_corte(
         snap.valor_corte_1 = total
         snap.congelado_corte_1_em = now
         snap.reaberto_manual_corte_1 = False
+        snap.congelado_manual_corte_1 = True
     else:
         snap.valor_corte_2 = total
         snap.congelado_corte_2_em = now
         snap.reaberto_manual_corte_2 = False
+        snap.congelado_manual_corte_2 = True
     db.commit()
     invalidate_consolidado_cache()
     return {"status": "ok", "corte": corte, "congelado": True, "valor": total}
