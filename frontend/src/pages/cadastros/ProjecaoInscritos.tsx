@@ -487,6 +487,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListCidade, setEventoListCidade] = useState<string>('');
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
   const [eventoListOnlyCutoff, setEventoListOnlyCutoff] = useState<boolean>(false);
+  const [eventoListOnlyLocked, setEventoListOnlyLocked] = useState<boolean>(false);
   const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'asc' });
   const [projecaoSort, setProjecaoSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'quantidade', dir: 'desc' });
 
@@ -1130,9 +1131,10 @@ const ProjecaoInscritos: React.FC = () => {
         if (month !== eventoListMes) return false;
       }
       if (eventoListOnlyCutoff && !cutoffByEventoId[e.id]) return false;
+      if (eventoListOnlyLocked && !autoLockedEventoIds.has(e.id)) return false;
       return true;
     });
-  }, [eventos, eventoListSearch, eventoListMes, eventoListModalidade, eventoListCidade, eventoListStatus, eventoListOnlyCutoff, cutoffByEventoId]);
+  }, [eventos, eventoListSearch, eventoListMes, eventoListModalidade, eventoListCidade, eventoListStatus, eventoListOnlyCutoff, eventoListOnlyLocked, cutoffByEventoId, autoLockedEventoIds]);
 
   const sortedEventosList = useMemo(() => {
     const { field, dir } = eventoListSort;
@@ -1713,8 +1715,9 @@ const ProjecaoInscritos: React.FC = () => {
             {/* Events filter bar */}
             {(() => {
               const selClass = `h-9 pl-3 pr-8 rounded-xl border text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900/50 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`;
-              const hasFilters = eventoListSearch || eventoListMes || eventoListModalidade || eventoListCidade || eventoListStatus !== 'Em andamento' || eventoListOnlyCutoff;
+              const hasFilters = eventoListSearch || eventoListMes || eventoListModalidade || eventoListCidade || eventoListStatus !== 'Em andamento' || eventoListOnlyCutoff || eventoListOnlyLocked;
               const cutoffCount = Object.keys(cutoffByEventoId).length;
+              const lockedCount = autoLockedEventoIds.size;
               return (
                 <div className={`flex flex-wrap items-center gap-2 p-4 border-b ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
                   {/* Search */}
@@ -1791,10 +1794,34 @@ const ProjecaoInscritos: React.FC = () => {
                     )}
                   </button>
 
+                  {/* Apenas com trava automática */}
+                  <button
+                    onClick={() => setEventoListOnlyLocked(v => !v)}
+                    disabled={lockedCount === 0 && !eventoListOnlyLocked}
+                    title={lockedCount === 0 ? 'Nenhum evento está com trava automática ativa' : 'Mostrar apenas eventos com trava automática ativa'}
+                    className={`flex items-center gap-1.5 h-9 px-3 rounded-xl text-xs font-semibold transition-all border ${
+                      eventoListOnlyLocked
+                        ? isDark ? 'bg-amber-500/25 text-amber-200 border-amber-500/50' : 'bg-amber-100 text-amber-700 border-amber-300'
+                        : lockedCount === 0
+                          ? isDark ? 'bg-gray-800/30 text-gray-600 border-gray-700/40 cursor-not-allowed' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                          : isDark ? 'bg-gray-900/50 text-gray-300 border-gray-600 hover:bg-amber-500/15 hover:text-amber-300 hover:border-amber-500/40' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300'
+                    }`}
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    Com trava
+                    {lockedCount > 0 && (
+                      <span className={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        eventoListOnlyLocked
+                          ? isDark ? 'bg-amber-500/40 text-amber-100' : 'bg-amber-200 text-amber-800'
+                          : isDark ? 'bg-amber-500/30 text-amber-200' : 'bg-amber-100 text-amber-700'
+                      }`}>{lockedCount}</span>
+                    )}
+                  </button>
+
                   {/* Clear */}
                   {hasFilters && (
                     <button
-                      onClick={() => { setEventoListSearch(''); setEventoListMes(''); setEventoListModalidade(''); setEventoListCidade(''); setEventoListStatus('Em andamento'); setEventoListOnlyCutoff(false); }}
+                      onClick={() => { setEventoListSearch(''); setEventoListMes(''); setEventoListModalidade(''); setEventoListCidade(''); setEventoListStatus('Em andamento'); setEventoListOnlyCutoff(false); setEventoListOnlyLocked(false); }}
                       className={`flex items-center gap-1 h-9 px-3 rounded-xl text-xs font-semibold transition-all ${isDark ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'}`}
                     >
                       <X className="w-3.5 h-3.5" /> Limpar
@@ -1882,13 +1909,12 @@ const ProjecaoInscritos: React.FC = () => {
                           <td className={`px-4 py-3 text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{ev.nome}</span>
-                              {!isAdmin && autoLockedEventoIds.has(ev.id) && (
+                              {autoLockedEventoIds.has(ev.id) && (
                                 <span
-                                  title={`Trava automática ativa: evento a ≤ D-${autoLockConfig.dias_antes_evento} dias`}
-                                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${isDark ? 'bg-amber-500/25 text-amber-300 border border-amber-500/40' : 'bg-amber-100 text-amber-700 border border-amber-300'}`}
+                                  title={`Trava automática ativa (D-${autoLockConfig.dias_antes_evento} às ${autoLockConfig.hora_trava || '00:00'})`}
+                                  className={`inline-flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0 ${isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-600'}`}
                                 >
-                                  <Lock className="w-2.5 h-2.5" />
-                                  Trava Auto
+                                  <Lock className="w-3 h-3" />
                                 </span>
                               )}
                               {showCutoffMarker && (
