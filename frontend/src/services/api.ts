@@ -1655,7 +1655,7 @@ export const projecaoService = {
     const response = await api.get(`/projecao/${id}/historico`);
     return response.data;
   },
-  getConsolidado: async (params?: { mes?: string; tipo_evento?: string; modalidade?: string; area_projecao_id?: string; evento_id?: number }) => {
+  getConsolidado: async (params?: { mes?: string; tipo_evento?: string; modalidade?: string; area_projecao_id?: string; evento_id?: number; force_refresh?: boolean }) => {
     const response = await api.get('/projecao/consolidado', { params });
     return response.data;
   },

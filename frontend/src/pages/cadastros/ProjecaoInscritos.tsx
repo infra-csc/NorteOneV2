@@ -593,12 +593,12 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
-  const loadConsolidado = async () => {
+  const loadConsolidado = async (force: boolean = false) => {
     // Só exibe o spinner enquanto ainda não há nenhum dado carregado; em
     // recargas (filtros/SWR) mantém os dados atuais visíveis para não "piscar".
     if (!consolidadoLoaded) setConsolidadoLoading(true);
     try {
-      const data = await projecaoService.getConsolidado(buildFilters());
+      const data = await projecaoService.getConsolidado({ ...buildFilters(), ...(force ? { force_refresh: true } : {}) });
       setConsolidado(data);
       setConsolidadoLoaded(true);
     } catch (error) {
@@ -729,7 +729,7 @@ const ProjecaoInscritos: React.FC = () => {
     setCorteActionBusy(`${eventoId}-${corte}`);
     try {
       await projecaoService.reabrirCorte(eventoId, corte);
-      await loadConsolidado();
+      await loadConsolidado(true);
       showToast(`Corte ${corte} reaberto`, 'success');
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao reabrir corte');
@@ -742,7 +742,7 @@ const ProjecaoInscritos: React.FC = () => {
     setCorteActionBusy(`${eventoId}-${corte}`);
     try {
       await projecaoService.recongelarCorte(eventoId, corte);
-      await loadConsolidado();
+      await loadConsolidado(true);
       showToast(`Corte ${corte} congelado`, 'success');
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao congelar corte');
