@@ -2289,11 +2289,11 @@ const ProjecaoInscritos: React.FC = () => {
 
                               <div className="mt-4 flex items-stretch gap-3 flex-wrap">
                                 {([
-                                  { corte: 1 as const, label: 'Projeção envio', dias: c.corte_dias_1, valor: c.corte_valor_1, congeladoEm: c.corte_congelado_1_em,
+                                  { corte: 1 as const, label: 'Projeção Convicta', dias: c.corte_dias_1, valor: c.corte_valor_1, congeladoEm: c.corte_congelado_1_em,
                                     text: isDark ? 'text-violet-300' : 'text-violet-700',
                                     iconBadge: isDark ? 'bg-violet-500/15 text-violet-300' : 'bg-violet-100 text-violet-600',
                                     frozenBg: isDark ? 'bg-violet-500/[0.07] border-violet-500/25' : 'bg-violet-50 border-violet-200' },
-                                  { corte: 2 as const, label: 'Projeção convicta', dias: c.corte_dias_2, valor: c.corte_valor_2, congeladoEm: c.corte_congelado_2_em,
+                                  { corte: 2 as const, label: 'Projeção de Ajuste', dias: c.corte_dias_2, valor: c.corte_valor_2, congeladoEm: c.corte_congelado_2_em,
                                     text: isDark ? 'text-purple-300' : 'text-purple-700',
                                     iconBadge: isDark ? 'bg-purple-500/15 text-purple-300' : 'bg-purple-100 text-purple-600',
                                     frozenBg: isDark ? 'bg-purple-500/[0.07] border-purple-500/25' : 'bg-purple-50 border-purple-200' },
