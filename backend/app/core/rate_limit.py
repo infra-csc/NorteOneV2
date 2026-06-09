@@ -35,6 +35,7 @@ _SKIP_PREFIXES = (
 # de 6/min — caso contrário o usuário clica "Atualizar" 7x e fica bloqueado.
 _FORCE_REFRESH_CHEAP_PATHS = (
     "/api/marketing/diagnostico-curvas",
+    "/api/projecao/consolidado",   # força só recomputa do PostgreSQL, sem Magento
 )
 
 

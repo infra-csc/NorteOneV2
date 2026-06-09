@@ -727,11 +727,31 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
+  // Atualiza localmente o card de um corte para refletir a ação na hora, sem
+  // depender da recarga (que é reconciliada em seguida). Garante feedback visual
+  // instantâneo ao congelar/reabrir.
+  const patchCorteLocal = (
+    eventoId: number,
+    corte: 1 | 2,
+    patch: { valor: number | null; congeladoEm: string | null; reabertoManual: boolean },
+  ) => {
+    setConsolidado(prev => prev.map(c => {
+      if (c.evento_id !== eventoId) return c;
+      return corte === 1
+        ? { ...c, corte_valor_1: patch.valor, corte_congelado_1_em: patch.congeladoEm, reaberto_manual_corte_1: patch.reabertoManual }
+        : { ...c, corte_valor_2: patch.valor, corte_congelado_2_em: patch.congeladoEm, reaberto_manual_corte_2: patch.reabertoManual };
+    }));
+  };
+
   const handleReabrirCorte = async (eventoId: number, corte: 1 | 2) => {
     setCorteActionBusy(`${eventoId}-${corte}`);
     try {
       await projecaoService.reabrirCorte(eventoId, corte);
-      await loadConsolidado(true);
+      // Atualização otimista: volta a acompanhar ao vivo imediatamente.
+      patchCorteLocal(eventoId, corte, { valor: null, congeladoEm: null, reabertoManual: true });
+      // A mutação já invalidou o cache no backend; recarga normal (sem
+      // force_refresh) recomputa fresco e não cai no rate limit agressivo.
+      await loadConsolidado();
       showToast(`Corte ${corte} reaberto`, 'success');
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao reabrir corte');
@@ -743,8 +763,14 @@ const ProjecaoInscritos: React.FC = () => {
   const handleRecongelarCorte = async (eventoId: number, corte: 1 | 2) => {
     setCorteActionBusy(`${eventoId}-${corte}`);
     try {
-      await projecaoService.recongelarCorte(eventoId, corte);
-      await loadConsolidado(true);
+      const resp = await projecaoService.recongelarCorte(eventoId, corte);
+      // Atualização otimista: já mostra congelado com o valor retornado.
+      patchCorteLocal(eventoId, corte, {
+        valor: typeof resp?.valor === 'number' ? resp.valor : 0,
+        congeladoEm: new Date().toISOString(),
+        reabertoManual: false,
+      });
+      await loadConsolidado();
       showToast(`Corte ${corte} congelado`, 'success');
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao congelar corte');
