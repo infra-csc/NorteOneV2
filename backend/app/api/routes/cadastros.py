@@ -30,6 +30,20 @@ def _invalidate_list_cache():
         _list_cache["ts"] = 0.0
 
 
+def _invalidate_projecao_consolidado():
+    """Invalida o cache SWR da aba 'Visão consolidada' da Projeção de Inscritos.
+
+    O consolidado usa data_evento (e demais campos do evento) como base para os
+    cortes/congelamentos; qualquer mutação de CadastroEvento precisa invalidar
+    este cache, senão a aba continua exibindo os dados antigos.
+    """
+    try:
+        from app.api.routes.projecao import invalidate_consolidado_cache
+        invalidate_consolidado_cache()
+    except Exception:
+        logger.warning("Falha ao invalidar cache do consolidado de projeção", exc_info=True)
+
+
 def _invalidate_opcoes_cache(kind: str | None = None):
     with _opcoes_cache_lock:
         if kind:
@@ -562,6 +576,7 @@ def restaurar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_
     cadastro.deleted_at = None
     db.commit()
     _invalidate_list_cache()
+    _invalidate_projecao_consolidado()
     return {"message": "Cadastro restaurado com sucesso"}
 
 
@@ -744,6 +759,7 @@ def criar_cadastro(data: CadastroEventoCreate, db: Session = Depends(get_db), cu
     db.commit()
     db.refresh(cadastro)
     _invalidate_list_cache()
+    _invalidate_projecao_consolidado()
     view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
     return _filter_event_response_by_permissions(db_to_response(cadastro), view_permissions)
 
@@ -960,6 +976,7 @@ def atualizar_cadastro(cadastro_id: int, data: CadastroEventoUpdate, db: Session
         except Exception:
             pass
     _invalidate_list_cache()
+    _invalidate_projecao_consolidado()
     view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
     return _filter_event_response_by_permissions(db_to_response(cadastro), view_permissions)
 
@@ -1021,6 +1038,7 @@ def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_us
     cadastro.deleted_at = datetime.utcnow()
     db.commit()
     _invalidate_list_cache()
+    _invalidate_projecao_consolidado()
     return {"message": "Cadastro movido para a lixeira. Você tem 30 dias para restaurá-lo."}
 
 
