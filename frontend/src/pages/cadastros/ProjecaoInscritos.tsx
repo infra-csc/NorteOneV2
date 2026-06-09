@@ -218,6 +218,8 @@ interface ConsolidadoEvento {
   corte_valor_2?: number | null;
   corte_congelado_2_em?: string | null;
   corte_data_envio?: string | null;
+  reaberto_manual_corte_1?: boolean;
+  reaberto_manual_corte_2?: boolean;
 }
 
 interface AreaDetail {
@@ -2386,6 +2388,7 @@ const ProjecaoInscritos: React.FC = () => {
                                   const isFrozen = valor !== null && valor !== undefined;
                                   const busy = corteActionBusy === `${c.evento_id}-${corte}`;
                                   const congeladoData = congeladoEm ? new Date(congeladoEm).toLocaleDateString('pt-BR') : null;
+                                  const reabertoManual = corte === 1 ? !!c.reaberto_manual_corte_1 : !!c.reaberto_manual_corte_2;
                                   const congelaEmTxt = (corte === 1 && c.corte_data_envio)
                                     ? formatDate(c.corte_data_envio)
                                     : `D-${dias ?? '?'}`;
@@ -2412,6 +2415,11 @@ const ProjecaoInscritos: React.FC = () => {
                                         <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
                                           <Clock className="w-2.5 h-2.5" />
                                           {congeladoData ? `Congelado em ${congeladoData}` : 'Valor congelado'}
+                                        </span>
+                                      ) : reabertoManual ? (
+                                        <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-sky-500/15 text-sky-300' : 'bg-sky-100 text-sky-700'}`}>
+                                          <LockOpen className="w-2.5 h-2.5" />
+                                          Reaberto · congele manualmente
                                         </span>
                                       ) : c.corte_ativo ? (
                                         <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>

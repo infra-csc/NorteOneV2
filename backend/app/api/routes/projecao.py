@@ -1602,6 +1602,8 @@ def _compute_consolidado(
             corte_valor_2=snap.valor_corte_2 if snap else None,
             corte_congelado_2_em=snap.congelado_corte_2_em if snap else None,
             corte_data_envio=data_envio_by_evento.get(evento.id),
+            reaberto_manual_corte_1=bool(snap.reaberto_manual_corte_1) if snap else False,
+            reaberto_manual_corte_2=bool(snap.reaberto_manual_corte_2) if snap else False,
         ))
 
     # Retorna dicts JSON-safe: o resultado é cacheado em memória e persistido no

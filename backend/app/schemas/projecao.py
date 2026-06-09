@@ -175,6 +175,10 @@ class ConsolidadoEventoResponse(BaseModel):
     corte_congelado_2_em: Optional[datetime] = None
     # Data de corte Envio (regra principal do Corte 1; None = usa fallback D-N)
     corte_data_envio: Optional[str] = None
+    # Reaberto manualmente pelo admin: corte volta a acompanhar ao vivo e NÃO
+    # recongela automaticamente (só via "Congelar agora").
+    reaberto_manual_corte_1: bool = False
+    reaberto_manual_corte_2: bool = False
 
 
 class CutoffRuleCreate(BaseModel):
