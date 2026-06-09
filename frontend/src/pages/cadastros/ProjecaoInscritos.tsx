@@ -9,7 +9,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
-  Package, Shirt, Info,
+  Package, Info,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -2445,32 +2445,6 @@ const ProjecaoInscritos: React.FC = () => {
                                     </div>
                                   );
                                 })}
-
-                                {(() => {
-                                  const participacao = c.inscricao_participacao ?? 0;
-                                  const camisetas = c.projecao_camisetas ?? (c.total_projecoes - participacao);
-                                  return (
-                                    <div
-                                      onClick={(e) => e.stopPropagation()}
-                                      className={`relative min-w-[180px] flex-1 px-4 py-3 rounded-2xl border transition-all ${isDark ? 'bg-teal-500/[0.07] border-teal-500/25' : 'bg-teal-50 border-teal-200'}`}
-                                    >
-                                      <div className="flex items-center justify-between gap-2 mb-2">
-                                        <span className={`flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
-                                          <span className={`flex items-center justify-center w-5 h-5 rounded-lg ${isDark ? 'bg-teal-500/15 text-teal-300' : 'bg-teal-100 text-teal-600'}`}>
-                                            <Shirt className="w-3 h-3" />
-                                          </span>
-                                          Projeção camisetas
-                                        </span>
-                                      </div>
-                                      <span className={`block text-3xl font-black tracking-tight ${isDark ? 'text-teal-300' : 'text-teal-700'}`}>
-                                        {formatNumber(camisetas)}
-                                      </span>
-                                      <span className={`block text-[10px] mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                        {`Total ${formatNumber(c.total_projecoes)} − ${formatNumber(participacao)} insc. participação`}
-                                      </span>
-                                    </div>
-                                  );
-                                })()}
                               </div>
 
                             </div>
