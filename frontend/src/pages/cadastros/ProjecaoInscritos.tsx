@@ -2559,7 +2559,7 @@ const ProjecaoInscritos: React.FC = () => {
                   <div>
                     <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Cortes de Projeção</h2>
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Congela automaticamente o total de projeção de cada evento em dois momentos: <strong>Projeção envio</strong> (corte 1) e <strong>Projeção convicta</strong> (corte 2). O valor é gravado no job noturno quando o evento atinge o D- configurado e permanece fixo a partir daí.
+                      Congela automaticamente o total de projeção de cada evento em dois momentos: <strong>Projeção Convicta</strong> (corte 1) e <strong>Projeção de Ajuste</strong> (corte 2). O valor é gravado no job noturno quando o evento atinge o D- configurado e permanece fixo a partir daí.
                     </p>
                   </div>
                 </div>
@@ -2576,7 +2576,7 @@ const ProjecaoInscritos: React.FC = () => {
 
               <div className="flex flex-wrap items-end gap-4">
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Corte 1 — Projeção envio (D-N)</label>
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Corte 1 — Projeção Convicta (D-N)</label>
                   <input
                     type="number"
                     min={0}
@@ -2587,7 +2587,7 @@ const ProjecaoInscritos: React.FC = () => {
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Corte 2 — Projeção convicta (D-N)</label>
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Corte 2 — Projeção de Ajuste (D-N)</label>
                   <input
                     type="number"
                     min={0}
