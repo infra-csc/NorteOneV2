@@ -1574,7 +1574,7 @@ const ProjecaoInscritos: React.FC = () => {
             { key: 'projecoes' as const, label: 'Projeções', icon: BarChart3 },
             { key: 'consolidado' as const, label: 'Visão Consolidada', icon: Eye },
             ...(isAdmin ? [
-              { key: 'config' as const, label: 'Configuração de Áreas', icon: Settings },
+              { key: 'config' as const, label: 'Configurações', icon: Settings },
               { key: 'lixeira' as const, label: 'Lixeira', icon: Trash },
             ] : []),
           ].map(tab => (
