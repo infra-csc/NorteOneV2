@@ -10,3 +10,4 @@
 - [id sequence desync](id-sequence-desync.md) — explicit-id seeds/imports leave _id_seq behind MAX(id) → PK UniqueViolation; fixed by monotonic startup resync + in-route self-heal retry. Prod fixes on deploy.
 - [Projeção Consolidado SWR](projecao-consolidado-cache.md) — /projecao/consolidado é pesado; cacheado via SmartCache SWR. Mutações de projeção/corte devem chamar invalidate_consolidado_cache().
 - [PWA stale-cache](pwa-stale-cache.md) — "produção mostra vazio mesmo com dados" geralmente é bundle JS antigo no service worker, não bug de backend; confirmar via replica SQL + 200 OK, depois autoUpdate + update() periódico.
+- [Corte reabrir vs auto-freeze](corte-reabrir-suppression.md) — consolidado re-congela todo corte na janela a cada leitura; "Reabrir" só persiste via flag reaberto_manual_corte_1/2, respeitada no early-continue E em cada bloco de freeze.

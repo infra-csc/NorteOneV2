@@ -193,6 +193,11 @@ class ProjecaoCorteSnapshot(Base):
     congelado_corte_1_em = Column(DateTime, nullable=True)
     valor_corte_2 = Column(Integer, nullable=True)
     congelado_corte_2_em = Column(DateTime, nullable=True)
+    # Reabertura manual (admin): quando True, o congelamento AO VIVO/noturno NÃO
+    # recongela este corte automaticamente — só volta a congelar quando o admin
+    # clica em "Congelar agora" (recongelar). Limpo no recongelamento manual.
+    reaberto_manual_corte_1 = Column(Boolean, default=False, nullable=False)
+    reaberto_manual_corte_2 = Column(Boolean, default=False, nullable=False)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
 
     evento = relationship("CadastroEvento")

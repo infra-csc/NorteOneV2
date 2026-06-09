@@ -1407,6 +1407,8 @@ def _run_column_migrations():
             "ALTER TABLE dim_usuario ADD COLUMN IF NOT EXISTS foto_perfil_mime VARCHAR(50)",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP WITH TIME ZONE",
             "ALTER TABLE system_health_events ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)",
+            "ALTER TABLE projecao_corte_snapshot ADD COLUMN IF NOT EXISTS reaberto_manual_corte_1 BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE projecao_corte_snapshot ADD COLUMN IF NOT EXISTS reaberto_manual_corte_2 BOOLEAN DEFAULT FALSE NOT NULL",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS circuito VARCHAR(200)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS cidade_normalizada VARCHAR(200)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS curva_override VARCHAR(200)",

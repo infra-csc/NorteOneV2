@@ -2563,8 +2563,14 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         if not (need_1 or need_2):
             continue
 
-        c1_done = bool(snap and snap.valor_corte_1 is not None)
-        c2_done = bool(snap and snap.valor_corte_2 is not None)
+        # Reabertura manual (admin): um corte reaberto manualmente NÃO volta a
+        # congelar sozinho — só com "Congelar agora" (que limpa a flag). Tratamos
+        # como se já estivesse "resolvido" para fins de auto-congelamento.
+        c1_suppressed = bool(snap and getattr(snap, 'reaberto_manual_corte_1', False))
+        c2_suppressed = bool(snap and getattr(snap, 'reaberto_manual_corte_2', False))
+
+        c1_done = bool(snap and snap.valor_corte_1 is not None) or c1_suppressed
+        c2_done = bool(snap and snap.valor_corte_2 is not None) or c2_suppressed
         if (not need_1 or c1_done) and (not need_2 or c2_done):
             continue
 
@@ -2576,7 +2582,7 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             db.flush()
             snaps[ev.id] = snap
 
-        if need_1 and snap.valor_corte_1 is None:
+        if need_1 and snap.valor_corte_1 is None and not c1_suppressed:
             snap.valor_corte_1 = total
             snap.congelado_corte_1_em = now
             congelados += 1
@@ -2615,7 +2621,7 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
                 elif qtd > (ks.valor_corte_1 or 0):
                     ks.valor_corte_1 = qtd
                     ks.congelado_em = now
-        if need_2 and snap.valor_corte_2 is None:
+        if need_2 and snap.valor_corte_2 is None and not c2_suppressed:
             snap.valor_corte_2 = total
             snap.congelado_corte_2_em = now
             congelados += 1
