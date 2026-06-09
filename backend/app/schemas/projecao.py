@@ -252,11 +252,13 @@ class CutoffEventoAreaResponse(BaseModel):
 
 class AutoLockConfigUpdate(BaseModel):
     dias_antes_evento: int
+    hora_trava: str = "00:00"
     ativo: bool
 
 
 class AutoLockConfigResponse(BaseModel):
     dias_antes_evento: int
+    hora_trava: str = "00:00"
     ativo: bool
     updated_by_nome: Optional[str] = None
     updated_at: Optional[datetime] = None

@@ -258,6 +258,7 @@ interface CutoffRule {
 
 interface AutoLockConfig {
   dias_antes_evento: number;
+  hora_trava: string;
   ativo: boolean;
   updated_by_nome?: string | null;
   updated_at?: string | null;
@@ -503,8 +504,8 @@ const ProjecaoInscritos: React.FC = () => {
   const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string }>>({});
   const cutoffsLoadTokenRef = useRef(0);
 
-  const [autoLockConfig, setAutoLockConfig] = useState<AutoLockConfig>({ dias_antes_evento: 0, ativo: false });
-  const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; ativo: boolean }>({ dias: '0', ativo: false });
+  const [autoLockConfig, setAutoLockConfig] = useState<AutoLockConfig>({ dias_antes_evento: 0, hora_trava: '00:00', ativo: false });
+  const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; hora: string; ativo: boolean }>({ dias: '0', hora: '00:00', ativo: false });
   const [savingAutoLock, setSavingAutoLock] = useState(false);
 
   const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, ativo: false });
@@ -662,7 +663,7 @@ const ProjecaoInscritos: React.FC = () => {
       // Se nunca foi configurado (dias=0, ativo=false), pré-preenche com ativo=true
       // para que o admin apenas precise definir os dias e salvar.
       const neverConfigured = data.dias_antes_evento === 0 && !data.ativo && !data.updated_by_nome;
-      setAutoLockDraft({ dias: String(data.dias_antes_evento), ativo: neverConfigured ? true : data.ativo });
+      setAutoLockDraft({ dias: String(data.dias_antes_evento), hora: data.hora_trava || '00:00', ativo: neverConfigured ? true : data.ativo });
     } catch {
       // silently ignore — config pode não existir ainda
     }
@@ -674,11 +675,16 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Dias deve ser um número entre 0 e 365');
       return;
     }
+    const hora = (autoLockDraft.hora || '00:00').trim();
+    if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(hora)) {
+      showToast('Horário deve estar no formato HH:MM (00:00 a 23:59)');
+      return;
+    }
     setSavingAutoLock(true);
     try {
-      const updated = await projecaoService.updateAutoLockConfig({ dias_antes_evento: dias, ativo: autoLockDraft.ativo });
+      const updated = await projecaoService.updateAutoLockConfig({ dias_antes_evento: dias, hora_trava: hora, ativo: autoLockDraft.ativo });
       setAutoLockConfig(updated);
-      setAutoLockDraft({ dias: String(updated.dias_antes_evento), ativo: updated.ativo });
+      setAutoLockDraft({ dias: String(updated.dias_antes_evento), hora: updated.hora_trava || '00:00', ativo: updated.ativo });
       showToast('Trava automática atualizada com sucesso', 'success');
     } catch (err: any) {
       showToast(err?.response?.data?.detail || 'Erro ao salvar trava automática');
@@ -998,6 +1004,16 @@ const ProjecaoInscritos: React.FC = () => {
     });
     const todayParts = fmt.format(new Date()).split('-').map(Number);
     const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]);
+    // Horário atual em BRT (minutos desde 00:00) para comparar no dia exato D-N.
+    const nowHm = (() => {
+      const t = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(new Date());
+      const [h, m] = t.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    })();
+    const [lh, lm] = (autoLockConfig.hora_trava || '00:00').split(':').map(Number);
+    const lockHm = (lh || 0) * 60 + (lm || 0);
     for (const ev of eventos) {
       const dateStr = ev.info_geral?.data || ev.data_evento;
       if (!dateStr) continue;
@@ -1006,7 +1022,8 @@ const ProjecaoInscritos: React.FC = () => {
       if (parts.length !== 3 || parts.some(isNaN)) continue;
       const evUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
       const dias = Math.round((evUtc - todayUtc) / 86400000);
-      if (dias <= autoLockConfig.dias_antes_evento) ids.add(ev.id);
+      if (dias < autoLockConfig.dias_antes_evento) ids.add(ev.id);
+      else if (dias === autoLockConfig.dias_antes_evento && nowHm >= lockHm) ids.add(ev.id);
     }
     return ids;
   }, [eventos, autoLockConfig]);
@@ -1979,14 +1996,14 @@ const ProjecaoInscritos: React.FC = () => {
                 <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs ${isDark ? 'bg-amber-500/10 border border-amber-500/20 text-amber-300' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
                   <Lock className="w-3.5 h-3.5 flex-shrink-0" />
                   <span>
-                    <strong>Trava automática ativa (D-{autoLockConfig.dias_antes_evento})</strong> — como administrador, você ainda pode criar e editar projeções neste evento.
+                    <strong>Trava automática ativa (D-{autoLockConfig.dias_antes_evento} às {autoLockConfig.hora_trava || '00:00'})</strong> — como administrador, você ainda pode criar e editar projeções neste evento.
                   </span>
                 </div>
               ) : (
                 <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl text-sm font-medium ${isDark ? 'bg-amber-500/15 border border-amber-500/30 text-amber-300' : 'bg-amber-100 border border-amber-300 text-amber-800'}`}>
                   <Lock className="w-4 h-4 flex-shrink-0" />
                   <span>
-                    Este evento está dentro do período de <strong>trava automática (D-{autoLockConfig.dias_antes_evento})</strong>.
+                    Este evento está dentro do período de <strong>trava automática (D-{autoLockConfig.dias_antes_evento} às {autoLockConfig.hora_trava || '00:00'})</strong>.
                     Criação, edição e exclusão de projeções estão bloqueadas.
                   </span>
                 </div>
@@ -2531,7 +2548,7 @@ const ProjecaoInscritos: React.FC = () => {
                   <div>
                     <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Trava Automática</h2>
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Bloqueia criação, edição e exclusão de projeções quando o evento está a N dias ou menos da data.
+                      Bloqueia criação, edição e exclusão de projeções quando o evento está a N dias ou menos da data. No dia exato D-N, a trava passa a valer a partir do horário definido.
                     </p>
                   </div>
                 </div>
@@ -2542,7 +2559,7 @@ const ProjecaoInscritos: React.FC = () => {
                     : isDark ? 'bg-gray-700 text-gray-400 border-gray-600' : 'bg-gray-100 text-gray-500 border-gray-200'
                 }`}>
                   {autoLockConfig.ativo && autoLockConfig.dias_antes_evento > 0
-                    ? <><Lock className="w-3 h-3" /> Ativa — D-{autoLockConfig.dias_antes_evento}</>
+                    ? <><Lock className="w-3 h-3" /> Ativa — D-{autoLockConfig.dias_antes_evento} às {autoLockConfig.hora_trava || '00:00'}</>
                     : <><LockOpen className="w-3 h-3" /> Inativa</>}
                 </span>
               </div>
@@ -2574,6 +2591,15 @@ const ProjecaoInscritos: React.FC = () => {
                       }));
                     }}
                     className={`w-28 px-3 py-2 rounded-xl border text-sm font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500/50`}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className={`text-xs font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Horário da trava (HH:MM)</label>
+                  <input
+                    type="time"
+                    value={autoLockDraft.hora}
+                    onChange={e => setAutoLockDraft(d => ({ ...d, hora: e.target.value || '00:00' }))}
+                    className={`w-32 px-3 py-2 rounded-xl border text-sm font-mono ${isDark ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500/50`}
                   />
                 </div>
                 <div className="flex flex-col gap-1">

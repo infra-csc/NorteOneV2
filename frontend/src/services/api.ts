@@ -1722,7 +1722,7 @@ export const projecaoService = {
     const response = await api.get('/projecao/auto-lock-config');
     return response.data;
   },
-  updateAutoLockConfig: async (data: { dias_antes_evento: number; ativo: boolean }) => {
+  updateAutoLockConfig: async (data: { dias_antes_evento: number; hora_trava: string; ativo: boolean }) => {
     const response = await api.put('/projecao/auto-lock-config', data);
     return response.data;
   },

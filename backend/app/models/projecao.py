@@ -154,6 +154,9 @@ class ProjecaoAutoLockConfig(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     dias_antes_evento = Column(Integer, nullable=False, default=7)
+    # Horário (BRT, formato "HH:MM") em que a trava passa a valer no dia D-N.
+    # "00:00" (default) preserva o comportamento legado: trava o dia D-N inteiro.
+    hora_trava = Column(String(5), nullable=False, default="00:00")
     ativo = Column(Boolean, default=True, nullable=False)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)

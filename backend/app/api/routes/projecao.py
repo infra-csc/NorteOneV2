@@ -8,6 +8,7 @@ from typing import List, Optional
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
+import re
 import csv
 import io
 import threading
@@ -334,12 +335,26 @@ def _check_auto_lock(db: Session, evento: CadastroEvento, current_user: Usuario)
         return
     if not evento.data_evento:
         return
-    today = datetime.now(ZoneInfo('America/Sao_Paulo')).date()
-    dias = (evento.data_evento - today).days
-    if dias <= config.dias_antes_evento:
+    now = datetime.now(ZoneInfo('America/Sao_Paulo'))
+    dias = (evento.data_evento - now.date()).days
+    hora_str = getattr(config, 'hora_trava', None) or "00:00"
+    if dias < config.dias_antes_evento:
+        locked = True
+    elif dias == config.dias_antes_evento:
+        # No dia exato D-N a trava só vale a partir do horário configurado (BRT).
+        try:
+            hh, mm = (int(x) for x in hora_str.split(':'))
+            gatilho = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        except (ValueError, TypeError):
+            # Valor persistido inválido (edição manual/legado) → trava o dia inteiro.
+            gatilho = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        locked = now >= gatilho
+    else:
+        locked = False
+    if locked:
         raise HTTPException(
             status_code=423,
-            detail=f"Este evento está dentro do período de trava automática (D-{config.dias_antes_evento}). Não é possível criar, editar ou excluir projeções.",
+            detail=f"Este evento está dentro do período de trava automática (D-{config.dias_antes_evento} às {hora_str}). Não é possível criar, editar ou excluir projeções.",
         )
 
 
@@ -576,10 +591,11 @@ def get_auto_lock_config(
 ):
     config = _get_auto_lock_config(db)
     if config is None:
-        return AutoLockConfigResponse(dias_antes_evento=0, ativo=False)
+        return AutoLockConfigResponse(dias_antes_evento=0, hora_trava="00:00", ativo=False)
     editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
     return AutoLockConfigResponse(
         dias_antes_evento=config.dias_antes_evento,
+        hora_trava=getattr(config, 'hora_trava', None) or "00:00",
         ativo=config.ativo,
         updated_by_nome=editor.nome if editor else None,
         updated_at=config.updated_at,
@@ -597,22 +613,30 @@ def update_auto_lock_config(
     if data.dias_antes_evento < 0 or data.dias_antes_evento > 365:
         raise HTTPException(status_code=400, detail="Dias deve estar entre 0 e 365")
 
+    hora_trava = (data.hora_trava or "00:00").strip()
+    m = re.fullmatch(r"([01]\d|2[0-3]):([0-5]\d)", hora_trava)
+    if not m:
+        raise HTTPException(status_code=400, detail="Horário deve estar no formato HH:MM (00:00 a 23:59)")
+
     config = _get_auto_lock_config(db)
     if config is None:
         config = ProjecaoAutoLockConfig(
             dias_antes_evento=data.dias_antes_evento,
+            hora_trava=hora_trava,
             ativo=data.ativo,
             updated_by=current_user.id,
         )
         db.add(config)
     else:
         config.dias_antes_evento = data.dias_antes_evento
+        config.hora_trava = hora_trava
         config.ativo = data.ativo
         config.updated_by = current_user.id
     db.commit()
     db.refresh(config)
     return AutoLockConfigResponse(
         dias_antes_evento=config.dias_antes_evento,
+        hora_trava=getattr(config, 'hora_trava', None) or "00:00",
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
