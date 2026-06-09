@@ -9,6 +9,13 @@ def _now_brasilia():
     return datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
 
 
+# Kit cujo comportamento muda no Corte 2: até o Corte 1 ele é "Kit Completo -
+# Sem camiseta"; depois que o Corte 1 congela, vira "Camiseta avulsa" (display)
+# com piso igual ao valor congelado no Corte 1 (ver ProjecaoKitCorteSnapshot).
+KIT_CAMISETA_AVULSA_ORIGEM = "Kit Completo - Sem camiseta"
+KIT_CAMISETA_AVULSA_LABEL = "Camiseta avulsa"
+
+
 class AreaProjecao(Base):
     __tablename__ = "area_projecao"
 
@@ -189,6 +196,31 @@ class ProjecaoCorteSnapshot(Base):
 
     __table_args__ = (
         UniqueConstraint("evento_id", name="uq_corte_snapshot_evento"),
+    )
+
+
+class ProjecaoKitCorteSnapshot(Base):
+    """Valor congelado por (evento, área, kit) no momento do Corte 1.
+
+    Hoje só é populado para o kit "Kit Completo - Sem camiseta": guarda quanto
+    havia desse kit quando o Corte 1 congelou, servindo de PISO da "Camiseta
+    avulsa" no Corte 2 (o usuário só pode aumentar a partir desse valor).
+    """
+    __tablename__ = "projecao_kit_corte_snapshot"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
+    nome_kit = Column(String(200), nullable=False)
+    valor_corte_1 = Column(Integer, nullable=False, default=0)
+    congelado_em = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    evento = relationship("CadastroEvento")
+    area = relationship("AreaProjecao")
+
+    __table_args__ = (
+        UniqueConstraint("evento_id", "area_projecao_id", "nome_kit", name="uq_kit_corte_snapshot_evento_area_kit"),
     )
 
 

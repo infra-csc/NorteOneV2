@@ -140,6 +140,16 @@ class ConsolidadoAreaItem(BaseModel):
     area_projecao_nome: str
     quantidade: int
     kits: List[KitProjecaoItem] = []
+    # Piso da "Camiseta avulsa" (valor de "Kit Completo - Sem camiseta"
+    # congelado no Corte 1). None = Corte 1 não congelado para esta área.
+    camiseta_avulsa_piso: Optional[int] = None
+
+
+class CamisetaAvulsaInfoResponse(BaseModel):
+    """Info para o formulário decidir se 'Kit Completo - Sem camiseta' já virou
+    'Camiseta avulsa' (Corte 1 congelado) e qual o piso mínimo."""
+    corte1_congelado: bool = False
+    piso: int = 0
 
 
 class ConsolidadoEventoResponse(BaseModel):

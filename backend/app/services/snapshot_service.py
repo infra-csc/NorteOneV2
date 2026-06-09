@@ -2461,7 +2461,10 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         ProjecaoCorteConfig as _Cfg,
         ProjecaoCorteSnapshot as _Snap,
         ProjecaoInscritos as _Proj,
+        ProjecaoInscritosKit as _Kit,
+        ProjecaoKitCorteSnapshot as _KitSnap,
         ProjecaoCutoffEventoArea as _CutEA,
+        KIT_CAMISETA_AVULSA_ORIGEM as _KIT_CAM,
     )
     from ..models.cadastro_evento import CadastroEvento as _Ev
 
@@ -2539,6 +2542,9 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             snap.valor_corte_1 = None
             snap.congelado_corte_1_em = None
             descongelados += 1
+            # Coerência: ao descongelar o Corte 1, o piso da "Camiseta avulsa"
+            # deixa de valer — o campo volta a ser "Kit Completo - Sem camiseta".
+            db.query(_KitSnap).filter(_KitSnap.evento_id == ev.id).delete()
 
         if dias < 0:
             continue
@@ -2564,6 +2570,41 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             snap.valor_corte_1 = total
             snap.congelado_corte_1_em = now
             congelados += 1
+            # Captura o piso da "Camiseta avulsa": quanto há de "Kit Completo -
+            # Sem camiseta" por área neste exato momento. Idempotente via upsert
+            # por (evento, área, kit) — nunca rebaixa um piso já gravado.
+            kit_por_area = (
+                db.query(_Proj.area_projecao_id, sa_func.coalesce(sa_func.sum(_Kit.quantidade), 0))
+                .join(_Kit, _Kit.projecao_id == _Proj.id)
+                .filter(
+                    _Proj.evento_id == ev.id,
+                    _Proj.deleted_at.is_(None),
+                    _Kit.nome_kit == _KIT_CAM,
+                )
+                .group_by(_Proj.area_projecao_id)
+                .all()
+            )
+            ks_existentes = {
+                ks.area_projecao_id: ks
+                for ks in db.query(_KitSnap).filter(
+                    _KitSnap.evento_id == ev.id,
+                    _KitSnap.nome_kit == _KIT_CAM,
+                ).all()
+            }
+            for area_id, qtd in kit_por_area:
+                qtd = int(qtd or 0)
+                ks = ks_existentes.get(area_id)
+                if ks is None:
+                    db.add(_KitSnap(
+                        evento_id=ev.id,
+                        area_projecao_id=area_id,
+                        nome_kit=_KIT_CAM,
+                        valor_corte_1=qtd,
+                        congelado_em=now,
+                    ))
+                elif qtd > (ks.valor_corte_1 or 0):
+                    ks.valor_corte_1 = qtd
+                    ks.congelado_em = now
         if need_2 and snap.valor_corte_2 is None:
             snap.valor_corte_2 = total
             snap.congelado_corte_2_em = now
