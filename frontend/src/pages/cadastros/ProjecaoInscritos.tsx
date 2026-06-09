@@ -470,6 +470,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [newAreaNome, setNewAreaNome] = useState('');
 
   const [expandedConsolidado, setExpandedConsolidado] = useState<Set<number>>(new Set());
+  const [kitBreakdownEvento, setKitBreakdownEvento] = useState<ConsolidadoEvento | null>(null);
 
   const [confirmModal, setConfirmModal] = useState<{
     title: string;
@@ -2463,6 +2464,13 @@ const ProjecaoInscritos: React.FC = () => {
                                 <span className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
                                   Projeção por Área
                                 </span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setKitBreakdownEvento(c); }}
+                                  title="Ver total por tipo de kit"
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${isDark ? 'border-gray-600/70 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-600 hover:bg-gray-100'}`}
+                                >
+                                  <Package className="w-3 h-3" /> Por tipo de kit
+                                </button>
                               </div>
                               <div className="space-y-3">
                                 {c.projecoes
@@ -2936,6 +2944,67 @@ const ProjecaoInscritos: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Kit Breakdown Modal */}
+      {kitBreakdownEvento && (() => {
+        const totaisPorKit: Record<string, number> = {};
+        for (const p of kitBreakdownEvento.projecoes) {
+          for (const k of (p.kits || [])) {
+            const nome = (k.nome_kit === KIT_CAMISETA_ORIGEM && kitBreakdownEvento.corte_congelado_1_em)
+              ? KIT_CAMISETA_LABEL
+              : k.nome_kit;
+            totaisPorKit[nome] = (totaisPorKit[nome] || 0) + k.quantidade;
+          }
+        }
+        const linhas = Object.entries(totaisPorKit).sort((a, b) => b[1] - a[1]);
+        const totalGeral = linhas.reduce((s, [, q]) => s + q, 0);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setKitBreakdownEvento(null)}>
+            <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
+                <div className="flex items-center gap-2">
+                  <Package className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                  <div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total por tipo de kit</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{kitBreakdownEvento.evento_nome}</p>
+                  </div>
+                </div>
+                <button onClick={() => setKitBreakdownEvento(null)} className="p-2 rounded-lg hover:bg-gray-700/50">
+                  <X className={`w-5 h-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+                </button>
+              </div>
+              <div className="p-6 space-y-2">
+                {linhas.length === 0 ? (
+                  <p className={`text-sm text-center py-6 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Nenhum kit informado nas projeções deste evento.</p>
+                ) : (
+                  <>
+                    {linhas.map(([nome, qtd]) => {
+                      const pct = totalGeral > 0 ? (qtd / totalGeral) * 100 : 0;
+                      return (
+                        <div key={nome} className={`p-3 rounded-xl ${isDark ? 'bg-gray-900/40' : 'bg-gray-50'}`}>
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <span className={`text-sm font-semibold flex items-center gap-1.5 ${isDark ? 'text-gray-200' : 'text-gray-700'}`}>
+                              <Package className="w-3.5 h-3.5 opacity-60" /> {nome}
+                            </span>
+                            <span className={`text-sm font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(qtd)}</span>
+                          </div>
+                          <div className={`relative h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
+                            <div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-purple-500 transition-all duration-500 ease-out" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className={`flex items-center justify-between gap-3 pt-3 mt-1 border-t ${isDark ? 'border-gray-700/50' : 'border-gray-200'}`}>
+                      <span className={`text-sm font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total geral</span>
+                      <span className={`text-base font-black tabular-nums ${isDark ? 'text-violet-300' : 'text-violet-700'}`}>{formatNumber(totalGeral)}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Create Modal */}
       {showCreateModal && (
