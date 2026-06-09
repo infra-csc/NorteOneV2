@@ -150,7 +150,7 @@ interface KitResponse {
   quantidade: number;
 }
 
-const KITS_PADRAO = ['Kit Básico', 'Inscrição Participação', 'Kit Vip', 'Kit Plus', 'Kit Super', 'Kit Completo - Sem camiseta'];
+const KITS_PADRAO = ['Kit Básico', 'Inscrição Participação', 'Kit Completo - Sem camiseta', 'Kit Vip', 'Kit Plus', 'Kit Super'];
 const buildKitsPadrao = (): KitItem[] => KITS_PADRAO.map(nome => ({ nome_kit: nome, quantidade: '' }));
 
 interface Projecao {
