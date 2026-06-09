@@ -2404,17 +2404,6 @@ const ProjecaoInscritos: React.FC = () => {
                                           </span>
                                           {label}
                                         </span>
-                                        {isFrozen ? (
-                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
-                                            <Lock className="w-2.5 h-2.5" /> Congelado
-                                          </span>
-                                        ) : (
-                                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${c.corte_ativo
-                                            ? (isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700')
-                                            : (isDark ? 'bg-gray-700/50 text-gray-400' : 'bg-gray-200 text-gray-500')}`}>
-                                            {c.corte_ativo ? 'Prévia' : 'Inativo'}
-                                          </span>
-                                        )}
                                       </div>
                                       <span className={`block text-3xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
                                         {formatNumber(isFrozen ? (valor as number) : c.total_projecoes)}
