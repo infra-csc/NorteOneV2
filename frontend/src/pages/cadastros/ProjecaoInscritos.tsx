@@ -9,7 +9,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
-  Package, Shirt,
+  Package, Shirt, Info,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -151,6 +151,14 @@ interface KitResponse {
 }
 
 const KITS_PADRAO = ['Kit Básico', 'Inscrição Participação', 'Kit Completo - Sem camiseta', 'Kit Vip', 'Kit Plus', 'Kit Super'];
+const KITS_DESCRICOES: Record<string, string> = {
+  'Kit Básico': 'Kit padrão da corrida',
+  'Inscrição Participação': 'Apenas medalha e n° de peito',
+  'Kit Completo - Sem camiseta': 'Itens do Kit Básico sem a camiseta',
+  'Kit Vip': 'Jaqueta',
+  'Kit Plus': 'Boné / Viseira',
+  'Kit Super': 'Mochila / Bag / Mala tubo',
+};
 const buildKitsPadrao = (): KitItem[] => KITS_PADRAO.map(nome => ({ nome_kit: nome, quantidade: '' }));
 
 interface Projecao {
@@ -2994,6 +3002,14 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                   {formKits.map((kit, idx) => (
                     <div key={idx} className="flex items-center gap-2">
+                      {KITS_DESCRICOES[kit.nome_kit] && (
+                        <div className="relative group flex items-center">
+                          <Info className={`w-4 h-4 cursor-help ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`} />
+                          <div className={`pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 z-50 hidden group-hover:block whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs shadow-lg ${isDark ? 'bg-gray-700 text-gray-100 border border-gray-600' : 'bg-gray-900 text-white'}`}>
+                            {KITS_DESCRICOES[kit.nome_kit]}
+                          </div>
+                        </div>
+                      )}
                       <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
                         {kit.nome_kit}
                       </div>
@@ -3154,6 +3170,14 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                   {formKits.map((kit, idx) => (
                     <div key={idx} className="flex items-center gap-2">
+                      {KITS_DESCRICOES[kit.nome_kit] && (
+                        <div className="relative group flex items-center">
+                          <Info className={`w-4 h-4 cursor-help ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`} />
+                          <div className={`pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 z-50 hidden group-hover:block whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs shadow-lg ${isDark ? 'bg-gray-700 text-gray-100 border border-gray-600' : 'bg-gray-900 text-white'}`}>
+                            {KITS_DESCRICOES[kit.nome_kit]}
+                          </div>
+                        </div>
+                      )}
                       <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
                         {kit.nome_kit}
                       </div>
