@@ -2368,7 +2368,7 @@ def _build_kit_cost_batch_data(db: Session, all_projeto_ids: List[int], ano: Opt
             "WHERE\n"
             "    soi_parent.product_type = 'bundle'\n"
             "AND soi_parent.product_id   IN :bundle_ids\n"
-            "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+            "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
             "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link',\n"
             "                   'reembolso_parcial', 'closed', 'retirado')\n"
             "AND so.state != 'canceled'\n"
@@ -2918,7 +2918,14 @@ def get_margem_por_kit(
             and not _has_null_date
             and all(d < _cutoff_kit for d in _datas_kit)
         )
-        _snapshot_max_age_h = None if _event_frozen else 25
+        # Opção B: a leitura (carregamento da tela/modal) SEMPRE serve do snapshot
+        # PostgreSQL, independentemente da idade. A query pesada do Magento (receita
+        # por bundle, ~90s) roda apenas no job batch noturno (sincronizar_margem_bundle_rev_batch),
+        # nunca no caminho de request. Isso elimina a espera/timeout que o usuário sentia
+        # ao abrir as telas. O snapshot é mantido atualizado pelo batch; quando ele não
+        # existe (bootstrap) ou em force_refresh (botão Reconsolidar), o caminho live ainda
+        # é usado. _event_frozen mantido por clareza histórica (já resultava em None).
+        _snapshot_max_age_h = None
 
         def _get_sku_maps(pid, fonte):
             proj = proj_by_id.get(pid)
@@ -3043,7 +3050,7 @@ def get_margem_por_kit(
                 "WHERE\n"
                 "    soi_parent.product_type = 'bundle'\n"
                 "AND soi_parent.product_id   IN :bundle_ids\n"
-                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state != 'canceled'\n"
                 "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3090,7 +3097,7 @@ def get_margem_por_kit(
                 "WHERE\n"
                 "    soi_parent.product_type = 'bundle'\n"
                 "AND soi_parent.product_id   IN :bundle_ids\n"
-                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                 "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                 "AND so.state != 'canceled'\n"
                 "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3605,7 +3612,7 @@ AND    value        IN :ev_ids_fb
                     "WHERE\n"
                     "    soi_parent.product_type = 'bundle'\n"
                     "AND soi_parent.product_id   IN :fb_bundle_ids\n"
-                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3646,7 +3653,7 @@ AND    value        IN :ev_ids_fb
                     "WHERE\n"
                     "    soi_parent.product_type = 'bundle'\n"
                     "AND soi_parent.product_id   IN :fb_bundle_ids\n"
-                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3806,7 +3813,7 @@ AND    value        IN :ev_ids
                     "WHERE\n"
                     "    soi_parent.product_type = 'bundle'\n"
                     "AND soi_parent.product_id   IN :supp_bids\n"
-                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
@@ -3847,7 +3854,7 @@ AND    value        IN :ev_ids
                     "WHERE\n"
                     "    soi_parent.product_type = 'bundle'\n"
                     "AND soi_parent.product_id   IN :supp_bids\n"
-                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 2 YEAR)\n"
+                    "AND so.created_at >= DATE_SUB(CURDATE(), INTERVAL 15 MONTH)\n"
                     "AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')\n"
                     "AND so.state != 'canceled'\n"
                     "AND (:skip_cortesia_filter OR so.base_grand_total > 0)\n"
