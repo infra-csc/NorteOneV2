@@ -2616,6 +2616,7 @@ const ProjecaoInscritos: React.FC = () => {
                       const val = e.target.value;
                       const n = parseInt(val, 10);
                       setAutoLockDraft(d => ({
+                        ...d,
                         dias: val,
                         // Ativa automaticamente quando dias > 0; desativa quando dias = 0
                         ativo: (!isNaN(n) && n > 0) ? true : (!isNaN(n) && n === 0) ? false : d.ativo,
