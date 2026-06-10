@@ -204,7 +204,7 @@ interface ConsolidadoEvento {
   evento_nome: string;
   evento_data: string | null;
   inscritos_reais: number;
-  projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number; kits?: { nome_kit: string; quantidade: number }[]; camiseta_avulsa_piso?: number | null }[];
+  projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number; kits?: { nome_kit: string; quantidade: number }[]; camiseta_avulsa_teto?: number | null }[];
   total_projecoes: number;
   projecao_site: number;
   total_geral: number;
@@ -455,7 +455,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [formClientes, setFormClientes] = useState<ClienteItem[]>([{ nome_cliente: '', quantidade: '' }]);
   const [formTemKit, setFormTemKit] = useState(false);
   const [formKits, setFormKits] = useState<KitItem[]>(buildKitsPadrao());
-  const [camisetaAvulsaInfo, setCamisetaAvulsaInfo] = useState<{ corte1_congelado: boolean; piso: number }>({ corte1_congelado: false, piso: 0 });
+  const [camisetaAvulsaInfo, setCamisetaAvulsaInfo] = useState<{ corte1_congelado: boolean; teto: number }>({ corte1_congelado: false, teto: 0 });
   const [eventoSearchTerm, setEventoSearchTerm] = useState('');
   const [showEventoDropdown, setShowEventoDropdown] = useState(false);
   const eventoDropdownRef = useRef<HTMLDivElement>(null);
@@ -985,23 +985,23 @@ const ProjecaoInscritos: React.FC = () => {
         .then(info => {
           if (cancelled) return;
           setCamisetaAvulsaInfo(info);
-          // Pré-preenche a "Camiseta avulsa" com o piso (Corte 1) quando o
-          // campo ainda está vazio ou abaixo do piso — o usuário só aumenta.
-          if (info.corte1_congelado && info.piso > 0) {
+          // Pré-preenche a "Camiseta avulsa" com o teto (Corte 1) quando o
+          // campo ainda está vazio ou acima do teto — o usuário só diminui.
+          if (info.corte1_congelado && info.teto > 0) {
             setFormKits(prev => prev.map(k => {
               if (k.nome_kit !== KIT_CAMISETA_ORIGEM) return k;
               const atual = parseInt(k.quantidade);
-              if (!k.quantidade || isNaN(atual) || atual < info.piso) {
-                return { ...k, quantidade: String(info.piso) };
+              if (!k.quantidade || isNaN(atual) || atual > info.teto) {
+                return { ...k, quantidade: String(info.teto) };
               }
               return k;
             }));
           }
         })
-        .catch(() => { if (!cancelled) setCamisetaAvulsaInfo({ corte1_congelado: false, piso: 0 }); });
+        .catch(() => { if (!cancelled) setCamisetaAvulsaInfo({ corte1_congelado: false, teto: 0 }); });
       return () => { cancelled = true; };
     } else {
-      setCamisetaAvulsaInfo({ corte1_congelado: false, piso: 0 });
+      setCamisetaAvulsaInfo({ corte1_congelado: false, teto: 0 });
     }
   }, [showCreateModal, editingProjecao, formEventoId, formAreaId]);
 
@@ -2533,7 +2533,7 @@ const ProjecaoInscritos: React.FC = () => {
                                               .slice()
                                               .sort((a, b) => b.quantidade - a.quantidade)
                                               .map((k, kidx) => {
-                                                const isCamiseta = k.nome_kit === KIT_CAMISETA_ORIGEM && p.camiseta_avulsa_piso != null;
+                                                const isCamiseta = k.nome_kit === KIT_CAMISETA_ORIGEM && p.camiseta_avulsa_teto != null;
                                                 const nomeExibido = isCamiseta ? KIT_CAMISETA_LABEL : k.nome_kit;
                                                 return (
                                                 <span
@@ -2544,7 +2544,7 @@ const ProjecaoInscritos: React.FC = () => {
                                                   <span className="truncate max-w-[140px]">{nomeExibido}</span>
                                                   {isCamiseta && (
                                                     <span className={`tabular-nums ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                                                      C1 {formatNumber(p.camiseta_avulsa_piso || 0)} →
+                                                      C1 {formatNumber(p.camiseta_avulsa_teto || 0)} →
                                                     </span>
                                                   )}
                                                   <span className={`font-bold tabular-nums ${color.text}`}>{formatNumber(k.quantidade)}</span>
@@ -3173,9 +3173,9 @@ const ProjecaoInscritos: React.FC = () => {
                       )}
                       <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
                         {(camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : kit.nome_kit}
-                        {camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM && (
+                        {camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM && (
                           <span className={`ml-2 text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                            (Corte 1: {camisetaAvulsaInfo.piso} → mín. {camisetaAvulsaInfo.piso}; só aumenta)
+                            (Corte 1: {camisetaAvulsaInfo.teto} → máx. {camisetaAvulsaInfo.teto}; só diminui)
                           </span>
                         )}
                       </div>
@@ -3184,7 +3184,8 @@ const ProjecaoInscritos: React.FC = () => {
                         value={kit.quantidade}
                         onChange={e => updateKit(idx, 'quantidade', e.target.value)}
                         placeholder="Qtd"
-                        min={(camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? camisetaAvulsaInfo.piso : 0}
+                        min={0}
+                        max={(camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? camisetaAvulsaInfo.teto : undefined}
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
                       />
                     </div>
@@ -3346,9 +3347,9 @@ const ProjecaoInscritos: React.FC = () => {
                       )}
                       <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
                         {(camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : kit.nome_kit}
-                        {camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM && (
+                        {camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM && (
                           <span className={`ml-2 text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                            (Corte 1: {camisetaAvulsaInfo.piso} → mín. {camisetaAvulsaInfo.piso}; só aumenta)
+                            (Corte 1: {camisetaAvulsaInfo.teto} → máx. {camisetaAvulsaInfo.teto}; só diminui)
                           </span>
                         )}
                       </div>
@@ -3357,7 +3358,8 @@ const ProjecaoInscritos: React.FC = () => {
                         value={kit.quantidade}
                         onChange={e => updateKit(idx, 'quantidade', e.target.value)}
                         placeholder="Qtd"
-                        min={(camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? camisetaAvulsaInfo.piso : 0}
+                        min={0}
+                        max={(camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? camisetaAvulsaInfo.teto : undefined}
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
                       />
                     </div>

@@ -377,44 +377,43 @@ def _validate_distribuicao_sums(quantidade: int, clientes, kits):
 
 
 def _camiseta_avulsa_info(db: Session, evento_id: int, area_projecao_id: int) -> tuple[bool, int]:
-    """Retorna (corte1_congelado, piso) para o kit 'Kit Completo - Sem camiseta'
+    """Retorna (corte1_congelado, teto) para o kit 'Kit Completo - Sem camiseta'
     de um (evento, área). corte1_congelado = Corte 1 do evento já congelado.
-    piso = valor desse kit capturado no Corte 1 (0 se não houver captura)."""
+    teto = valor desse kit capturado no Corte 1 (0 se não houver captura)."""
     snap = db.query(ProjecaoCorteSnapshot).filter(
         ProjecaoCorteSnapshot.evento_id == evento_id
     ).first()
     corte1_congelado = bool(snap and snap.congelado_corte_1_em is not None and snap.valor_corte_1 is not None)
-    piso = 0
+    teto = 0
     if corte1_congelado:
         ks = db.query(ProjecaoKitCorteSnapshot).filter(
             ProjecaoKitCorteSnapshot.evento_id == evento_id,
             ProjecaoKitCorteSnapshot.area_projecao_id == area_projecao_id,
             ProjecaoKitCorteSnapshot.nome_kit == KIT_CAMISETA_AVULSA_ORIGEM,
         ).first()
-        piso = int(ks.valor_corte_1) if ks and ks.valor_corte_1 is not None else 0
-    return corte1_congelado, piso
+        teto = int(ks.valor_corte_1) if ks and ks.valor_corte_1 is not None else 0
+    return corte1_congelado, teto
 
 
-def _validate_camiseta_avulsa_piso(db: Session, evento_id: int, area_projecao_id: int, kits):
+def _validate_camiseta_avulsa_teto(db: Session, evento_id: int, area_projecao_id: int, kits):
     """Após o Corte 1, 'Kit Completo - Sem camiseta' vira 'Camiseta avulsa' e não
-    pode ser reduzida abaixo do valor congelado no Corte 1 (só pode aumentar).
+    pode ser aumentada acima do valor congelado no Corte 1 (só pode diminuir).
 
-    O piso é obrigatório: quando o Corte 1 está congelado e há piso > 0, a
-    'Camiseta avulsa' tem que estar presente com quantidade >= piso. Isso impede
-    o bypass de simplesmente desligar a distribuição por kit (kits vazio) ou
-    omitir o kit para "zerar" o valor congelado."""
-    corte1_congelado, piso = _camiseta_avulsa_info(db, evento_id, area_projecao_id)
-    if not corte1_congelado or piso <= 0:
+    O teto é um limite máximo: quando o Corte 1 está congelado e há teto > 0, a
+    'Camiseta avulsa', se presente, não pode ter quantidade > teto. Omitir o kit
+    ou zerá-lo é permitido (é uma redução, dentro do teto)."""
+    corte1_congelado, teto = _camiseta_avulsa_info(db, evento_id, area_projecao_id)
+    if not corte1_congelado or teto <= 0:
         return
     qtd_camiseta = None
     for k in (kits or []):
         if k.nome_kit.strip() == KIT_CAMISETA_AVULSA_ORIGEM:
             qtd_camiseta = k.quantidade
             break
-    if qtd_camiseta is None or qtd_camiseta < piso:
+    if qtd_camiseta is not None and qtd_camiseta > teto:
         raise HTTPException(
             status_code=400,
-            detail=f"A 'Camiseta avulsa' não pode ser menor que {piso} (valor congelado no Corte 1). Só é possível aumentar.",
+            detail=f"A 'Camiseta avulsa' não pode ser maior que {teto} (valor congelado no Corte 1). Só é possível diminuir.",
         )
 
 
@@ -457,7 +456,7 @@ def create_projecao(
         raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
 
     _validate_distribuicao_sums(data.quantidade, data.clientes, data.kits)
-    _validate_camiseta_avulsa_piso(db, data.evento_id, data.area_projecao_id, data.kits)
+    _validate_camiseta_avulsa_teto(db, data.evento_id, data.area_projecao_id, data.kits)
 
     evento = db.query(CadastroEvento).filter(CadastroEvento.id == data.evento_id, CadastroEvento.deleted_at.is_(None)).first()
     if not evento:
@@ -899,7 +898,7 @@ def update_projecao(
         raise HTTPException(status_code=400, detail="Quantidade deve ser maior que zero.")
 
     _validate_distribuicao_sums(data.quantidade, data.clientes, data.kits)
-    _validate_camiseta_avulsa_piso(db, projecao.evento_id, projecao.area_projecao_id, data.kits)
+    _validate_camiseta_avulsa_teto(db, projecao.evento_id, projecao.area_projecao_id, data.kits)
 
     old_qtd = projecao.quantidade
     if data.quantidade != old_qtd:
@@ -1389,9 +1388,9 @@ def get_camiseta_avulsa_info(
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     """Informa se 'Kit Completo - Sem camiseta' já virou 'Camiseta avulsa'
-    (Corte 1 congelado) e qual o piso mínimo para o par (evento, área)."""
-    corte1_congelado, piso = _camiseta_avulsa_info(db, evento_id, area_projecao_id)
-    return CamisetaAvulsaInfoResponse(corte1_congelado=corte1_congelado, piso=piso)
+    (Corte 1 congelado) e qual o teto máximo para o par (evento, área)."""
+    corte1_congelado, teto = _camiseta_avulsa_info(db, evento_id, area_projecao_id)
+    return CamisetaAvulsaInfoResponse(corte1_congelado=corte1_congelado, teto=teto)
 
 
 @router.get("/consolidado", response_model=List[ConsolidadoEventoResponse])
@@ -1508,15 +1507,15 @@ def _compute_consolidado(
     ).all()
     snaps_by_evento = {s.evento_id: s for s in corte_snaps}
 
-    # Piso da "Camiseta avulsa" por (evento, área) — valor de "Kit Completo -
+    # Teto da "Camiseta avulsa" por (evento, área) — valor de "Kit Completo -
     # Sem camiseta" congelado no Corte 1. Usado para exibir a comparação
     # Corte 1 → atual na visão consolidada.
-    piso_by_evento_area: dict[tuple, int] = {}
+    teto_by_evento_area: dict[tuple, int] = {}
     for ks in db.query(ProjecaoKitCorteSnapshot).filter(
         ProjecaoKitCorteSnapshot.evento_id.in_(evento_ids),
         ProjecaoKitCorteSnapshot.nome_kit == KIT_CAMISETA_AVULSA_ORIGEM,
     ).all():
-        piso_by_evento_area[(ks.evento_id, ks.area_projecao_id)] = int(ks.valor_corte_1 or 0)
+        teto_by_evento_area[(ks.evento_id, ks.area_projecao_id)] = int(ks.valor_corte_1 or 0)
 
     # "Data de corte Envio" (data_corte_1) por evento — regra principal do Corte 1.
     # Na prática só uma área a preenche; se houver mais de uma, usa a mais antiga.
@@ -1554,15 +1553,15 @@ def _compute_consolidado(
                 KitProjecaoItem(nome_kit=k.nome_kit, quantidade=k.quantidade)
                 for k in sorted(p.kits, key=lambda k: k.quantidade, reverse=True)
             ]
-            # Piso só é não-nulo quando o Corte 1 do evento está congelado — é
+            # Teto só é não-nulo quando o Corte 1 do evento está congelado — é
             # esse estado (e não a existência da linha de snapshot) que dispara o
-            # rename para "Camiseta avulsa". Sem linha capturada, piso = 0.
+            # rename para "Camiseta avulsa". Sem linha capturada, teto = 0.
             snap_ev = snaps_by_evento.get(evento.id)
             corte1_congelado_ev = bool(
                 snap_ev and snap_ev.congelado_corte_1_em is not None and snap_ev.valor_corte_1 is not None
             )
-            piso_area = (
-                piso_by_evento_area.get((evento.id, p.area_projecao_id), 0)
+            teto_area = (
+                teto_by_evento_area.get((evento.id, p.area_projecao_id), 0)
                 if corte1_congelado_ev else None
             )
             projecoes_items.append(ConsolidadoAreaItem(
@@ -1570,7 +1569,7 @@ def _compute_consolidado(
                 area_projecao_nome=nome_area,
                 quantidade=p.quantidade,
                 kits=kits_items,
-                camiseta_avulsa_piso=piso_area,
+                camiseta_avulsa_teto=teto_area,
             ))
             total_projecoes += p.quantidade
             if nome_area.strip().lower() == "site":

@@ -11,7 +11,7 @@ def _now_brasilia():
 
 # Kit cujo comportamento muda no Corte 2: até o Corte 1 ele é "Kit Completo -
 # Sem camiseta"; depois que o Corte 1 congela, vira "Camiseta avulsa" (display)
-# com piso igual ao valor congelado no Corte 1 (ver ProjecaoKitCorteSnapshot).
+# com teto igual ao valor congelado no Corte 1 (ver ProjecaoKitCorteSnapshot).
 KIT_CAMISETA_AVULSA_ORIGEM = "Kit Completo - Sem camiseta"
 KIT_CAMISETA_AVULSA_LABEL = "Camiseta avulsa"
 
@@ -216,8 +216,8 @@ class ProjecaoKitCorteSnapshot(Base):
     """Valor congelado por (evento, área, kit) no momento do Corte 1.
 
     Hoje só é populado para o kit "Kit Completo - Sem camiseta": guarda quanto
-    havia desse kit quando o Corte 1 congelou, servindo de PISO da "Camiseta
-    avulsa" no Corte 2 (o usuário só pode aumentar a partir desse valor).
+    havia desse kit quando o Corte 1 congelou, servindo de TETO da "Camiseta
+    avulsa" no Corte 2 (o usuário só pode diminuir a partir desse valor).
     """
     __tablename__ = "projecao_kit_corte_snapshot"
 

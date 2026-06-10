@@ -1659,7 +1659,7 @@ export const projecaoService = {
     const response = await api.get('/projecao/consolidado', { params });
     return response.data;
   },
-  getCamisetaAvulsaInfo: async (evento_id: number, area_projecao_id: number): Promise<{ corte1_congelado: boolean; piso: number }> => {
+  getCamisetaAvulsaInfo: async (evento_id: number, area_projecao_id: number): Promise<{ corte1_congelado: boolean; teto: number }> => {
     const response = await api.get('/projecao/camiseta-avulsa-info', { params: { evento_id, area_projecao_id } });
     return response.data;
   },
