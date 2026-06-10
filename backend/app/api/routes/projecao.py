@@ -1663,6 +1663,10 @@ def _compute_consolidado(
                 KitProjecaoItem(nome_kit=k.nome_kit, quantidade=k.quantidade)
                 for k in sorted(p.kits, key=lambda k: k.quantidade, reverse=True)
             ]
+            # Sem distribuição por kit: a quantidade total entra no "Kit Básico"
+            # (mesma regra do congelamento do Corte 1 e da leitura aditiva).
+            if not kits_items and (p.quantidade or 0) > 0:
+                kits_items = [KitProjecaoItem(nome_kit="Kit Básico", quantidade=p.quantidade)]
             # Teto só é não-nulo quando o Corte 1 do evento está congelado — é
             # esse estado (e não a existência da linha de snapshot) que dispara o
             # rename para "Camiseta avulsa". Sem linha capturada, teto = 0.
