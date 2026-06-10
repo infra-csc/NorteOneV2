@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy import text
@@ -2559,6 +2560,12 @@ app.add_middleware(
 from app.core.rate_limit import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware, secret_key=app_settings.SECRET_KEY, algorithm=app_settings.ALGORITHM)
 
+# Compressão gzip para todas as respostas (bundles JS/CSS do frontend e JSON da API).
+# Os assets do frontend chegam a >1MB sem compressão; com gzip caem ~3-4x, acelerando
+# o carregamento inicial e a navegação entre telas. minimum_size evita comprimir
+# payloads minúsculos onde o overhead não compensa.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(centros_custo.router, prefix="/api")
@@ -2648,10 +2655,25 @@ _backend_dir = os.path.dirname(os.path.abspath(__file__))
 _backend_static = os.path.join(_backend_dir, "static")
 _workspace_frontend_dist = os.path.join(os.path.dirname(_backend_dir), "frontend", "dist")
 frontend_dist = _backend_static if os.path.isdir(_backend_static) and os.path.isfile(os.path.join(_backend_static, "index.html")) else _workspace_frontend_dist
+class ImmutableStaticFiles(StaticFiles):
+    """Serve os assets com hash no nome (imutáveis) com cache de 1 ano.
+
+    Como o Vite coloca um hash de conteúdo no nome de cada arquivo, qualquer
+    mudança gera um nome novo. Marcar como `immutable` elimina as revalidações
+    condicionais (304) a cada navegação entre telas, que adicionavam um
+    round-trip por arquivo."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 if os.path.isdir(frontend_dist):
     assets_dir = os.path.join(frontend_dist, "assets")
     if os.path.isdir(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="static-assets")
+        app.mount("/assets", ImmutableStaticFiles(directory=assets_dir), name="static-assets")
 
     # Arquivos que NUNCA podem ser cacheados pelo navegador, senão o usuário
     # fica preso numa versão antiga do app:
