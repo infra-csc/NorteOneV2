@@ -1663,6 +1663,10 @@ export const projecaoService = {
     const response = await api.get('/projecao/camiseta-avulsa-info', { params: { evento_id, area_projecao_id } });
     return response.data;
   },
+  getCorte1Distribuicao: async (evento_id: number, area_projecao_id: number): Promise<{ evento_id: number; area_projecao_id: number; quantidade: number; kits: { nome_kit: string; quantidade: number }[]; clientes: { nome_cliente: string; quantidade: number }[]; fonte: string; congelado_em: string | null; em_corte2: boolean }> => {
+    const response = await api.get('/projecao/corte1-distribuicao', { params: { evento_id, area_projecao_id } });
+    return response.data;
+  },
   getLixeira: async () => {
     const response = await api.get('/projecao/lixeira');
     return response.data;

@@ -1583,6 +1583,21 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_area ON projecao_cutoff_evento_area (area_projecao_id)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_created_by ON projecao_cutoff_evento_area (created_by)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_updated_by ON projecao_cutoff_evento_area (updated_by)",
+            """
+            CREATE TABLE IF NOT EXISTS projecao_corte_dist_snapshot (
+                id SERIAL PRIMARY KEY,
+                evento_id INTEGER NOT NULL REFERENCES cadastro_evento(id) ON DELETE CASCADE,
+                area_projecao_id INTEGER NOT NULL REFERENCES area_projecao(id) ON DELETE CASCADE,
+                quantidade INTEGER NOT NULL DEFAULT 0,
+                kits_json TEXT,
+                clientes_json TEXT,
+                congelado_em TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT NOW(),
+                CONSTRAINT uq_corte_dist_snapshot_evento_area UNIQUE (evento_id, area_projecao_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS ix_corte_dist_snapshot_evento ON projecao_corte_dist_snapshot (evento_id)",
+            "CREATE INDEX IF NOT EXISTS ix_corte_dist_snapshot_area ON projecao_corte_dist_snapshot (area_projecao_id)",
             "CREATE INDEX IF NOT EXISTS ix_cotacao_fob_circuito ON cotacao_fob (circuito)",
             "CREATE INDEX IF NOT EXISTS ix_cotacao_fob_produto ON cotacao_fob (produto)",
             # gratuito flag added to cadastro_evento (task #3769e50)

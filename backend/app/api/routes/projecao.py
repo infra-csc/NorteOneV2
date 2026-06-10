@@ -21,6 +21,7 @@ from ...models.projecao import (
     ProjecaoInscritosHistorico, ProjecaoInscritosCliente, ProjecaoInscritosKit, ProjecaoCutoffRule,
     ProjecaoCutoffEventoArea, ProjecaoAutoLockConfig,
     ProjecaoCorteConfig, ProjecaoCorteSnapshot, ProjecaoKitCorteSnapshot,
+    ProjecaoCorteDistSnapshot,
     KIT_CAMISETA_AVULSA_ORIGEM,
 )
 from ...models.cadastro_evento import CadastroEvento
@@ -30,9 +31,10 @@ from ...schemas.projecao import (
     AreaProjecaoCreate, AreaProjecaoResponse, AreaProjecaoDetailResponse, AreaProjecaoUsuarioResponse,
     AreaProjecaoUsuarioBulk,
     ProjecaoInscritosCreate, ProjecaoInscritosUpdate, ProjecaoInscritosResponse,
-    ClienteProjecaoResponse, KitProjecaoResponse, KitProjecaoItem,
+    ClienteProjecaoResponse, KitProjecaoResponse, KitProjecaoItem, ClienteProjecaoItem,
     HistoricoResponse,
     ConsolidadoEventoResponse, ConsolidadoAreaItem, CamisetaAvulsaInfoResponse,
+    CorteDistAreaResponse,
     CutoffRuleCreate, CutoffRuleUpdate, CutoffRuleResponse,
     PendenciaItem, PendenciasResponse, AreaPendenteItem,
     AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
@@ -804,8 +806,12 @@ def recongelar_corte(
         # Recongelar manual também precisa capturar o teto da "Camiseta avulsa"
         # (mesma lógica do congelamento automático), senão o teto fica zerado e a
         # validação é silenciosamente ignorada.
-        from ...services.snapshot_service import capturar_kit_snapshot_corte1
+        from ...services.snapshot_service import (
+            capturar_kit_snapshot_corte1,
+            capturar_dist_snapshot_corte1,
+        )
         capturar_kit_snapshot_corte1(db, evento_id, now)
+        capturar_dist_snapshot_corte1(db, evento_id, now)
     else:
         snap.valor_corte_2 = total
         snap.congelado_corte_2_em = now
@@ -1415,6 +1421,77 @@ def get_camiseta_avulsa_info(
     (Corte 1 congelado) e qual o teto máximo para o par (evento, área)."""
     corte1_congelado, teto = _camiseta_avulsa_info(db, evento_id, area_projecao_id)
     return CamisetaAvulsaInfoResponse(corte1_congelado=corte1_congelado, teto=teto)
+
+
+@router.get("/corte1-distribuicao", response_model=CorteDistAreaResponse)
+def get_corte1_distribuicao(
+    evento_id: int = Query(...),
+    area_projecao_id: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """Distribuição congelada do Corte 1 (quantidade + kits + clientes) para uma
+    (evento, área), usada pela coluna de leitura do layout aditivo do Corte 2.
+
+    Serve a foto real quando existe; senão (eventos que já estavam no Corte 2
+    antes da foto passar a ser gravada) aproxima com os valores AO VIVO atuais e
+    marca `fonte='aproximado'`."""
+    import json as _json
+    corte_snap = db.query(ProjecaoCorteSnapshot).filter(
+        ProjecaoCorteSnapshot.evento_id == evento_id
+    ).first()
+    em_corte2 = bool(corte_snap is not None and (
+        corte_snap.valor_corte_2 is not None or corte_snap.congelado_corte_2_em is not None
+    ))
+    snap = db.query(ProjecaoCorteDistSnapshot).filter(
+        ProjecaoCorteDistSnapshot.evento_id == evento_id,
+        ProjecaoCorteDistSnapshot.area_projecao_id == area_projecao_id,
+    ).first()
+    if snap is not None:
+        try:
+            kits_raw = _json.loads(snap.kits_json) if snap.kits_json else []
+        except (ValueError, TypeError):
+            kits_raw = []
+        try:
+            clientes_raw = _json.loads(snap.clientes_json) if snap.clientes_json else []
+        except (ValueError, TypeError):
+            clientes_raw = []
+        return CorteDistAreaResponse(
+            evento_id=evento_id,
+            area_projecao_id=area_projecao_id,
+            quantidade=int(snap.quantidade or 0),
+            kits=[KitProjecaoItem(nome_kit=k.get("nome_kit", ""), quantidade=int(k.get("quantidade", 0) or 0)) for k in kits_raw],
+            clientes=[ClienteProjecaoItem(nome_cliente=c.get("nome_cliente", ""), quantidade=int(c.get("quantidade", 0) or 0)) for c in clientes_raw],
+            fonte="snapshot",
+            congelado_em=snap.congelado_em,
+            em_corte2=em_corte2,
+        )
+
+    # Fallback (aproximado): usa os valores ao vivo atuais como se fossem o Corte 1.
+    proj = db.query(ProjecaoInscritos).filter(
+        ProjecaoInscritos.evento_id == evento_id,
+        ProjecaoInscritos.area_projecao_id == area_projecao_id,
+        ProjecaoInscritos.deleted_at.is_(None),
+    ).first()
+    if proj is None:
+        return CorteDistAreaResponse(
+            evento_id=evento_id,
+            area_projecao_id=area_projecao_id,
+            quantidade=0,
+            kits=[],
+            clientes=[],
+            fonte="aproximado",
+            em_corte2=em_corte2,
+        )
+    return CorteDistAreaResponse(
+        evento_id=evento_id,
+        area_projecao_id=area_projecao_id,
+        quantidade=int(proj.quantidade or 0),
+        kits=[KitProjecaoItem(nome_kit=k.nome_kit, quantidade=int(k.quantidade or 0)) for k in proj.kits],
+        clientes=[ClienteProjecaoItem(nome_cliente=c.nome_cliente, quantidade=int(c.quantidade or 0)) for c in proj.clientes],
+        fonte="aproximado",
+        em_corte2=em_corte2,
+    )
 
 
 @router.get("/consolidado", response_model=List[ConsolidadoEventoResponse])

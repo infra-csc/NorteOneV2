@@ -145,6 +145,23 @@ class ConsolidadoAreaItem(BaseModel):
     camiseta_avulsa_teto: Optional[int] = None
 
 
+class CorteDistAreaResponse(BaseModel):
+    """Distribuição congelada do Corte 1 para uma (evento, área), usada pelo
+    layout aditivo do Corte 2 (coluna de leitura). `fonte` indica se veio da
+    foto real ('snapshot') ou de aproximação pelos valores atuais ('aproximado',
+    p/ eventos que já estavam no Corte 2 antes da foto passar a ser gravada)."""
+    evento_id: int
+    area_projecao_id: int
+    quantidade: int = 0
+    kits: List[KitProjecaoItem] = []
+    clientes: List[ClienteProjecaoItem] = []
+    fonte: str = "snapshot"
+    congelado_em: Optional[datetime] = None
+    # Fonte autoritativa da fase do corte para o evento (ProjecaoCorteSnapshot),
+    # para o frontend decidir o layout aditivo sem depender do consolidado.
+    em_corte2: bool = False
+
+
 class CamisetaAvulsaInfoResponse(BaseModel):
     """Info para o formulário decidir se 'Kit Completo - Sem camiseta' já virou
     'Camiseta avulsa' (Corte 1 congelado) e qual o teto máximo."""

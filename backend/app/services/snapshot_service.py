@@ -2535,6 +2535,71 @@ def capturar_kit_snapshot_corte1(db: Session, evento_id: int, now: datetime) -> 
             ks.congelado_em = now
 
 
+def capturar_dist_snapshot_corte1(db: Session, evento_id: int, now: datetime) -> None:
+    """Captura a foto COMPLETA da distribuição (quantidade + kits + clientes) por
+    área no momento do congelamento do Corte 1 de um evento.
+
+    Alimenta o layout aditivo do Corte 2 (a tela exibe o Corte 1 em leitura ao
+    lado dos campos de acréscimo). DEVE ser chamada por TODOS os caminhos que
+    congelam o Corte 1 (job/consolidado e recongelamento manual do admin), em
+    lockstep com `capturar_kit_snapshot_corte1`.
+
+    Idempotente via upsert por (evento, área): regrava com o estado atual. Áreas
+    que deixaram de existir têm o snapshot removido.
+    """
+    import json as _json
+    from ..models.projecao import (
+        ProjecaoInscritos as _Proj,
+        ProjecaoInscritosKit as _Kit,
+        ProjecaoInscritosCliente as _Cli,
+        ProjecaoCorteDistSnapshot as _DistSnap,
+    )
+    projecoes = (
+        db.query(_Proj)
+        .filter(_Proj.evento_id == evento_id, _Proj.deleted_at.is_(None))
+        .all()
+    )
+    areas_atuais = set()
+    snaps_existentes = {
+        s.area_projecao_id: s
+        for s in db.query(_DistSnap).filter(_DistSnap.evento_id == evento_id).all()
+    }
+    for p in projecoes:
+        area_id = p.area_projecao_id
+        areas_atuais.add(area_id)
+        kits = [
+            {"nome_kit": k.nome_kit, "quantidade": int(k.quantidade or 0)}
+            for k in p.kits
+        ]
+        clientes = [
+            {"nome_cliente": c.nome_cliente, "quantidade": int(c.quantidade or 0)}
+            for c in p.clientes
+        ]
+        kits_json = _json.dumps(kits, ensure_ascii=False)
+        clientes_json = _json.dumps(clientes, ensure_ascii=False)
+        qtd = int(p.quantidade or 0)
+        snap = snaps_existentes.get(area_id)
+        if snap is None:
+            db.add(_DistSnap(
+                evento_id=evento_id,
+                area_projecao_id=area_id,
+                quantidade=qtd,
+                kits_json=kits_json,
+                clientes_json=clientes_json,
+                congelado_em=now,
+            ))
+        else:
+            snap.quantidade = qtd
+            snap.kits_json = kits_json
+            snap.clientes_json = clientes_json
+            snap.congelado_em = now
+    # Áreas que tinham foto mas não existem mais: remove para não exibir Corte 1
+    # fantasma na tela.
+    for area_id, snap in snaps_existentes.items():
+        if area_id not in areas_atuais:
+            db.delete(snap)
+
+
 def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None) -> dict:
     """Avalia e congela (por evento) os dois cortes de projeção.
 
@@ -2556,6 +2621,7 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
         ProjecaoInscritos as _Proj,
         ProjecaoInscritosKit as _Kit,
         ProjecaoKitCorteSnapshot as _KitSnap,
+        ProjecaoCorteDistSnapshot as _DistSnap,
         ProjecaoCutoffEventoArea as _CutEA,
         KIT_CAMISETA_AVULSA_ORIGEM as _KIT_CAM,
     )
@@ -2645,6 +2711,9 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             # Coerência: ao descongelar o Corte 1, o piso da "Camiseta avulsa"
             # deixa de valer — o campo volta a ser "Kit Completo - Sem camiseta".
             db.query(_KitSnap).filter(_KitSnap.evento_id == ev.id).delete()
+            # A foto da distribuição do Corte 1 também perde validade: o layout
+            # aditivo do Corte 2 só existe enquanto o Corte 1 está congelado.
+            db.query(_DistSnap).filter(_DistSnap.evento_id == ev.id).delete()
 
         if (
             snap is not None
@@ -2689,6 +2758,9 @@ def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None)
             # Captura o teto da "Camiseta avulsa" (valor de "Kit Completo - Sem
             # camiseta" por área) neste exato momento do congelamento do Corte 1.
             capturar_kit_snapshot_corte1(db, ev.id, now)
+            # Captura a foto completa da distribuição (quantidade + kits +
+            # clientes) por área para alimentar o layout aditivo do Corte 2.
+            capturar_dist_snapshot_corte1(db, ev.id, now)
         if need_2 and snap.valor_corte_2 is None and not c2_suppressed:
             snap.valor_corte_2 = total
             snap.congelado_corte_2_em = now

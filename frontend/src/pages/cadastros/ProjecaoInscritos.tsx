@@ -456,6 +456,11 @@ const ProjecaoInscritos: React.FC = () => {
   const [formTemKit, setFormTemKit] = useState(false);
   const [formKits, setFormKits] = useState<KitItem[]>(buildKitsPadrao());
   const [camisetaAvulsaInfo, setCamisetaAvulsaInfo] = useState<{ corte1_congelado: boolean; teto: number }>({ corte1_congelado: false, teto: 0 });
+  const [editCorte2, setEditCorte2] = useState(false);
+  const [corte1Dist, setCorte1Dist] = useState<{ evento_id: number; area_projecao_id: number; quantidade: number; kits: { nome_kit: string; quantidade: number }[]; clientes: { nome_cliente: string; quantidade: number }[]; fonte: string } | null>(null);
+  const [corte1DistError, setCorte1DistError] = useState(false);
+  const [corteLoading, setCorteLoading] = useState(false);
+  const corte1DistReqRef = useRef(0);
   const [eventoSearchTerm, setEventoSearchTerm] = useState('');
   const [showEventoDropdown, setShowEventoDropdown] = useState(false);
   const eventoDropdownRef = useRef<HTMLDivElement>(null);
@@ -1279,6 +1284,21 @@ const ProjecaoInscritos: React.FC = () => {
       showToast('Informe uma quantidade válida (maior que zero).');
       return;
     }
+    const c1Ready = !!corte1Dist && corte1Dist.evento_id === editingProjecao.evento_id && corte1Dist.area_projecao_id === editingProjecao.area_projecao_id;
+    if (corteLoading || corte1DistError || (editCorte2 && !c1Ready)) {
+      showToast('Aguarde o carregamento dos dados do corte antes de salvar.');
+      return;
+    }
+    if (editCorte2 && c1Ready) {
+      if ((corte1Dist?.kits?.length ?? 0) > 0 && !formTemKit) {
+        showToast('No Corte 2, a distribuição por Kit do Corte 1 deve ser preservada (só recebe adições).');
+        return;
+      }
+      if ((corte1Dist?.clientes?.length ?? 0) > 0 && !formTemCliente) {
+        showToast('No Corte 2, a distribuição por cliente do Corte 1 deve ser preservada (só recebe adições).');
+        return;
+      }
+    }
     if (formTemCliente) {
       const clientesValidos = formClientes.filter(c => c.nome_cliente.trim() && parseInt(c.quantidade) > 0);
       if (clientesValidos.length === 0) {
@@ -1377,9 +1397,30 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
+  const loadCorteInfo = (evento_id: number, area_projecao_id: number) => {
+    const reqId = ++corte1DistReqRef.current;
+    setCorteLoading(true);
+    setEditCorte2(false);
+    setCorte1Dist(null);
+    setCorte1DistError(false);
+    projecaoService.getCorte1Distribuicao(evento_id, area_projecao_id)
+      .then(d => {
+        if (corte1DistReqRef.current !== reqId) return;
+        setEditCorte2(!!d.em_corte2);
+        setCorte1Dist({ evento_id, area_projecao_id, quantidade: d.quantidade, kits: d.kits, clientes: d.clientes, fonte: d.fonte });
+        setCorteLoading(false);
+      })
+      .catch(() => {
+        if (corte1DistReqRef.current !== reqId) return;
+        setCorte1DistError(true);
+        setCorteLoading(false);
+      });
+  };
+
   const openEdit = (p: Projecao) => {
     setEditingProjecao(p);
     setFormQuantidade(String(p.quantidade));
+    loadCorteInfo(p.evento_id, p.area_projecao_id);
     if (p.clientes && p.clientes.length > 0) {
       setFormTemCliente(true);
       setFormClientes(p.clientes.map(c => ({ nome_cliente: c.nome_cliente, quantidade: String(c.quantidade) })));
@@ -1410,6 +1451,10 @@ const ProjecaoInscritos: React.FC = () => {
     setFormKits(buildKitsPadrao());
     setEventoSearchTerm('');
     setShowEventoDropdown(false);
+    setEditCorte2(false);
+    setCorte1Dist(null);
+    setCorte1DistError(false);
+    setCorteLoading(false);
   };
 
   const addCliente = () => {
@@ -1533,6 +1578,22 @@ const ProjecaoInscritos: React.FC = () => {
       </div>
     );
   }
+
+  const corte1DistReady = !!corte1Dist && !!editingProjecao
+    && corte1Dist.evento_id === editingProjecao.evento_id
+    && corte1Dist.area_projecao_id === editingProjecao.area_projecao_id;
+  const emCorte2 = editCorte2 && corte1DistReady;
+  const editGateBlocked = corteLoading || corte1DistError || (editCorte2 && !corte1DistReady);
+  const c1Qty = corte1DistReady ? (corte1Dist?.quantidade ?? 0) : 0;
+  const c1KitMap = new Map<string, number>();
+  if (corte1DistReady) {
+    (corte1Dist?.kits ?? []).forEach(k => c1KitMap.set(k.nome_kit, (c1KitMap.get(k.nome_kit) ?? 0) + k.quantidade));
+  }
+  const c1CliMap = new Map<string, number>();
+  if (corte1DistReady) {
+    (corte1Dist?.clientes ?? []).forEach(c => c1CliMap.set(c.nome_cliente, (c1CliMap.get(c.nome_cliente) ?? 0) + c.quantidade));
+  }
+  const c2BoxRead = isDark ? 'bg-gray-900/40 border-gray-700 text-gray-300' : 'bg-gray-100 border-gray-200 text-gray-600';
 
   return (
     <div className="min-h-screen">
@@ -3140,8 +3201,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setFormTemKit(v => !v)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1KitMap.size > 0}
+                  onClick={() => { if (!(emCorte2 && c1KitMap.size > 0)) setFormTemKit(v => !v); }}
+                  title={emCorte2 && c1KitMap.size > 0 ? 'No Corte 2 a distribuição por Kit do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1KitMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemKit ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -3161,7 +3224,65 @@ const ProjecaoInscritos: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  {formKits.map((kit, idx) => (
+                  {emCorte2 ? (
+                    <>
+                      <div className="flex items-center gap-2 px-1 pb-0.5">
+                        <div className="flex-1" />
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>C1</div>
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>C2 +</div>
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
+                      </div>
+                      {formKits.map((kit, idx) => {
+                        const isCam = camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM;
+                        const kc1 = isCam ? camisetaAvulsaInfo.teto : (c1KitMap.get(kit.nome_kit) ?? 0);
+                        const ktotal = parseInt(kit.quantidade) || 0;
+                        const kc2 = ktotal - kc1;
+                        return (
+                          <div key={idx} className="flex items-center gap-2">
+                            {KITS_DESCRICOES[kit.nome_kit] && (
+                              <div className="relative group flex items-center">
+                                <Info className={`w-4 h-4 cursor-help ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`} />
+                                <div className={`pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 z-50 hidden group-hover:block whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs shadow-lg ${isDark ? 'bg-gray-700 text-gray-100 border border-gray-600' : 'bg-gray-900 text-white'}`}>
+                                  {KITS_DESCRICOES[kit.nome_kit]}
+                                </div>
+                              </div>
+                            )}
+                            <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                              {isCam ? KIT_CAMISETA_LABEL : kit.nome_kit}
+                              {isCam && <span className={`ml-1 text-[10px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>(só diminui)</span>}
+                            </div>
+                            <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${c2BoxRead}`}>{kc1}</div>
+                            {isCam ? (
+                              <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600') : c2BoxRead}`}>{kc2}</div>
+                            ) : (
+                              <input
+                                type="number"
+                                value={String(Math.max(0, kc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                placeholder="0"
+                                min={0}
+                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              />
+                            )}
+                            {isCam ? (
+                              <input
+                                type="number"
+                                value={kit.quantidade}
+                                onChange={e => { let val = e.target.value; const n = parseInt(val); if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto); updateKit(idx, 'quantidade', val); }}
+                                placeholder="0"
+                                min={0}
+                                max={camisetaAvulsaInfo.teto}
+                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                              />
+                            ) : (
+                              <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ktotal}</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : (
+                  formKits.map((kit, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       {KITS_DESCRICOES[kit.nome_kit] && (
                         <div className="relative group flex items-center">
@@ -3196,7 +3317,8 @@ const ProjecaoInscritos: React.FC = () => {
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
                       />
                     </div>
-                  ))}
+                  ))
+                  )}
                 </div>
               )}
 
@@ -3208,8 +3330,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setFormTemCliente(v => !v)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1CliMap.size > 0}
+                  onClick={() => { if (!(emCorte2 && c1CliMap.size > 0)) setFormTemCliente(v => !v); }}
+                  title={emCorte2 && c1CliMap.size > 0 ? 'No Corte 2 a distribuição por cliente do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1CliMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemCliente ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -3229,7 +3353,57 @@ const ProjecaoInscritos: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  {formClientes.map((cliente, idx) => (
+                  {emCorte2 ? (
+                    formClientes.map((cliente, idx) => {
+                      const cnome = cliente.nome_cliente.trim();
+                      const isC1Row = c1CliMap.has(cnome);
+                      const cc1 = c1CliMap.get(cnome) ?? 0;
+                      const ctotal = parseInt(cliente.quantidade) || 0;
+                      const cc2 = ctotal - cc1;
+                      return (
+                        <div key={idx} className={`space-y-1.5 rounded-xl border p-2 ${isDark ? 'border-gray-700 bg-gray-900/20' : 'border-gray-200 bg-gray-50/50'}`}>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={cliente.nome_cliente}
+                              onChange={e => updateCliente(idx, 'nome_cliente', e.target.value)}
+                              placeholder="Nome do cliente"
+                              readOnly={isC1Row}
+                              title={isC1Row ? 'Cliente do Corte 1 — não pode ser renomeado nem removido (só recebe adições)' : undefined}
+                              className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isC1Row ? (isDark ? 'bg-gray-900/40 border-gray-700 text-gray-300 cursor-not-allowed' : 'bg-gray-100 border-gray-200 text-gray-600 cursor-not-allowed') : (isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400')} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                            />
+                            {!isC1Row && formClientes.length > 1 && (
+                              <button type="button" onClick={() => removeCliente(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Corte 1</div>
+                              <div className={`px-2 py-1.5 rounded-lg border text-sm text-center ${c2BoxRead}`}>{cc1}</div>
+                            </div>
+                            <div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Corte 2 (+)</div>
+                              <input
+                                type="number"
+                                value={String(Math.max(0, cc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
+                                placeholder="0"
+                                min={0}
+                                className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              />
+                            </div>
+                            <div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
+                              <div className={`px-2 py-1.5 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ctotal}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                  formClientes.map((cliente, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <input
                         type="text"
@@ -3252,7 +3426,8 @@ const ProjecaoInscritos: React.FC = () => {
                         </button>
                       )}
                     </div>
-                  ))}
+                  ))
+                  )}
                   <button
                     type="button"
                     onClick={addCliente}
@@ -3300,18 +3475,70 @@ const ProjecaoInscritos: React.FC = () => {
               </button>
             </div>
             <form onSubmit={handleUpdate} className="p-6 space-y-4">
-              <div>
-                <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
-                <input
-                  type="number"
-                  value={formQuantidade}
-                  onChange={e => setFormQuantidade(e.target.value)}
-                  placeholder="Ex: 150"
-                  className={inputClass}
-                  min={1}
-                  required
-                />
-              </div>
+              {editGateBlocked ? (
+                <div className="py-10 text-center space-y-3">
+                  {corte1DistError ? (
+                    <>
+                      <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>Não foi possível carregar os dados do corte. A edição fica bloqueada até confirmar a fase do corte.</p>
+                      <button
+                        type="button"
+                        onClick={() => editingProjecao && loadCorteInfo(editingProjecao.evento_id, editingProjecao.area_projecao_id)}
+                        className={`px-4 py-2 rounded-xl font-semibold text-sm ${isDark ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                      >
+                        Tentar novamente
+                      </button>
+                    </>
+                  ) : (
+                    <p className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Carregando dados do corte…</p>
+                  )}
+                </div>
+              ) : (
+              <>
+              {emCorte2 ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className={`block text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>Corte 2 (aditivo)</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Corte 1</div>
+                      <div className={`px-3 py-2 rounded-lg border text-sm ${c2BoxRead}`}>{formatNumber(c1Qty)}</div>
+                    </div>
+                    <div>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Corte 2 (+)</div>
+                      <input
+                        type="number"
+                        value={String(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
+                        onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); setFormQuantidade(String(c1Qty + c2)); }}
+                        placeholder="0"
+                        min={0}
+                        className={`w-full px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                      />
+                    </div>
+                    <div>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
+                      <div className={`px-3 py-2 rounded-lg border text-sm font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{formatNumber(parseInt(formQuantidade) || 0)}</div>
+                    </div>
+                  </div>
+                  {corte1Dist?.fonte === 'aproximado' && (
+                    <p className={`mt-1.5 text-[11px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>Corte 1 aproximado (evento sem foto registrada — usando valores atuais).</p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
+                  <input
+                    type="number"
+                    value={formQuantidade}
+                    onChange={e => setFormQuantidade(e.target.value)}
+                    placeholder="Ex: 150"
+                    className={inputClass}
+                    min={1}
+                    required
+                  />
+                </div>
+              )}
 
               {/* Toggle kits */}
               <div className={`flex items-center justify-between p-3 rounded-xl border ${isDark ? 'border-gray-700 bg-gray-900/30' : 'border-gray-200 bg-gray-50'}`}>
@@ -3321,8 +3548,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setFormTemKit(v => !v)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1KitMap.size > 0}
+                  onClick={() => { if (!(emCorte2 && c1KitMap.size > 0)) setFormTemKit(v => !v); }}
+                  title={emCorte2 && c1KitMap.size > 0 ? 'No Corte 2 a distribuição por Kit do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1KitMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemKit ? 'bg-amber-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemKit ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -3342,7 +3571,65 @@ const ProjecaoInscritos: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  {formKits.map((kit, idx) => (
+                  {emCorte2 ? (
+                    <>
+                      <div className="flex items-center gap-2 px-1 pb-0.5">
+                        <div className="flex-1" />
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>C1</div>
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>C2 +</div>
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
+                      </div>
+                      {formKits.map((kit, idx) => {
+                        const isCam = camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM;
+                        const kc1 = isCam ? camisetaAvulsaInfo.teto : (c1KitMap.get(kit.nome_kit) ?? 0);
+                        const ktotal = parseInt(kit.quantidade) || 0;
+                        const kc2 = ktotal - kc1;
+                        return (
+                          <div key={idx} className="flex items-center gap-2">
+                            {KITS_DESCRICOES[kit.nome_kit] && (
+                              <div className="relative group flex items-center">
+                                <Info className={`w-4 h-4 cursor-help ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`} />
+                                <div className={`pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 z-50 hidden group-hover:block whitespace-nowrap px-2.5 py-1.5 rounded-lg text-xs shadow-lg ${isDark ? 'bg-gray-700 text-gray-100 border border-gray-600' : 'bg-gray-900 text-white'}`}>
+                                  {KITS_DESCRICOES[kit.nome_kit]}
+                                </div>
+                              </div>
+                            )}
+                            <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
+                              {isCam ? KIT_CAMISETA_LABEL : kit.nome_kit}
+                              {isCam && <span className={`ml-1 text-[10px] ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>(só diminui)</span>}
+                            </div>
+                            <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${c2BoxRead}`}>{kc1}</div>
+                            {isCam ? (
+                              <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600') : c2BoxRead}`}>{kc2}</div>
+                            ) : (
+                              <input
+                                type="number"
+                                value={String(Math.max(0, kc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                placeholder="0"
+                                min={0}
+                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              />
+                            )}
+                            {isCam ? (
+                              <input
+                                type="number"
+                                value={kit.quantidade}
+                                onChange={e => { let val = e.target.value; const n = parseInt(val); if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto); updateKit(idx, 'quantidade', val); }}
+                                placeholder="0"
+                                min={0}
+                                max={camisetaAvulsaInfo.teto}
+                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
+                              />
+                            ) : (
+                              <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ktotal}</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : (
+                  formKits.map((kit, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       {KITS_DESCRICOES[kit.nome_kit] && (
                         <div className="relative group flex items-center">
@@ -3377,7 +3664,8 @@ const ProjecaoInscritos: React.FC = () => {
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
                       />
                     </div>
-                  ))}
+                  ))
+                  )}
                 </div>
               )}
 
@@ -3389,8 +3677,10 @@ const ProjecaoInscritos: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setFormTemCliente(v => !v)}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
+                  disabled={emCorte2 && c1CliMap.size > 0}
+                  onClick={() => { if (!(emCorte2 && c1CliMap.size > 0)) setFormTemCliente(v => !v); }}
+                  title={emCorte2 && c1CliMap.size > 0 ? 'No Corte 2 a distribuição por cliente do Corte 1 é mantida e só recebe adições' : undefined}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${emCorte2 && c1CliMap.size > 0 ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${formTemCliente ? 'bg-violet-600' : isDark ? 'bg-gray-600' : 'bg-gray-300'}`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${formTemCliente ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
@@ -3410,7 +3700,57 @@ const ProjecaoInscritos: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  {formClientes.map((cliente, idx) => (
+                  {emCorte2 ? (
+                    formClientes.map((cliente, idx) => {
+                      const cnome = cliente.nome_cliente.trim();
+                      const isC1Row = c1CliMap.has(cnome);
+                      const cc1 = c1CliMap.get(cnome) ?? 0;
+                      const ctotal = parseInt(cliente.quantidade) || 0;
+                      const cc2 = ctotal - cc1;
+                      return (
+                        <div key={idx} className={`space-y-1.5 rounded-xl border p-2 ${isDark ? 'border-gray-700 bg-gray-900/20' : 'border-gray-200 bg-gray-50/50'}`}>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={cliente.nome_cliente}
+                              onChange={e => updateCliente(idx, 'nome_cliente', e.target.value)}
+                              placeholder="Nome do cliente"
+                              readOnly={isC1Row}
+                              title={isC1Row ? 'Cliente do Corte 1 — não pode ser renomeado nem removido (só recebe adições)' : undefined}
+                              className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isC1Row ? (isDark ? 'bg-gray-900/40 border-gray-700 text-gray-300 cursor-not-allowed' : 'bg-gray-100 border-gray-200 text-gray-600 cursor-not-allowed') : (isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400')} focus:outline-none focus:ring-2 focus:ring-violet-500`}
+                            />
+                            {!isC1Row && formClientes.length > 1 && (
+                              <button type="button" onClick={() => removeCliente(idx)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors">
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Corte 1</div>
+                              <div className={`px-2 py-1.5 rounded-lg border text-sm text-center ${c2BoxRead}`}>{cc1}</div>
+                            </div>
+                            <div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Corte 2 (+)</div>
+                              <input
+                                type="number"
+                                value={String(Math.max(0, cc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
+                                placeholder="0"
+                                min={0}
+                                className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              />
+                            </div>
+                            <div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
+                              <div className={`px-2 py-1.5 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ctotal}</div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                  formClientes.map((cliente, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <input
                         type="text"
@@ -3433,7 +3773,8 @@ const ProjecaoInscritos: React.FC = () => {
                         </button>
                       )}
                     </div>
-                  ))}
+                  ))
+                  )}
                   <button
                     type="button"
                     onClick={addCliente}
@@ -3443,6 +3784,8 @@ const ProjecaoInscritos: React.FC = () => {
                     Adicionar cliente
                   </button>
                 </div>
+              )}
+              </>
               )}
 
               <div className="flex justify-end gap-3 pt-4">
@@ -3455,7 +3798,8 @@ const ProjecaoInscritos: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                  disabled={editGateBlocked}
+                  className={`px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 text-white font-semibold shadow-lg transition-all ${editGateBlocked ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-xl'}`}
                 >
                   Salvar
                 </button>

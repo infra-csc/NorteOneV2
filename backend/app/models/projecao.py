@@ -237,6 +237,38 @@ class ProjecaoKitCorteSnapshot(Base):
     )
 
 
+class ProjecaoCorteDistSnapshot(Base):
+    """Foto COMPLETA da distribuição (quantidade + kits + clientes) por (evento,
+    área) no momento em que o Corte 1 congela.
+
+    Diferente de ProjecaoKitCorteSnapshot (que só guarda o teto da Camiseta
+    avulsa), esta tabela guarda o retrato inteiro do Corte 1 para que a tela de
+    Corte 2 possa exibir o que foi preenchido no Corte 1 (leitura) ao lado dos
+    campos aditivos do Corte 2. kits/clientes são JSON-serializados em Text:
+    [{"nome_kit"|"nome_cliente": str, "quantidade": int}, ...].
+
+    Capturada nos DOIS caminhos de congelamento do Corte 1 (job/consolidado via
+    `congelar_cortes_para_eventos` e o recongelamento manual do admin).
+    """
+    __tablename__ = "projecao_corte_dist_snapshot"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_id = Column(Integer, ForeignKey("cadastro_evento.id", ondelete="CASCADE"), nullable=False, index=True)
+    area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
+    quantidade = Column(Integer, nullable=False, default=0)
+    kits_json = Column(Text, nullable=True)
+    clientes_json = Column(Text, nullable=True)
+    congelado_em = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)
+
+    evento = relationship("CadastroEvento")
+    area = relationship("AreaProjecao")
+
+    __table_args__ = (
+        UniqueConstraint("evento_id", "area_projecao_id", name="uq_corte_dist_snapshot_evento_area"),
+    )
+
+
 class SimuladorProjetadoFaixas(Base):
     __tablename__ = "simulador_projetado_faixas"
 
