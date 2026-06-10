@@ -3182,7 +3182,14 @@ const ProjecaoInscritos: React.FC = () => {
                       <input
                         type="number"
                         value={kit.quantidade}
-                        onChange={e => updateKit(idx, 'quantidade', e.target.value)}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) {
+                            const n = parseInt(val);
+                            if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto);
+                          }
+                          updateKit(idx, 'quantidade', val);
+                        }}
                         placeholder="Qtd"
                         min={0}
                         max={(camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? camisetaAvulsaInfo.teto : undefined}
@@ -3356,7 +3363,14 @@ const ProjecaoInscritos: React.FC = () => {
                       <input
                         type="number"
                         value={kit.quantidade}
-                        onChange={e => updateKit(idx, 'quantidade', e.target.value)}
+                        onChange={e => {
+                          let val = e.target.value;
+                          if (camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) {
+                            const n = parseInt(val);
+                            if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto);
+                          }
+                          updateKit(idx, 'quantidade', val);
+                        }}
                         placeholder="Qtd"
                         min={0}
                         max={(camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? camisetaAvulsaInfo.teto : undefined}
