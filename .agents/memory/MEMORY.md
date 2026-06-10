@@ -13,3 +13,4 @@
 - [Corte reabrir vs auto-freeze](corte-reabrir-suppression.md) — consolidado re-congela todo corte na janela a cada leitura; "Reabrir" só persiste via flag reaberto_manual_corte_1/2, respeitada no early-continue E em cada bloco de freeze.
 - [Margem por Kit snapshot-first](margem-por-kit-snapshot-first.md) — leitura sempre serve snapshot (qualquer idade); query pesada de receita só no batch/force_refresh; janela created_at=15 MONTH (receita e qtd em lockstep).
 - [Curva derivada vs Histórico Próprio](curva-derivada-origem-label.md) — fallback (regional/circuito) é gravado sob o nome do próprio evento; read path deve rotular pela coluna origem, não como "historico". fonte_origem guarda a origem exata (estado p/ regional).
+- [Override curva vigente](curva-override-vigente.md) — override de curva tem 2 modos (curva_override_modo): 'historico' (ano anterior) e 'vigente' (curva REAL já realizada do mesmo ano, etapa que já fechou).

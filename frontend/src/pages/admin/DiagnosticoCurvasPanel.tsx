@@ -25,12 +25,14 @@ interface AvailableCurve {
   grupo: string;
   anoReferencia: number;
   pontos: number;
-  origem: string;
+  origem?: string;
   vendas: number;
+  modo: 'historico' | 'vigente';
 }
 
 const TIPO_CONFIG: Record<string, { label: string; icon: any; classLight: string; classDark: string; desc: string }> = {
-  manual: { label: 'Manual (Override)', icon: Pin, classLight: 'bg-purple-100 text-purple-800 border-purple-200', classDark: 'bg-purple-900/30 text-purple-300 border-purple-700/40', desc: 'Curva apontada manualmente pelo usuário' },
+  manual: { label: 'Manual (Override)', icon: Pin, classLight: 'bg-purple-100 text-purple-800 border-purple-200', classDark: 'bg-purple-900/30 text-purple-300 border-purple-700/40', desc: 'Curva apontada manualmente pelo usuário (histórico do ano anterior)' },
+  manual_vigente: { label: 'Manual (ano vigente)', icon: Pin, classLight: 'bg-emerald-100 text-emerald-800 border-emerald-200', classDark: 'bg-emerald-900/30 text-emerald-300 border-emerald-700/40', desc: 'Curva real já realizada de um evento do ano vigente' },
   historico: { label: 'Histórico Próprio', icon: TrendingUp, classLight: 'bg-emerald-100 text-emerald-800 border-emerald-200', classDark: 'bg-emerald-900/30 text-emerald-300 border-emerald-700/40', desc: 'Histórico do próprio evento no ano anterior' },
   circuito_similar: { label: 'Circuito + Cidade', icon: MapPin, classLight: 'bg-blue-100 text-blue-800 border-blue-200', classDark: 'bg-blue-900/30 text-blue-300 border-blue-700/40', desc: 'Outro evento do mesmo circuito na mesma cidade' },
   circuito: { label: 'Circuito', icon: Layers, classLight: 'bg-cyan-100 text-cyan-800 border-cyan-200', classDark: 'bg-cyan-900/30 text-cyan-300 border-cyan-700/40', desc: 'Outro evento do mesmo circuito (cidade diferente)' },
@@ -107,7 +109,17 @@ const DiagnosticoCurvasPanel: React.FC = () => {
       setLoadingCurves(true);
       try {
         const res = await api.get('/admin/evento-grupos/available-curves');
-        setAvailableCurves(res.data || []);
+        // Backend retorna { historicas, vigentes }. Mantém compat com o formato
+        // antigo (array puro). Une as duas listas marcando o modo de cada uma.
+        let merged: AvailableCurve[] = [];
+        if (Array.isArray(res.data)) {
+          merged = (res.data as any[]).map(c => ({ ...c, modo: 'historico' as const }));
+        } else {
+          const vig = (res.data?.vigentes ?? []).map((c: any) => ({ ...c, modo: 'vigente' as const }));
+          const hist = (res.data?.historicas ?? []).map((c: any) => ({ ...c, modo: 'historico' as const }));
+          merged = [...vig, ...hist];
+        }
+        setAvailableCurves(merged);
       } catch (e) {
         console.error('Erro ao buscar curvas disponíveis:', e);
       } finally {
@@ -123,7 +135,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
     setSaveMsg(null);
   }, [savingOverride]);
 
-  const handleSetOverride = useCallback(async (curvaGrupo: string | null) => {
+  const handleSetOverride = useCallback(async (curvaGrupo: string | null, modo: 'historico' | 'vigente' = 'historico') => {
     if (!editing) return;
     const editedGrupoId = editing.grupo_id;
     setSavingOverride(true);
@@ -131,6 +143,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
     try {
       await api.put(`/admin/evento-grupos/${editedGrupoId}/curva-override`, {
         curva_override: curvaGrupo,
+        curva_override_modo: curvaGrupo ? modo : null,
       });
 
       // Atualização OTIMISTA: já reflete a mudança na linha antes do refetch,
@@ -142,7 +155,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
           tem_override: !!curvaGrupo,
           override_target: curvaGrupo,
           // marca como "atualizando" — backend vai sobrescrever em ~1s
-          tipo_curva: curvaGrupo ? 'manual' : item.tipo_curva,
+          tipo_curva: curvaGrupo ? (modo === 'vigente' ? 'manual_vigente' : 'manual') : item.tipo_curva,
           fonte_curva: curvaGrupo,
           fabricated_linear: false,
         };
@@ -443,18 +456,24 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                     .filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase()))
                     .map(curve => {
                       const isCurrent = editing.tem_override && editing.override_target === curve.grupo;
+                      const isVigente = curve.modo === 'vigente';
                       return (
                         <button
-                          key={curve.grupo}
-                          onClick={() => handleSetOverride(curve.grupo)}
+                          key={`${curve.modo}_${curve.grupo}`}
+                          onClick={() => handleSetOverride(curve.grupo, curve.modo)}
                           disabled={savingOverride}
                           className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${isCurrent ? 'ring-2 ring-purple-500/60' : ''} disabled:opacity-50`}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium truncate">{curve.grupo}</span>
+                            <span className="font-medium truncate flex items-center gap-2">
+                              {curve.grupo}
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${isVigente ? (isDark ? 'bg-emerald-900/30 text-emerald-300 border-emerald-700/40' : 'bg-emerald-100 text-emerald-700 border-emerald-200') : (isDark ? 'bg-blue-900/30 text-blue-300 border-blue-700/40' : 'bg-blue-100 text-blue-700 border-blue-200')}`}>
+                                {isVigente ? 'ano vigente' : 'histórico'}
+                              </span>
+                            </span>
                             <span className="flex items-center gap-2 flex-shrink-0">
                               <span className={`text-xs ${textSecondary}`}>
-                                {curve.vendas.toLocaleString('pt-BR')} vendas · {curve.anoReferencia}
+                                {curve.vendas.toLocaleString('pt-BR')} {isVigente ? 'insc' : 'vendas'} · {curve.anoReferencia}
                               </span>
                               {isCurrent && <Check className="w-4 h-4 text-purple-500" />}
                             </span>

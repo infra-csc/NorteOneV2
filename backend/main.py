@@ -1415,6 +1415,7 @@ def _run_column_migrations():
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS circuito VARCHAR(200)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS cidade_normalizada VARCHAR(200)",
             "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS curva_override VARCHAR(200)",
+            "ALTER TABLE evento_grupos ADD COLUMN IF NOT EXISTS curva_override_modo VARCHAR(20)",
             "ALTER TABLE curva_historica_snapshot ADD COLUMN IF NOT EXISTS origem VARCHAR(50)",
             "ALTER TABLE curva_historica_snapshot ADD COLUMN IF NOT EXISTS fonte_origem VARCHAR(200)",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS ciclismo_participacao_pago INTEGER DEFAULT 0",

@@ -1577,6 +1577,109 @@ def _fetch_previous_year_cumulative_pattern(db: Session, evento_grupo: str, ano:
     return pattern
 
 
+def _fetch_current_year_realized_pattern(db: Session, evento_grupo: str, ano: int, use_normalized: bool = False) -> Optional[dict]:
+    """Monta o padrão acumulado por D- a partir das vendas REAIS já realizadas
+    do grupo no PRÓPRIO ano vigente (`ano`). Diferente de
+    `_fetch_previous_year_cumulative_pattern` (que usa o ano anterior), esta
+    função serve o caso "etapa anterior do mesmo ano que já fechou" — ex.: usar
+    a curva realizada de uma etapa de Outono/2026 como referência para a etapa
+    de Inverno/2026.
+
+    Só retorna padrão quando o evento JÁ ENCERROU as inscrições
+    (data_inscricao < hoje); caso contrário a curva seria parcial e satura
+    prematuramente em pct=1.0. Lê exclusivamente de `vendas_diaria_snapshot`
+    (PostgreSQL) — não toca em Magento/Ativo, portanto é seguro no caminho
+    read-only e barato."""
+    from ...models.vendas_snapshot import VendasDiariaSnapshot
+
+    data_evento = _find_data_evento(db, evento_grupo, ano)
+    if not data_evento:
+        logger.info(f"[CurvaVigente] sem data_evento para '{evento_grupo}' ano={ano}")
+        return None
+
+    dias_enc = 2
+    try:
+        proj = db.query(DimProjeto).filter(DimProjeto.data_evento == data_evento).first()
+        if proj:
+            dias_enc = get_dias_encerramento(db, projeto_id=proj.id)
+    except Exception:
+        pass
+    data_inscricao = data_evento - timedelta(days=dias_enc)
+
+    # Exige evento encerrado: curva realizada só faz sentido completa.
+    if data_inscricao >= today_brazil():
+        logger.info(
+            f"[CurvaVigente] '{evento_grupo}' ano={ano} ainda não encerrou "
+            f"(data_inscricao={data_inscricao}) — não gera curva vigente"
+        )
+        return None
+
+    rows = db.query(
+        VendasDiariaSnapshot.data_venda,
+        func.sum(VendasDiariaSnapshot.quantidade)
+    ).filter(
+        VendasDiariaSnapshot.evento_grupo == evento_grupo,
+        VendasDiariaSnapshot.ano == ano
+    ).group_by(VendasDiariaSnapshot.data_venda).all()
+
+    daily = {}
+    for d, q in rows:
+        dd = date.fromisoformat(d) if isinstance(d, str) else d
+        daily[dd] = daily.get(dd, 0) + int(q or 0)
+
+    if not daily:
+        logger.info(f"[CurvaVigente] sem vendas em snapshot para '{evento_grupo}' ano={ano}")
+        return None
+
+    if use_normalized:
+        try:
+            daily = _normalize_daily_dict_for_isc(daily)
+        except Exception as _ne:
+            logger.warning(f"[CurvaVigente] falha ao normalizar '{evento_grupo}' ano={ano}: {_ne}")
+
+    total = sum(daily.values())
+    if total <= 0:
+        return None
+
+    d_minus_sales = {}
+    for sale_date, qty in daily.items():
+        dm = (data_inscricao - sale_date).days
+        if dm >= 0:
+            d_minus_sales[dm] = d_minus_sales.get(dm, 0) + qty
+
+    if not d_minus_sales:
+        return None
+
+    max_dm = max(d_minus_sales.keys())
+    min_dm = min(d_minus_sales.keys())
+
+    cumulative = 0
+    pattern = {}
+    for dm in range(max_dm, min_dm - 1, -1):
+        cumulative += d_minus_sales.get(dm, 0)
+        pattern[dm] = cumulative / total
+
+    if 0 not in pattern:
+        pattern[0] = 1.0
+    if min_dm > 0:
+        for dm in range(min_dm - 1, -1, -1):
+            pattern[dm] = 1.0
+
+    from ...services.snapshot_service import is_curve_saturated
+    if total < 20 or is_curve_saturated(pattern):
+        logger.warning(
+            f"[CurvaVigente] '{evento_grupo}' ano={ano} curva descartada "
+            f"(total={total}, saturated={is_curve_saturated(pattern)})"
+        )
+        return None
+
+    logger.info(
+        f"[CurvaVigente] curva realizada montada para '{evento_grupo}' ano={ano}: "
+        f"{len(daily)} dias, total={total}, D- range [{min_dm}, {max_dm}]"
+    )
+    return pattern
+
+
 def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Optional[str] = None, use_normalized: bool = False) -> tuple:
     """Resolve the best available historical curve for an event group using a fallback chain.
     
@@ -1643,27 +1746,45 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
     grupo_obj = db.query(EventoGrupoModel).filter(EventoGrupoModel.nome == evento_grupo).first()
 
     if grupo_obj and grupo_obj.curva_override:
-        override_ano_ref = prev_ano
-        override_pattern = None if use_normalized else get_curva_historica_snapshot(db, grupo_obj.curva_override, prev_ano)
-        if not override_pattern and not use_normalized:
-            most_recent_ano = db.query(func.max(CurvaHistoricaSnapshot.ano_referencia)).filter(
-                CurvaHistoricaSnapshot.evento_grupo == grupo_obj.curva_override
-            ).scalar()
-            if most_recent_ano and most_recent_ano != prev_ano:
-                override_pattern = get_curva_historica_snapshot(db, grupo_obj.curva_override, most_recent_ano)
-                if override_pattern:
-                    override_ano_ref = most_recent_ano
-                    logger.info(f"[CurvaResolve] '{evento_grupo}' override '{grupo_obj.curva_override}': ano {prev_ano} não encontrado, usando ano_ref={most_recent_ano}")
-        if not override_pattern:
-            override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano, use_normalized=use_normalized)
-        override_ref_total = _ref_total_for(grupo_obj.curva_override, override_ano_ref)
-        if override_pattern and not _is_degenerate(override_pattern, override_ref_total, f"'{evento_grupo}' override '{grupo_obj.curva_override}'"):
-            logger.info(f"[CurvaResolve] '{evento_grupo}' using manual override: '{grupo_obj.curva_override}'")
-            return override_pattern, {
-                "tipo_curva": "manual",
-                "fonte_curva": grupo_obj.curva_override,
-                "ano_referencia": override_ano_ref
-            }
+        override_modo = (getattr(grupo_obj, "curva_override_modo", None) or "historico")
+
+        # Modo "vigente": usa a curva REAL já realizada do grupo-alvo no ano
+        # corrente (etapa anterior do mesmo ano que já encerrou). Se a curva
+        # vigente não puder ser montada (alvo não encerrou / sem dados), cai na
+        # cadeia de fallback normal — NÃO usa o histórico do alvo.
+        if override_modo == "vigente":
+            vig_pattern = _fetch_current_year_realized_pattern(
+                db, grupo_obj.curva_override, ano, use_normalized=use_normalized
+            )
+            if vig_pattern and not _is_degenerate(vig_pattern, 0, f"'{evento_grupo}' override vigente '{grupo_obj.curva_override}'"):
+                logger.info(f"[CurvaResolve] '{evento_grupo}' using manual override (vigente): '{grupo_obj.curva_override}'")
+                return vig_pattern, {
+                    "tipo_curva": "manual_vigente",
+                    "fonte_curva": grupo_obj.curva_override,
+                    "ano_referencia": ano
+                }
+        else:
+            override_ano_ref = prev_ano
+            override_pattern = None if use_normalized else get_curva_historica_snapshot(db, grupo_obj.curva_override, prev_ano)
+            if not override_pattern and not use_normalized:
+                most_recent_ano = db.query(func.max(CurvaHistoricaSnapshot.ano_referencia)).filter(
+                    CurvaHistoricaSnapshot.evento_grupo == grupo_obj.curva_override
+                ).scalar()
+                if most_recent_ano and most_recent_ano != prev_ano:
+                    override_pattern = get_curva_historica_snapshot(db, grupo_obj.curva_override, most_recent_ano)
+                    if override_pattern:
+                        override_ano_ref = most_recent_ano
+                        logger.info(f"[CurvaResolve] '{evento_grupo}' override '{grupo_obj.curva_override}': ano {prev_ano} não encontrado, usando ano_ref={most_recent_ano}")
+            if not override_pattern:
+                override_pattern = _fetch_previous_year_cumulative_pattern(db, grupo_obj.curva_override, ano, use_normalized=use_normalized)
+            override_ref_total = _ref_total_for(grupo_obj.curva_override, override_ano_ref)
+            if override_pattern and not _is_degenerate(override_pattern, override_ref_total, f"'{evento_grupo}' override '{grupo_obj.curva_override}'"):
+                logger.info(f"[CurvaResolve] '{evento_grupo}' using manual override: '{grupo_obj.curva_override}'")
+                return override_pattern, {
+                    "tipo_curva": "manual",
+                    "fonte_curva": grupo_obj.curva_override,
+                    "ano_referencia": override_ano_ref
+                }
 
     own_ref_total = _ref_total_for(evento_grupo, prev_ano)
     # Lê a origem do snapshot persistido sob o nome do próprio evento ANTES de
@@ -6878,6 +6999,15 @@ def _resolve_hist_pattern_readonly(db: Session, evento_grupo: str, ano: int,
     # 1. Override manual
     if grupo_obj and grupo_obj.curva_override:
         target = grupo_obj.curva_override
+        override_modo = (getattr(grupo_obj, "curva_override_modo", None) or "historico")
+        # Modo "vigente": a curva é montada ao vivo a partir de
+        # vendas_diaria_snapshot (não há CurvaHistoricaSnapshot). Para o
+        # diagnóstico read-only só reportamos o rótulo apontando para o ano
+        # corrente; a validade real é checada no caminho normal.
+        if override_modo == "vigente":
+            return {"tipo_curva": "manual_vigente", "fonte_curva": target,
+                    "ano_referencia": ano, "fabricated_linear": False,
+                    "saturated_descartado": False}
         # tenta prev_ano e, se faltar, mais recente disponível pra esse grupo
         candidate_anos = [prev_ano]
         for (g, ar) in snap_index.keys():

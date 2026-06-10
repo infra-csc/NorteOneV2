@@ -124,6 +124,10 @@ class EventoGrupo(Base):
     circuito = Column(String(200), nullable=True)
     cidade_normalizada = Column(String(200), nullable=True)
     curva_override = Column(String(200), nullable=True)
+    # 'historico' (default): override usa a curva do ano anterior do grupo-alvo
+    # (comportamento clássico). 'vigente': usa a curva REAL já realizada do
+    # grupo-alvo no ano corrente (etapa anterior do mesmo ano que já encerrou).
+    curva_override_modo = Column(String(20), nullable=True)
     incluir_cortesias = Column(Boolean, default=False, server_default="0")
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

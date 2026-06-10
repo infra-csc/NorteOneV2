@@ -827,7 +827,57 @@ def list_available_curves(
             "origem": origem,
             "vendas": vendas,
         })
-    return sorted(result, key=lambda x: x["grupo"])
+
+    # (B) Curvas do ANO VIGENTE: eventos do ano corrente que JÁ ENCERRARAM e têm
+    # volume >= MIN_REF_SALES. Permitem usar a curva REAL realizada de uma etapa
+    # anterior do mesmo ano (ex.: Outono/2026 como referência para Inverno/2026),
+    # mesmo sem histórico próprio do ano anterior. A curva é montada ao vivo a
+    # partir de vendas_diaria_snapshot na resolução (modo "vigente").
+    try:
+        from .marketing import _fetch_current_year_realized_pattern, today_brazil
+        hoje = today_brazil()
+    except Exception:
+        from datetime import date as _date
+        hoje = _date.today()
+        _fetch_current_year_realized_pattern = None
+
+    ano_corrente = hoje.year
+    vigentes = []
+    if _fetch_current_year_realized_pattern:
+        vig_rows = db.query(
+            VendasDiariaSnapshot.evento_grupo,
+            func.sum(VendasDiariaSnapshot.quantidade).label("total"),
+            func.count(VendasDiariaSnapshot.id).label("pontos"),
+        ).filter(
+            VendasDiariaSnapshot.ano == ano_corrente
+        ).group_by(VendasDiariaSnapshot.evento_grupo).all()
+
+        for row in vig_rows:
+            total = int(row.total or 0)
+            if total < MIN_REF_SALES:
+                continue
+            # Só lista o que o resolvedor realmente conseguirá montar: o helper
+            # exige evento encerrado (data_inscricao < hoje), total>=20 e curva
+            # não-saturada. Isso garante que nenhuma opção "vigente" exibida caia
+            # silenciosamente no fallback ao ser selecionada (mesma lógica do
+            # caminho de resolução em marketing._resolve_hist_pattern).
+            try:
+                pattern = _fetch_current_year_realized_pattern(db, row.evento_grupo, ano_corrente)
+            except Exception:
+                pattern = None
+            if not pattern:
+                continue
+            vigentes.append({
+                "grupo": row.evento_grupo,
+                "anoReferencia": ano_corrente,
+                "pontos": int(row.pontos or 0),
+                "vendas": total,
+            })
+
+    return {
+        "historicas": sorted(result, key=lambda x: x["grupo"]),
+        "vigentes": sorted(vigentes, key=lambda x: x["grupo"]),
+    }
 
 
 @grupo_router.put("/{grupo_id}/curva-override")
@@ -842,7 +892,14 @@ def set_curva_override(
         raise HTTPException(status_code=404, detail="Grupo não encontrado")
 
     override_value = payload.get("curva_override")
+    override_modo = payload.get("curva_override_modo")
     db_grupo.curva_override = override_value if override_value else None
+    # Modo só faz sentido quando há override. "vigente" = curva real do ano
+    # corrente; qualquer outro valor (ou ausência) cai em "historico".
+    if override_value:
+        db_grupo.curva_override_modo = "vigente" if override_modo == "vigente" else "historico"
+    else:
+        db_grupo.curva_override_modo = None
     db.commit()
     db.refresh(db_grupo)
     _invalidate_all_marketing_caches()

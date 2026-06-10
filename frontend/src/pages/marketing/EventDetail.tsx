@@ -396,6 +396,7 @@ const EventDetail: React.FC = () => {
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [showCurveInfoModal, setShowCurveInfoModal] = useState(false);
   const [availableCurves, setAvailableCurves] = useState<{grupo: string; anoReferencia: number; pontos: number; origem: string}[]>([]);
+  const [availableCurvesVigentes, setAvailableCurvesVigentes] = useState<{grupo: string; anoReferencia: number; pontos: number; vendas: number; dataEvento?: string}[]>([]);
   const [overrideSearch, setOverrideSearch] = useState('');
   const [savingOverride, setSavingOverride] = useState(false);
   const [curvaAnoAtual, setCurvaAnoAtual] = useState<number>(_curvaCached?.anoAtual ?? new Date().getFullYear());
@@ -1349,7 +1350,15 @@ const EventDetail: React.FC = () => {
   const openOverrideModal = async () => {
     try {
       const res = await api.get('/admin/evento-grupos/available-curves');
-      setAvailableCurves(res.data);
+      // Backend agora retorna { historicas, vigentes }. Mantém compat com o
+      // formato antigo (array puro) caso a resposta ainda seja uma lista.
+      if (Array.isArray(res.data)) {
+        setAvailableCurves(res.data);
+        setAvailableCurvesVigentes([]);
+      } else {
+        setAvailableCurves(res.data?.historicas ?? []);
+        setAvailableCurvesVigentes(res.data?.vigentes ?? []);
+      }
     } catch (err) {
       console.error('Erro ao buscar curvas disponíveis:', err);
     }
@@ -1358,7 +1367,7 @@ const EventDetail: React.FC = () => {
   };
 
 
-  const handleSetOverride = async (curvaGrupo: string | null) => {
+  const handleSetOverride = async (curvaGrupo: string | null, modo: 'historico' | 'vigente' = 'historico') => {
     if (!id) return;
     setSavingOverride(true);
     try {
@@ -1383,7 +1392,8 @@ const EventDetail: React.FC = () => {
         grupoId = matchedGrupo.id;
       }
       await api.put(`/admin/evento-grupos/${grupoId}/curva-override`, {
-        curva_override: curvaGrupo
+        curva_override: curvaGrupo,
+        curva_override_modo: curvaGrupo ? modo : null
       });
       setShowOverrideModal(false);
       // Invalida cache local da curva: sem isso, o useEffect que carrega
@@ -3472,6 +3482,7 @@ const EventDetail: React.FC = () => {
                     circuito_similar: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400 border-violet-200 dark:border-violet-700',
                     regional: 'bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 border-gray-300 dark:border-gray-600',
                     manual: 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-700',
+                    manual_vigente: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-700',
                     linear: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-700',
                   };
                   const labels: Record<string, string> = {
@@ -3480,6 +3491,7 @@ const EventDetail: React.FC = () => {
                     circuito_similar: `Circuito (média): ${fonte || ''}`,
                     regional: `Regional: ${fonte || ''}`,
                     manual: `Manual: ${fonte || ''}`,
+                    manual_vigente: `Manual (ano vigente): ${fonte || ''}`,
                     linear: 'Curva Linear',
                   };
                   const style = styles[tipo || 'linear'] || styles.linear;
@@ -4015,6 +4027,7 @@ const EventDetail: React.FC = () => {
                 circuito_similar: 'bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400 border-violet-200 dark:border-violet-700',
                 regional: 'bg-gray-100 text-gray-600 dark:bg-gray-700/50 dark:text-gray-300 border-gray-300 dark:border-gray-600',
                 manual: 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-700',
+                manual_vigente: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-700',
                 linear: 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-700',
               };
               const labels: Record<string, string> = {
@@ -4023,6 +4036,7 @@ const EventDetail: React.FC = () => {
                 circuito_similar: `Circuito (média): ${fonte || ''}`,
                 regional: `Regional: ${fonte || ''}`,
                 manual: `Manual: ${fonte || ''}`,
+                manual_vigente: `Manual (ano vigente): ${fonte || ''}`,
                 linear: 'Curva Linear',
               };
               const style = styles[tipo || 'linear'] || styles.linear;
@@ -5758,27 +5772,62 @@ const EventDetail: React.FC = () => {
                 <span className="text-amber-500">Automático</span>
                 <span className={`text-xs ml-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>— usar cadeia de fallback padrão</span>
               </button>
-              {availableCurves
-                .filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase()))
-                .map(curve => (
-                  <button
-                    key={curve.grupo}
-                    onClick={() => handleSetOverride(curve.grupo)}
-                    disabled={savingOverride}
-                    className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${event?.iscComponents?.fonteCurva === curve.grupo && event?.iscComponents?.tipoCurva === 'manual' ? 'ring-2 ring-green-500' : ''}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium truncate">{curve.grupo}</span>
-                      <span className={`text-xs flex-shrink-0 ml-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                        {curve.pontos} pts | {curve.anoReferencia}
-                      </span>
-                    </div>
-                  </button>
-                ))
-              }
-              {availableCurves.filter(c => !overrideSearch || c.grupo.toLowerCase().includes(overrideSearch.toLowerCase())).length === 0 && (
-                <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhuma curva encontrada</p>
-              )}
+              {(() => {
+                const q = overrideSearch.toLowerCase();
+                const vigFiltradas = availableCurvesVigentes.filter(c => !q || c.grupo.toLowerCase().includes(q));
+                const histFiltradas = availableCurves.filter(c => !q || c.grupo.toLowerCase().includes(q));
+                return (
+                  <>
+                    {vigFiltradas.length > 0 && (
+                      <>
+                        <div className={`px-1 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                          Ano vigente (curva real já realizada)
+                        </div>
+                        {vigFiltradas.map(curve => (
+                          <button
+                            key={`vig_${curve.grupo}`}
+                            onClick={() => handleSetOverride(curve.grupo, 'vigente')}
+                            disabled={savingOverride}
+                            className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${event?.iscComponents?.fonteCurva === curve.grupo && event?.iscComponents?.tipoCurva === 'manual_vigente' ? 'ring-2 ring-emerald-500' : ''}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium truncate">{curve.grupo}</span>
+                              <span className={`text-xs flex-shrink-0 ml-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {curve.vendas} insc | {curve.anoReferencia}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {histFiltradas.length > 0 && (
+                      <>
+                        <div className={`px-1 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                          Ano anterior (histórico)
+                        </div>
+                        {histFiltradas.map(curve => (
+                          <button
+                            key={`hist_${curve.grupo}`}
+                            onClick={() => handleSetOverride(curve.grupo, 'historico')}
+                            disabled={savingOverride}
+                            className={`w-full text-left px-3 py-2 rounded-lg mb-1 text-sm transition-colors ${isDark ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-700'} ${event?.iscComponents?.fonteCurva === curve.grupo && event?.iscComponents?.tipoCurva === 'manual' ? 'ring-2 ring-green-500' : ''}`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium truncate">{curve.grupo}</span>
+                              <span className={`text-xs flex-shrink-0 ml-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                                {curve.pontos} pts | {curve.anoReferencia}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </>
+                    )}
+                    {vigFiltradas.length === 0 && histFiltradas.length === 0 && (
+                      <p className={`text-sm text-center py-4 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhuma curva encontrada</p>
+                    )}
+                  </>
+                );
+              })()}
             </div>
             {savingOverride && (
               <div className="p-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-center gap-2 text-sm text-gray-500">
