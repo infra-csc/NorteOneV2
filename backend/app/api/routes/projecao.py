@@ -1486,11 +1486,17 @@ def get_corte1_distribuicao(
             fonte="aproximado",
             em_corte2=em_corte2,
         )
+    qtd_aprox = int(proj.quantidade or 0)
+    kits_aprox = [KitProjecaoItem(nome_kit=k.nome_kit, quantidade=int(k.quantidade or 0)) for k in proj.kits]
+    # Mesma regra do congelamento: sem distribuição por kit, a quantidade vai toda
+    # para o "Kit Básico" (mantém um baseline de kit no layout aditivo do Corte 2).
+    if not kits_aprox and qtd_aprox > 0:
+        kits_aprox = [KitProjecaoItem(nome_kit="Kit Básico", quantidade=qtd_aprox)]
     return CorteDistAreaResponse(
         evento_id=evento_id,
         area_projecao_id=area_projecao_id,
-        quantidade=int(proj.quantidade or 0),
-        kits=[KitProjecaoItem(nome_kit=k.nome_kit, quantidade=int(k.quantidade or 0)) for k in proj.kits],
+        quantidade=qtd_aprox,
+        kits=kits_aprox,
         clientes=[ClienteProjecaoItem(nome_cliente=c.nome_cliente, quantidade=int(c.quantidade or 0)) for c in proj.clientes],
         fonte="aproximado",
         em_corte2=em_corte2,

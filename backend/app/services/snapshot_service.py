@@ -2575,9 +2575,14 @@ def capturar_dist_snapshot_corte1(db: Session, evento_id: int, now: datetime) ->
             {"nome_cliente": c.nome_cliente, "quantidade": int(c.quantidade or 0)}
             for c in p.clientes
         ]
+        qtd = int(p.quantidade or 0)
+        # Quando o usuário só preencheu a Quantidade no Corte 1 (sem distribuir por
+        # kit), a foto congela essa quantidade dentro do "Kit Básico" — assim o
+        # layout aditivo do Corte 2 sempre tem uma linha de kit como baseline.
+        if not kits and qtd > 0:
+            kits = [{"nome_kit": "Kit Básico", "quantidade": qtd}]
         kits_json = _json.dumps(kits, ensure_ascii=False)
         clientes_json = _json.dumps(clientes, ensure_ascii=False)
-        qtd = int(p.quantidade or 0)
         snap = snaps_existentes.get(area_id)
         if snap is None:
             db.add(_DistSnap(
