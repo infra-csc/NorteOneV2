@@ -1585,9 +1585,21 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
       - fonte_curva: name of the source grupo or region
       - ano_referencia: year the pattern data is from
     """
-    from ...services.snapshot_service import get_curva_historica_snapshot, is_curve_saturated
+    from ...services.snapshot_service import get_curva_historica_snapshot, get_curva_historica_snapshot_with_meta, is_curve_saturated
     from ...models.vendas_snapshot import CurvaHistoricaSnapshot
     prev_ano = ano - 1
+
+    # Origens "derivadas": padrões persistidos sob o nome do próprio evento que,
+    # na verdade, vieram da cadeia de fallback (média regional/circuito) — NÃO
+    # são histórico próprio. Ao ler de volta, o rótulo precisa refletir a origem
+    # real gravada na coluna `origem`, e não ser mostrado como "Histórico Próprio".
+    DERIVED_ORIGENS = {"regional", "circuito", "circuito_similar", "manual", "derivado"}
+    DERIVED_FONTE_FALLBACK = {
+        "regional": "Média Regional",
+        "circuito": "Similar (Circuito)",
+        "circuito_similar": "Média do Circuito",
+        "derivado": "Derivada",
+    }
 
     def _skip_if_saturated(pat: Optional[dict], src: str) -> Optional[dict]:
         """Descarta padrões saturados antes de usá-los como sibling/regional,
@@ -1654,8 +1666,27 @@ def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Opti
             }
 
     own_ref_total = _ref_total_for(evento_grupo, prev_ano)
+    # Lê a origem do snapshot persistido sob o nome do próprio evento ANTES de
+    # rotular como "histórico próprio". Um snapshot gravado em (evento, prev_ano)
+    # pode, na verdade, ser uma curva derivada (média regional/circuito) que o
+    # job de consolidação pré-computou e salvou sob o nome do evento. Nesse caso
+    # o rótulo correto é a origem real, não "Histórico Próprio".
+    own_snap_origem = None
+    own_snap_fonte = None
+    if not use_normalized:
+        _osnap, own_snap_origem, own_snap_fonte = get_curva_historica_snapshot_with_meta(db, evento_grupo, prev_ano)
     own_pattern = _fetch_previous_year_cumulative_pattern(db, evento_grupo, ano, use_normalized=use_normalized)
     if own_pattern and not _is_degenerate(own_pattern, own_ref_total, f"'{evento_grupo}' próprio ano={prev_ano}"):
+        if own_snap_origem and own_snap_origem in DERIVED_ORIGENS:
+            logger.info(
+                f"[CurvaResolve] '{evento_grupo}' snapshot em (próprio, {prev_ano}) é derivado "
+                f"(origem={own_snap_origem}, fonte={own_snap_fonte}) — rotulando como tal, não como histórico próprio"
+            )
+            return own_pattern, {
+                "tipo_curva": own_snap_origem,
+                "fonte_curva": own_snap_fonte or DERIVED_FONTE_FALLBACK.get(own_snap_origem),
+                "ano_referencia": prev_ano
+            }
         return own_pattern, {
             "tipo_curva": "historico",
             "fonte_curva": evento_grupo,
@@ -6864,9 +6895,25 @@ def _resolve_hist_pattern_readonly(db: Session, evento_grupo: str, ano: int,
                 "saturated_descartado": True,
                 "obs": "override aponta para grupo sem snapshot válido — fallback ativo"}
 
-    # 2. Próprio
+    # 2. Próprio — mas honra a coluna `origem`: um snapshot gravado sob o nome
+    # do próprio evento pode ser uma curva derivada (média regional/circuito)
+    # pré-computada pelo job de consolidação, não histórico próprio real.
+    DERIVED_ORIGENS = {"regional", "circuito", "circuito_similar", "manual", "derivado"}
+    DERIVED_FONTE_FALLBACK = {
+        "regional": "Média Regional",
+        "circuito": "Similar (Circuito)",
+        "circuito_similar": "Média do Circuito",
+        "derivado": "Derivada",
+    }
     if (evento_grupo, prev_ano) in snap_index:
         if not _is_degenerate_snapshot(evento_grupo, prev_ano):
+            own_entry = snap_index.get((evento_grupo, prev_ano), {})
+            own_origem = own_entry.get("origem")
+            if own_origem and own_origem in DERIVED_ORIGENS:
+                return {"tipo_curva": own_origem,
+                        "fonte_curva": own_entry.get("fonte_origem") or DERIVED_FONTE_FALLBACK.get(own_origem),
+                        "ano_referencia": prev_ano, "fabricated_linear": False,
+                        "saturated_descartado": False}
             return {"tipo_curva": "historico", "fonte_curva": evento_grupo,
                     "ano_referencia": prev_ano, "fabricated_linear": False,
                     "saturated_descartado": False}
@@ -6956,14 +7003,20 @@ def get_diagnostico_curvas(
         CurvaHistoricaSnapshot.d_minus,
         CurvaHistoricaSnapshot.percentual_acumulado,
         CurvaHistoricaSnapshot.total_vendas_referencia,
+        CurvaHistoricaSnapshot.origem,
+        CurvaHistoricaSnapshot.fonte_origem,
     ).all()
     snap_index: dict = {}
-    for eg, ar, dm, pct, tot in snap_rows:
+    for eg, ar, dm, pct, tot, origem, fonte_origem in snap_rows:
         key = (eg, ar)
-        entry = snap_index.setdefault(key, {"pattern": {}, "total": 0})
+        entry = snap_index.setdefault(key, {"pattern": {}, "total": 0, "origem": None, "fonte_origem": None})
         entry["pattern"][int(dm)] = float(pct or 0)
         if tot and tot > entry["total"]:
             entry["total"] = int(tot)
+        if origem and not entry["origem"]:
+            entry["origem"] = origem
+        if fonte_origem and not entry["fonte_origem"]:
+            entry["fonte_origem"] = fonte_origem
     sat_cache: dict = {}
 
     grupos = db.query(EventoGrupoModel).filter(

@@ -523,15 +523,18 @@ def get_curva_historica_snapshot_with_meta(db: Session, evento_grupo: str, ano_r
     ).all()
 
     if not rows:
-        return None, None
+        return None, None, None
 
     pattern = {}
     origem = None
+    fonte_origem = None
     for r in rows:
         pattern[r.d_minus] = r.percentual_acumulado
         if r.origem and not origem:
             origem = r.origem
-    return pattern, origem
+        if getattr(r, "fonte_origem", None) and not fonte_origem:
+            fonte_origem = r.fonte_origem
+    return pattern, origem, fonte_origem
 
 
 def is_curve_saturated(pattern: Optional[dict]) -> bool:
@@ -584,7 +587,7 @@ def is_curve_saturated(pattern: Optional[dict]) -> bool:
         return False
 
 
-def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: Optional[int] = None, origem: Optional[str] = None):
+def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia: int, pattern: dict, total_vendas: Optional[int] = None, origem: Optional[str] = None, fonte_origem: Optional[str] = None):
     db.query(CurvaHistoricaSnapshot).filter(
         CurvaHistoricaSnapshot.evento_grupo == evento_grupo,
         CurvaHistoricaSnapshot.ano_referencia == ano_referencia
@@ -597,12 +600,13 @@ def save_curva_historica_snapshot(db: Session, evento_grupo: str, ano_referencia
             d_minus=d_minus,
             percentual_acumulado=pct,
             total_vendas_referencia=total_vendas,
-            origem=origem or "historico"
+            origem=origem or "historico",
+            fonte_origem=fonte_origem
         )
         db.add(entry)
 
     db.commit()
-    logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}")
+    logger.info(f"Curva histórica salva: grupo='{evento_grupo}', ano_ref={ano_referencia}, {len(pattern)} pontos D-minus, origem={origem or 'historico'}, fonte_origem={fonte_origem}")
 
 
 def consolidar_vendas_grupo(db: Session, evento_grupo: str, ano: int, data_inicio: Optional[date] = None, data_fim: Optional[date] = None, incremental: bool = False, ciclo_id: Optional[str] = None, parent_job_name: Optional[str] = None, lookback_days: int = 0, delete_scope_ano: bool = False):
@@ -1312,6 +1316,36 @@ def consolidar_curvas_historicas_batch(db: Session):
         if estado_row:
             grupo_estado_map[grupo] = estado_row[0]
 
+    # Backfill de fonte_origem para curvas regionais derivadas legadas: foram
+    # gravadas (origem='regional') antes da coluna fonte_origem existir, então
+    # têm fonte_origem=NULL e o consumidor exibe o rótulo genérico "Média
+    # Regional". A fonte precisa de uma curva regional é o próprio estado (mesmo
+    # valor que a derivação ao vivo produz), então podemos preenchê-la sem
+    # recomputar o padrão.
+    backfilled = 0
+    regional_null = db.query(CurvaHistoricaSnapshot.evento_grupo).filter(
+        CurvaHistoricaSnapshot.ano_referencia == prev_ano,
+        CurvaHistoricaSnapshot.origem == "regional",
+        CurvaHistoricaSnapshot.fonte_origem.is_(None),
+    ).distinct().all()
+    for (grupo,) in regional_null:
+        estado = grupo_estado_map.get(grupo)
+        if not estado:
+            continue
+        db.query(CurvaHistoricaSnapshot).filter(
+            CurvaHistoricaSnapshot.evento_grupo == grupo,
+            CurvaHistoricaSnapshot.ano_referencia == prev_ano,
+            CurvaHistoricaSnapshot.origem == "regional",
+            CurvaHistoricaSnapshot.fonte_origem.is_(None),
+        ).update({CurvaHistoricaSnapshot.fonte_origem: estado}, synchronize_session=False)
+        backfilled += 1
+    if backfilled:
+        db.commit()
+        logger.info(
+            f"[CurvaBackfill] fonte_origem preenchido para {backfilled} curvas "
+            f"regionais derivadas legadas (ano_ref={prev_ano})"
+        )
+
     for grupo in grupos_unicos:
         existing = get_curva_historica_snapshot(db, grupo, prev_ano)
         if existing:
@@ -1336,7 +1370,8 @@ def consolidar_curvas_historicas_batch(db: Session):
                 save_curva_historica_snapshot(
                     db, grupo, prev_ano, fb_pattern,
                     None,
-                    origem=fb_info.get("tipo_curva", "derivado")
+                    origem=fb_info.get("tipo_curva", "derivado"),
+                    fonte_origem=fb_info.get("fonte_curva")
                 )
                 derived += 1
                 logger.info(f"Curva derivada salva para '{grupo}': tipo={fb_info.get('tipo_curva')}, fonte={fb_info.get('fonte_curva')}")
