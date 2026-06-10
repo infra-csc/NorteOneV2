@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import extract, text
+from sqlalchemy import extract, text, func
 from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
 from typing import List, Optional
@@ -391,7 +391,26 @@ def _camiseta_avulsa_info(db: Session, evento_id: int, area_projecao_id: int) ->
             ProjecaoKitCorteSnapshot.area_projecao_id == area_projecao_id,
             ProjecaoKitCorteSnapshot.nome_kit == KIT_CAMISETA_AVULSA_ORIGEM,
         ).first()
-        teto = int(ks.valor_corte_1) if ks and ks.valor_corte_1 is not None else 0
+        if ks and ks.valor_corte_1 is not None:
+            teto = int(ks.valor_corte_1)
+        else:
+            # Fallback (apenas leitura) para eventos congelados ANTES do teto ser
+            # capturado corretamente (ex.: recongelados manualmente por um caminho
+            # antigo que não gravava o kit snapshot). Sem captura, usa o valor
+            # atual já salvo da "Camiseta avulsa" como teto, garantindo a regra de
+            # "só diminui" a partir do estado atual. Caminhos novos de congelamento
+            # sempre gravam o snapshot, então este fallback só atinge dados legados.
+            teto = int(
+                db.query(func.coalesce(func.sum(ProjecaoInscritosKit.quantidade), 0))
+                .join(ProjecaoInscritos, ProjecaoInscritosKit.projecao_id == ProjecaoInscritos.id)
+                .filter(
+                    ProjecaoInscritos.evento_id == evento_id,
+                    ProjecaoInscritos.area_projecao_id == area_projecao_id,
+                    ProjecaoInscritos.deleted_at.is_(None),
+                    ProjecaoInscritosKit.nome_kit == KIT_CAMISETA_AVULSA_ORIGEM,
+                )
+                .scalar() or 0
+            )
     return corte1_congelado, teto
 
 
@@ -782,6 +801,11 @@ def recongelar_corte(
         snap.congelado_corte_1_em = now
         snap.reaberto_manual_corte_1 = False
         snap.congelado_manual_corte_1 = True
+        # Recongelar manual também precisa capturar o teto da "Camiseta avulsa"
+        # (mesma lógica do congelamento automático), senão o teto fica zerado e a
+        # validação é silenciosamente ignorada.
+        from ...services.snapshot_service import capturar_kit_snapshot_corte1
+        capturar_kit_snapshot_corte1(db, evento_id, now)
     else:
         snap.valor_corte_2 = total
         snap.congelado_corte_2_em = now
