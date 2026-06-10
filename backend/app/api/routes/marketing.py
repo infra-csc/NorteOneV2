@@ -1680,6 +1680,154 @@ def _fetch_current_year_realized_pattern(db: Session, evento_grupo: str, ano: in
     return pattern
 
 
+def _fetch_current_year_realized_patterns_batch(
+    db: Session, grupos: list, ano: int, use_normalized: bool = False
+) -> dict:
+    """Versão em lote de ``_fetch_current_year_realized_pattern``.
+
+    Resolve a curva realizada do ano vigente para MUITOS grupos de uma vez,
+    usando poucas consultas agregadas em vez de uma chamada (e várias queries)
+    por grupo. Usada pelo endpoint ``available-curves`` para montar rapidamente
+    a lista de candidatos de "ano vigente" mesmo em bases grandes.
+
+    Retorna ``{evento_grupo: pattern}`` apenas para os grupos cuja curva pôde
+    ser montada — a lógica de montagem, encerramento, total mínimo e descarte
+    por saturação é idêntica à da função single para garantir paridade exata de
+    resultados (nenhuma opção exibida cai no fallback ao ser selecionada).
+    """
+    from ...models.vendas_snapshot import VendasDiariaSnapshot
+    from ...models.dimensoes import SkuMapping
+    from ...services.snapshot_service import is_curve_saturated
+
+    result: dict = {}
+    grupos = list(dict.fromkeys(g for g in grupos if g))
+    if not grupos:
+        return result
+
+    # (1) Projetos carregados UMA vez (em vez de uma query por grupo dentro de
+    # _find_data_evento). Já filtrados para data_evento não-nula.
+    projetos = [p for p in _wq_all_dim_projetos(db) if p.data_evento is not None]
+
+    # (2) Datas do sku_mappings para o ano em UMA query (fallback de data_evento).
+    sku_date_map: dict = {}
+    for eg, de in db.query(
+        SkuMapping.evento_grupo, SkuMapping.data_evento
+    ).filter(
+        SkuMapping.evento_grupo.in_(grupos),
+        SkuMapping.ano == ano,
+        SkuMapping.data_evento.isnot(None),
+        SkuMapping.ativo == True
+    ).all():
+        sku_date_map.setdefault(eg, de)
+
+    # (3) data_evento por grupo, reaproveitando a MESMA lógica de matching textual
+    # de _find_data_evento, mas sem reconsultar projetos/sku a cada grupo.
+    data_evento_map: dict = {}
+    for g in grupos:
+        de = _find_data_evento(
+            db, g, ano,
+            projetos=projetos,
+            sku_mapping_date=sku_date_map.get(g),
+        )
+        if de:
+            data_evento_map[g] = de
+
+    if not data_evento_map:
+        return result
+
+    # (4) dias_encerramento em lote: DimProjeto por data_evento + CadastroEvento
+    # por projeto_id (UMA query para os cadastros relevantes).
+    distinct_dates = set(data_evento_map.values())
+    proj_by_date: dict = {}
+    for p in projetos:
+        if p.data_evento in distinct_dates:
+            proj_by_date.setdefault(p.data_evento, p)
+    proj_ids = [p.id for p in proj_by_date.values()]
+    dias_by_proj: dict = {}
+    if proj_ids:
+        for cad in db.query(CadastroEvento).filter(
+            CadastroEvento.projeto_id.in_(proj_ids)
+        ).all():
+            if cad.dias_encerramento_inscricao is not None:
+                dias_by_proj[cad.projeto_id] = cad.dias_encerramento_inscricao
+
+    # (5) Filtra apenas eventos JÁ ENCERRADOS (mesma regra da função single).
+    hoje = today_brazil()
+    data_inscricao_map: dict = {}
+    for g, de in data_evento_map.items():
+        dias_enc = 2
+        proj = proj_by_date.get(de)
+        if proj is not None:
+            dias_enc = dias_by_proj.get(proj.id, 2)
+        data_inscricao = de - timedelta(days=dias_enc)
+        if data_inscricao >= hoje:
+            continue
+        data_inscricao_map[g] = data_inscricao
+
+    if not data_inscricao_map:
+        return result
+
+    # (6) Vendas diárias de TODOS os grupos candidatos em UMA query agregada.
+    daily_by_grupo: dict = {}
+    for eg, d, q in db.query(
+        VendasDiariaSnapshot.evento_grupo,
+        VendasDiariaSnapshot.data_venda,
+        func.sum(VendasDiariaSnapshot.quantidade),
+    ).filter(
+        VendasDiariaSnapshot.evento_grupo.in_(list(data_inscricao_map.keys())),
+        VendasDiariaSnapshot.ano == ano,
+    ).group_by(
+        VendasDiariaSnapshot.evento_grupo,
+        VendasDiariaSnapshot.data_venda,
+    ).all():
+        dd = date.fromisoformat(d) if isinstance(d, str) else d
+        m = daily_by_grupo.setdefault(eg, {})
+        m[dd] = m.get(dd, 0) + int(q or 0)
+
+    # (7) Monta o padrão acumulado por D- por grupo (lógica idêntica à single).
+    for g, data_inscricao in data_inscricao_map.items():
+        daily = daily_by_grupo.get(g)
+        if not daily:
+            continue
+        if use_normalized:
+            try:
+                daily = _normalize_daily_dict_for_isc(daily)
+            except Exception as _ne:
+                logger.warning(f"[CurvaVigente] falha ao normalizar '{g}' ano={ano}: {_ne}")
+
+        total = sum(daily.values())
+        if total <= 0:
+            continue
+
+        d_minus_sales: dict = {}
+        for sale_date, qty in daily.items():
+            dm = (data_inscricao - sale_date).days
+            if dm >= 0:
+                d_minus_sales[dm] = d_minus_sales.get(dm, 0) + qty
+        if not d_minus_sales:
+            continue
+
+        max_dm = max(d_minus_sales.keys())
+        min_dm = min(d_minus_sales.keys())
+        cumulative = 0
+        pattern: dict = {}
+        for dm in range(max_dm, min_dm - 1, -1):
+            cumulative += d_minus_sales.get(dm, 0)
+            pattern[dm] = cumulative / total
+        if 0 not in pattern:
+            pattern[0] = 1.0
+        if min_dm > 0:
+            for dm in range(min_dm - 1, -1, -1):
+                pattern[dm] = 1.0
+
+        if total < 20 or is_curve_saturated(pattern):
+            continue
+
+        result[g] = pattern
+
+    return result
+
+
 def _resolve_hist_pattern(db: Session, evento_grupo: str, ano: int, estado: Optional[str] = None, use_normalized: bool = False) -> tuple:
     """Resolve the best available historical curve for an event group using a fallback chain.
     
@@ -9203,30 +9351,57 @@ def _prefetch_all_historical_patterns(db: Session, grupo_names: list, ano: int) 
     return result, curva_info_map
 
 
-def _find_data_evento(db: Session, evento_grupo: str, ano: int) -> Optional[date]:
+_FIND_DATA_EVENTO_UNSET = object()
+
+
+def _find_data_evento(
+    db: Session,
+    evento_grupo: str,
+    ano: int,
+    projetos: Optional[list] = None,
+    sku_mapping_date=_FIND_DATA_EVENTO_UNSET,
+) -> Optional[date]:
+    """Resolve a data do evento para um (grupo, ano).
+
+    Parâmetros opcionais para uso em lote (evita N consultas idênticas quando
+    resolvendo muitos grupos de uma vez — ver
+    ``_fetch_current_year_realized_patterns_batch``):
+      - ``projetos``: lista de DimProjeto já carregada (filtrada para
+        ``data_evento is not None``). Quando ausente, é carregada via
+        ``_wq_all_dim_projetos``.
+      - ``sku_mapping_date``: data já resolvida do sku_mappings para este grupo
+        (ou ``None`` quando não há). Quando ausente, é consultada aqui.
+    """
     from ...models.dimensoes import SkuMapping
     ano_corrente = today_brazil().year
 
-    sku_mapping_date = None
-    mapping_with_date = db.query(SkuMapping).filter(
-        SkuMapping.evento_grupo == evento_grupo,
-        SkuMapping.ano == ano,
-        SkuMapping.data_evento.isnot(None),
-        SkuMapping.ativo == True
-    ).first()
-    if mapping_with_date:
-        sku_mapping_date = mapping_with_date.data_evento
-        if ano < ano_corrente:
-            logger.info(f"Found data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior): {sku_mapping_date}")
+    if sku_mapping_date is _FIND_DATA_EVENTO_UNSET:
+        sku_mapping_date = None
+        mapping_with_date = db.query(SkuMapping).filter(
+            SkuMapping.evento_grupo == evento_grupo,
+            SkuMapping.ano == ano,
+            SkuMapping.data_evento.isnot(None),
+            SkuMapping.ativo == True
+        ).first()
+        if mapping_with_date:
+            sku_mapping_date = mapping_with_date.data_evento
+            if ano < ano_corrente:
+                logger.info(f"Found data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior): {sku_mapping_date}")
+                return sku_mapping_date
+            else:
+                logger.debug(f"sku_mappings has data_evento={sku_mapping_date} for '{evento_grupo}' ano={ano}, but preferring dim_projeto/cadastro for current year")
+        elif ano < ano_corrente:
+            logger.info(f"No data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior), falling back to dim_projeto")
+    else:
+        # Data do sku_mappings pré-resolvida pelo chamador em lote. Replica a
+        # mesma decisão de short-circuit do caminho não-batch.
+        if sku_mapping_date is not None and ano < ano_corrente:
             return sku_mapping_date
-        else:
-            logger.debug(f"sku_mappings has data_evento={sku_mapping_date} for '{evento_grupo}' ano={ano}, but preferring dim_projeto/cadastro for current year")
-    elif ano < ano_corrente:
-        logger.info(f"No data_evento in sku_mappings for '{evento_grupo}' ano={ano} (ano anterior), falling back to dim_projeto")
 
     normalized_grupo = _normalize_name_for_match(evento_grupo)
-    projetos = _wq_all_dim_projetos(db)
-    projetos = [p for p in projetos if p.data_evento is not None]
+    if projetos is None:
+        projetos = _wq_all_dim_projetos(db)
+        projetos = [p for p in projetos if p.data_evento is not None]
     
     best_match = None
     best_score = 0

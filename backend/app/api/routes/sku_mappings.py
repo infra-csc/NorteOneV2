@@ -834,16 +834,16 @@ def list_available_curves(
     # mesmo sem histórico próprio do ano anterior. A curva é montada ao vivo a
     # partir de vendas_diaria_snapshot na resolução (modo "vigente").
     try:
-        from .marketing import _fetch_current_year_realized_pattern, today_brazil
+        from .marketing import _fetch_current_year_realized_patterns_batch, today_brazil
         hoje = today_brazil()
     except Exception:
         from datetime import date as _date
         hoje = _date.today()
-        _fetch_current_year_realized_pattern = None
+        _fetch_current_year_realized_patterns_batch = None
 
     ano_corrente = hoje.year
     vigentes = []
-    if _fetch_current_year_realized_pattern:
+    if _fetch_current_year_realized_patterns_batch:
         vig_rows = db.query(
             VendasDiariaSnapshot.evento_grupo,
             func.sum(VendasDiariaSnapshot.quantidade).label("total"),
@@ -852,26 +852,40 @@ def list_available_curves(
             VendasDiariaSnapshot.ano == ano_corrente
         ).group_by(VendasDiariaSnapshot.evento_grupo).all()
 
-        for row in vig_rows:
-            total = int(row.total or 0)
-            if total < MIN_REF_SALES:
-                continue
-            # Só lista o que o resolvedor realmente conseguirá montar: o helper
-            # exige evento encerrado (data_inscricao < hoje), total>=20 e curva
-            # não-saturada. Isso garante que nenhuma opção "vigente" exibida caia
-            # silenciosamente no fallback ao ser selecionada (mesma lógica do
-            # caminho de resolução em marketing._resolve_hist_pattern).
-            try:
-                pattern = _fetch_current_year_realized_pattern(db, row.evento_grupo, ano_corrente)
-            except Exception:
-                pattern = None
-            if not pattern:
+        # Pré-filtra candidatos por volume mínimo e pré-carrega as curvas reais
+        # em LOTE (poucas queries no total) em vez de uma chamada — com várias
+        # queries cada — por candidato. Em bases grandes (muitos grupos com
+        # vendas no ano), isso reduz a abertura do modal de vários segundos para
+        # quase instantânea, mantendo exatamente as mesmas opções.
+        candidatos = {
+            row.evento_grupo: int(row.pontos or 0)
+            for row in vig_rows
+            if int(row.total or 0) >= MIN_REF_SALES
+        }
+        totais = {
+            row.evento_grupo: int(row.total or 0)
+            for row in vig_rows
+        }
+        try:
+            patterns = _fetch_current_year_realized_patterns_batch(
+                db, list(candidatos.keys()), ano_corrente
+            )
+        except Exception:
+            patterns = {}
+
+        # Só lista o que o resolvedor realmente conseguirá montar: o helper
+        # exige evento encerrado (data_inscricao < hoje), total>=20 e curva
+        # não-saturada. Isso garante que nenhuma opção "vigente" exibida caia
+        # silenciosamente no fallback ao ser selecionada (mesma lógica do
+        # caminho de resolução em marketing._resolve_hist_pattern).
+        for grupo, pontos in candidatos.items():
+            if not patterns.get(grupo):
                 continue
             vigentes.append({
-                "grupo": row.evento_grupo,
+                "grupo": grupo,
                 "anoReferencia": ano_corrente,
-                "pontos": int(row.pontos or 0),
-                "vendas": total,
+                "pontos": pontos,
+                "vendas": totais.get(grupo, 0),
             })
 
     return {
