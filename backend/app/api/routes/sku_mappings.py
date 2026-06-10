@@ -121,10 +121,11 @@ def _invalidate_all_marketing_caches(trigger_refresh: bool = True):
     para que novos eventos apareçam sem esperar requisição do usuário.
     """
     try:
-        from app.core.cache import isc_cache as _smart_isc_cache, event_detail_cache, eventos_list_cache
+        from app.core.cache import isc_cache as _smart_isc_cache, event_detail_cache, eventos_list_cache, available_curves_cache
         _smart_isc_cache.invalidate()
         event_detail_cache.invalidate()
         eventos_list_cache.invalidate()
+        available_curves_cache.invalidate()
     except Exception as e:
         logger.warning(f"Falha ao invalidar caches de marketing: {e}")
 
@@ -777,11 +778,7 @@ def update_evento_grupo(
     return db_grupo
 
 
-@grupo_router.get("/available-curves")
-def list_available_curves(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
-):
+def _compute_available_curves(db: Session) -> dict:
     from sqlalchemy import and_
     # Filtra do seletor de override:
     # (1) curvas derivadas (origem=regional/circuito_similar/linear) — fabricadas
@@ -892,6 +889,43 @@ def list_available_curves(
         "historicas": sorted(result, key=lambda x: x["grupo"]),
         "vigentes": sorted(vigentes, key=lambda x: x["grupo"]),
     }
+
+
+_AVAILABLE_CURVES_CACHE_KEY = "available_curves"
+
+
+@grupo_router.get("/available-curves")
+def list_available_curves(
+    force_refresh: bool = False,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_sku_mappings", "pode_visualizar"))
+):
+    # Resultado servido de um cache curto (TTL 5min) com SWR: o recálculo pesado
+    # (agregações sobre todas as curvas históricas + montagem em lote das curvas
+    # vigentes) só acontece em background, mantendo a abertura do modal instantânea
+    # mesmo com vários admins simultâneos. Invalidado em set_curva_override e na
+    # edição de grupo via _invalidate_all_marketing_caches.
+    from app.core.cache import available_curves_cache
+
+    if not force_refresh:
+        def _swr_refresh():
+            from app.core.database import SessionLocal
+            _db = SessionLocal()
+            try:
+                fresh = _compute_available_curves(_db)
+                available_curves_cache.set(_AVAILABLE_CURVES_CACHE_KEY, fresh)
+            finally:
+                _db.close()
+
+        cached, _is_stale = available_curves_cache.get_or_revalidate(
+            _AVAILABLE_CURVES_CACHE_KEY, refresh_fn=_swr_refresh
+        )
+        if cached is not None:
+            return cached
+
+    result = _compute_available_curves(db)
+    available_curves_cache.set(_AVAILABLE_CURVES_CACHE_KEY, result)
+    return result
 
 
 @grupo_router.put("/{grupo_id}/curva-override")

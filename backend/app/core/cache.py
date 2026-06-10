@@ -821,6 +821,11 @@ eventos_list_cache = SmartCache("eventos_list")
 # congelamento ao vivo). TTL curto + SWR garante resposta imediata e refresh em
 # background. TTL=300 alinhado ao isc_cache, que é a fonte mais volátil aqui.
 projecao_consolidado_cache = SmartCache("projecao_consolidado", ttl=300)
+# Curvas disponíveis para o modal "Alterar Curva de Referência": recálculo pesado
+# (agregações sobre todas as curvas históricas + montagem em lote das curvas
+# vigentes) a cada abertura. TTL curto + SWR mantém o modal instantâneo mesmo com
+# vários admins abrindo ao mesmo tempo; invalidado quando overrides/grupos mudam.
+available_curves_cache = SmartCache("available_curves", ttl=300)
 
 _warmup_metadata_cache: dict = {}
 _warmup_metadata_lock = threading.Lock()
@@ -901,7 +906,7 @@ def get_warmup_all_dim_projetos() -> Optional[list]:
     with _warmup_metadata_lock:
         return _warmup_metadata_cache.get("all_projetos")
 
-ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, projecao_consolidado_cache]
+ALL_CACHES = [isc_cache, event_detail_cache, daily_sales_cache, curva_cache, medias_cache, eventos_list_cache, projecao_consolidado_cache, available_curves_cache]
 
 _warmup_event_results_store: dict = {}
 _warmup_event_results_lock = threading.Lock()
