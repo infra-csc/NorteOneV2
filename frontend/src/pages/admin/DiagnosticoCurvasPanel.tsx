@@ -16,6 +16,8 @@ interface CurvaItem {
   tem_override: boolean;
   override_target: string | null;
   fabricated_linear: boolean;
+  saturated_descartado?: boolean;
+  obs?: string | null;
   sales_goal: number;
   tem_mapeamento: boolean;
   erro?: string;
@@ -158,6 +160,7 @@ const DiagnosticoCurvasPanel: React.FC = () => {
           tipo_curva: curvaGrupo ? (modo === 'vigente' ? 'manual_vigente' : 'manual') : item.tipo_curva,
           fonte_curva: curvaGrupo,
           fabricated_linear: false,
+          saturated_descartado: false,
         };
       }));
       setHighlightedGrupoId(editedGrupoId);
@@ -353,6 +356,15 @@ const DiagnosticoCurvasPanel: React.FC = () => {
                         {item.tem_override && (
                           <div className={`text-xs ${isDark ? 'text-purple-300' : 'text-purple-700'} flex items-center gap-1 mt-0.5`}>
                             <Pin className="w-3 h-3" /> Override: {item.override_target}
+                          </div>
+                        )}
+                        {item.tem_override && (item.saturated_descartado || (!!item.tipo_curva && item.tipo_curva !== 'manual' && item.tipo_curva !== 'manual_vigente')) && (
+                          <div
+                            className={`text-xs ${isDark ? 'text-amber-300' : 'text-amber-700'} flex items-start gap-1 mt-0.5`}
+                            title={item.obs || 'A curva escolhida não pôde ser aplicada (indisponível, saturada ou com poucos dados) — o sistema está usando a curva automática.'}
+                          >
+                            <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            <span>Curva escolhida não aplicada — usando automática</span>
                           </div>
                         )}
                         {!item.tem_mapeamento && (

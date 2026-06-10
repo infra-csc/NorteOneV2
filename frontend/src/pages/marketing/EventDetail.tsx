@@ -429,7 +429,7 @@ const EventDetail: React.FC = () => {
   const [attainmentPeriod, setAttainmentPeriod] = useState<number | null>(30);
   const [attainmentMode, setAttainmentMode] = useState<'acumulado' | 'diario'>('acumulado');
   const [controleSubTab, setControleSubTab] = useState<'tabela' | 'curva'>('tabela');
-  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; grupo_id?: number | null; ano_referencia: number | null; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string; tipo_curva?: string | null; fonte_curva?: string | null; fabricated_linear?: boolean } | null>(_snapModCached?.data ?? null);
+  const [curvaSnapshot, setCurvaSnapshot] = useState<{ evento_grupo: string; grupo_id?: number | null; ano_referencia: number | null; sales_goal: number; data: { d_minus: number; percentual_acumulado: number; percentual_dia: number; meta_acumulado: number; meta_dia: number }[]; message?: string; tipo_curva?: string | null; fonte_curva?: string | null; fabricated_linear?: boolean; override_target?: string | null; override_modo?: string | null; override_aplicado?: boolean | null } | null>(_snapModCached?.data ?? null);
   const [curvaSnapshotLoading, setCurvaSnapshotLoading] = useState(false);
   const [showNormalized, setShowNormalized] = useState(false);
   const [showAllCurvaRows, setShowAllCurvaRows] = useState(false);
@@ -2758,6 +2758,17 @@ const EventDetail: React.FC = () => {
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    {curvaSnapshot.override_target && curvaSnapshot.override_aplicado === false && (
+                      <div className={`flex items-start gap-2 rounded-lg p-3 border ${isDark ? 'bg-amber-900/20 border-amber-700 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
+                        <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        <p className="text-xs leading-relaxed">
+                          A curva escolhida (<strong>{curvaSnapshot.override_target}</strong>
+                          {curvaSnapshot.override_modo === 'vigente' ? ' — ano vigente' : ''}) não pôde ser aplicada
+                          {curvaSnapshot.override_modo === 'vigente' ? ' (a etapa de referência ainda não encerrou)' : ' (descartada por saturação ou poucos dados)'}.
+                          O sistema está usando a <strong>curva automática</strong> mostrada abaixo.
+                        </p>
+                      </div>
+                    )}
                     <div className={`grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4`}>
                       <div className={`rounded-lg p-4 border ${isDark ? 'bg-blue-900/20 border-blue-800' : 'bg-blue-50 border-blue-200'}`}>
                         <span className={`text-xs font-medium ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
@@ -4053,6 +4064,15 @@ const EventDetail: React.FC = () => {
                 </>
               );
             })()}
+            {curvaSnapshot?.override_target && curvaSnapshot?.override_aplicado === false && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700"
+                title={`A curva escolhida ("${curvaSnapshot.override_target}"${curvaSnapshot.override_modo === 'vigente' ? ', ano vigente' : ''}) não pôde ser aplicada — ela ainda não está disponível (ex.: a etapa de referência não encerrou) ou foi descartada por saturação/poucos dados. O sistema está usando a curva automática.`}
+              >
+                <AlertTriangle className="w-2.5 h-2.5" />
+                Curva escolhida não aplicada — usando automática
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <div className="flex gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">

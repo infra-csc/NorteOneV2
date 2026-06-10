@@ -6830,6 +6830,30 @@ def get_curva_snapshot(
         except Exception:
             grupo_id_resolved = None
 
+    # Override configurado neste grupo (se houver). Serve para avisar a UI
+    # quando a curva escolhida pelo usuário NÃO pôde ser aplicada (alvo ainda
+    # não encerrou no modo vigente, saturação, poucos dados) e o sistema caiu
+    # silenciosamente na cadeia de fallback automática.
+    _override_target = None
+    _override_modo = None
+    try:
+        _ov_row = db.query(
+            EventoGrupoModel.curva_override,
+            EventoGrupoModel.curva_override_modo,
+        ).filter(EventoGrupoModel.nome == evento_grupo).first()
+        if _ov_row and _ov_row[0]:
+            _override_target = _ov_row[0]
+            _override_modo = _ov_row[1] or "historico"
+    except Exception:
+        pass
+
+    def _override_aplicado_for(final_tipo: Optional[str]) -> Optional[bool]:
+        """None quando não há override; senão True só se a curva em uso veio
+        do override (tipo manual/manual_vigente)."""
+        if not _override_target:
+            return None
+        return final_tipo in ("manual", "manual_vigente")
+
     # Descobre estado e data do evento para alimentar o fallback regional
     # e a fabricação linear (último recurso).
     _estado = None
@@ -6908,6 +6932,9 @@ def get_curva_snapshot(
             "grupo_id": grupo_id_resolved,
             "ano_referencia": prev_ano,
             "sales_goal": sales_goal,
+            "override_target": _override_target,
+            "override_modo": _override_modo,
+            "override_aplicado": _override_aplicado_for(None),
             "data": [],
             "message": f"Sem dados de curva histórica para {prev_ano} e sem data de evento para projeção linear"
         }
@@ -6938,6 +6965,9 @@ def get_curva_snapshot(
         "tipo_curva": (curva_info or {}).get("tipo_curva"),
         "fonte_curva": (curva_info or {}).get("fonte_curva"),
         "fabricated_linear": fabricated_linear,
+        "override_target": _override_target,
+        "override_modo": _override_modo,
+        "override_aplicado": _override_aplicado_for((curva_info or {}).get("tipo_curva")),
         "data": rows
     }
 
