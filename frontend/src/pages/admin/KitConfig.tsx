@@ -130,6 +130,11 @@ const KitConfig: React.FC = () => {
   const fetchInFlightRef = useRef(false);
   const updateButtonRef = useRef<HTMLButtonElement | null>(null);
   const modalRef = useRef<HTMLDivElement | null>(null);
+  // Auto-update (SWR): quando o snapshot está velho, o servidor sinaliza via
+  // header X-Kit-Stale e o frontend dispara um refresh silencioso em segundo
+  // plano — sem bloquear a tela nem exibir o modal de progresso.
+  const staleRef = useRef(false);
+  const [bgRefreshing, setBgRefreshing] = useState(false);
 
   useEffect(() => {
     if (!updateModal.open || updateModal.status !== 'running') return;
@@ -299,6 +304,9 @@ const KitConfig: React.FC = () => {
       if (!isLatest()) return; // resposta fora de ordem — descartar
       const isFallback = res.headers?.['x-kit-source'] === 'local-fallback' || res.headers?.['x-kit-source'] === 'local';
       if (isFallback) setMagentoFallback(true);
+      // Snapshot velho? Marca para auto-refresh em segundo plano (só no load
+      // inicial, não em refresh manual — esse já reconstrói tudo).
+      staleRef.current = !forceRefresh && res.headers?.['x-kit-stale'] === 'true';
       _kitsCache = res.data;
       _kitsMagentoFallback = isFallback;
       applyKitsData(res.data);
@@ -372,15 +380,67 @@ const KitConfig: React.FC = () => {
   };
   const retryUpdate = () => { fetchKits(true); };
 
-  useEffect(() => {
-    if (_kitsCache !== null) {
-      // Cache disponível — restaura estados derivados sem ir ao banco
-      applyKitsData(_kitsCache);
-      setMagentoFallback(_kitsMagentoFallback);
-    } else {
-      fetchKits();
+  // Refresh silencioso em segundo plano: reconstrói o snapshot e relê os
+  // números sem bloquear a tela nem abrir o modal de progresso. Usado quando
+  // o snapshot servido está velho (X-Kit-Stale) — atualização automática.
+  const backgroundRefresh = useCallback(async () => {
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+    const mySeq = ++fetchSeqRef.current;
+    const isLatest = () => fetchSeqRef.current === mySeq;
+    setBgRefreshing(true);
+    try {
+      await api.post('/kit-config/kits/refresh');
+      if (!isLatest()) return;
+      const res = await api.get('/kit-config/kits');
+      if (!isLatest()) return;
+      const isFallback = res.headers?.['x-kit-source'] === 'local-fallback' || res.headers?.['x-kit-source'] === 'local';
+      _kitsCache = res.data;
+      _kitsMagentoFallback = isFallback;
+      setMagentoFallback(isFallback);
+      applyKitsData(res.data);
+    } catch {
+      // Silencioso: mantém o snapshot já exibido. O usuário sempre pode
+      // forçar via botão "Atualizar" se quiser ver o erro detalhado.
+    } finally {
+      if (isLatest()) setBgRefreshing(false);
+      fetchInFlightRef.current = false;
     }
   }, [applyKitsData]);
+
+  useEffect(() => {
+    if (_kitsCache !== null) {
+      // Cache disponível — restaura estados derivados na hora (sem flash de
+      // loading) e, em paralelo, revalida o snapshot silenciosamente: relê os
+      // números do snapshot (barato) e dispara o refresh de fundo se estiver
+      // velho. Garante auto-update também ao voltar à tela na mesma sessão.
+      applyKitsData(_kitsCache);
+      setMagentoFallback(_kitsMagentoFallback);
+      (async () => {
+        try {
+          const res = await api.get('/kit-config/kits');
+          const isFallback = res.headers?.['x-kit-source'] === 'local-fallback' || res.headers?.['x-kit-source'] === 'local';
+          _kitsCache = res.data;
+          _kitsMagentoFallback = isFallback;
+          setMagentoFallback(isFallback);
+          applyKitsData(res.data);
+          if (res.headers?.['x-kit-stale'] === 'true') backgroundRefresh();
+        } catch {
+          // Silencioso: mantém o que já está em tela.
+        }
+      })();
+      return;
+    }
+    // Primeiro load: serve o snapshot na hora (rápido) e, se estiver velho,
+    // dispara um refresh automático em segundo plano.
+    (async () => {
+      await fetchKits();
+      if (staleRef.current) {
+        staleRef.current = false;
+        backgroundRefresh();
+      }
+    })();
+  }, [applyKitsData, backgroundRefresh]);
 
   const handleSave = async (bundleId: number) => {
     const mult = editValues[bundleId] ?? 1;
@@ -793,10 +853,19 @@ const KitConfig: React.FC = () => {
             <Download className="w-4 h-4" />
             Exportar CSV
           </button>
+          {bgRefreshing && (
+            <span
+              className={`flex items-center gap-1.5 text-xs ${textSecondary}`}
+              title="Buscando os valores mais recentes do Magento em segundo plano"
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Atualizando…
+            </span>
+          )}
           <button
             ref={updateButtonRef}
             onClick={() => fetchKits(true)}
-            disabled={loading}
+            disabled={loading || bgRefreshing}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
               isDark
                 ? 'bg-blue-600 text-white hover:bg-blue-500 disabled:bg-gray-600'

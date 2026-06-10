@@ -2556,7 +2556,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Data-Stale"],
+    expose_headers=["X-Data-Stale", "X-Kit-Source", "X-Kit-Stale"],
 )
 
 from app.core.rate_limit import RateLimitMiddleware

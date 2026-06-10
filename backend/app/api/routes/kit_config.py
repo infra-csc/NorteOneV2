@@ -443,123 +443,67 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
     COALESCE(lote_b.lot_value, lote_e.lot_value) AS current_price,
 
     -- special_price: preço promocional/entrada do kit.
-    -- Prioridade:
-    --   1. Atributo EAV 'special_price' do bundle (override manual no produto).
-    --   2. MIN lot_value entre lotes ativos do bundle
-    --      (lot_sell_ends >= NOW() OU NULL, lot_value > 0).
-    --   3. MIN lote ativo do evento + addon do kit (apenas quando bundle sem lotes).
-    --      Fórmula: min_lote_evento + MAX(preço do componente não-Distância/Modalidade).
-    --      Garante que Kit Plus, Kit Vip etc. reflitam corretamente o preço de entrada
-    --      (lote mais barato ativo) somado ao custo do item físico do kit.
-    --      Bundles sem addon (ex.: Kit Night Run + Porta-tênis, que é filtrado) resultam
-    --      em addon=0 → special_price = apenas o lote mínimo.
-    --   4. catalog_product_index_price.min_price (preço mínimo calculado pelo Magento).
-    -- "Lote ativo" = lot_sell_ends ainda no futuro (ou sem data definida).
+    -- Fonte canônica: catalog_product_index_price.min_price do BUNDLE PAI,
+    -- que já reflete as catalog price rules ativas (promoções vigentes do
+    -- Magento). É o valor "de entrada" exibido na vitrine.
+    -- Fallback (kit inativo): bundles inativos não entram no index do
+    -- Magento, então pi_pai.min_price vem NULL. Nesse caso somamos o
+    -- final_price dos componentes simples a partir do index dos filhos
+    -- (pi_filho): MAX(componente Distância/Modalidade) + MAX(addon não
+    -- blacklisted). Espelha a mesma decomposição usada no `price`.
     COALESCE(
-        (SELECT cped_sp.value
-         FROM catalog_product_entity_decimal cped_sp
-         JOIN eav_attribute ea_sp
-               ON ea_sp.attribute_id   = cped_sp.attribute_id
-              AND ea_sp.attribute_code = 'special_price'
-         WHERE cped_sp.entity_id = cpe_parent.entity_id
-           AND cped_sp.value > 0
-         LIMIT 1),
-        (SELECT MIN(lot_value)
-         FROM catalog_product_entity_event_lot_price
-         WHERE entity_id = cpe_parent.entity_id
-           AND lot_value > 0
-           AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
-        -- fallback 3: min_lote_ativo_evento + kit_addon
-        -- só ativa quando bundle não tem nenhum lote próprio cadastrado.
-        -- NULLIF(..., 0) garante que, quando lote_evento E addon são ambos
-        -- zero/NULL, o resultado vire NULL e a COALESCE avance para o
-        -- fallback 4 (index_price). Sem isso, soma 0+0 = 0 bloqueava o
-        -- fallback 4 e causava o bug "special_price R$ 0,00" em kits
-        -- promocionais sem lote próprio (ex.: bundle 57843).
-        --
-        -- ADDON via subquery escopada ao bundle: além da blacklist textual,
-        -- exclui qualquer componente cujo preço seja >= MAX(preço do bundle).
-        -- O componente mais caro é, por definição, a "inscrição/distância"
-        -- (mesmo quando o nome NÃO bate com os padrões Distancia/Modalidade,
-        -- ex.: "BPC26SP1MB-5Km"). Sem essa exclusão, addon picava a própria
-        -- inscrição e somava ao lote do evento, gerando bugs como o "Kit
-        -- Bota Pra Correr - SP 2026" que devolvia 54.99 + 219.99 = 274.98
-        -- em vez do correto 54.99. Itens físicos (camiseta/etc.) priceados
-        -- continuam entrando normalmente pois são sempre mais baratos que
-        -- a inscrição.
-        CASE
-            WHEN (SELECT COUNT(*)
-                  FROM catalog_product_entity_event_lot_price
-                  WHERE entity_id = cpe_parent.entity_id) = 0
-            THEN NULLIF(
-                 COALESCE(
-                     (SELECT MIN(lot_value)
-                      FROM catalog_product_entity_event_lot_price
-                      WHERE entity_id = cpev1.value
-                        AND lot_value > 0
-                        AND (lot_sell_ends IS NULL OR lot_sell_ends >= NOW())),
-                     0
-                 ) + (
-                     SELECT COALESCE(MAX(cpep_a.value), 0)
-                     FROM catalog_product_bundle_option cpbo_a
-                     JOIN catalog_product_bundle_selection cpbs_a
-                           ON cpbs_a.option_id = cpbo_a.option_id
-                     JOIN catalog_product_entity_decimal cpep_a
-                           ON cpep_a.entity_id    = cpbs_a.product_id
-                          AND cpep_a.attribute_id = 77
-                     LEFT JOIN catalog_product_entity_varchar cpev_a
-                           ON cpev_a.entity_id    = cpbs_a.product_id
-                          AND cpev_a.attribute_id = 73
-                     WHERE cpbo_a.parent_id = cpe_parent.entity_id
-                       AND cpep_a.value > 0
-                       AND cpep_a.value < (
-                           SELECT MAX(cpep_m.value)
-                           FROM catalog_product_bundle_option cpbo_m
-                           JOIN catalog_product_bundle_selection cpbs_m
-                                 ON cpbs_m.option_id = cpbo_m.option_id
-                           JOIN catalog_product_entity_decimal cpep_m
-                                 ON cpep_m.entity_id    = cpbs_m.product_id
-                                AND cpep_m.attribute_id = 77
-                           WHERE cpbo_m.parent_id = cpe_parent.entity_id
-                             AND cpep_m.value > 0
-                       )
-                       AND cpev_a.value NOT LIKE '%Distancia%'
-                       AND cpev_a.value NOT LIKE '%Distância%'
-                       AND cpev_a.value NOT LIKE '%Modalidade%'
-                       AND cpev_a.value NOT LIKE '%Personaliz%'
-                       AND cpev_a.value NOT LIKE '%Aceite%'
-                       AND cpev_a.value NOT LIKE '%aceito%'
-                       AND cpev_a.value NOT LIKE '%Treinão%'
-                       AND cpev_a.value NOT LIKE '%Horário%'
-                       AND cpev_a.value NOT LIKE '%Bateria%'
-                       AND cpev_a.value NOT LIKE '%Doar%'
-                       AND cpev_a.value NOT LIKE '%Tênis%'
-                       AND cpev_a.value NOT LIKE '%Tenis%'
-                       AND cpev_a.value NOT LIKE '%Bike%'
-                       AND cpev_a.value NOT LIKE '%Biciclet%'
-                       AND cpev_a.value NOT LIKE '%Festival%'
-                       AND cpev_a.value NOT LIKE '%Bag%'
-                       AND cpev_a.value NOT LIKE '%Inscrição%'
-                       AND cpev_a.value NOT LIKE '%Declaro%'
-                       AND cpev_a.value NOT LIKE '%Pochete%'
-                       AND cpev_a.value NOT LIKE '%Tarifa%'
-                       AND cpev_a.value NOT LIKE '%Skate%'
-                       AND cpev_a.value NOT LIKE '%Obstáculo%'
-                       AND cpev_a.value NOT LIKE '%Bravinhos%'
-                       AND cpev_a.value NOT LIKE '%teste%'
-                       AND cpev_a.value NOT LIKE '%Porta%'
-                       AND cpev_a.value NOT LIKE '%Luva%'
-                       AND cpev_a.value NOT LIKE '%Toalha%'
-                       AND cpev_a.value NOT LIKE '%Corrida +%'
-                 ),
-                 0
-            )
-            ELSE NULL
-        END,
-        (SELECT MIN(pip.min_price)
-         FROM catalog_product_index_price pip
-         WHERE pip.entity_id = cpe_parent.entity_id
-           AND pip.min_price > 0)
+        pi_pai.min_price,
+        NULLIF(
+            -- COALESCE na 1ª parcela (igual ao `price`): bundles cujo
+            -- componente "distância" foge da nomenclatura padrão (ex.:
+            -- "BPC26SP1MB-5Km") não entram nessa branch; sem o COALESCE,
+            -- NULL + addon zeraria todo o special_price. NULLIF(...,0) final
+            -- devolve NULL (em vez de R$ 0,00) quando o kit inativo não tem
+            -- nenhum componente priceado.
+            COALESCE(MAX(CASE
+                WHEN (
+                    cpev_simple.value LIKE '%Distancia%'
+                 OR cpev_simple.value LIKE '%Distância%'
+                 OR cpev_simple.value LIKE '%Modalidade%'
+                )
+                 AND pi_filho.final_price > 0
+                THEN pi_filho.final_price ELSE NULL
+            END), 0)
+            +
+            COALESCE(MAX(CASE
+                WHEN pi_filho.final_price > 0
+                 AND cpev_simple.value NOT LIKE '%Distancia%'
+                 AND cpev_simple.value NOT LIKE '%Distância%'
+                 AND cpev_simple.value NOT LIKE '%Modalidade%'
+                 AND cpev_simple.value NOT LIKE '%Personaliz%'
+                 AND cpev_simple.value NOT LIKE '%Aceite%'
+                 AND cpev_simple.value NOT LIKE '%aceito%'
+                 AND cpev_simple.value NOT LIKE '%Treinão%'
+                 AND cpev_simple.value NOT LIKE '%Horário%'
+                 AND cpev_simple.value NOT LIKE '%Bateria%'
+                 AND cpev_simple.value NOT LIKE '%Doar%'
+                 AND cpev_simple.value NOT LIKE '%Tênis%'
+                 AND cpev_simple.value NOT LIKE '%Tenis%'
+                 AND cpev_simple.value NOT LIKE '%Bike%'
+                 AND cpev_simple.value NOT LIKE '%Biciclet%'
+                 AND cpev_simple.value NOT LIKE '%Festival%'
+                 AND cpev_simple.value NOT LIKE '%Bag%'
+                 AND cpev_simple.value NOT LIKE '%Inscrição%'
+                 AND cpev_simple.value NOT LIKE '%Declaro%'
+                 AND cpev_simple.value NOT LIKE '%Pochete%'
+                 AND cpev_simple.value NOT LIKE '%Tarifa%'
+                 AND cpev_simple.value NOT LIKE '%Skate%'
+                 AND cpev_simple.value NOT LIKE '%Obstáculo%'
+                 AND cpev_simple.value NOT LIKE '%Bravinhos%'
+                 AND cpev_simple.value NOT LIKE '%teste%'
+                 AND cpev_simple.value NOT LIKE '%Porta%'
+                 AND cpev_simple.value NOT LIKE '%Luva%'
+                 AND cpev_simple.value NOT LIKE '%Toalha%'
+                 AND cpev_simple.value NOT LIKE '%Corrida +%'
+                THEN pi_filho.final_price ELSE NULL
+            END), 0),
+            0
+        )
     )                                           AS special_price,
 
     CASE cpei_status.value
@@ -620,6 +564,18 @@ LEFT JOIN catalog_product_entity_decimal cpep
        ON cpep.entity_id = cpeos.product_id
       AND cpep.attribute_id = 77
 
+-- Index price dos componentes simples (fallback p/ kits inativos no special_price)
+LEFT JOIN catalog_product_index_price pi_filho
+       ON pi_filho.entity_id = cpeos.product_id
+      AND pi_filho.website_id = 1
+      AND pi_filho.customer_group_id = 0
+
+-- Index price do bundle pai: min_price já reflete catalog price rules ativas
+LEFT JOIN catalog_product_index_price pi_pai
+       ON pi_pai.entity_id = cpe_parent.entity_id
+      AND pi_pai.website_id = 1
+      AND pi_pai.customer_group_id = 0
+
 -- Lote keyed pelo bundle entity_id (preço específico por kit; prioridade)
 -- MAX(record_id) garante exatamente 1 linha por bundle; sem múltiplas rows por lot_id.
 LEFT JOIN catalog_product_entity_event_lot_price lote_b
@@ -654,7 +610,8 @@ GROUP BY
     cpev_kit.value,
     cpe_parent.entity_id,
     cpev_kit_name.value,
-    eaov_tipo.value
+    eaov_tipo.value,
+    pi_pai.min_price
 
 ORDER BY
     cpev1.value,
@@ -980,13 +937,17 @@ def get_kits_with_config(
     Magento+Ativo ao vivo. Para sincronizar diff sem segurar a request,
     prefira POST /kits/refresh.
     """
-    from app.services.kit_snapshot_service import read_kit_snapshot
+    from app.services.kit_snapshot_service import read_kit_snapshot, snapshot_is_stale
 
     if not force_refresh:
         snapshot_dicts = read_kit_snapshot(db)
         if snapshot_dicts is not None:
             rows = _apply_overlay_to_snapshot(db, snapshot_dicts)
             response.headers["X-Kit-Source"] = "snapshot"
+            # Sinaliza ao frontend se o snapshot está velho o suficiente para
+            # disparar um refresh automático em segundo plano (SWR). A leitura
+            # continua instantânea — o rebuild pesado roda só quando stale.
+            response.headers["X-Kit-Stale"] = "true" if snapshot_is_stale(db) else "false"
             return rows
 
     rows, magento_ok, ativo_ok = _build_kit_rows_internal(db, force_refresh=force_refresh)

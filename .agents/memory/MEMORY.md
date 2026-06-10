@@ -14,3 +14,4 @@
 - [Margem por Kit snapshot-first](margem-por-kit-snapshot-first.md) — leitura sempre serve snapshot (qualquer idade); query pesada de receita só no batch/force_refresh; janela created_at=15 MONTH (receita e qtd em lockstep).
 - [Curva derivada vs Histórico Próprio](curva-derivada-origem-label.md) — fallback (regional/circuito) é gravado sob o nome do próprio evento; read path deve rotular pela coluna origem, não como "historico". fonte_origem guarda a origem exata (estado p/ regional).
 - [Override curva vigente](curva-override-vigente.md) — override de curva tem 2 modos (curva_override_modo): 'historico' (ano anterior) e 'vigente' (curva REAL já realizada do mesmo ano, etapa que já fechou).
+- [Kit special_price source](kit-special-price-source.md) — special_price vem de catalog_product_index_price.min_price do bundle pai (fallback soma final_price dos filhos); NÃO usar cadeia de lotes; 1ª parcela precisa de COALESCE.
