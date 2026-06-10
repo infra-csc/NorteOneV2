@@ -1440,8 +1440,11 @@ def get_corte1_distribuicao(
     corte_snap = db.query(ProjecaoCorteSnapshot).filter(
         ProjecaoCorteSnapshot.evento_id == evento_id
     ).first()
+    # Fase aditiva ("Corte 2"): começa assim que o Corte 1 está CONGELADO — é a
+    # janela em que se acumulam adições sobre a foto do Corte 1. Reabrir o Corte 1
+    # limpa valor_corte_1/congelado_corte_1_em, então volta ao layout normal.
     em_corte2 = bool(corte_snap is not None and (
-        corte_snap.valor_corte_2 is not None or corte_snap.congelado_corte_2_em is not None
+        corte_snap.valor_corte_1 is not None or corte_snap.congelado_corte_1_em is not None
     ))
     snap = db.query(ProjecaoCorteDistSnapshot).filter(
         ProjecaoCorteDistSnapshot.evento_id == evento_id,
