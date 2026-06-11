@@ -2560,9 +2560,28 @@ const ProjecaoInscritos: React.FC = () => {
                                           {label}
                                         </span>
                                       </div>
-                                      <span className={`block text-3xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
-                                        {formatNumber(isFrozen ? (valor as number) : c.total_projecoes)}
-                                      </span>
+                                      {(() => {
+                                        const valorExibido = isFrozen ? (valor as number) : c.total_projecoes;
+                                        const diffAjuste = (corte === 2 && c.corte_valor_1 != null)
+                                          ? valorExibido - (c.corte_valor_1 as number)
+                                          : null;
+                                        return (
+                                          <span className="flex items-baseline gap-2 flex-wrap">
+                                            <span className={`text-3xl font-black tracking-tight ${isFrozen ? text : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
+                                              {formatNumber(valorExibido)}
+                                            </span>
+                                            {diffAjuste != null && diffAjuste !== 0 && (
+                                              <span
+                                                className={`text-sm font-bold tabular-nums ${diffAjuste > 0
+                                                  ? (isDark ? 'text-emerald-300' : 'text-emerald-600')
+                                                  : (isDark ? 'text-rose-300' : 'text-rose-600')}`}
+                                              >
+                                                ({diffAjuste > 0 ? '+' : '−'} {formatNumber(Math.abs(diffAjuste))})
+                                              </span>
+                                            )}
+                                          </span>
+                                        );
+                                      })()}
                                       {isFrozen ? (
                                         <span className={`inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded-lg text-[10px] font-bold ${isDark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>
                                           <Clock className="w-2.5 h-2.5" />
