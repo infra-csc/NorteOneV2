@@ -16,4 +16,5 @@
 - [Override curva vigente](curva-override-vigente.md) — override de curva tem 2 modos (curva_override_modo): 'historico' (ano anterior) e 'vigente' (curva REAL já realizada do mesmo ano, etapa que já fechou).
 - [Kit special_price source](kit-special-price-source.md) — special_price vem de catalog_product_index_price.min_price do bundle pai (fallback soma final_price dos filhos); NÃO usar cadeia de lotes; 1ª parcela precisa de COALESCE.
 - [Projeção Corte 2 aditivo](projecao-corte2-aditivo.md) — edição em Corte 2 é aditiva (C1 congelado + C2 = total); fase do corte vem do endpoint corte1-distribuicao (em_corte2), nunca do consolidado.
+- [Corte 2 baseline = dist snapshot](corte2-dist-snapshot-baseline.md) — "Projeção Ajuste volta com 0": evento em Corte 2 sem projecao_corte_dist_snapshot usa baseline AO VIVO (move a cada save, absorve o ajuste). corte1-distribuicao se auto-cura capturando a foto.
 - [Camiseta avulsa teto](camiseta-avulsa-teto.md) — pós-Corte 1, "Camiseta avulsa" é TETO (valor congelado = máximo, usuário só diminui), não piso; UI deve gatear max por teto>0.

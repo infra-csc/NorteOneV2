@@ -1450,6 +1450,28 @@ def get_corte1_distribuicao(
         ProjecaoCorteDistSnapshot.evento_id == evento_id,
         ProjecaoCorteDistSnapshot.area_projecao_id == area_projecao_id,
     ).first()
+
+    # Self-heal da foto do Corte 1: eventos congelados ANTES da captura do
+    # snapshot de distribuição passar a existir (ou por qualquer caminho que a
+    # tenha pulado) ficam em Corte 2 sem a foto. Sem ela, o fallback "aproximado"
+    # abaixo usa os valores AO VIVO como baseline do Corte 1 — e como o ao vivo
+    # se move a cada save, o acréscimo do Corte 2 é absorvido no baseline e some
+    # ao reabrir o modal. Captura a foto AGORA (uma única vez) a partir do estado
+    # atual, congelando o baseline para que os acréscimos passem a persistir.
+    if em_corte2 and snap is None:
+        from ...services.snapshot_service import capturar_dist_snapshot_corte1
+        ts = corte_snap.congelado_corte_1_em or datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+        try:
+            capturar_dist_snapshot_corte1(db, evento_id, ts)
+            db.commit()
+        except IntegrityError:
+            # Outra requisição concorrente capturou a foto primeiro — relê.
+            db.rollback()
+        snap = db.query(ProjecaoCorteDistSnapshot).filter(
+            ProjecaoCorteDistSnapshot.evento_id == evento_id,
+            ProjecaoCorteDistSnapshot.area_projecao_id == area_projecao_id,
+        ).first()
+
     if snap is not None:
         try:
             kits_raw = _json.loads(snap.kits_json) if snap.kits_json else []
