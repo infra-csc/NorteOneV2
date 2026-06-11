@@ -3465,7 +3465,7 @@ const ProjecaoInscritos: React.FC = () => {
           <div className={`w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl ${isDark ? 'bg-gray-800 border border-gray-700' : 'bg-white'}`}>
             <div className="flex items-center justify-between p-6 border-b border-gray-700/50">
               <div>
-                <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Editar Projeção</h2>
+                <h2 className={`text-xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Projeção Ajuste</h2>
                 <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                   {editingProjecao.evento_nome} — {editingProjecao.area_projecao_nome}
                 </p>
