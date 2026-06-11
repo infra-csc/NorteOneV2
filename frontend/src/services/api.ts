@@ -1742,6 +1742,10 @@ export const projecaoService = {
     const response = await api.put('/projecao/corte-config', data);
     return response.data;
   },
+  updateAlertaConfig: async (data: { dias_alerta_envio: number }) => {
+    const response = await api.put('/projecao/alerta-config', data);
+    return response.data;
+  },
   reabrirCorte: async (eventoId: number, corte: 1 | 2) => {
     const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/reabrir`);
     return response.data;

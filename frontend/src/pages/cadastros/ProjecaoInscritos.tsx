@@ -506,11 +506,8 @@ const ProjecaoInscritos: React.FC = () => {
 
   const [pendencias, setPendencias] = useState<PendenciasResponse | null>(null);
   const [pendenciasBannerDismissed, setPendenciasBannerDismissed] = useState(false);
-  const [cutoffRules, setCutoffRules] = useState<CutoffRule[]>([]);
-  const [cutoffModal, setCutoffModal] = useState<{ mode: 'create' | 'edit'; rule: CutoffRule | null } | null>(null);
-  const [cutoffForm, setCutoffForm] = useState<{ nome: string; dias_antes_evento: string; ativo: boolean }>({
-    nome: '', dias_antes_evento: '', ativo: true,
-  });
+  const [alertaDraft, setAlertaDraft] = useState<string>('30');
+  const [savingAlerta, setSavingAlerta] = useState(false);
 
   const [eventoCutoffs, setEventoCutoffs] = useState<CutoffEventoArea[]>([]);
   const [eventoCutoffsLoading, setEventoCutoffsLoading] = useState(false);
@@ -522,7 +519,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; hora: string; ativo: boolean }>({ dias: '0', hora: '00:00', ativo: false });
   const [savingAutoLock, setSavingAutoLock] = useState(false);
 
-  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, ativo: false });
+  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; dias_alerta_envio: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, dias_alerta_envio: 30, ativo: false });
   const [corteDraft, setCorteDraft] = useState<{ dias1: string; dias2: string; ativo: boolean }>({ dias1: '30', dias2: '7', ativo: false });
   const [savingCorte, setSavingCorte] = useState(false);
   const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
@@ -661,15 +658,6 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
-  const loadCutoffRules = async () => {
-    try {
-      const data = await projecaoService.listCutoffRules(true);
-      setCutoffRules(data);
-    } catch (err: any) {
-      showToast(err?.response?.data?.detail || 'Erro ao carregar regras de corte');
-    }
-  };
-
   const loadAutoLockConfig = async () => {
     try {
       const data = await projecaoService.getAutoLockConfig();
@@ -712,8 +700,29 @@ const ProjecaoInscritos: React.FC = () => {
       const data = await projecaoService.getCorteConfig();
       setCorteConfig(data);
       setCorteDraft({ dias1: String(data.dias_corte_1), dias2: String(data.dias_corte_2), ativo: data.ativo });
+      setAlertaDraft(String(data.dias_alerta_envio ?? 30));
     } catch {
       // silently ignore — config pode não existir ainda
+    }
+  };
+
+  const saveAlertaConfig = async () => {
+    const dias = parseInt(alertaDraft, 10);
+    if (isNaN(dias) || dias < 0 || dias > 365) {
+      showToast('Dias deve ser um número entre 0 e 365');
+      return;
+    }
+    setSavingAlerta(true);
+    try {
+      const updated = await projecaoService.updateAlertaConfig({ dias_alerta_envio: dias });
+      setCorteConfig(updated);
+      setAlertaDraft(String(updated.dias_alerta_envio));
+      showToast('Alerta de ponto de corte atualizado', 'success');
+      loadPendencias();
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar alerta de ponto de corte');
+    } finally {
+      setSavingAlerta(false);
     }
   };
 
@@ -789,59 +798,6 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
-  const openCreateCutoff = () => {
-    setCutoffForm({ nome: '', dias_antes_evento: '', ativo: true });
-    setCutoffModal({ mode: 'create', rule: null });
-  };
-
-  const openEditCutoff = (rule: CutoffRule) => {
-    setCutoffForm({ nome: rule.nome, dias_antes_evento: String(rule.dias_antes_evento), ativo: rule.ativo });
-    setCutoffModal({ mode: 'edit', rule });
-  };
-
-  const submitCutoff = async () => {
-    const nome = cutoffForm.nome.trim();
-    const dias = parseInt(cutoffForm.dias_antes_evento, 10);
-    if (!nome) { showToast('Nome é obrigatório'); return; }
-    if (isNaN(dias) || dias < 0 || dias > 365) {
-      showToast('Dias deve ser um número entre 0 e 365');
-      return;
-    }
-    try {
-      if (cutoffModal?.mode === 'create') {
-        await projecaoService.createCutoffRule({ nome, dias_antes_evento: dias, ativo: cutoffForm.ativo });
-        showToast('Regra criada com sucesso', 'success');
-      } else if (cutoffModal?.rule) {
-        await projecaoService.updateCutoffRule(cutoffModal.rule.id, { nome, dias_antes_evento: dias, ativo: cutoffForm.ativo });
-        showToast('Regra atualizada', 'success');
-      }
-      setCutoffModal(null);
-      loadCutoffRules();
-      loadPendencias();
-    } catch (err: any) {
-      showToast(err?.response?.data?.detail || 'Erro ao salvar regra');
-    }
-  };
-
-  const handleDeleteCutoff = (rule: CutoffRule) => {
-    showConfirm({
-      title: 'Excluir regra de corte',
-      message: `Deseja realmente excluir a regra "${rule.nome}" (D-${rule.dias_antes_evento})?`,
-      confirmLabel: 'Excluir',
-      variant: 'danger',
-      onConfirm: async () => {
-        try {
-          await projecaoService.deleteCutoffRule(rule.id);
-          showToast('Regra excluída', 'success');
-          loadCutoffRules();
-          loadPendencias();
-          setConfirmModal(null);
-        } catch (err: any) {
-          showToast(err?.response?.data?.detail || 'Erro ao excluir regra');
-        }
-      },
-    });
-  };
 
   const toggleAreaCutoffCustomizado = async (area: AreaDetail) => {
     const next = !area.usa_cutoff_customizado;
@@ -983,7 +939,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadCutoffRules(); loadAutoLockConfig(); loadCorteConfig(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
@@ -1029,7 +985,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     loadPendencias();
-    loadCutoffRules();
+    loadCorteConfig();
     loadAutoLockConfig();
     const interval = setInterval(() => {
       if (!document.hidden) loadPendencias();
@@ -1080,12 +1036,12 @@ const ProjecaoInscritos: React.FC = () => {
     return ids;
   }, [eventos, autoLockConfig]);
 
-  // "Data de corte Envio" (a mais antiga do evento) — mesma âncora que o backend
+  // "Data de corte Envio" (a mais antiga do evento) — única âncora que o backend
   // usa para disparar os pontos de corte (/projecao/cutoff-envio-map). Carregado
   // junto com os eventos para não depender da aba consolidado estar aberta; o
   // consolidado, quando presente, complementa o mapa. Eventos sem corte de envio
-  // ficam de fora e o cálculo abaixo cai no fallback pela data do evento
-  // (idêntico ao backend).
+  // ficam de fora e não geram alerta (sem fallback pela data do evento — idêntico
+  // ao backend).
   const corteEnvioByEventoId = useMemo(() => {
     const map: Record<number, string> = {};
     for (const [eid, dt] of Object.entries(cutoffEnvioMap)) {
@@ -1100,11 +1056,10 @@ const ProjecaoInscritos: React.FC = () => {
   }, [cutoffEnvioMap, consolidado]);
 
   const cutoffByEventoId = useMemo(() => {
-    const map: Record<number, { dias: number; rule: CutoffRule; viaEnvio: boolean; refDate: string | null }> = {};
-    const activeRules = cutoffRules.filter(r => r.ativo);
-    if (activeRules.length === 0) return map;
-    const ruleByDias: Record<number, CutoffRule> = {};
-    for (const r of activeRules) ruleByDias[r.dias_antes_evento] = r;
+    const map: Record<number, { dias: number; refDate: string | null }> = {};
+    const n = corteConfig.dias_alerta_envio;
+    // Alerta desligado quando não há dias configurados.
+    if (!n || n <= 0) return map;
     // "Hoje" no fuso de São Paulo (alinha com o backend, que também usa America/Sao_Paulo)
     const fmt = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Sao_Paulo',
@@ -1125,19 +1080,16 @@ const ProjecaoInscritos: React.FC = () => {
       // Só consideramos eventos "Em andamento" — alinhado com o backend de pendências.
       // Eventos Concluído/Cancelado não devem disparar ponto de corte.
       if ((ev.status || 'Em andamento') !== 'Em andamento') continue;
-      // Âncora principal: Data de corte Envio do evento. Fallback: data do evento.
+      // Âncora ÚNICA: Data de corte Envio do evento. Sem fallback pela data do evento.
       const envio = corteEnvioByEventoId[ev.id] || null;
-      const refDate = envio || ev.info_geral?.data || ev.data_evento || null;
-      const dias = diasAte(refDate);
+      if (!envio) continue;
+      const dias = diasAte(envio);
       if (dias === null) continue;
-      // Fallback por data: âncora já passada é tratada como concluída para não
-      // gerar "alertas zumbis" de eventos/cortes que já ocorreram.
-      if (dias < 0) continue;
-      const rule = ruleByDias[dias];
-      if (rule) map[ev.id] = { dias, rule, viaEnvio: !!envio, refDate: refDate ? refDate.slice(0, 10) : null };
+      // Dispara somente no dia exato em que faltam N dias para a Data de corte Envio.
+      if (dias === n) map[ev.id] = { dias, refDate: envio.slice(0, 10) };
     }
     return map;
-  }, [eventos, cutoffRules, corteEnvioByEventoId]);
+  }, [eventos, corteConfig.dias_alerta_envio, corteEnvioByEventoId]);
 
   const tiposEvento = useMemo(() => {
     const tipos = [...new Set(eventos.map(e => e.tipo_evento).filter(Boolean))] as string[];
@@ -1835,7 +1787,7 @@ const ProjecaoInscritos: React.FC = () => {
                   </span>
                 </div>
                 <p className={`text-xs mt-1 ${isDark ? 'text-red-200/80' : 'text-red-700'}`}>
-                  Os eventos abaixo estão exatamente em um ponto de corte hoje (D-N contado a partir da Data de corte Envio, ou da data do evento quando não há corte de envio) e ainda não têm projeção registrada para áreas que você pode editar.
+                  Os eventos abaixo estão exatamente em um ponto de corte hoje (D-N contado a partir da Data de corte Envio) e ainda não têm projeção registrada para áreas que você pode editar.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-2.5">
                   {pendencias.pendencias.slice(0, 6).map(p => (
@@ -2091,11 +2043,9 @@ const ProjecaoInscritos: React.FC = () => {
                                 <span
                                   title={
                                     cutoffPending && pend
-                                      ? pend.cutoff_customizado
-                                        ? `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias} sobre a Data de corte Envio ${formatDate(pend.cutoff_data || null)}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
-                                        : `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias} sobre a data do evento) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
+                                      ? `Ponto de corte D-${pend.cutoff_dias} sobre a Data de corte Envio ${formatDate(pend.cutoff_data || null)} atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
                                       : cutoff
-                                        ? `Ponto de corte ${cutoff.rule.nome} (D-${cutoff.rule.dias_antes_evento} sobre a ${cutoff.viaEnvio ? `Data de corte Envio ${formatDate(cutoff.refDate)}` : 'data do evento'}) atingido. Todas as áreas que você pode editar já têm projeção registrada.`
+                                        ? `Ponto de corte D-${cutoff.dias} sobre a Data de corte Envio ${formatDate(cutoff.refDate)} atingido. Todas as áreas que você pode editar já têm projeção registrada.`
                                         : ''
                                   }
                                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -2928,85 +2878,51 @@ const ProjecaoInscritos: React.FC = () => {
               )}
             </div>
 
-            {/* ── Pontos de corte (regras de notificação) ── */}
+            {/* ── Ponto de corte (alerta D- sobre a Data de corte Envio) ── */}
             <div className="space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-2">
-                  <Clock className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
-                  <div>
-                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Pontos de Corte</h2>
-                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      O D-N é contado a partir da "Data de corte Envio" do evento (a mais antiga entre as áreas). A regra dispara somente no dia exato em que faltam esta quantidade de dias para a Data de corte Envio — ou para a data do evento, quando ele não tem corte de envio cadastrado. Os usuários com permissão de editar a área recebem alerta de pendência apenas naquele dia.
-                    </p>
-                  </div>
+              <div className="flex items-center gap-2">
+                <Clock className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                <div>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Ponto de Corte</h2>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    O alerta de pendência é contado em cima da "Data de corte Envio" do evento (a mais antiga entre as áreas). Define a quantidade de dias para o cálculo do D-: o alerta dispara no dia exato em que faltam esta quantidade de dias para a Data de corte Envio. Eventos sem Data de corte Envio cadastrada não geram alerta. Use 0 para desligar.
+                  </p>
                 </div>
-                <button
-                  onClick={openCreateCutoff}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
-                >
-                  <Plus className="w-4 h-4" />
-                  Nova Regra
-                </button>
               </div>
 
-              {cutoffRules.length === 0 ? (
-                <div className={`text-center py-8 rounded-2xl ${isDark ? 'bg-gray-800/50 border border-gray-700/50 text-gray-400' : 'bg-white/70 border border-gray-200 text-gray-500'}`}>
-                  <Clock className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm font-medium">Nenhuma regra de corte configurada</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {cutoffRules.map(rule => (
-                    <div
-                      key={rule.id}
-                      className={`relative overflow-hidden rounded-2xl p-4 border ${
-                        rule.ativo
-                          ? isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'
-                          : isDark ? 'bg-gray-900/40 border-gray-800 opacity-60' : 'bg-gray-50 border-gray-200 opacity-70'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className={`inline-flex px-2 py-0.5 rounded-md text-xs font-bold font-mono ${
-                              rule.dias_antes_evento <= 15
-                                ? isDark ? 'bg-red-500/20 text-red-300' : 'bg-red-100 text-red-700'
-                                : rule.dias_antes_evento <= 30
-                                ? isDark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'
-                                : isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'
-                            }`}>
-                              D-{rule.dias_antes_evento}
-                            </span>
-                            {!rule.ativo && (
-                              <span className={`text-[10px] font-bold uppercase ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Inativa</span>
-                            )}
-                          </div>
-                          <h3 className={`text-base font-bold mt-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>{rule.nome}</h3>
-                          <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            Aciona apenas no dia exato em que faltam {rule.dias_antes_evento} dia{rule.dias_antes_evento !== 1 ? 's' : ''} para a Data de corte Envio (ou para o evento, se não houver corte de envio).
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <button
-                            onClick={() => openEditCutoff(rule)}
-                            title="Editar"
-                            className={`p-1.5 rounded-lg ${isDark ? 'text-gray-400 hover:bg-gray-700/60' : 'text-gray-500 hover:bg-gray-100'}`}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCutoff(rule)}
-                            title="Excluir"
-                            className={`p-1.5 rounded-lg ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-500 hover:bg-red-50'}`}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
+              <div className={`rounded-2xl p-4 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+                <div className="flex flex-wrap items-end gap-4">
+                  <div>
+                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Dias para o D- (Data de corte Envio)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-bold font-mono ${isDark ? 'text-violet-300' : 'text-violet-600'}`}>D-</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={365}
+                        value={alertaDraft}
+                        onChange={e => setAlertaDraft(e.target.value)}
+                        className={`w-28 h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
+                      />
                     </div>
-                  ))}
+                  </div>
+                  <button
+                    onClick={saveAlertaConfig}
+                    disabled={savingAlerta}
+                    className="h-10 flex items-center gap-2 px-5 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-60"
+                  >
+                    {savingAlerta ? 'Salvando…' : 'Salvar'}
+                  </button>
                 </div>
-              )}
+                <p className={`text-xs mt-3 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                  {corteConfig.dias_alerta_envio > 0
+                    ? `Atualmente o alerta dispara em D-${corteConfig.dias_alerta_envio} da Data de corte Envio.`
+                    : 'Alerta de ponto de corte desligado.'}
+                  {corteConfig.updated_by_nome && <> Última atualização por <span className="font-semibold">{corteConfig.updated_by_nome}</span>.</>}
+                </p>
+              </div>
             </div>
 
             {/* ── Áreas e usuários ── */}
@@ -4248,77 +4164,6 @@ const ProjecaoInscritos: React.FC = () => {
         </div>
       )}
 
-      {/* ── Cutoff Rule create/edit modal ── */}
-      {cutoffModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setCutoffModal(null)}>
-          <div
-            onClick={e => e.stopPropagation()}
-            className={`w-full max-w-md rounded-2xl shadow-2xl overflow-hidden ${isDark ? 'bg-gray-900 border border-gray-700' : 'bg-white border border-gray-200'}`}
-          >
-            <div className={`flex items-center gap-3 px-5 py-4 border-b ${isDark ? 'border-gray-700' : 'border-gray-200'}`}>
-              <div className={`flex items-center justify-center w-9 h-9 rounded-xl ${isDark ? 'bg-rose-500/20' : 'bg-rose-100'}`}>
-                <Clock className={`w-4 h-4 ${isDark ? 'text-rose-300' : 'text-rose-600'}`} />
-              </div>
-              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                {cutoffModal.mode === 'create' ? 'Nova regra de corte' : 'Editar regra de corte'}
-              </h3>
-            </div>
-
-            <div className="px-5 py-4 space-y-4">
-              <div>
-                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Nome</label>
-                <input
-                  type="text"
-                  value={cutoffForm.nome}
-                  onChange={e => setCutoffForm(f => ({ ...f, nome: e.target.value }))}
-                  placeholder="Ex.: Primeiro alerta"
-                  className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400'}`}
-                />
-              </div>
-
-              <div>
-                <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>Dias antes do evento</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={cutoffForm.dias_antes_evento}
-                  onChange={e => setCutoffForm(f => ({ ...f, dias_antes_evento: e.target.value }))}
-                  className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
-                />
-                <p className={`text-xs mt-1.5 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                  A regra dispara apenas no dia exato em que faltam esta quantidade de dias para a Data de corte Envio do evento (ou para a data do evento, quando não há corte de envio cadastrado).
-                </p>
-              </div>
-
-              <label className={`flex items-center gap-2 cursor-pointer select-none ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                <input
-                  type="checkbox"
-                  checked={cutoffForm.ativo}
-                  onChange={e => setCutoffForm(f => ({ ...f, ativo: e.target.checked }))}
-                  className="w-4 h-4 rounded accent-rose-600"
-                />
-                <span className="text-sm font-medium">Regra ativa</span>
-              </label>
-            </div>
-
-            <div className={`flex items-center justify-end gap-2 px-5 py-3 border-t ${isDark ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'}`}>
-              <button
-                onClick={() => setCutoffModal(null)}
-                className={`px-4 py-2 rounded-xl text-sm font-semibold ${isDark ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:bg-gray-100'}`}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={submitCutoff}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white text-sm font-semibold hover:shadow-lg transition-all"
-              >
-                {cutoffModal?.mode === 'create' ? 'Criar regra' : 'Salvar alterações'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

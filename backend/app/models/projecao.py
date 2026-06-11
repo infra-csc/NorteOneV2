@@ -177,6 +177,9 @@ class ProjecaoCorteConfig(Base):
     id = Column(Integer, primary_key=True, index=True)
     dias_corte_1 = Column(Integer, nullable=False, default=30)
     dias_corte_2 = Column(Integer, nullable=False, default=7)
+    # D-N do alerta "Ponto de corte" — contado em cima da Data de corte Envio do
+    # evento. Valor único (0 = alerta desligado). Independente do congelamento.
+    dias_alerta_envio = Column(Integer, nullable=False, default=30)
     ativo = Column(Boolean, default=False, nullable=False)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)

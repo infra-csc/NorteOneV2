@@ -39,7 +39,7 @@ from ...schemas.projecao import (
     PendenciaItem, PendenciasResponse, AreaPendenteItem,
     AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
     AutoLockConfigUpdate, AutoLockConfigResponse,
-    CorteConfigUpdate, CorteConfigResponse,
+    CorteConfigUpdate, CorteConfigResponse, AlertaConfigUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -692,11 +692,12 @@ def get_corte_config(
     config = _get_corte_config(db)
     if config is None:
         # Defaults sugeridos (ainda inativo até admin salvar).
-        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, ativo=False)
+        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, dias_alerta_envio=30, ativo=False)
     editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
     return CorteConfigResponse(
         dias_corte_1=config.dias_corte_1,
         dias_corte_2=config.dias_corte_2,
+        dias_alerta_envio=config.dias_alerta_envio,
         ativo=config.ativo,
         updated_by_nome=editor.nome if editor else None,
         updated_at=config.updated_at,
@@ -735,6 +736,45 @@ def update_corte_config(
     return CorteConfigResponse(
         dias_corte_1=config.dias_corte_1,
         dias_corte_2=config.dias_corte_2,
+        dias_alerta_envio=config.dias_alerta_envio,
+        ativo=config.ativo,
+        updated_by_nome=current_user.nome,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/alerta-config", response_model=CorteConfigResponse)
+def update_alerta_config(
+    data: AlertaConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """
+    Define o ÚNICO valor de dias do alerta "Ponto de corte" (D-N contado em cima
+    da Data de corte Envio do evento). 0 = alerta desligado. Não toca na config
+    de congelamento (dias_corte_1/2/ativo).
+    """
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar o alerta de ponto de corte")
+    if data.dias_alerta_envio < 0 or data.dias_alerta_envio > 365:
+        raise HTTPException(status_code=400, detail="Dias deve estar entre 0 e 365")
+
+    config = _get_corte_config(db)
+    if config is None:
+        config = ProjecaoCorteConfig(
+            dias_alerta_envio=data.dias_alerta_envio,
+            updated_by=current_user.id,
+        )
+        db.add(config)
+    else:
+        config.dias_alerta_envio = data.dias_alerta_envio
+        config.updated_by = current_user.id
+    db.commit()
+    db.refresh(config)
+    return CorteConfigResponse(
+        dias_corte_1=config.dias_corte_1,
+        dias_corte_2=config.dias_corte_2,
+        dias_alerta_envio=config.dias_alerta_envio,
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
@@ -2031,22 +2071,26 @@ def get_pendencias(
     current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
 ):
     """
-    Retorna eventos em status 'Em andamento' que cruzaram algum ponto de corte
-    e ainda não têm projeção registrada para alguma das áreas que o usuário
-    tem permissão de editar.
+    Retorna eventos em status 'Em andamento' que cruzaram o ponto de corte e
+    ainda não têm projeção registrada para alguma das áreas que o usuário tem
+    permissão de editar.
 
-    O D-N de cada regra (`projecao_cutoff_rule`) é contado SEMPRE em cima da
-    "Data de corte Envio" do evento (`data_corte_1`, a MAIS ANTIGA entre as
-    áreas — mesma âncora do congelamento do Corte 1). O alerta dispara no dia
-    exato em que `today == data_corte_envio - N`, para TODAS as áreas que o
-    usuário pode editar.
+    Existe um ÚNICO valor de dias (`projecao_corte_config.dias_alerta_envio`),
+    contado SEMPRE em cima da "Data de corte Envio" do evento (`data_corte_1`, a
+    MAIS ANTIGA entre as áreas — mesma âncora do congelamento do Corte 1). O
+    alerta dispara no dia exato em que `today == data_corte_envio - N`, para
+    TODAS as áreas que o usuário pode editar.
 
-    Quando o evento NÃO tem Data de corte Envio cadastrada, cai no fallback
-    ancorado na data do evento: dispara quando `today == data_evento - N`.
-
-    Admins enxergam pendências de TODAS as áreas.
+    Eventos SEM Data de corte Envio cadastrada NÃO geram alerta (sem fallback
+    pela data do evento). Admins enxergam pendências de TODAS as áreas.
     """
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+
+    # Valor único de dias do alerta. 0 (ou config inexistente) = desligado.
+    config = _get_corte_config(db)
+    n = config.dias_alerta_envio if config else 30
+    if not n or n <= 0:
+        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
 
     # Áreas em que o usuário pode editar (admin = todas)
     if is_user_admin(current_user):
@@ -2065,17 +2109,6 @@ def get_pendencias(
     all_areas_ids = {a.id for a in areas_user}
     areas_nome_by_id = {a.id: a.nome for a in areas_user}
 
-    # Regras de corte ativas (D-N), ancoradas na Data de corte Envio do evento.
-    rules = (
-        db.query(ProjecaoCutoffRule)
-        .filter(ProjecaoCutoffRule.ativo == True)
-        .order_by(ProjecaoCutoffRule.dias_antes_evento.asc())
-        .all()
-    )
-    if not rules:
-        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
-    rule_by_dias = {r.dias_antes_evento: r for r in rules}
-
     # "Data de corte Envio" por evento = a MAIS ANTIGA entre as áreas (mesma
     # âncora usada pelo congelamento do Corte 1, para alerta e freeze baterem).
     cesb_rows = (
@@ -2089,58 +2122,25 @@ def get_pendencias(
     )
     corte_envio_by_evento = {eid: dt for eid, dt in cesb_rows}
 
-    # candidatos = (evento, ref_date, regra, via_envio)
-    candidates = []
+    # Dispara somente quando hoje == data_envio - N (sem fallback por data do evento).
+    trigger = {eid: dt for eid, dt in corte_envio_by_evento.items() if (dt - today).days == n}
+    if not trigger:
+        return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
 
-    # (A) Eventos COM Data de corte Envio: dispara quando hoje == data_envio - N
-    envio_trigger = []  # (evento_id, ref_date, regra)
-    for eid, dt in corte_envio_by_evento.items():
-        n = (dt - today).days
-        regra = rule_by_dias.get(n)
-        if regra:
-            envio_trigger.append((eid, dt, regra))
-    if envio_trigger:
-        envio_ids = [eid for eid, _, _ in envio_trigger]
-        envio_evs = (
-            db.query(CadastroEvento)
-            .filter(
-                CadastroEvento.id.in_(envio_ids),
-                CadastroEvento.deleted_at.is_(None),
-                CadastroEvento.status == 'Em andamento',
-            )
-            .all()
-        )
-        envio_ev_by_id = {e.id: e for e in envio_evs}
-        for eid, dt, regra in envio_trigger:
-            ev = envio_ev_by_id.get(eid)
-            if ev:
-                candidates.append((ev, dt, regra, True))
-
-    # (B) Fallback — eventos SEM Data de corte Envio: hoje == data_evento - N
-    target_event_dates = [today + timedelta(days=n) for n in rule_by_dias.keys()]
-    fallback_evs = (
+    evs = (
         db.query(CadastroEvento)
         .filter(
+            CadastroEvento.id.in_(list(trigger.keys())),
             CadastroEvento.deleted_at.is_(None),
             CadastroEvento.status == 'Em andamento',
-            CadastroEvento.data_evento.isnot(None),
-            CadastroEvento.data_evento.in_(target_event_dates),
         )
         .all()
     )
-    for ev in fallback_evs:
-        if ev.id in corte_envio_by_evento:
-            continue  # tem Data de corte Envio → usa a âncora (A), não a data do evento
-        n = (ev.data_evento - today).days
-        regra = rule_by_dias.get(n)
-        if regra:
-            candidates.append((ev, ev.data_evento, regra, False))
-
-    if not candidates:
+    if not evs:
         return PendenciasResponse(total_eventos=0, total_areas=0, pendencias=[])
 
     # Projeções já registradas para os eventos candidatos
-    evento_ids = {ev.id for ev, _, _, _ in candidates}
+    evento_ids = {ev.id for ev in evs}
     projs = (
         db.query(ProjecaoInscritos.evento_id, ProjecaoInscritos.area_projecao_id)
         .filter(
@@ -2153,7 +2153,8 @@ def get_pendencias(
     existentes = {(p.evento_id, p.area_projecao_id) for p in projs}
 
     pendencias = []
-    for ev, ref_date, regra, via_envio in candidates:
+    for ev in evs:
+        ref_date = trigger[ev.id]
         faltando = [
             AreaPendenteItem(
                 area_projecao_id=aid,
@@ -2171,10 +2172,10 @@ def get_pendencias(
             evento_nome=ev.nome,
             evento_data=ev.data_evento.isoformat() if ev.data_evento else None,
             dias_ate_evento=dias_ate,
-            cutoff_dias=regra.dias_antes_evento,
-            cutoff_nome=regra.nome,
-            cutoff_customizado=via_envio,
-            cutoff_data=ref_date.isoformat() if via_envio else None,
+            cutoff_dias=n,
+            cutoff_nome=f"D-{n}",
+            cutoff_customizado=True,
+            cutoff_data=ref_date.isoformat(),
             areas_pendentes=faltando,
         ))
 
