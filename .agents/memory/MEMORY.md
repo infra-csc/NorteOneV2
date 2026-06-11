@@ -18,3 +18,4 @@
 - [Projeção Corte 2 aditivo](projecao-corte2-aditivo.md) — edição em Corte 2 é aditiva (C1 congelado + C2 = total); fase do corte vem do endpoint corte1-distribuicao (em_corte2), nunca do consolidado.
 - [Corte 2 baseline = dist snapshot](corte2-dist-snapshot-baseline.md) — "Projeção Ajuste volta com 0": evento em Corte 2 sem projecao_corte_dist_snapshot usa baseline AO VIVO (move a cada save, absorve o ajuste). corte1-distribuicao se auto-cura capturando a foto.
 - [Camiseta avulsa teto](camiseta-avulsa-teto.md) — pós-Corte 1, "Camiseta avulsa" é TETO (valor congelado = máximo, usuário só diminui), não piso; UI deve gatear max por teto>0.
+- [Projeção Convicta canônica](projecao-convicta-reconciliation.md) — valor_corte_1 é a fonte; foto por área pode derivar; self-heal usa only_missing e consolidado reconcilia a soma ao total no read.

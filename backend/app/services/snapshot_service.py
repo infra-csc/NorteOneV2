@@ -2535,7 +2535,9 @@ def capturar_kit_snapshot_corte1(db: Session, evento_id: int, now: datetime) -> 
             ks.congelado_em = now
 
 
-def capturar_dist_snapshot_corte1(db: Session, evento_id: int, now: datetime) -> None:
+def capturar_dist_snapshot_corte1(
+    db: Session, evento_id: int, now: datetime, only_missing: bool = False
+) -> None:
     """Captura a foto COMPLETA da distribuição (quantidade + kits + clientes) por
     área no momento do congelamento do Corte 1 de um evento.
 
@@ -2546,6 +2548,12 @@ def capturar_dist_snapshot_corte1(db: Session, evento_id: int, now: datetime) ->
 
     Idempotente via upsert por (evento, área): regrava com o estado atual. Áreas
     que deixaram de existir têm o snapshot removido.
+
+    `only_missing=True` (usado pelo self-heal): preenche APENAS áreas que ainda
+    não têm foto, sem regravar nem remover as já congeladas. Sem isso, recapturar
+    uma única área ausente reescrevia TODAS as áreas com o valor AO VIVO atual
+    (já derivado de edições pós-corte), corrompendo a foto congelada das demais —
+    causa da divergência entre o total congelado e a soma por área.
     """
     import json as _json
     from ..models.projecao import (
@@ -2593,16 +2601,18 @@ def capturar_dist_snapshot_corte1(db: Session, evento_id: int, now: datetime) ->
                 clientes_json=clientes_json,
                 congelado_em=now,
             ))
-        else:
+        elif not only_missing:
             snap.quantidade = qtd
             snap.kits_json = kits_json
             snap.clientes_json = clientes_json
             snap.congelado_em = now
     # Áreas que tinham foto mas não existem mais: remove para não exibir Corte 1
-    # fantasma na tela.
-    for area_id, snap in snaps_existentes.items():
-        if area_id not in areas_atuais:
-            db.delete(snap)
+    # fantasma na tela. No modo only_missing (self-heal) nada é regravado nem
+    # removido — apenas as lacunas são preenchidas, preservando a foto congelada.
+    if not only_missing:
+        for area_id, snap in snaps_existentes.items():
+            if area_id not in areas_atuais:
+                db.delete(snap)
 
 
 def congelar_cortes_para_eventos(db: Session, evento_ids: Optional[list] = None) -> dict:

@@ -1467,7 +1467,9 @@ def get_corte1_distribuicao(
         from ...services.snapshot_service import capturar_dist_snapshot_corte1
         ts = corte_snap.congelado_corte_1_em or datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
         try:
-            capturar_dist_snapshot_corte1(db, evento_id, ts)
+            # only_missing: preenche só a lacuna desta área; NUNCA regrava as áreas
+            # já congeladas com o ao vivo atual (evitaria nova divergência da foto).
+            capturar_dist_snapshot_corte1(db, evento_id, ts, only_missing=True)
             db.commit()
         except IntegrityError:
             # Outra requisição concorrente capturou a foto primeiro — relê.
@@ -1561,6 +1563,33 @@ def get_consolidado(
     result = _compute_consolidado(db, mes, tipo_evento, modalidade, area_projecao_id, evento_id)
     projecao_consolidado_cache.set(cache_key, result)
     return result
+
+
+def _aplicar_delta_desc(itens: list, attr: str, delta: int) -> None:
+    """Aplica `delta` (variação total desejada) sobre o atributo `attr` de `itens`,
+    sem nunca gerar valores negativos.
+
+    Positivo: soma tudo no maior item (cresce sem limite superior). Negativo:
+    remove em cascata começando pelos maiores, respeitando o piso 0 de cada item.
+    A soma converge exatamente para o alvo desde que `abs(delta)` (quando negativo)
+    não exceda a soma atual dos itens — invariante garantida pelos chamadores, já
+    que a redução pedida é `soma_atual - valor_corte_1 <= soma_atual`.
+    """
+    if not itens or delta == 0:
+        return
+    ordenados = sorted(itens, key=lambda it: getattr(it, attr), reverse=True)
+    if delta > 0:
+        setattr(ordenados[0], attr, getattr(ordenados[0], attr) + delta)
+        return
+    rem = -delta
+    for it in ordenados:
+        if rem <= 0:
+            break
+        v = getattr(it, attr)
+        take = min(v, rem)
+        if take:
+            setattr(it, attr, v - take)
+            rem -= take
 
 
 def _compute_consolidado(
@@ -1768,6 +1797,43 @@ def _compute_consolidado(
             for k in p.kits:
                 if _normalize_kit_nome(k.nome_kit) == "inscricao participacao":
                     inscricao_participacao += k.quantidade
+
+        # Reconciliação da Projeção Convicta com o total congelado.
+        # `valor_corte_1` é a fonte canônica do Corte 1 (congelado uma única vez no
+        # instante do corte). As fotos por área podem ter divergido desse total:
+        #   - edições feitas DEPOIS do congelamento que o self-heal recapturou ao
+        #     vivo sob o carimbo antigo (deriva nos snapshots existentes); ou
+        #   - áreas sem foto, que caem no fallback ao vivo (soma segue o ao vivo).
+        # Quando o Corte 1 está congelado, ajusta a soma das áreas para bater
+        # exatamente com `valor_corte_1`, lançando a diferença na maior área (e no
+        # seu maior kit) — caso típico em que a área que mais cresceu pós-corte
+        # absorveu a deriva. Mantém cabeçalho (Convicta) e detalhe por área coesos.
+        snap_recon = snaps_by_evento.get(evento.id)
+        if snap_recon and snap_recon.valor_corte_1 is not None and projecoes_items:
+            conv_total = sum(it.convicta_quantidade for it in projecoes_items)
+            delta = int(snap_recon.valor_corte_1) - conv_total
+            if delta != 0:
+                ordenadas = sorted(
+                    projecoes_items, key=lambda it: it.convicta_quantidade, reverse=True
+                )
+                if delta > 0:
+                    # Falta para o alvo: soma na maior área (e no seu maior kit).
+                    alvo = ordenadas[0]
+                    alvo.convicta_quantidade += delta
+                    _aplicar_delta_desc(alvo.convicta_kits, "quantidade", delta)
+                else:
+                    # Excesso sobre o alvo: remove em cascata das maiores áreas,
+                    # espelhando a mesma remoção nos kits de cada área tocada para
+                    # manter `convicta_kits` somando `convicta_quantidade`.
+                    rem = -delta
+                    for it in ordenadas:
+                        if rem <= 0:
+                            break
+                        take = min(it.convicta_quantidade, rem)
+                        if take:
+                            it.convicta_quantidade -= take
+                            _aplicar_delta_desc(it.convicta_kits, "quantidade", -take)
+                            rem -= take
 
         # Inscritos reais (vindos do site) substituem a parte "Site" da projeção:
         # se ainda não atingiram, a projeção_site cobre o restante;
