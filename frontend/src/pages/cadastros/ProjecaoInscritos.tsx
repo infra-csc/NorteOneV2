@@ -494,6 +494,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoListModalidade, setEventoListModalidade] = useState<string>('');
   const [eventoListCidade, setEventoListCidade] = useState<string>('');
   const [eventoListStatus, setEventoListStatus] = useState<string>('Em andamento');
+  const [consolidadoStatus, setConsolidadoStatus] = useState<string>('Em andamento');
   const [eventoListOnlyCutoff, setEventoListOnlyCutoff] = useState<boolean>(false);
   const [eventoListOnlyLocked, setEventoListOnlyLocked] = useState<boolean>(false);
   const [eventoListSort, setEventoListSort] = useState<{ field: string; dir: 'asc' | 'desc' }>({ field: 'data', dir: 'asc' });
@@ -1120,11 +1121,19 @@ const ProjecaoInscritos: React.FC = () => {
     );
   }, [projecoes, searchTerm]);
 
+  const eventoStatusById = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const e of eventos) map[e.id] = e.status || 'Em andamento';
+    return map;
+  }, [eventos]);
+
   const filteredConsolidado = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    const base = searchTerm
-      ? consolidado.filter(c => c.evento_nome?.toLowerCase().includes(term))
-      : consolidado;
+    const base = consolidado.filter(c => {
+      if (term && !c.evento_nome?.toLowerCase().includes(term)) return false;
+      if (consolidadoStatus && eventoStatusById[c.evento_id] !== consolidadoStatus) return false;
+      return true;
+    });
     return [...base].sort((a, b) => {
       const av = a.evento_data || '';
       const bv = b.evento_data || '';
@@ -1133,7 +1142,7 @@ const ProjecaoInscritos: React.FC = () => {
       if (!bv) return -1;
       return av.localeCompare(bv);
     });
-  }, [consolidado, searchTerm]);
+  }, [consolidado, searchTerm, consolidadoStatus, eventoStatusById]);
 
   const projecoesPorEventoId = useMemo(() => {
     const map: Record<number, Projecao[]> = {};
@@ -1733,6 +1742,19 @@ const ProjecaoInscritos: React.FC = () => {
               placeholder="Todas as áreas"
               isDark={isDark}
             />
+            {activeTab === 'consolidado' && (
+              <div className="relative">
+                <select
+                  value={consolidadoStatus}
+                  onChange={e => setConsolidadoStatus(e.target.value)}
+                  className={`${selectClass} pr-8 appearance-none cursor-pointer`}
+                >
+                  <option value="">Todos status</option>
+                  {eventoListOpts.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <ChevronDown className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
+              </div>
+            )}
             <div className="relative flex-1 min-w-[200px]">
               <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
               <input
@@ -1743,10 +1765,10 @@ const ProjecaoInscritos: React.FC = () => {
                 className={`${selectClass} pl-9 w-full`}
               />
             </div>
-            {(filterMes.length > 0 || filterTipoEvento.length > 0 || filterModalidade.length > 0 || filterArea.length > 0 || searchTerm) && (
+            {(filterMes.length > 0 || filterTipoEvento.length > 0 || filterModalidade.length > 0 || filterArea.length > 0 || searchTerm || (activeTab === 'consolidado' && consolidadoStatus !== 'Em andamento')) && (
               <button
                 type="button"
-                onClick={() => { setFilterMes([]); setFilterTipoEvento([]); setFilterModalidade([]); setFilterArea([]); setSearchTerm(''); }}
+                onClick={() => { setFilterMes([]); setFilterTipoEvento([]); setFilterModalidade([]); setFilterArea([]); setSearchTerm(''); setConsolidadoStatus('Em andamento'); }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all hover:scale-105 ${
                   isDark ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
                 }`}
