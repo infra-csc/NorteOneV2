@@ -1525,6 +1525,18 @@ const ProjecaoInscritos: React.FC = () => {
   };
 
   const formatNumber = (n: number) => n.toLocaleString('pt-BR');
+  const formatMilhar = (v: string | number) => {
+    const s = String(v ?? '');
+    const neg = s.trim().startsWith('-');
+    const digits = s.replace(/\D/g, '');
+    if (!digits) return neg ? '-' : '';
+    return (neg ? '-' : '') + parseInt(digits, 10).toLocaleString('pt-BR');
+  };
+  const stripMilhar = (v: string) => {
+    const neg = v.trim().startsWith('-');
+    const digits = v.replace(/\D/g, '');
+    return (neg ? '-' : '') + digits;
+  };
 
   const selectedEventoNome = useMemo(() => {
     if (!formEventoId) return '';
@@ -3192,12 +3204,12 @@ const ProjecaoInscritos: React.FC = () => {
               <div>
                 <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
                 <input
-                  type="number"
-                  value={formQuantidade}
-                  onChange={e => setFormQuantidade(e.target.value)}
+                  type="text"
+                  inputMode="numeric"
+                  value={formatMilhar(formQuantidade)}
+                  onChange={e => setFormQuantidade(stripMilhar(e.target.value))}
                   placeholder="Ex: 150"
                   className={inputClass}
-                  min={1}
                   required
                 />
               </div>
@@ -3265,9 +3277,10 @@ const ProjecaoInscritos: React.FC = () => {
                               <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600') : c2BoxRead}`}>{kc2}</div>
                             ) : (
                               <input
-                                type="number"
-                                value={String(Math.max(0, kc2))}
-                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMilhar(Math.max(0, kc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
                                 placeholder="0"
                                 min={0}
                                 className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
@@ -3275,9 +3288,10 @@ const ProjecaoInscritos: React.FC = () => {
                             )}
                             {isCam ? (
                               <input
-                                type="number"
-                                value={kit.quantidade}
-                                onChange={e => { let val = e.target.value; const n = parseInt(val); if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto); updateKit(idx, 'quantidade', val); }}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMilhar(kit.quantidade)}
+                                onChange={e => { let val = stripMilhar(e.target.value); const n = parseInt(val); if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto); updateKit(idx, 'quantidade', val); }}
                                 placeholder="0"
                                 min={0}
                                 max={camisetaAvulsaInfo.teto}
@@ -3310,10 +3324,11 @@ const ProjecaoInscritos: React.FC = () => {
                         )}
                       </div>
                       <input
-                        type="number"
-                        value={kit.quantidade}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatMilhar(kit.quantidade)}
                         onChange={e => {
-                          let val = e.target.value;
+                          let val = stripMilhar(e.target.value);
                           if (camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) {
                             const n = parseInt(val);
                             if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto);
@@ -3395,9 +3410,10 @@ const ProjecaoInscritos: React.FC = () => {
                             <div>
                               <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Corte 2 (+)</div>
                               <input
-                                type="number"
-                                value={String(Math.max(0, cc2))}
-                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMilhar(Math.max(0, cc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
                                 placeholder="0"
                                 min={0}
                                 className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
@@ -3422,9 +3438,10 @@ const ProjecaoInscritos: React.FC = () => {
                         className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
                       />
                       <input
-                        type="number"
-                        value={cliente.quantidade}
-                        onChange={e => updateCliente(idx, 'quantidade', e.target.value)}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatMilhar(cliente.quantidade)}
+                        onChange={e => updateCliente(idx, 'quantidade', stripMilhar(e.target.value))}
                         placeholder="Qtd"
                         min={1}
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
@@ -3516,9 +3533,10 @@ const ProjecaoInscritos: React.FC = () => {
                     <div>
                       <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
                       <input
-                        type="number"
-                        value={String(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
-                        onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); setFormQuantidade(String(c1Qty + c2)); }}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatMilhar(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
+                        onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); setFormQuantidade(String(c1Qty + c2)); }}
                         placeholder="0"
                         min={0}
                         className={`w-full px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
@@ -3537,12 +3555,12 @@ const ProjecaoInscritos: React.FC = () => {
                 <div>
                   <label className={`block text-sm font-semibold mb-1 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
                   <input
-                    type="number"
-                    value={formQuantidade}
-                    onChange={e => setFormQuantidade(e.target.value)}
+                    type="text"
+                    inputMode="numeric"
+                    value={formatMilhar(formQuantidade)}
+                    onChange={e => setFormQuantidade(stripMilhar(e.target.value))}
                     placeholder="Ex: 150"
                     className={inputClass}
-                    min={1}
                     required
                   />
                 </div>
@@ -3609,9 +3627,10 @@ const ProjecaoInscritos: React.FC = () => {
                             <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${c2BoxRead}`}>{kc1}</div>
                             {isCam ? (
                               <input
-                                type="number"
-                                value={String(kc2)}
-                                onChange={e => { let c2 = parseInt(e.target.value); if (isNaN(c2)) c2 = 0; if (c2 > 0) c2 = 0; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMilhar(kc2)}
+                                onChange={e => { let c2 = parseInt(stripMilhar(e.target.value)); if (isNaN(c2)) c2 = 0; if (c2 > 0) c2 = 0; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
                                 placeholder="0"
                                 min={-kc1}
                                 max={0}
@@ -3619,9 +3638,10 @@ const ProjecaoInscritos: React.FC = () => {
                               />
                             ) : (
                               <input
-                                type="number"
-                                value={String(Math.max(0, kc2))}
-                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMilhar(Math.max(0, kc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
                                 placeholder="0"
                                 min={0}
                                 className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
@@ -3652,10 +3672,11 @@ const ProjecaoInscritos: React.FC = () => {
                         )}
                       </div>
                       <input
-                        type="number"
-                        value={kit.quantidade}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatMilhar(kit.quantidade)}
                         onChange={e => {
-                          let val = e.target.value;
+                          let val = stripMilhar(e.target.value);
                           if (camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM) {
                             const n = parseInt(val);
                             if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto);
@@ -3737,9 +3758,10 @@ const ProjecaoInscritos: React.FC = () => {
                             <div>
                               <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
                               <input
-                                type="number"
-                                value={String(Math.max(0, cc2))}
-                                onChange={e => { const c2 = Math.max(0, parseInt(e.target.value) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
+                                type="text"
+                                inputMode="numeric"
+                                value={formatMilhar(Math.max(0, cc2))}
+                                onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateCliente(idx, 'quantidade', String(cc1 + c2)); }}
                                 placeholder="0"
                                 min={0}
                                 className={`w-full px-2 py-1.5 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
@@ -3764,9 +3786,10 @@ const ProjecaoInscritos: React.FC = () => {
                         className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
                       />
                       <input
-                        type="number"
-                        value={cliente.quantidade}
-                        onChange={e => updateCliente(idx, 'quantidade', e.target.value)}
+                        type="text"
+                        inputMode="numeric"
+                        value={formatMilhar(cliente.quantidade)}
+                        onChange={e => updateCliente(idx, 'quantidade', stripMilhar(e.target.value))}
                         placeholder="Qtd"
                         min={1}
                         className={`w-20 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-violet-500`}
