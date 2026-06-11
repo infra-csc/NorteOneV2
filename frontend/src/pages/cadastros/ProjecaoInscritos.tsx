@@ -2677,8 +2677,8 @@ const ProjecaoInscritos: React.FC = () => {
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                                           {/* Projeção Convicta (Corte 1) */}
-                                          <div>
-                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                          <div className={`rounded-lg p-2.5 border ${isDark ? 'bg-gray-900/40 border-gray-700/60' : 'bg-white/70 border-gray-200'}`}>
+                                            <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-dashed border-current/10">
                                               <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                                                 Convicta
                                               </span>
@@ -2689,8 +2689,8 @@ const ProjecaoInscritos: React.FC = () => {
                                             {renderKitChips(convictaKits)}
                                           </div>
                                           {/* Projeção Ajuste (Corte 2 / ao vivo) */}
-                                          <div className={`sm:pl-3 sm:border-l ${isDark ? 'sm:border-gray-700/50' : 'sm:border-gray-200'}`}>
-                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                          <div className={`rounded-lg p-2.5 border ${isDark ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50/80 border-blue-200'}`}>
+                                            <div className={`flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-dashed ${isDark ? 'border-blue-500/20' : 'border-blue-200'}`}>
                                               <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
                                                 Ajuste
                                               </span>
