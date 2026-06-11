@@ -1668,6 +1668,16 @@ def _compute_consolidado(
         if atual is None or iso < atual:
             data_envio_by_evento[ev_id] = iso
 
+    # Distribuição congelada do Corte 1 (Projeção Convicta) por (evento, área).
+    # Batch único (evita N+1). kits_json guarda a foto por kit. Quando não há foto
+    # para um par, o consumidor cai no fallback ao vivo (aproximado).
+    import json as _json_dist
+    dist_by_evento_area: dict[tuple, ProjecaoCorteDistSnapshot] = {}
+    for ds in db.query(ProjecaoCorteDistSnapshot).filter(
+        ProjecaoCorteDistSnapshot.evento_id.in_(evento_ids)
+    ).all():
+        dist_by_evento_area[(ds.evento_id, ds.area_projecao_id)] = ds
+
     # "Saída caminhão" (data_saida_caminhao) por evento — mesma regra: se houver
     # mais de uma área preenchida, usa a data mais antiga.
     saida_caminhao_by_evento: dict[int, str] = {}
@@ -1719,11 +1729,37 @@ def _compute_consolidado(
                 teto_by_evento_area.get((evento.id, p.area_projecao_id), 0)
                 if corte1_congelado_ev else None
             )
+            # Projeção Convicta (Corte 1): usa a foto congelada por área/kit quando
+            # existe; senão espelha o ao vivo (mesma lógica de get_corte1_distribuicao).
+            dist_snap = dist_by_evento_area.get((evento.id, p.area_projecao_id))
+            if dist_snap is not None:
+                try:
+                    conv_raw = _json_dist.loads(dist_snap.kits_json) if dist_snap.kits_json else []
+                except (ValueError, TypeError):
+                    conv_raw = []
+                convicta_kits = [
+                    KitProjecaoItem(
+                        nome_kit=k.get("nome_kit", ""),
+                        quantidade=int(k.get("quantidade", 0) or 0),
+                    )
+                    for k in sorted(conv_raw, key=lambda k: int(k.get("quantidade", 0) or 0), reverse=True)
+                ]
+                convicta_quantidade = int(dist_snap.quantidade or 0)
+                if not convicta_kits and convicta_quantidade > 0:
+                    convicta_kits = [KitProjecaoItem(nome_kit="Kit Básico", quantidade=convicta_quantidade)]
+            else:
+                convicta_kits = [
+                    KitProjecaoItem(nome_kit=ki.nome_kit, quantidade=ki.quantidade)
+                    for ki in kits_items
+                ]
+                convicta_quantidade = p.quantidade
             projecoes_items.append(ConsolidadoAreaItem(
                 area_projecao_id=p.area_projecao_id,
                 area_projecao_nome=nome_area,
                 quantidade=p.quantidade,
                 kits=kits_items,
+                convicta_quantidade=convicta_quantidade,
+                convicta_kits=convicta_kits,
                 camiseta_avulsa_teto=teto_area,
             ))
             total_projecoes += p.quantidade
@@ -1763,6 +1799,11 @@ def _compute_consolidado(
             data_saida_caminhao=saida_caminhao_by_evento.get(evento.id),
             reaberto_manual_corte_1=bool(snap.reaberto_manual_corte_1) if snap else False,
             reaberto_manual_corte_2=bool(snap.reaberto_manual_corte_2) if snap else False,
+            # Fase aditiva ("Corte 2"): mesma regra (OR) que get_corte1_distribuicao
+            # usa como fonte autoritativa — começa assim que o Corte 1 foi congelado.
+            em_corte2=bool(
+                snap and (snap.valor_corte_1 is not None or snap.congelado_corte_1_em is not None)
+            ),
         ))
 
     # Retorna dicts JSON-safe: o resultado é cacheado em memória e persistido no

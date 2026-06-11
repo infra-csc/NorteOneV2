@@ -205,7 +205,7 @@ interface ConsolidadoEvento {
   evento_nome: string;
   evento_data: string | null;
   inscritos_reais: number;
-  projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number; kits?: { nome_kit: string; quantidade: number }[]; camiseta_avulsa_teto?: number | null }[];
+  projecoes: { area_projecao_id: number; area_projecao_nome: string; quantidade: number; kits?: { nome_kit: string; quantidade: number }[]; convicta_quantidade?: number; convicta_kits?: { nome_kit: string; quantidade: number }[]; camiseta_avulsa_teto?: number | null }[];
   total_projecoes: number;
   projecao_site: number;
   total_geral: number;
@@ -222,6 +222,7 @@ interface ConsolidadoEvento {
   data_saida_caminhao?: string | null;
   reaberto_manual_corte_1?: boolean;
   reaberto_manual_corte_2?: boolean;
+  em_corte2?: boolean;
 }
 
 interface AreaDetail {
@@ -2638,6 +2639,35 @@ const ProjecaoInscritos: React.FC = () => {
                                       { bar: 'from-fuchsia-500 to-purple-500', text: isDark ? 'text-fuchsia-300' : 'text-fuchsia-700', bg: isDark ? 'bg-fuchsia-500/10' : 'bg-fuchsia-50' },
                                     ];
                                     const color = areaColors[idx % areaColors.length];
+                                    const convictaKits = p.convicta_kits ?? p.kits ?? [];
+                                    const convictaQtd = p.convicta_quantidade ?? p.quantidade;
+
+                                    const renderKitChips = (kits: { nome_kit: string; quantidade: number }[]) => {
+                                      if (!kits || kits.length === 0) {
+                                        return <span className={`text-[11px] ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>—</span>;
+                                      }
+                                      return (
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {kits
+                                            .slice()
+                                            .sort((a, b) => b.quantidade - a.quantidade)
+                                            .map((k, kidx) => {
+                                              const isCamiseta = k.nome_kit === KIT_CAMISETA_ORIGEM && p.camiseta_avulsa_teto != null;
+                                              const nomeExibido = isCamiseta ? KIT_CAMISETA_LABEL : k.nome_kit;
+                                              return (
+                                                <span
+                                                  key={`${k.nome_kit}-${kidx}`}
+                                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${isDark ? 'bg-gray-900/40 text-gray-300 border border-gray-700/50' : 'bg-white/70 text-gray-600 border border-gray-200'}`}
+                                                >
+                                                  <Package className="w-2.5 h-2.5 opacity-60" />
+                                                  <span className="truncate max-w-[140px]">{nomeExibido}</span>
+                                                  <span className={`font-bold tabular-nums ${color.text}`}>{formatNumber(k.quantidade)}</span>
+                                                </span>
+                                              );
+                                            })}
+                                        </div>
+                                      );
+                                    };
 
                                     return (
                                       <div key={p.area_projecao_id} className={`p-3 rounded-xl ${color.bg}`}>
@@ -2647,38 +2677,38 @@ const ProjecaoInscritos: React.FC = () => {
                                             {formatNumber(p.quantidade)}
                                           </span>
                                         </div>
-                                        <div className={`relative h-2 rounded-full overflow-hidden ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
+                                        <div className={`relative h-2 rounded-full overflow-hidden mb-3 ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
                                           <div
                                             className={`h-full rounded-full bg-gradient-to-r ${color.bar} transition-all duration-500 ease-out`}
                                             style={{ width: `${barPct}%` }}
                                           />
                                         </div>
-                                        {p.kits && p.kits.length > 0 && (
-                                          <div className="mt-2.5 flex flex-wrap gap-1.5">
-                                            {p.kits
-                                              .slice()
-                                              .sort((a, b) => b.quantidade - a.quantidade)
-                                              .map((k, kidx) => {
-                                                const isCamiseta = k.nome_kit === KIT_CAMISETA_ORIGEM && p.camiseta_avulsa_teto != null;
-                                                const nomeExibido = isCamiseta ? KIT_CAMISETA_LABEL : k.nome_kit;
-                                                return (
-                                                <span
-                                                  key={`${k.nome_kit}-${kidx}`}
-                                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${isDark ? 'bg-gray-900/40 text-gray-300 border border-gray-700/50' : 'bg-white/70 text-gray-600 border border-gray-200'}`}
-                                                >
-                                                  <Package className="w-2.5 h-2.5 opacity-60" />
-                                                  <span className="truncate max-w-[140px]">{nomeExibido}</span>
-                                                  {isCamiseta && (
-                                                    <span className={`tabular-nums ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
-                                                      C1 {formatNumber(p.camiseta_avulsa_teto || 0)} →
-                                                    </span>
-                                                  )}
-                                                  <span className={`font-bold tabular-nums ${color.text}`}>{formatNumber(k.quantidade)}</span>
-                                                </span>
-                                                );
-                                              })}
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                          {/* Projeção Convicta (Corte 1) */}
+                                          <div>
+                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                                Convicta
+                                              </span>
+                                              <span className={`text-xs font-black tabular-nums ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>
+                                                {formatNumber(convictaQtd)}
+                                              </span>
+                                            </div>
+                                            {renderKitChips(convictaKits)}
                                           </div>
-                                        )}
+                                          {/* Projeção Ajuste (Corte 2 / ao vivo) */}
+                                          <div className={`sm:pl-3 sm:border-l ${isDark ? 'sm:border-gray-700/50' : 'sm:border-gray-200'}`}>
+                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                              <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                                                Ajuste
+                                              </span>
+                                              <span className={`text-xs font-black tabular-nums ${isDark ? 'text-blue-200' : 'text-blue-700'}`}>
+                                                {formatNumber(p.quantidade)}
+                                              </span>
+                                            </div>
+                                            {renderKitChips(p.kits ?? [])}
+                                          </div>
+                                        </div>
                                       </div>
                                     );
                                   })}

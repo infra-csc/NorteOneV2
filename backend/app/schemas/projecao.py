@@ -138,8 +138,14 @@ class HistoricoResponse(BaseModel):
 class ConsolidadoAreaItem(BaseModel):
     area_projecao_id: int
     area_projecao_nome: str
+    # quantidade/kits = distribuição AO VIVO atual (= Projeção Ajuste / Corte 2).
     quantidade: int
     kits: List[KitProjecaoItem] = []
+    # Distribuição congelada do Corte 1 (= Projeção Convicta) por área/kit.
+    # Vem da foto `projecao_corte_dist_snapshot`; quando não há foto (evento ainda
+    # não chegou no Corte 1), espelha os valores ao vivo (fallback aproximado).
+    convicta_quantidade: int = 0
+    convicta_kits: List[KitProjecaoItem] = []
     # Teto da "Camiseta avulsa" (valor de "Kit Completo - Sem camiseta"
     # congelado no Corte 1). None = Corte 1 não congelado para esta área.
     camiseta_avulsa_teto: Optional[int] = None
@@ -198,6 +204,9 @@ class ConsolidadoEventoResponse(BaseModel):
     # recongela automaticamente (só via "Congelar agora").
     reaberto_manual_corte_1: bool = False
     reaberto_manual_corte_2: bool = False
+    # True quando o Corte 1 está congelado — sinaliza ao frontend que a divisão
+    # Convicta x Ajuste é significativa (antes disso ambas são iguais ao vivo).
+    em_corte2: bool = False
 
 
 class CutoffRuleCreate(BaseModel):
