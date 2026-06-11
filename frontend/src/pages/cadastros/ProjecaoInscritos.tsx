@@ -1798,9 +1798,7 @@ const ProjecaoInscritos: React.FC = () => {
                         if (ev) setSelectedEvento(ev);
                       }}
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                        p.dias_ate_evento <= 15
-                          ? isDark ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40' : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
-                          : isDark ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/40' : 'bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300'
+                        isDark ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40' : 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-300'
                       }`}
                       title={`${p.evento_nome} — ${p.cutoff_customizado ? `Corte ${formatDate(p.cutoff_data || null)}` : `D-${p.dias_ate_evento}`} • ${p.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`}
                     >
