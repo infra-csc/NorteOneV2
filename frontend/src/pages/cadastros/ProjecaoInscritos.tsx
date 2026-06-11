@@ -2671,9 +2671,6 @@ const ProjecaoInscritos: React.FC = () => {
                                       <div key={p.area_projecao_id} className={`p-3 rounded-xl ${color.bg}`}>
                                         <div className="flex items-center justify-between mb-2 gap-3">
                                           <span className={`text-sm font-semibold ${color.text}`}>{p.area_projecao_nome}</span>
-                                          <span className={`text-sm font-black tabular-nums ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                                            {formatNumber(p.quantidade)}
-                                          </span>
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                                           {/* Projeção Convicta (Corte 1) */}
