@@ -121,6 +121,7 @@ interface CutoffEventoArea {
   area_projecao_nome: string | null;
   data_corte_1: string | null;
   data_corte_2: string | null;
+  data_saida_caminhao: string | null;
   updated_by: number | null;
   updated_by_nome: string | null;
   updated_at: string | null;
@@ -511,7 +512,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [eventoCutoffs, setEventoCutoffs] = useState<CutoffEventoArea[]>([]);
   const [eventoCutoffsLoading, setEventoCutoffsLoading] = useState(false);
   const [savingCutoffAreaId, setSavingCutoffAreaId] = useState<number | null>(null);
-  const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string }>>({});
+  const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string; saida: string }>>({});
   const cutoffsLoadTokenRef = useRef(0);
 
   const [autoLockConfig, setAutoLockConfig] = useState<AutoLockConfig>({ dias_antes_evento: 0, hora_trava: '00:00', ativo: false });
@@ -860,11 +861,12 @@ const ProjecaoInscritos: React.FC = () => {
       // Descarta a resposta se outro evento foi selecionado durante a requisição
       if (token !== cutoffsLoadTokenRef.current) return;
       setEventoCutoffs(data);
-      const draft: Record<number, { d1: string; d2: string }> = {};
+      const draft: Record<number, { d1: string; d2: string; saida: string }> = {};
       data.forEach((c: CutoffEventoArea) => {
         draft[c.area_projecao_id] = {
           d1: c.data_corte_1 || '',
           d2: c.data_corte_2 || '',
+          saida: c.data_saida_caminhao || '',
         };
       });
       setCutoffDraft(draft);
@@ -881,7 +883,7 @@ const ProjecaoInscritos: React.FC = () => {
   };
 
   const saveEventoCutoff = async (eventoId: number, areaId: number) => {
-    const draft = cutoffDraft[areaId] || { d1: '', d2: '' };
+    const draft = cutoffDraft[areaId] || { d1: '', d2: '', saida: '' };
     setSavingCutoffAreaId(areaId);
     try {
       await projecaoService.upsertCutoffEventoArea({
@@ -889,6 +891,7 @@ const ProjecaoInscritos: React.FC = () => {
         area_projecao_id: areaId,
         data_corte_1: draft.d1 || null,
         data_corte_2: draft.d2 || null,
+        data_saida_caminhao: draft.saida || null,
       });
       showToast('Datas de corte salvas', 'success');
       await loadEventoCutoffs(eventoId);
@@ -2187,7 +2190,7 @@ const ProjecaoInscritos: React.FC = () => {
                   ) : (
                     <div className="space-y-2">
                       {myCustomAreas.map(area => {
-                        const draft = cutoffDraft[area.id] || { d1: '', d2: '' };
+                        const draft = cutoffDraft[area.id] || { d1: '', d2: '', saida: '' };
                         const existing = eventoCutoffs.find(c => c.area_projecao_id === area.id);
                         return (
                           <div
@@ -2208,7 +2211,16 @@ const ProjecaoInscritos: React.FC = () => {
                               <input
                                 type="date"
                                 value={draft.d1}
-                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '' }), d1: e.target.value } }))}
+                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '' }), d1: e.target.value } }))}
+                                className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
+                              />
+                            </div>
+                            <div>
+                              <div className={`text-xs font-bold uppercase tracking-wider mb-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Saída caminhão</div>
+                              <input
+                                type="date"
+                                value={draft.saida}
+                                onChange={e => setCutoffDraft(prev => ({ ...prev, [area.id]: { ...(prev[area.id] || { d1: '', d2: '', saida: '' }), saida: e.target.value } }))}
                                 className={`px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-orange-500`}
                               />
                             </div>

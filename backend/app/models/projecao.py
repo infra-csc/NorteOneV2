@@ -134,6 +134,7 @@ class ProjecaoCutoffEventoArea(Base):
     area_projecao_id = Column(Integer, ForeignKey("area_projecao.id", ondelete="CASCADE"), nullable=False, index=True)
     data_corte_1 = Column(Date, nullable=True)
     data_corte_2 = Column(Date, nullable=True)
+    data_saida_caminhao = Column(Date, nullable=True)
     created_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=_now_brasilia)

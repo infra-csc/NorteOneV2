@@ -1572,6 +1572,7 @@ def _run_column_migrations():
                 area_projecao_id INTEGER NOT NULL REFERENCES area_projecao(id) ON DELETE CASCADE,
                 data_corte_1 DATE,
                 data_corte_2 DATE,
+                data_saida_caminhao DATE,
                 created_by INTEGER REFERENCES dim_usuario(id),
                 updated_by INTEGER REFERENCES dim_usuario(id),
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -1579,6 +1580,7 @@ def _run_column_migrations():
                 CONSTRAINT uq_cutoff_evento_area UNIQUE (evento_id, area_projecao_id)
             )
             """,
+            "ALTER TABLE projecao_cutoff_evento_area ADD COLUMN IF NOT EXISTS data_saida_caminhao DATE",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_evento ON projecao_cutoff_evento_area (evento_id)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_area ON projecao_cutoff_evento_area (area_projecao_id)",
             "CREATE INDEX IF NOT EXISTS ix_cutoff_evento_area_created_by ON projecao_cutoff_evento_area (created_by)",

@@ -254,6 +254,7 @@ class CutoffEventoAreaUpsert(BaseModel):
     area_projecao_id: int
     data_corte_1: Optional[str] = None  # ISO date YYYY-MM-DD
     data_corte_2: Optional[str] = None
+    data_saida_caminhao: Optional[str] = None  # ISO date YYYY-MM-DD
 
 
 class CutoffEventoAreaResponse(BaseModel):
@@ -263,6 +264,7 @@ class CutoffEventoAreaResponse(BaseModel):
     area_projecao_nome: Optional[str] = None
     data_corte_1: Optional[str] = None
     data_corte_2: Optional[str] = None
+    data_saida_caminhao: Optional[str] = None
     updated_by: Optional[int] = None
     updated_by_nome: Optional[str] = None
     updated_at: Optional[datetime] = None

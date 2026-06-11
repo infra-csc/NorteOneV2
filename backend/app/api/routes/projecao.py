@@ -846,6 +846,7 @@ def upsert_cutoff_evento_area(
 
     d1 = _parse_iso_date(data.data_corte_1)
     d2 = _parse_iso_date(data.data_corte_2)
+    dsc = _parse_iso_date(data.data_saida_caminhao)
 
     def _filter_row():
         return db.query(ProjecaoCutoffEventoArea).filter(
@@ -860,6 +861,7 @@ def upsert_cutoff_evento_area(
             area_projecao_id=data.area_projecao_id,
             data_corte_1=d1,
             data_corte_2=d2,
+            data_saida_caminhao=dsc,
             created_by=current_user.id,
             updated_by=current_user.id,
         )
@@ -873,11 +875,13 @@ def upsert_cutoff_evento_area(
                 raise HTTPException(status_code=500, detail="Falha ao salvar datas de corte")
             row.data_corte_1 = d1
             row.data_corte_2 = d2
+            row.data_saida_caminhao = dsc
             row.updated_by = current_user.id
             db.commit()
     else:
         row.data_corte_1 = d1
         row.data_corte_2 = d2
+        row.data_saida_caminhao = dsc
         row.updated_by = current_user.id
         db.commit()
     db.refresh(row)
@@ -890,6 +894,7 @@ def upsert_cutoff_evento_area(
         area_projecao_nome=area.nome,
         data_corte_1=row.data_corte_1.isoformat() if row.data_corte_1 else None,
         data_corte_2=row.data_corte_2.isoformat() if row.data_corte_2 else None,
+        data_saida_caminhao=row.data_saida_caminhao.isoformat() if row.data_saida_caminhao else None,
         updated_by=row.updated_by,
         updated_by_nome=editor.nome if editor else None,
         updated_at=row.updated_at,
@@ -2162,6 +2167,7 @@ def list_cutoffs_por_evento(
             area_projecao_nome=r.area.nome if r.area else None,
             data_corte_1=r.data_corte_1.isoformat() if r.data_corte_1 else None,
             data_corte_2=r.data_corte_2.isoformat() if r.data_corte_2 else None,
+            data_saida_caminhao=r.data_saida_caminhao.isoformat() if r.data_saida_caminhao else None,
             updated_by=r.updated_by,
             updated_by_nome=r.editor.nome if r.editor else None,
             updated_at=r.updated_at,
