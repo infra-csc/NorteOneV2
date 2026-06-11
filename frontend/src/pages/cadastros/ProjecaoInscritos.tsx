@@ -2883,7 +2883,7 @@ const ProjecaoInscritos: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Clock className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
                 <div>
-                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Ponto de Corte</h2>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Alerta de Pendência</h2>
                   <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                     O alerta de pendência é contado em cima da "Data de corte Envio" do evento (a mais antiga entre as áreas). Define a quantidade de dias para o cálculo do D-: o alerta dispara no dia exato em que faltam esta quantidade de dias para a Data de corte Envio. Eventos sem Data de corte Envio cadastrada não geram alerta. Use 0 para desligar.
                   </p>
