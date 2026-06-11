@@ -9,7 +9,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
-  Package, Info,
+  Package, Info, Truck,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -219,6 +219,7 @@ interface ConsolidadoEvento {
   corte_valor_2?: number | null;
   corte_congelado_2_em?: string | null;
   corte_data_envio?: string | null;
+  data_saida_caminhao?: string | null;
   reaberto_manual_corte_1?: boolean;
   reaberto_manual_corte_2?: boolean;
 }
@@ -2512,6 +2513,15 @@ const ProjecaoInscritos: React.FC = () => {
                                 {diasAteEvento !== null && diasAteEvento >= 0 && (
                                   <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
                                     D-{diasAteEvento}
+                                  </span>
+                                )}
+                                {c.data_saida_caminhao && (
+                                  <span
+                                    title="Data de saída do caminhão"
+                                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${isDark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-100 text-amber-700'}`}
+                                  >
+                                    <Truck className="w-3 h-3" />
+                                    Saída caminhão: {formatDate(c.data_saida_caminhao)}
                                   </span>
                                 )}
                               </div>

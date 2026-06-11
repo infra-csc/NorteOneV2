@@ -1668,6 +1668,20 @@ def _compute_consolidado(
         if atual is None or iso < atual:
             data_envio_by_evento[ev_id] = iso
 
+    # "Saída caminhão" (data_saida_caminhao) por evento — mesma regra: se houver
+    # mais de uma área preenchida, usa a data mais antiga.
+    saida_caminhao_by_evento: dict[int, str] = {}
+    for (ev_id, dsc) in db.query(
+        ProjecaoCutoffEventoArea.evento_id, ProjecaoCutoffEventoArea.data_saida_caminhao
+    ).filter(
+        ProjecaoCutoffEventoArea.evento_id.in_(evento_ids),
+        ProjecaoCutoffEventoArea.data_saida_caminhao.isnot(None),
+    ).all():
+        atual = saida_caminhao_by_evento.get(ev_id)
+        iso = dsc.isoformat()
+        if atual is None or iso < atual:
+            saida_caminhao_by_evento[ev_id] = iso
+
     result = []
     for evento in eventos:
         projecoes = projecoes_by_evento.get(evento.id)
@@ -1746,6 +1760,7 @@ def _compute_consolidado(
             corte_valor_2=snap.valor_corte_2 if snap else None,
             corte_congelado_2_em=snap.congelado_corte_2_em if snap else None,
             corte_data_envio=data_envio_by_evento.get(evento.id),
+            data_saida_caminhao=saida_caminhao_by_evento.get(evento.id),
             reaberto_manual_corte_1=bool(snap.reaberto_manual_corte_1) if snap else False,
             reaberto_manual_corte_2=bool(snap.reaberto_manual_corte_2) if snap else False,
         ))
