@@ -3599,7 +3599,15 @@ const ProjecaoInscritos: React.FC = () => {
                             </div>
                             <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${c2BoxRead}`}>{kc1}</div>
                             {isCam ? (
-                              <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600') : c2BoxRead}`}>{kc2}</div>
+                              <input
+                                type="number"
+                                value={String(kc2)}
+                                onChange={e => { let c2 = parseInt(e.target.value); if (isNaN(c2)) c2 = 0; if (c2 > 0) c2 = 0; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                placeholder="0"
+                                min={-kc1}
+                                max={0}
+                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600') : (isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400')} focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                              />
                             ) : (
                               <input
                                 type="number"
@@ -3610,19 +3618,7 @@ const ProjecaoInscritos: React.FC = () => {
                                 className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
                               />
                             )}
-                            {isCam ? (
-                              <input
-                                type="number"
-                                value={kit.quantidade}
-                                onChange={e => { let val = e.target.value; const n = parseInt(val); if (!isNaN(n) && n > camisetaAvulsaInfo.teto) val = String(camisetaAvulsaInfo.teto); updateKit(idx, 'quantidade', val); }}
-                                placeholder="0"
-                                min={0}
-                                max={camisetaAvulsaInfo.teto}
-                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-amber-500`}
-                              />
-                            ) : (
-                              <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ktotal}</div>
-                            )}
+                            <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ktotal}</div>
                           </div>
                         );
                       })}
