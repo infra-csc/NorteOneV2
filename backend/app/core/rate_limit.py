@@ -1,3 +1,4 @@
+import ipaddress
 import re
 import time
 from collections import deque, defaultdict
@@ -55,6 +56,44 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._buckets: dict[str, deque] = defaultdict(deque)
         self._lock = Lock()
 
+    def _client_ip(self, request: Request) -> str:
+        # Atrás do proxy do Replit, request.client.host é sempre um IP interno
+        # (10.48.x.x) compartilhado por muitos usuários. O IP real do cliente
+        # vem em X-Forwarded-For (o primeiro da lista é o cliente original).
+        # Sem isso, todos os logins de usuários distintos caem no mesmo bucket
+        # e estouram o limite de login coletivamente.
+        #
+        # Segurança: só confiamos em X-Forwarded-For quando o peer direto é um
+        # endereço interno/privado (o proxy da plataforma). Se a conexão vier
+        # direto de um IP público, ignoramos o header — caso contrário um
+        # atacante poderia forjar IPs por requisição e burlar o limite de login.
+        peer = request.client.host if request.client else None
+        if peer and self._is_trusted_peer(peer):
+            fwd = request.headers.get("X-Forwarded-For", "")
+            if fwd:
+                candidate = fwd.split(",")[0].strip()
+                if self._is_valid_ip(candidate):
+                    return candidate
+        return peer or "unknown"
+
+    @staticmethod
+    def _is_valid_ip(value: str) -> bool:
+        if not value:
+            return False
+        try:
+            ipaddress.ip_address(value)
+            return True
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _is_trusted_peer(value: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(value)
+        except ValueError:
+            return False
+        return ip.is_private or ip.is_loopback
+
     def _identify(self, request: Request) -> str:
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
@@ -69,8 +108,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     return f"user:{sub}"
             except Exception:
                 pass
-        host = request.client.host if request.client else "unknown"
-        return f"ip:{host}"
+        return f"ip:{self._client_ip(request)}"
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
