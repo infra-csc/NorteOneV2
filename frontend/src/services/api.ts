@@ -1746,6 +1746,14 @@ export const projecaoService = {
     const response = await api.put('/projecao/alerta-config', data);
     return response.data;
   },
+  updateNotifConfig: async (data: { notif_email_ativo: boolean; notif_email_hora: number }) => {
+    const response = await api.put('/projecao/notif-config', data);
+    return response.data;
+  },
+  sendNotifTest: async () => {
+    const response = await api.post('/projecao/notif-test');
+    return response.data;
+  },
   reabrirCorte: async (eventoId: number, corte: 1 | 2) => {
     const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/reabrir`);
     return response.data;

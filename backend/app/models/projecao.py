@@ -180,6 +180,10 @@ class ProjecaoCorteConfig(Base):
     # D-N do alerta "Ponto de corte" — contado em cima da Data de corte Envio do
     # evento. Valor único (0 = alerta desligado). Independente do congelamento.
     dias_alerta_envio = Column(Integer, nullable=False, default=30)
+    # Resumo diário por e-mail das pendências (independente do alerta in-app).
+    notif_email_ativo = Column(Boolean, default=False, nullable=False)
+    notif_email_hora = Column(Integer, default=8, nullable=False)  # hora BRT (0-23)
+    notif_email_last_sent = Column(Date, nullable=True)  # guarda contra envio duplicado/dia
     ativo = Column(Boolean, default=False, nullable=False)
     updated_by = Column(Integer, ForeignKey("dim_usuario.id"), nullable=True)
     updated_at = Column(DateTime, default=_now_brasilia, onupdate=_now_brasilia)

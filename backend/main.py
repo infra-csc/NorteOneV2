@@ -1284,6 +1284,9 @@ def _run_column_migrations():
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS is_kit_basico BOOLEAN DEFAULT FALSE NOT NULL",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS id_evento_magento INTEGER",
             "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS dias_alerta_envio INTEGER DEFAULT 30 NOT NULL",
+            "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_email_ativo BOOLEAN DEFAULT FALSE NOT NULL",
+            "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_email_hora INTEGER DEFAULT 8 NOT NULL",
+            "ALTER TABLE projecao_corte_config ADD COLUMN IF NOT EXISTS notif_email_last_sent DATE",
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS tipo_kit VARCHAR(100)",
             "ALTER TABLE kit_config ADD COLUMN IF NOT EXISTS custo_kit DECIMAL(10,2)",
@@ -1775,6 +1778,62 @@ async def lifespan(app: FastAPI):
         _timer.name = "nori-insights-daily-timer"
         _timer.start()
         return _timer
+
+    def _projecao_notif_loop():
+        """Loop diário do resumo de pendências por e-mail (Projeção de Inscritos).
+
+        Verifica a cada 60s; quando ativo e hoje ainda não enviou e já passou da
+        hora configurada (BRT), dispara o resumo e marca `notif_email_last_sent`.
+        É puro-PG/SendGrid (não toca Magento), por isso roda independente do
+        ENABLE_BACKGROUND_MAGENTO_SYNC. Só envia se o admin tiver ativado.
+        """
+        from zoneinfo import ZoneInfo as _ZI
+        from datetime import datetime as _dt
+        import time as _t
+        from app.core.database import SessionLocal as _SL
+        from app.models.projecao import ProjecaoCorteConfig as _PCC
+        from app.services.projecao_notif_service import enviar_resumo_diario as _envia
+        _brt = _ZI('America/Sao_Paulo')
+        logger.info("[ProjecaoNotif] Loop de resumo diário iniciado")
+        _last_total_fail_ts = 0.0  # cooldown p/ retry quando NINGUÉM recebeu
+        _RETRY_COOLDOWN_S = 600  # 10 min entre tentativas em falha total
+        while True:
+            try:
+                _db = _SL()
+                try:
+                    _cfg = _db.query(_PCC).first()
+                    if _cfg and _cfg.notif_email_ativo:
+                        _now = _dt.now(_brt)
+                        _today = _now.date()
+                        _hora = _cfg.notif_email_hora if _cfg.notif_email_hora is not None else 8
+                        if _cfg.notif_email_last_sent != _today and _now.hour >= _hora:
+                            if (_t.time() - _last_total_fail_ts) >= _RETRY_COOLDOWN_S:
+                                logger.info(f"[ProjecaoNotif] Disparando resumo diário (hora alvo={_hora}h BRT)")
+                                _resumo = _envia(_db)
+                                _enviados = _resumo.get('enviados', 0) or 0
+                                _falhas = _resumo.get('falhas', 0) or 0
+                                # Marca o dia como concluído quando houve sucesso
+                                # (mesmo parcial — reenviar duplicaria quem recebeu)
+                                # OU quando não havia nada a enviar (falhas==0).
+                                # Só NÃO marca em falha TOTAL (ninguém recebeu),
+                                # para tentar de novo após o cooldown no mesmo dia.
+                                if _enviados > 0 or _falhas == 0:
+                                    _cfg.notif_email_last_sent = _today
+                                    _db.commit()
+                                    logger.info(
+                                        f"[ProjecaoNotif] Resumo: {_enviados} enviado(s), {_falhas} falha(s) — dia marcado."
+                                    )
+                                else:
+                                    _last_total_fail_ts = _t.time()
+                                    logger.warning(
+                                        f"[ProjecaoNotif] Falha TOTAL ({_falhas} falha(s), 0 enviado) — "
+                                        f"NÃO marcado; nova tentativa em {_RETRY_COOLDOWN_S//60}min."
+                                    )
+                finally:
+                    _db.close()
+            except Exception as _e:
+                logger.warning(f"[ProjecaoNotif] Loop erro (não-fatal): {_e}")
+            _t.sleep(60)
 
     def _all_background_init():
         """All startup work runs in background so the server starts immediately."""
@@ -2492,6 +2551,9 @@ async def lifespan(app: FastAPI):
 
         # Start the dedicated 05:30 BRT daily timer for insights generation
         _schedule_daily_nori_insights()
+
+        # Loop do resumo diário de pendências por e-mail (independente do Magento gate).
+        threading.Thread(target=_projecao_notif_loop, daemon=True, name="projecao-notif-loop").start()
 
         # Câmbio USD/BRL pre-warm (movido pra background pra não bloquear startup do deploy).
         try:

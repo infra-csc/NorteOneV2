@@ -40,6 +40,7 @@ from ...schemas.projecao import (
     AreaCutoffCustomizadoToggle, CutoffEventoAreaUpsert, CutoffEventoAreaResponse,
     AutoLockConfigUpdate, AutoLockConfigResponse,
     CorteConfigUpdate, CorteConfigResponse, AlertaConfigUpdate,
+    NotifConfigUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -692,12 +693,14 @@ def get_corte_config(
     config = _get_corte_config(db)
     if config is None:
         # Defaults sugeridos (ainda inativo até admin salvar).
-        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, dias_alerta_envio=30, ativo=False)
+        return CorteConfigResponse(dias_corte_1=30, dias_corte_2=7, dias_alerta_envio=30, notif_email_ativo=False, notif_email_hora=8, ativo=False)
     editor = db.query(Usuario).filter(Usuario.id == config.updated_by).first() if config.updated_by else None
     return CorteConfigResponse(
         dias_corte_1=config.dias_corte_1,
         dias_corte_2=config.dias_corte_2,
         dias_alerta_envio=config.dias_alerta_envio,
+        notif_email_ativo=config.notif_email_ativo,
+        notif_email_hora=config.notif_email_hora,
         ativo=config.ativo,
         updated_by_nome=editor.nome if editor else None,
         updated_at=config.updated_at,
@@ -737,6 +740,8 @@ def update_corte_config(
         dias_corte_1=config.dias_corte_1,
         dias_corte_2=config.dias_corte_2,
         dias_alerta_envio=config.dias_alerta_envio,
+        notif_email_ativo=config.notif_email_ativo,
+        notif_email_hora=config.notif_email_hora,
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
@@ -775,10 +780,69 @@ def update_alerta_config(
         dias_corte_1=config.dias_corte_1,
         dias_corte_2=config.dias_corte_2,
         dias_alerta_envio=config.dias_alerta_envio,
+        notif_email_ativo=config.notif_email_ativo,
+        notif_email_hora=config.notif_email_hora,
         ativo=config.ativo,
         updated_by_nome=current_user.nome,
         updated_at=config.updated_at,
     )
+
+
+@router.put("/notif-config", response_model=CorteConfigResponse)
+def update_notif_config(
+    data: NotifConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """
+    Ativa/desativa o resumo diário por e-mail das pendências e define a hora (BRT)
+    do envio. Apenas administradores. Não toca nas demais configs.
+    """
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem alterar a notificação por e-mail")
+    if data.notif_email_hora < 0 or data.notif_email_hora > 23:
+        raise HTTPException(status_code=400, detail="Hora deve estar entre 0 e 23")
+
+    config = _get_corte_config(db)
+    if config is None:
+        config = ProjecaoCorteConfig(
+            notif_email_ativo=data.notif_email_ativo,
+            notif_email_hora=data.notif_email_hora,
+            updated_by=current_user.id,
+        )
+        db.add(config)
+    else:
+        config.notif_email_ativo = data.notif_email_ativo
+        config.notif_email_hora = data.notif_email_hora
+        config.updated_by = current_user.id
+    db.commit()
+    db.refresh(config)
+    return CorteConfigResponse(
+        dias_corte_1=config.dias_corte_1,
+        dias_corte_2=config.dias_corte_2,
+        dias_alerta_envio=config.dias_alerta_envio,
+        notif_email_ativo=config.notif_email_ativo,
+        notif_email_hora=config.notif_email_hora,
+        ativo=config.ativo,
+        updated_by_nome=current_user.nome,
+        updated_at=config.updated_at,
+    )
+
+
+@router.post("/notif-test")
+def enviar_notif_teste(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """
+    Dispara o resumo diário AGORA (force=True), ignorando o toggle e a hora — para
+    teste. Envia aos responsáveis das áreas com pendência no dia. Apenas admin.
+    """
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem disparar o teste de e-mail")
+    from ...services.projecao_notif_service import enviar_resumo_diario
+    resumo = enviar_resumo_diario(db, force=True)
+    return resumo
 
 
 def _get_or_create_corte_snapshot(db: Session, evento_id: int) -> ProjecaoCorteSnapshot:

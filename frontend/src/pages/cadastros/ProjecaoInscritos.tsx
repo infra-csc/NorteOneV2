@@ -9,7 +9,7 @@ import {
   Calendar, Filter, Eye, ChevronDown, ChevronUp, Search,
   Layers, Download, RotateCcw,
   AlertTriangle, Trash, Check, Lock, LockOpen, Clock, Bell, Zap,
-  Package, Info, Truck,
+  Package, Info, Truck, Mail,
 } from 'lucide-react';
 
 interface MultiSelectOption {
@@ -519,10 +519,14 @@ const ProjecaoInscritos: React.FC = () => {
   const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; hora: string; ativo: boolean }>({ dias: '0', hora: '00:00', ativo: false });
   const [savingAutoLock, setSavingAutoLock] = useState(false);
 
-  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; dias_alerta_envio: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, dias_alerta_envio: 30, ativo: false });
+  const [corteConfig, setCorteConfig] = useState<{ dias_corte_1: number; dias_corte_2: number; dias_alerta_envio: number; notif_email_ativo?: boolean; notif_email_hora?: number; ativo: boolean; updated_by_nome?: string | null }>({ dias_corte_1: 30, dias_corte_2: 7, dias_alerta_envio: 30, notif_email_ativo: false, notif_email_hora: 8, ativo: false });
   const [corteDraft, setCorteDraft] = useState<{ dias1: string; dias2: string; ativo: boolean }>({ dias1: '30', dias2: '7', ativo: false });
   const [savingCorte, setSavingCorte] = useState(false);
   const [corteActionBusy, setCorteActionBusy] = useState<string | null>(null);
+
+  const [notifDraft, setNotifDraft] = useState<{ ativo: boolean; hora: string }>({ ativo: false, hora: '8' });
+  const [savingNotif, setSavingNotif] = useState(false);
+  const [sendingNotifTest, setSendingNotifTest] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -701,6 +705,7 @@ const ProjecaoInscritos: React.FC = () => {
       setCorteConfig(data);
       setCorteDraft({ dias1: String(data.dias_corte_1), dias2: String(data.dias_corte_2), ativo: data.ativo });
       setAlertaDraft(String(data.dias_alerta_envio ?? 30));
+      setNotifDraft({ ativo: !!data.notif_email_ativo, hora: String(data.notif_email_hora ?? 8) });
     } catch {
       // silently ignore — config pode não existir ainda
     }
@@ -723,6 +728,45 @@ const ProjecaoInscritos: React.FC = () => {
       showToast(err?.response?.data?.detail || 'Erro ao salvar alerta de ponto de corte');
     } finally {
       setSavingAlerta(false);
+    }
+  };
+
+  const saveNotifConfig = async () => {
+    const hora = parseInt(notifDraft.hora, 10);
+    if (isNaN(hora) || hora < 0 || hora > 23) {
+      showToast('Hora deve ser um número entre 0 e 23');
+      return;
+    }
+    setSavingNotif(true);
+    try {
+      const updated = await projecaoService.updateNotifConfig({ notif_email_ativo: notifDraft.ativo, notif_email_hora: hora });
+      setCorteConfig(updated);
+      setNotifDraft({ ativo: !!updated.notif_email_ativo, hora: String(updated.notif_email_hora ?? 8) });
+      showToast('Notificação por e-mail atualizada', 'success');
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao salvar notificação por e-mail');
+    } finally {
+      setSavingNotif(false);
+    }
+  };
+
+  const sendNotifTest = async () => {
+    setSendingNotifTest(true);
+    try {
+      const r = await projecaoService.sendNotifTest();
+      const enviados = r?.enviados ?? 0;
+      const falhas = r?.falhas ?? 0;
+      if (enviados === 0 && falhas === 0) {
+        showToast('Nenhuma pendência para notificar hoje (nada enviado).', 'success');
+      } else if (falhas > 0) {
+        showToast(`Enviados: ${enviados}. Falhas: ${falhas}. ${(r?.erros || []).slice(0, 1).join('') || ''}`.trim());
+      } else {
+        showToast(`Resumo enviado para ${enviados} destinatário(s).`, 'success');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao enviar e-mail de teste');
+    } finally {
+      setSendingNotifTest(false);
     }
   };
 
@@ -2919,6 +2963,72 @@ const ProjecaoInscritos: React.FC = () => {
                     ? `Atualmente o alerta dispara em D-${corteConfig.dias_alerta_envio} da Data de corte Envio.`
                     : 'Alerta de ponto de corte desligado.'}
                   {corteConfig.updated_by_nome && <> Última atualização por <span className="font-semibold">{corteConfig.updated_by_nome}</span>.</>}
+                </p>
+              </div>
+            </div>
+
+            {/* ── Resumo diário por e-mail das pendências ── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Mail className={`w-5 h-5 ${isDark ? 'text-violet-400' : 'text-violet-600'}`} />
+                <div>
+                  <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Notificação por E-mail</h2>
+                  <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Envia um resumo diário por e-mail para os responsáveis de cada área que tiverem projeção pendente no dia (mesma regra do alerta acima). Cada pessoa recebe apenas as suas áreas. Use o botão de teste para enviar agora, independente do horário.
+                  </p>
+                </div>
+              </div>
+
+              <div className={`rounded-2xl p-4 border ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+                <div className="flex flex-wrap items-end gap-4">
+                  <div>
+                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Enviar resumo diário
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setNotifDraft(d => ({ ...d, ativo: !d.ativo }))}
+                      className={`relative inline-flex h-10 w-20 items-center rounded-xl transition-colors ${notifDraft.ativo ? 'bg-emerald-500' : (isDark ? 'bg-gray-700' : 'bg-gray-300')}`}
+                    >
+                      <span className={`inline-block h-8 w-8 transform rounded-lg bg-white shadow transition-transform ${notifDraft.ativo ? 'translate-x-11' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-bold uppercase tracking-wide mb-1.5 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Horário do envio (BRT)
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={notifDraft.hora}
+                        onChange={e => setNotifDraft(d => ({ ...d, hora: e.target.value }))}
+                        className={`w-28 h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${isDark ? 'bg-gray-900 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
+                      />
+                      <span className={`text-sm font-mono ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>:00</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={saveNotifConfig}
+                    disabled={savingNotif}
+                    className="h-10 flex items-center gap-2 px-5 rounded-xl bg-gradient-to-r from-rose-600 to-orange-600 text-white text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-60"
+                  >
+                    {savingNotif ? 'Salvando…' : 'Salvar'}
+                  </button>
+                  <button
+                    onClick={sendNotifTest}
+                    disabled={sendingNotifTest}
+                    className={`h-10 flex items-center gap-2 px-5 rounded-xl border text-sm font-semibold transition-all disabled:opacity-60 ${isDark ? 'border-gray-600 text-gray-200 hover:bg-gray-700/50' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}
+                  >
+                    <Mail className="w-4 h-4" />
+                    {sendingNotifTest ? 'Enviando…' : 'Enviar agora (teste)'}
+                  </button>
+                </div>
+                <p className={`text-xs mt-3 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+                  {corteConfig.notif_email_ativo
+                    ? `Resumo diário ativo — envio às ${corteConfig.notif_email_hora ?? 8}h (BRT).`
+                    : 'Resumo diário por e-mail desativado.'}
                 </p>
               </div>
             </div>

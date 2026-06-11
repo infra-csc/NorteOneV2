@@ -311,6 +311,8 @@ class CorteConfigResponse(BaseModel):
     dias_corte_1: int
     dias_corte_2: int
     dias_alerta_envio: int = 30
+    notif_email_ativo: bool = False
+    notif_email_hora: int = 8
     ativo: bool
     updated_by_nome: Optional[str] = None
     updated_at: Optional[datetime] = None
@@ -321,6 +323,11 @@ class CorteConfigResponse(BaseModel):
 
 class AlertaConfigUpdate(BaseModel):
     dias_alerta_envio: int
+
+
+class NotifConfigUpdate(BaseModel):
+    notif_email_ativo: bool
+    notif_email_hora: int
 
 
 class CorteSnapshotResponse(BaseModel):
