@@ -436,6 +436,7 @@ const ProjecaoInscritos: React.FC = () => {
   const [myAreaIds, setMyAreaIds] = useState<Set<number>>(new Set());
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [consolidado, setConsolidado] = useState<ConsolidadoEvento[]>([]);
+  const [cutoffEnvioMap, setCutoffEnvioMap] = useState<Record<string, string>>({});
   const [consolidadoLoading, setConsolidadoLoading] = useState(false);
   const [consolidadoLoaded, setConsolidadoLoaded] = useState(false);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
@@ -960,9 +961,19 @@ const ProjecaoInscritos: React.FC = () => {
     }
   };
 
+  const loadCutoffEnvioMap = async () => {
+    try {
+      const map = await projecaoService.getCutoffEnvioMap();
+      setCutoffEnvioMap(map || {});
+    } catch (error) {
+      console.error('Erro ao carregar mapa de Data de corte Envio:', error);
+    }
+  };
+
   useEffect(() => {
     loadData();
     loadEventos();
+    loadCutoffEnvioMap();
   }, []);
 
   useEffect(() => {
@@ -1069,8 +1080,27 @@ const ProjecaoInscritos: React.FC = () => {
     return ids;
   }, [eventos, autoLockConfig]);
 
+  // "Data de corte Envio" (a mais antiga do evento) — mesma âncora que o backend
+  // usa para disparar os pontos de corte (/projecao/cutoff-envio-map). Carregado
+  // junto com os eventos para não depender da aba consolidado estar aberta; o
+  // consolidado, quando presente, complementa o mapa. Eventos sem corte de envio
+  // ficam de fora e o cálculo abaixo cai no fallback pela data do evento
+  // (idêntico ao backend).
+  const corteEnvioByEventoId = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const [eid, dt] of Object.entries(cutoffEnvioMap)) {
+      if (dt) map[Number(eid)] = dt.slice(0, 10);
+    }
+    for (const c of consolidado) {
+      if (c.corte_data_envio && map[c.evento_id] === undefined) {
+        map[c.evento_id] = c.corte_data_envio.slice(0, 10);
+      }
+    }
+    return map;
+  }, [cutoffEnvioMap, consolidado]);
+
   const cutoffByEventoId = useMemo(() => {
-    const map: Record<number, { dias: number; rule: CutoffRule }> = {};
+    const map: Record<number, { dias: number; rule: CutoffRule; viaEnvio: boolean; refDate: string | null }> = {};
     const activeRules = cutoffRules.filter(r => r.ativo);
     if (activeRules.length === 0) return map;
     const ruleByDias: Record<number, CutoffRule> = {};
@@ -1082,30 +1112,32 @@ const ProjecaoInscritos: React.FC = () => {
     });
     const todayParts = fmt.format(new Date()).split('-').map(Number);
     const todayUtc = Date.UTC(todayParts[0], todayParts[1] - 1, todayParts[2]);
+    const diasAte = (datePart: string | null | undefined): number | null => {
+      if (!datePart) return null;
+      const dp = datePart.length >= 10 ? datePart.slice(0, 10) : null;
+      if (!dp) return null;
+      const parts = dp.split('-').map(Number);
+      if (parts.length !== 3 || parts.some(isNaN)) return null;
+      const utc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+      return Math.round((utc - todayUtc) / 86400000);
+    };
     for (const ev of eventos) {
       // Só consideramos eventos "Em andamento" — alinhado com o backend de pendências.
       // Eventos Concluído/Cancelado não devem disparar ponto de corte.
       if ((ev.status || 'Em andamento') !== 'Em andamento') continue;
-      // info_geral.data é serializado a partir de cadastro.data_evento no backend
-      // (mesma fonte do filtro de pendências), com data_evento como fallback.
-      const dateStr = ev.info_geral?.data || ev.data_evento;
-      if (!dateStr) continue;
-      const datePart = dateStr.length >= 10 ? dateStr.slice(0, 10) : null;
-      if (!datePart) continue;
-      const parts = datePart.split('-').map(Number);
-      if (parts.length !== 3 || parts.some(isNaN)) continue;
-      const evUtc = Date.UTC(parts[0], parts[1] - 1, parts[2]);
-      const dias = Math.round((evUtc - todayUtc) / 86400000);
-      // Fallback por data: evento com data já passada é tratado como concluído
-      // mesmo se o status no banco ainda for "Em andamento" (auto-update no GET
-      // foi removido). Sem isso, cutoffs gerariam "alertas zumbis" para
-      // eventos já realizados.
+      // Âncora principal: Data de corte Envio do evento. Fallback: data do evento.
+      const envio = corteEnvioByEventoId[ev.id] || null;
+      const refDate = envio || ev.info_geral?.data || ev.data_evento || null;
+      const dias = diasAte(refDate);
+      if (dias === null) continue;
+      // Fallback por data: âncora já passada é tratada como concluída para não
+      // gerar "alertas zumbis" de eventos/cortes que já ocorreram.
       if (dias < 0) continue;
       const rule = ruleByDias[dias];
-      if (rule) map[ev.id] = { dias, rule };
+      if (rule) map[ev.id] = { dias, rule, viaEnvio: !!envio, refDate: refDate ? refDate.slice(0, 10) : null };
     }
     return map;
-  }, [eventos, cutoffRules]);
+  }, [eventos, cutoffRules, corteEnvioByEventoId]);
 
   const tiposEvento = useMemo(() => {
     const tipos = [...new Set(eventos.map(e => e.tipo_evento).filter(Boolean))] as string[];
@@ -1803,7 +1835,7 @@ const ProjecaoInscritos: React.FC = () => {
                   </span>
                 </div>
                 <p className={`text-xs mt-1 ${isDark ? 'text-red-200/80' : 'text-red-700'}`}>
-                  Os eventos abaixo estão exatamente em um ponto de corte hoje e ainda não têm projeção registrada para áreas que você pode editar.
+                  Os eventos abaixo estão exatamente em um ponto de corte hoje (D-N contado a partir da Data de corte Envio, ou da data do evento quando não há corte de envio) e ainda não têm projeção registrada para áreas que você pode editar.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-2.5">
                   {pendencias.pendencias.slice(0, 6).map(p => (
@@ -2060,10 +2092,10 @@ const ProjecaoInscritos: React.FC = () => {
                                   title={
                                     cutoffPending && pend
                                       ? pend.cutoff_customizado
-                                        ? `Data de corte personalizada (${formatDate(pend.cutoff_data || null)}) atingida. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
-                                        : `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
+                                        ? `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias} sobre a Data de corte Envio ${formatDate(pend.cutoff_data || null)}) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
+                                        : `Ponto de corte ${pend.cutoff_nome} (D-${pend.cutoff_dias} sobre a data do evento) atingido. Áreas pendentes: ${pend.areas_pendentes.map(a => a.area_projecao_nome).join(', ')}`
                                       : cutoff
-                                        ? `Ponto de corte ${cutoff.rule.nome} (D-${cutoff.rule.dias_antes_evento}) atingido. Todas as áreas que você pode editar já têm projeção registrada.`
+                                        ? `Ponto de corte ${cutoff.rule.nome} (D-${cutoff.rule.dias_antes_evento} sobre a ${cutoff.viaEnvio ? `Data de corte Envio ${formatDate(cutoff.refDate)}` : 'data do evento'}) atingido. Todas as áreas que você pode editar já têm projeção registrada.`
                                         : ''
                                   }
                                   className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -2904,7 +2936,7 @@ const ProjecaoInscritos: React.FC = () => {
                   <div>
                     <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Pontos de Corte</h2>
                     <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-                      A regra dispara somente no dia exato em que o evento está a esta quantidade de dias da sua data. Os usuários com permissão de editar a área recebem alerta de pendência apenas naquele dia.
+                      O D-N é contado a partir da "Data de corte Envio" do evento (a mais antiga entre as áreas). A regra dispara somente no dia exato em que faltam esta quantidade de dias para a Data de corte Envio — ou para a data do evento, quando ele não tem corte de envio cadastrado. Os usuários com permissão de editar a área recebem alerta de pendência apenas naquele dia.
                     </p>
                   </div>
                 </div>
@@ -2951,7 +2983,7 @@ const ProjecaoInscritos: React.FC = () => {
                           </div>
                           <h3 className={`text-base font-bold mt-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>{rule.nome}</h3>
                           <p className={`text-xs mt-1 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            Aciona apenas no dia exato em que faltam {rule.dias_antes_evento} dia{rule.dias_antes_evento !== 1 ? 's' : ''} para o evento.
+                            Aciona apenas no dia exato em que faltam {rule.dias_antes_evento} dia{rule.dias_antes_evento !== 1 ? 's' : ''} para a Data de corte Envio (ou para o evento, se não houver corte de envio).
                           </p>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
@@ -4255,7 +4287,7 @@ const ProjecaoInscritos: React.FC = () => {
                   className={`w-full h-10 px-3 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
                 />
                 <p className={`text-xs mt-1.5 ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
-                  A regra dispara apenas no dia exato em que faltam esta quantidade de dias para o evento.
+                  A regra dispara apenas no dia exato em que faltam esta quantidade de dias para a Data de corte Envio do evento (ou para a data do evento, quando não há corte de envio cadastrado).
                 </p>
               </div>
 

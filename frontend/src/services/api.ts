@@ -1710,6 +1710,10 @@ export const projecaoService = {
     const response = await api.get('/projecao/pendencias');
     return response.data;
   },
+  getCutoffEnvioMap: async () => {
+    const response = await api.get('/projecao/cutoff-envio-map');
+    return response.data as Record<string, string>;
+  },
   setAreaCutoffCustomizado: async (areaId: number, ativo: boolean) => {
     const response = await api.put(`/projecao/areas/${areaId}/cutoff-customizado`, { ativo });
     return response.data;

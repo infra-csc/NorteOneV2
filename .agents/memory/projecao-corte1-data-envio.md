@@ -18,6 +18,13 @@ só rede de segurança para eventos que ninguém abriu na tela. O total congelad
 de uma query agregada (SUM por evento) independente de qualquer filtro de área do
 consolidado, para nunca congelar total parcial.
 
+- **Alertas/Pontos de Corte (`GET /projecao/pendencias`)** usam a MESMA âncora: o
+  D-N de cada `ProjecaoCutoffRule` ativa é contado em cima da Data de corte Envio
+  (mais antiga `data_corte_1` do evento); sem corte de envio, cai no fallback D-N
+  sobre a data do evento. Dispara no dia exato `hoje == ancora - N`, para TODAS as
+  áreas editáveis (não há mais split global vs custom). O front ancora o mesmo
+  cálculo via `GET /projecao/cutoff-envio-map` (mapa leve evento→data_corte_1 mais
+  antiga), carregado junto com os eventos para não depender do consolidado aberto.
 - **Corte 2 (Projeção convicta)** NÃO usa data — segue só por D-N (`dias_corte_2`).
 - Embora `data_corte_1` seja por (evento, área), na prática só uma única área a
   preenche por evento; o batch e o `get_consolidado` tratam como por-evento usando
