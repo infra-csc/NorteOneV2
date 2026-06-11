@@ -2472,7 +2472,6 @@ const ProjecaoInscritos: React.FC = () => {
                   {filteredConsolidado.map(c => {
                     const isExpanded = expandedConsolidado.has(c.evento_id);
                     const effectiveQtd = (p: { area_projecao_nome: string; quantidade: number }) => p.quantidade;
-                    const maxAreaQtd = Math.max(...c.projecoes.map(effectiveQtd), 1);
                     const diasAteEvento = (() => {
                       if (!c.evento_data) return null;
                       const datePart = c.evento_data.slice(0, 10);
@@ -2627,7 +2626,6 @@ const ProjecaoInscritos: React.FC = () => {
                                   .slice()
                                   .sort((a, b) => effectiveQtd(b) - effectiveQtd(a))
                                   .map((p, idx) => {
-                                    const barPct = (p.quantidade / maxAreaQtd) * 100;
                                     const areaColors = [
                                       { bar: 'from-violet-500 to-purple-500', text: isDark ? 'text-violet-300' : 'text-violet-700', bg: isDark ? 'bg-violet-500/10' : 'bg-violet-50' },
                                       { bar: 'from-blue-500 to-cyan-500', text: isDark ? 'text-blue-300' : 'text-blue-700', bg: isDark ? 'bg-blue-500/10' : 'bg-blue-50' },
@@ -2677,13 +2675,7 @@ const ProjecaoInscritos: React.FC = () => {
                                             {formatNumber(p.quantidade)}
                                           </span>
                                         </div>
-                                        <div className={`relative h-2 rounded-full overflow-hidden mb-3 ${isDark ? 'bg-gray-700/50' : 'bg-gray-200/80'}`}>
-                                          <div
-                                            className={`h-full rounded-full bg-gradient-to-r ${color.bar} transition-all duration-500 ease-out`}
-                                            style={{ width: `${barPct}%` }}
-                                          />
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                                           {/* Projeção Convicta (Corte 1) */}
                                           <div>
                                             <div className="flex items-center justify-between gap-2 mb-1.5">
