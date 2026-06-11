@@ -1121,9 +1121,18 @@ const ProjecaoInscritos: React.FC = () => {
   }, [projecoes, searchTerm]);
 
   const filteredConsolidado = useMemo(() => {
-    if (!searchTerm) return consolidado;
     const term = searchTerm.toLowerCase();
-    return consolidado.filter(c => c.evento_nome?.toLowerCase().includes(term));
+    const base = searchTerm
+      ? consolidado.filter(c => c.evento_nome?.toLowerCase().includes(term))
+      : consolidado;
+    return [...base].sort((a, b) => {
+      const av = a.evento_data || '';
+      const bv = b.evento_data || '';
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av.localeCompare(bv);
+    });
   }, [consolidado, searchTerm]);
 
   const projecoesPorEventoId = useMemo(() => {
