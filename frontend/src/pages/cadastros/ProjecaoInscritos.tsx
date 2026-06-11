@@ -3498,15 +3498,14 @@ const ProjecaoInscritos: React.FC = () => {
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className={`block text-sm font-semibold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>Quantidade</label>
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${isDark ? 'bg-blue-500/20 text-blue-300' : 'bg-blue-100 text-blue-700'}`}>Corte 2 (aditivo)</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Corte 1</div>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Projeção Convicta</div>
                       <div className={`px-3 py-2 rounded-lg border text-sm ${c2BoxRead}`}>{formatNumber(c1Qty)}</div>
                     </div>
                     <div>
-                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Corte 2 (+)</div>
+                      <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
                       <input
                         type="number"
                         value={String(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
@@ -3575,8 +3574,8 @@ const ProjecaoInscritos: React.FC = () => {
                     <>
                       <div className="flex items-center gap-2 px-1 pb-0.5">
                         <div className="flex-1" />
-                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>C1</div>
-                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>C2 +</div>
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Convicta</div>
+                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Ajuste</div>
                         <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
                       </div>
                       {formKits.map((kit, idx) => {
@@ -3727,11 +3726,11 @@ const ProjecaoInscritos: React.FC = () => {
                           </div>
                           <div className="grid grid-cols-3 gap-2">
                             <div>
-                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Corte 1</div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Projeção Convicta</div>
                               <div className={`px-2 py-1.5 rounded-lg border text-sm text-center ${c2BoxRead}`}>{cc1}</div>
                             </div>
                             <div>
-                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Corte 2 (+)</div>
+                              <div className={`text-[10px] uppercase tracking-wider mb-0.5 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
                               <input
                                 type="number"
                                 value={String(Math.max(0, cc2))}
