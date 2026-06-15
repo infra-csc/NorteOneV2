@@ -1784,7 +1784,7 @@ async def lifespan(app: FastAPI):
 
         Verifica a cada 60s; quando ativo e hoje ainda não enviou e já passou da
         hora configurada (BRT), dispara o resumo e marca `notif_email_last_sent`.
-        É puro-PG/SendGrid (não toca Magento), por isso roda independente do
+        É puro-PG/Microsoft Graph (não toca Magento), por isso roda independente do
         ENABLE_BACKGROUND_MAGENTO_SYNC. Só envia se o admin tiver ativado.
         """
         from zoneinfo import ZoneInfo as _ZI

@@ -24,7 +24,7 @@ from ..models.projecao import (
 )
 from ..models.cadastro_evento import CadastroEvento
 from ..models.user import Usuario
-from .email_service import send_email, get_sendgrid_credentials, EmailError
+from .email_service import send_email, EmailError
 
 logger = logging.getLogger(__name__)
 
@@ -269,19 +269,6 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
             "total_eventos": 0,
         }
 
-    try:
-        credentials = get_sendgrid_credentials()
-    except EmailError as exc:
-        logger.error(f"[ProjecaoNotif] Credenciais SendGrid indisponíveis: {exc}")
-        return {
-            "ativo": ativo,
-            "enviados": 0,
-            "falhas": len(grupos),
-            "destinatarios": [],
-            "erros": [str(exc)],
-            "total_eventos": sum(len(g["eventos"]) for g in grupos),
-        }
-
     enviados = 0
     falhas = 0
     destinatarios = []
@@ -301,7 +288,6 @@ def enviar_resumo_diario(db: Session, *, force: bool = False) -> dict:
                 subject,
                 html=html,
                 text=txt,
-                credentials=credentials,
                 to_name=u.nome,
             )
             enviados += 1
