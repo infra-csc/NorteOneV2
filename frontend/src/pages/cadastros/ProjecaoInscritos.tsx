@@ -3458,7 +3458,7 @@ const ProjecaoInscritos: React.FC = () => {
                         </div>
                       )}
                       <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
-                        {(camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : kit.nome_kit}
+                        {kit.nome_kit}
                         {camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM && (
                           <span className={`ml-2 text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
                             (Corte 1: {camisetaAvulsaInfo.teto} → máx. {camisetaAvulsaInfo.teto}; só diminui)
@@ -3838,7 +3838,7 @@ const ProjecaoInscritos: React.FC = () => {
                         </div>
                       )}
                       <div className={`flex-1 px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-900/40 border-gray-700 text-gray-200' : 'bg-gray-50 border-gray-200 text-gray-700'}`}>
-                        {(camisetaAvulsaInfo.corte1_congelado && kit.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : kit.nome_kit}
+                        {kit.nome_kit}
                         {camisetaAvulsaInfo.corte1_congelado && camisetaAvulsaInfo.teto > 0 && kit.nome_kit === KIT_CAMISETA_ORIGEM && (
                           <span className={`ml-2 text-xs ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
                             (Corte 1: {camisetaAvulsaInfo.teto} → máx. {camisetaAvulsaInfo.teto}; só diminui)
