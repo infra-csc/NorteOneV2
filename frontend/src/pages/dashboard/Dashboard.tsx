@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import RelatorioFinanceiro from './RelatorioFinanceiro';
 import {
   Filter, Search, ChevronDown, LayoutDashboard, RotateCcw,
-  CalendarDays, RefreshCw,
+  RefreshCw,
   ListOrdered, ArrowUp, ArrowDown, ArrowUpDown, ChevronUp
 } from 'lucide-react';
 
@@ -30,12 +30,6 @@ interface FilterOptions {
   modalidades: FilterOption[];
   cidades: FilterOption[];
 }
-
-const ISC_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  accelerating: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', label: 'Acelerando' },
-  stable: { bg: 'bg-amber-500/20', text: 'text-amber-400', label: 'Estável' },
-  decelerating: { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Desacelerando' },
-};
 
 const SearchableDropdown: React.FC<{
   label: string; options: FilterOption[]; value: string | number | null;
@@ -112,13 +106,6 @@ const SectionLabel: React.FC<{ label: string; isDark: boolean; color: string }> 
     <div className={`h-px flex-1 ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
   </div>
 );
-
-const IscBadge: React.FC<{ status: string }> = ({ status }) => {
-  const info = ISC_BADGE[status] || { bg: 'bg-gray-500/20', text: 'text-gray-400', label: status };
-  return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${info.bg} ${info.text}`}>{info.label}</span>
-  );
-};
 
 const OcupacaoBar: React.FC<{ taxa: number }> = ({ taxa }) => {
   const color = taxa >= 80 ? 'bg-emerald-500' : taxa >= 50 ? 'bg-amber-500' : 'bg-red-500';
@@ -790,37 +777,6 @@ const Dashboard: React.FC = () => {
               <EventosInscricoesTable rows={opData.tabela_eventos} isDark={isDark} />
             )}
 
-            {opData.proximos_eventos?.length > 0 && (
-              <div className={cardClass}>
-                <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  <CalendarDays className="w-4 h-4 text-indigo-400" />
-                  Próximas 4 semanas
-                </h3>
-                <div className="space-y-2">
-                  {opData.proximos_eventos.slice(0, 7).map((ev: any, i: number) => (
-                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-gray-50'}`}>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{ev.cidade} · {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
-                          {ev.isc_status && <IscBadge status={ev.isc_status} />}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 ml-3">
-                        <OcupacaoBar taxa={ev.taxa_ocupacao} />
-                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                          ev.dias_para_evento <= 7
-                            ? 'bg-red-500/20 text-red-400'
-                            : ev.dias_para_evento <= 14
-                            ? 'bg-amber-500/20 text-amber-400'
-                            : 'bg-indigo-500/20 text-indigo-400'
-                        }`}>D-{ev.dias_para_evento}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
 
