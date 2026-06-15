@@ -2700,8 +2700,7 @@ const ProjecaoInscritos: React.FC = () => {
                                             .slice()
                                             .sort((a, b) => b.quantidade - a.quantidade)
                                             .map((k, kidx) => {
-                                              const isCamiseta = k.nome_kit === KIT_CAMISETA_ORIGEM && p.camiseta_avulsa_teto != null;
-                                              const nomeExibido = isCamiseta ? KIT_CAMISETA_LABEL : k.nome_kit;
+                                              const nomeExibido = k.nome_kit;
                                               return (
                                                 <span
                                                   key={`${k.nome_kit}-${kidx}`}
@@ -3201,9 +3200,7 @@ const ProjecaoInscritos: React.FC = () => {
         const totaisPorKit: Record<string, number> = {};
         for (const p of kitBreakdownEvento.projecoes) {
           for (const k of (p.kits || [])) {
-            const nome = (k.nome_kit === KIT_CAMISETA_ORIGEM && kitBreakdownEvento.corte_congelado_1_em)
-              ? KIT_CAMISETA_LABEL
-              : k.nome_kit;
+            const nome = k.nome_kit;
             totaisPorKit[nome] = (totaisPorKit[nome] || 0) + k.quantidade;
           }
         }
