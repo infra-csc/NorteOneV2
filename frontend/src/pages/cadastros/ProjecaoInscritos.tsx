@@ -515,6 +515,8 @@ const ProjecaoInscritos: React.FC = () => {
   const [cutoffDraft, setCutoffDraft] = useState<Record<number, { d1: string; d2: string; saida: string }>>({});
   const cutoffsLoadTokenRef = useRef(0);
 
+  const [selectedEventoCorteSnap, setSelectedEventoCorteSnap] = useState<{ congelado_corte_1_em: string | null; reaberto_manual_corte_1: boolean; congelado_corte_2_em: string | null; reaberto_manual_corte_2: boolean } | null>(null);
+
   const [autoLockConfig, setAutoLockConfig] = useState<AutoLockConfig>({ dias_antes_evento: 0, hora_trava: '00:00', ativo: false });
   const [autoLockDraft, setAutoLockDraft] = useState<{ dias: string; hora: string; ativo: boolean }>({ dias: '0', hora: '00:00', ativo: false });
   const [savingAutoLock, setSavingAutoLock] = useState(false);
@@ -996,6 +998,31 @@ const ProjecaoInscritos: React.FC = () => {
       setCutoffDraft({});
     }
   }, [activeTab, selectedEvento?.id]);
+
+  useEffect(() => {
+    if (!selectedEvento) {
+      setSelectedEventoCorteSnap(null);
+      return;
+    }
+    let cancelled = false;
+    projecaoService.getConsolidado({ evento_id: selectedEvento.id })
+      .then((data: ConsolidadoEvento[]) => {
+        if (cancelled) return;
+        const ev = data[0];
+        if (ev) {
+          setSelectedEventoCorteSnap({
+            congelado_corte_1_em: ev.corte_congelado_1_em ?? null,
+            reaberto_manual_corte_1: !!ev.reaberto_manual_corte_1,
+            congelado_corte_2_em: ev.corte_congelado_2_em ?? null,
+            reaberto_manual_corte_2: !!ev.reaberto_manual_corte_2,
+          });
+        } else {
+          setSelectedEventoCorteSnap(null);
+        }
+      })
+      .catch(() => { if (!cancelled) setSelectedEventoCorteSnap(null); });
+    return () => { cancelled = true; };
+  }, [selectedEvento?.id]);
 
   useEffect(() => {
     const eventoId = editingProjecao ? editingProjecao.evento_id : (typeof formEventoId === 'number' ? formEventoId : null);
@@ -1700,16 +1727,39 @@ const ProjecaoInscritos: React.FC = () => {
                 Exportar CSV
               </button>
             )}
-            {activeTab === 'projecoes' && canCreateProjecao && selectedEvento && (
-              !isAdmin && autoLockedEventoIds.has(selectedEvento.id) ? (
-                <div
-                  title={`Trava automática ativa: D-${autoLockConfig.dias_antes_evento}`}
-                  className="flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold text-sm cursor-not-allowed bg-amber-500/20 text-amber-400 border border-amber-500/40"
-                >
-                  <Lock className="w-4 h-4" />
-                  Evento travado (D-{autoLockConfig.dias_antes_evento})
-                </div>
-              ) : (
+            {activeTab === 'projecoes' && canCreateProjecao && selectedEvento && (() => {
+              const corteSnap = selectedEventoCorteSnap;
+              const corte2Frozen = !!(corteSnap?.congelado_corte_2_em) && !corteSnap?.reaberto_manual_corte_2;
+              const corte1Frozen = !!(corteSnap?.congelado_corte_1_em) && !corteSnap?.reaberto_manual_corte_1;
+              const corteFrozen = !isAdmin && (corte2Frozen || corte1Frozen);
+              const corteLabel = corte2Frozen ? 'Corte 2' : 'Corte 1';
+              const corteDate = corte2Frozen
+                ? (corteSnap?.congelado_corte_2_em ? new Date(corteSnap.congelado_corte_2_em).toLocaleDateString('pt-BR') : '')
+                : (corteSnap?.congelado_corte_1_em ? new Date(corteSnap.congelado_corte_1_em).toLocaleDateString('pt-BR') : '');
+
+              if (!isAdmin && autoLockedEventoIds.has(selectedEvento.id)) {
+                return (
+                  <div
+                    title={`Trava automática ativa: D-${autoLockConfig.dias_antes_evento}`}
+                    className="flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold text-sm cursor-not-allowed bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                  >
+                    <Lock className="w-4 h-4" />
+                    Evento travado (D-{autoLockConfig.dias_antes_evento})
+                  </div>
+                );
+              }
+              if (corteFrozen) {
+                return (
+                  <div
+                    title={`${corteLabel} congelado em ${corteDate} — novas projeções não são permitidas`}
+                    className="flex items-center gap-2 px-6 py-3 rounded-2xl font-semibold text-sm cursor-not-allowed bg-rose-500/20 text-rose-400 border border-rose-500/40"
+                  >
+                    <Lock className="w-4 h-4" />
+                    {corteLabel} congelado
+                  </div>
+                );
+              }
+              return (
                 <button
                   onClick={() => { resetForm(); setFormEventoId(selectedEvento.id); setShowCreateModal(true); }}
                   className="group relative px-6 py-3 bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 text-white rounded-2xl font-semibold shadow-xl shadow-violet-500/30 hover:shadow-violet-500/50 transition-all duration-300 hover:scale-105 overflow-hidden"
@@ -1720,8 +1770,8 @@ const ProjecaoInscritos: React.FC = () => {
                     Nova Projeção
                   </span>
                 </button>
-              )
-            )}
+              );
+            })()}
           </div>
         </div>
 

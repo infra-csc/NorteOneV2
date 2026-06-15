@@ -329,6 +329,34 @@ def _get_auto_lock_config(db: Session) -> Optional[ProjecaoAutoLockConfig]:
     return db.query(ProjecaoAutoLockConfig).first()
 
 
+def _check_corte_congelado(db: Session, evento_id: int, current_user: Usuario):
+    """Rejeita criação de novas projeções para não-admins quando o Corte 1 (ou Corte 2)
+    do evento já foi congelado e não foi reaberto manualmente."""
+    if is_user_admin(current_user):
+        return
+    snap = db.query(ProjecaoCorteSnapshot).filter(
+        ProjecaoCorteSnapshot.evento_id == evento_id
+    ).first()
+    if not snap:
+        return
+    corte1_congelado = (snap.congelado_corte_1_em is not None or snap.valor_corte_1 is not None)
+    corte2_congelado = (snap.congelado_corte_2_em is not None or snap.valor_corte_2 is not None)
+    if corte2_congelado and not snap.reaberto_manual_corte_2:
+        em = snap.congelado_corte_2_em
+        data_str = em.strftime('%d/%m/%Y às %H:%M') if em else 'data desconhecida'
+        raise HTTPException(
+            status_code=423,
+            detail=f"O Corte 2 deste evento foi congelado em {data_str}. Não é possível adicionar novas projeções.",
+        )
+    if corte1_congelado and not snap.reaberto_manual_corte_1:
+        em = snap.congelado_corte_1_em
+        data_str = em.strftime('%d/%m/%Y às %H:%M') if em else 'data desconhecida'
+        raise HTTPException(
+            status_code=423,
+            detail=f"O Corte 1 deste evento foi congelado em {data_str}. Não é possível adicionar novas projeções.",
+        )
+
+
 def _check_auto_lock(db: Session, evento: CadastroEvento, current_user: Usuario):
     """Rejeita a operação se o evento está dentro do período de trava automática (não-admins)."""
     if is_user_admin(current_user):
@@ -485,6 +513,7 @@ def create_projecao(
         raise HTTPException(status_code=404, detail="Evento não encontrado")
 
     _check_auto_lock(db, evento, current_user)
+    _check_corte_congelado(db, data.evento_id, current_user)
 
     area = db.query(AreaProjecao).filter(AreaProjecao.id == data.area_projecao_id, AreaProjecao.ativo == True).first()
     if not area:
