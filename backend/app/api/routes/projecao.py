@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import extract, text, func
+from sqlalchemy import extract, text, func, or_
 from sqlalchemy.exc import IntegrityError
 from datetime import timedelta
 from typing import List, Optional
@@ -2294,6 +2294,159 @@ def get_pendencias(
 # ============================================================
 # CUTOFF CUSTOMIZADO POR EVENTO + ÁREA
 # ============================================================
+
+@router.get("/diagnostico-pos-corte")
+def get_diagnostico_pos_corte(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_visualizar")),
+):
+    """Admin: lista projeções criadas pós-Corte 1 congelado que não têm
+    ProjecaoCorteDistSnapshot — ou seja, não foram contabilizadas no valor_corte_1.
+    Cada item reporta o evento, a área, a quantidade e o valor_corte_1 atual."""
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem visualizar este diagnóstico")
+
+    frozen_snaps = db.query(ProjecaoCorteSnapshot).filter(
+        or_(
+            ProjecaoCorteSnapshot.valor_corte_1.isnot(None),
+            ProjecaoCorteSnapshot.congelado_corte_1_em.isnot(None),
+        )
+    ).all()
+    if not frozen_snaps:
+        return []
+
+    snap_by_evento = {s.evento_id: s for s in frozen_snaps}
+    frozen_evento_ids = list(snap_by_evento.keys())
+
+    projecoes = (
+        db.query(ProjecaoInscritos)
+        .options(selectinload(ProjecaoInscritos.kits), selectinload(ProjecaoInscritos.clientes))
+        .filter(
+            ProjecaoInscritos.evento_id.in_(frozen_evento_ids),
+            ProjecaoInscritos.deleted_at.is_(None),
+        )
+        .all()
+    )
+    if not projecoes:
+        return []
+
+    dist_snaps = db.query(ProjecaoCorteDistSnapshot).filter(
+        ProjecaoCorteDistSnapshot.evento_id.in_(frozen_evento_ids),
+    ).all()
+    snapped_keys = {(d.evento_id, d.area_projecao_id) for d in dist_snaps}
+
+    orphans = [p for p in projecoes if (p.evento_id, p.area_projecao_id) not in snapped_keys]
+    if not orphans:
+        return []
+
+    ev_ids = list({o.evento_id for o in orphans})
+    area_ids = list({o.area_projecao_id for o in orphans})
+    eventos = {e.id: e for e in db.query(CadastroEvento).filter(CadastroEvento.id.in_(ev_ids)).all()}
+    areas = {a.id: a for a in db.query(AreaProjecao).filter(AreaProjecao.id.in_(area_ids)).all()}
+
+    result = []
+    for o in orphans:
+        ev = eventos.get(o.evento_id)
+        area = areas.get(o.area_projecao_id)
+        snap = snap_by_evento.get(o.evento_id)
+        result.append({
+            "projecao_id": o.id,
+            "evento_id": o.evento_id,
+            "evento_nome": ev.nome if ev else str(o.evento_id),
+            "area_projecao_id": o.area_projecao_id,
+            "area_nome": area.nome if area else str(o.area_projecao_id),
+            "quantidade": int(o.quantidade or 0),
+            "valor_corte_1_atual": snap.valor_corte_1 if snap else None,
+            "congelado_em": snap.congelado_corte_1_em.isoformat() if snap and snap.congelado_corte_1_em else None,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        })
+    return result
+
+
+@router.post("/diagnostico-pos-corte/backfill")
+def backfill_pos_corte(
+    evento_id: int = Query(...),
+    area_projecao_id: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission(PROJECAO_PERMISSION, "pode_editar")),
+):
+    """Admin: inclui uma área órfã no snapshot do Corte 1 (backfill).
+
+    Cria a ProjecaoCorteDistSnapshot ausente e incrementa valor_corte_1 com a
+    quantidade dessa área, corrigindo a discrepância silenciosa no consolidado."""
+    if not is_user_admin(current_user):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem executar o backfill")
+
+    corte_snap = db.query(ProjecaoCorteSnapshot).filter(
+        ProjecaoCorteSnapshot.evento_id == evento_id
+    ).first()
+    if not corte_snap or (corte_snap.valor_corte_1 is None and corte_snap.congelado_corte_1_em is None):
+        raise HTTPException(status_code=400, detail="Corte 1 não está congelado para este evento")
+
+    existing_dist = db.query(ProjecaoCorteDistSnapshot).filter(
+        ProjecaoCorteDistSnapshot.evento_id == evento_id,
+        ProjecaoCorteDistSnapshot.area_projecao_id == area_projecao_id,
+    ).first()
+    if existing_dist:
+        raise HTTPException(status_code=409, detail="Esta área já tem snapshot de distribuição")
+
+    proj = (
+        db.query(ProjecaoInscritos)
+        .options(selectinload(ProjecaoInscritos.kits), selectinload(ProjecaoInscritos.clientes))
+        .filter(
+            ProjecaoInscritos.evento_id == evento_id,
+            ProjecaoInscritos.area_projecao_id == area_projecao_id,
+            ProjecaoInscritos.deleted_at.is_(None),
+        )
+        .first()
+    )
+    if not proj:
+        raise HTTPException(status_code=404, detail="Projeção não encontrada ou já excluída")
+
+    import json as _json
+    qtd = int(proj.quantidade or 0)
+    kits = [{"nome_kit": k.nome_kit, "quantidade": int(k.quantidade or 0)} for k in proj.kits]
+    clientes = [{"nome_cliente": c.nome_cliente, "quantidade": int(c.quantidade or 0)} for c in proj.clientes]
+    if not kits and qtd > 0:
+        kits = [{"nome_kit": "Kit Básico", "quantidade": qtd}]
+
+    now = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(tzinfo=None)
+    ts = corte_snap.congelado_corte_1_em or now
+
+    dist = ProjecaoCorteDistSnapshot(
+        evento_id=evento_id,
+        area_projecao_id=area_projecao_id,
+        quantidade=qtd,
+        kits_json=_json.dumps(kits, ensure_ascii=False),
+        clientes_json=_json.dumps(clientes, ensure_ascii=False),
+        congelado_em=ts,
+    )
+    db.add(dist)
+
+    if corte_snap.valor_corte_1 is not None:
+        corte_snap.valor_corte_1 = int(corte_snap.valor_corte_1 or 0) + qtd
+    else:
+        corte_snap.valor_corte_1 = qtd
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Conflito ao criar snapshot — tente novamente")
+
+    invalidate_consolidado_cache()
+    logger.info(
+        "[DiagnosticoPosCorte] backfill evento_id=%s area_projecao_id=%s qtd=%s novo_valor_corte_1=%s by=%s",
+        evento_id, area_projecao_id, qtd, corte_snap.valor_corte_1, current_user.id,
+    )
+    return {
+        "status": "ok",
+        "evento_id": evento_id,
+        "area_projecao_id": area_projecao_id,
+        "quantidade_adicionada": qtd,
+        "novo_valor_corte_1": corte_snap.valor_corte_1,
+    }
+
 
 @router.put("/areas/{area_id}/cutoff-customizado", response_model=AreaProjecaoResponse)
 def toggle_area_cutoff_customizado(

@@ -530,6 +530,21 @@ const ProjecaoInscritos: React.FC = () => {
   const [savingNotif, setSavingNotif] = useState(false);
   const [sendingNotifTest, setSendingNotifTest] = useState(false);
 
+  type DiagnosticoPosCorteItem = {
+    projecao_id: number;
+    evento_id: number;
+    evento_nome: string;
+    area_projecao_id: number;
+    area_nome: string;
+    quantidade: number;
+    valor_corte_1_atual: number | null;
+    congelado_em: string | null;
+    created_at: string | null;
+  };
+  const [diagnosticoPosCorte, setDiagnosticoPosCorte] = useState<DiagnosticoPosCorteItem[]>([]);
+  const [loadingDiagnostico, setLoadingDiagnostico] = useState(false);
+  const [diagnosticoActionBusy, setDiagnosticoActionBusy] = useState<number | null>(null);
+
   const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
   const toastTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -750,6 +765,52 @@ const ProjecaoInscritos: React.FC = () => {
     } finally {
       setSavingNotif(false);
     }
+  };
+
+  const loadDiagnosticoPosCorte = async () => {
+    setLoadingDiagnostico(true);
+    try {
+      const data = await projecaoService.getDiagnosticoPosCorte();
+      setDiagnosticoPosCorte(data);
+    } catch {
+      // silently ignore — non-critical diagnostic
+    } finally {
+      setLoadingDiagnostico(false);
+    }
+  };
+
+  const handleBackfillPosCorte = async (item: DiagnosticoPosCorteItem) => {
+    setDiagnosticoActionBusy(item.projecao_id);
+    try {
+      await projecaoService.backfillPosCorte(item.evento_id, item.area_projecao_id);
+      showToast(`Backfill concluído: +${item.quantidade.toLocaleString('pt-BR')} adicionados ao Corte 1 de "${item.evento_nome}"`, 'success');
+      await loadDiagnosticoPosCorte();
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || 'Erro ao executar backfill');
+    } finally {
+      setDiagnosticoActionBusy(null);
+    }
+  };
+
+  const handleDeleteOrfaoPosCorte = (item: DiagnosticoPosCorteItem) => {
+    showConfirm({
+      title: 'Excluir projeção pós-corte',
+      message: `Excluir a projeção de "${item.area_nome}" (${item.quantidade.toLocaleString('pt-BR')} inscritos) do evento "${item.evento_nome}"? Esta ação é irreversível.`,
+      confirmLabel: 'Excluir',
+      variant: 'danger',
+      onConfirm: async () => {
+        setDiagnosticoActionBusy(item.projecao_id);
+        try {
+          await projecaoService.delete(item.projecao_id);
+          showToast('Projeção excluída com sucesso', 'success');
+          await loadDiagnosticoPosCorte();
+        } catch (err: any) {
+          showToast(err?.response?.data?.detail || 'Erro ao excluir projeção');
+        } finally {
+          setDiagnosticoActionBusy(null);
+        }
+      },
+    });
   };
 
   const sendNotifTest = async () => {
@@ -985,7 +1046,7 @@ const ProjecaoInscritos: React.FC = () => {
 
   useEffect(() => {
     if (activeTab === 'consolidado') loadConsolidado();
-    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); }
+    if (activeTab === 'config' && isAdmin) { loadAreasDetail(); loadAutoLockConfig(); loadCorteConfig(); loadDiagnosticoPosCorte(); }
     if (activeTab === 'lixeira' && isAdmin) loadLixeira();
   }, [activeTab]);
 
@@ -3164,6 +3225,99 @@ const ProjecaoInscritos: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* ── Diagnóstico: Projeções Pós-Corte ── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className={`w-5 h-5 ${isDark ? 'text-rose-400' : 'text-rose-600'}`} />
+                  <div>
+                    <h2 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Diagnóstico: Projeções Pós-Corte</h2>
+                    <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+                      Projeções criadas após o Corte 1 ser congelado não foram contabilizadas no <code className="font-mono">valor_corte_1</code>. Para cada caso, o admin pode incluir no snapshot (backfill) ou excluir a projeção.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={loadDiagnosticoPosCorte}
+                  disabled={loadingDiagnostico}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border transition-all disabled:opacity-50 ${isDark ? 'border-gray-600 text-gray-300 hover:bg-gray-700/50' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}
+                >
+                  <RotateCcw className={`w-4 h-4 ${loadingDiagnostico ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </button>
+              </div>
+
+              <div className={`rounded-2xl border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-700/50' : 'bg-white border-gray-200'}`}>
+                {loadingDiagnostico ? (
+                  <div className={`text-center py-8 text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Carregando…
+                  </div>
+                ) : diagnosticoPosCorte.length === 0 ? (
+                  <div className={`flex items-center gap-3 px-5 py-4 text-sm ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                    <Check className="w-5 h-5 flex-shrink-0" />
+                    Nenhuma discrepância encontrada — todas as projeções estão contabilizadas no Corte 1.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className={isDark ? 'bg-gray-900/50' : 'bg-gray-50'}>
+                          {['Evento', 'Área', 'Qtd. (órfã)', 'Corte 1 atual', 'Criada em', 'Ações'].map(h => (
+                            <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
+                        {diagnosticoPosCorte.map(item => (
+                          <tr key={item.projecao_id} className={`transition-colors ${isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50'}`}>
+                            <td className={`px-4 py-3 text-sm font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                              {item.evento_nome}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-semibold ${isDark ? 'bg-violet-500/20 text-violet-300' : 'bg-violet-100 text-violet-700'}`}>
+                                {item.area_nome}
+                              </span>
+                            </td>
+                            <td className={`px-4 py-3 text-sm font-bold ${isDark ? 'text-rose-300' : 'text-rose-600'}`}>
+                              +{item.quantidade.toLocaleString('pt-BR')}
+                            </td>
+                            <td className={`px-4 py-3 text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
+                              {item.valor_corte_1_atual != null ? item.valor_corte_1_atual.toLocaleString('pt-BR') : '—'}
+                            </td>
+                            <td className={`px-4 py-3 text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {item.created_at ? new Date(item.created_at).toLocaleDateString('pt-BR') : '—'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleBackfillPosCorte(item)}
+                                  disabled={diagnosticoActionBusy === item.projecao_id}
+                                  title="Incluir esta área no snapshot do Corte 1 e somar ao valor_corte_1"
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  Incluir no Corte 1
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteOrfaoPosCorte(item)}
+                                  disabled={diagnosticoActionBusy === item.projecao_id}
+                                  title="Excluir esta projeção"
+                                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Excluir
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

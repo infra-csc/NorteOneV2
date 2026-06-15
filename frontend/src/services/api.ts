@@ -1762,6 +1762,26 @@ export const projecaoService = {
     const response = await api.post(`/projecao/eventos/${eventoId}/corte/${corte}/recongelar`);
     return response.data;
   },
+  getDiagnosticoPosCorte: async (): Promise<{
+    projecao_id: number;
+    evento_id: number;
+    evento_nome: string;
+    area_projecao_id: number;
+    area_nome: string;
+    quantidade: number;
+    valor_corte_1_atual: number | null;
+    congelado_em: string | null;
+    created_at: string | null;
+  }[]> => {
+    const response = await api.get('/projecao/diagnostico-pos-corte');
+    return response.data;
+  },
+  backfillPosCorte: async (eventoId: number, areaProjecaoId: number) => {
+    const response = await api.post('/projecao/diagnostico-pos-corte/backfill', null, {
+      params: { evento_id: eventoId, area_projecao_id: areaProjecaoId },
+    });
+    return response.data;
+  },
 };
 
 export default api;
