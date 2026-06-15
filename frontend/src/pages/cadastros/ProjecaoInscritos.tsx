@@ -1529,7 +1529,14 @@ const ProjecaoInscritos: React.FC = () => {
   };
 
   const updateKit = (idx: number, field: keyof KitItem, value: string) => {
-    setFormKits(prev => prev.map((k, i) => i === idx ? { ...k, [field]: value } : k));
+    setFormKits(prev => {
+      const updated = prev.map((k, i) => i === idx ? { ...k, [field]: value } : k);
+      if (emCorte2 && formTemKit && field === 'quantidade') {
+        const total = updated.reduce((sum, k) => sum + (parseInt(k.quantidade) || 0), 0);
+        setFormQuantidade(String(total));
+      }
+      return updated;
+    });
   };
 
   useEffect(() => {
