@@ -2690,7 +2690,7 @@ const ProjecaoInscritos: React.FC = () => {
                                     const convictaKits = p.convicta_kits ?? p.kits ?? [];
                                     const convictaQtd = p.convicta_quantidade ?? p.quantidade;
 
-                                    const renderKitChips = (kits: { nome_kit: string; quantidade: number }[]) => {
+                                    const renderKitChips = (kits: { nome_kit: string; quantidade: number }[], isAjuste = false) => {
                                       if (!kits || kits.length === 0) {
                                         return <span className={`text-[11px] ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>—</span>;
                                       }
@@ -2700,7 +2700,7 @@ const ProjecaoInscritos: React.FC = () => {
                                             .slice()
                                             .sort((a, b) => b.quantidade - a.quantidade)
                                             .map((k, kidx) => {
-                                              const nomeExibido = k.nome_kit;
+                                              const nomeExibido = (isAjuste && k.nome_kit === KIT_CAMISETA_ORIGEM) ? KIT_CAMISETA_LABEL : k.nome_kit;
                                               return (
                                                 <span
                                                   key={`${k.nome_kit}-${kidx}`}
@@ -2744,7 +2744,7 @@ const ProjecaoInscritos: React.FC = () => {
                                                 {formatNumber(p.quantidade)}
                                               </span>
                                             </div>
-                                            {renderKitChips(p.kits ?? [])}
+                                            {renderKitChips(p.kits ?? [], true)}
                                           </div>
                                         </div>
                                       </div>
