@@ -81,9 +81,21 @@ def _acquire_token() -> str:
                 },
                 timeout=15,
             )
-            resp.raise_for_status()
         except requests.RequestException as exc:
-            raise EmailError(f"Falha ao obter token Microsoft Graph: {exc}") from exc
+            raise EmailError(f"Falha de rede ao obter token Microsoft Graph: {exc}") from exc
+
+        if resp.status_code != 200:
+            try:
+                err_body = resp.json()
+                err_code = err_body.get("error", "")
+                err_desc = err_body.get("error_description", "")
+                detail = f"{err_code}: {err_desc}" if err_code else str(err_body)[:400]
+            except Exception:
+                detail = resp.text[:400]
+            logger.error("[EmailService] Token Microsoft Graph falhou (%s): %s", resp.status_code, detail)
+            raise EmailError(
+                f"Falha ao obter token Microsoft Graph ({resp.status_code}): {detail}"
+            )
 
         data = resp.json()
         token = data.get("access_token")
