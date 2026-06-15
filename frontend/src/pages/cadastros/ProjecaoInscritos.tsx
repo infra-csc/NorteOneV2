@@ -3670,15 +3670,26 @@ const ProjecaoInscritos: React.FC = () => {
                     </div>
                     <div>
                       <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Projeção Ajuste</div>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={formatMilhar(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
-                        onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); setFormQuantidade(String(c1Qty + c2)); }}
-                        placeholder="0"
-                        min={0}
-                        className={`w-full px-3 py-2 rounded-lg border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                      />
+                      <div className={`flex items-center rounded-lg border overflow-hidden ${isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300'} focus-within:ring-2 focus-within:ring-blue-500`}>
+                        <button
+                          type="button"
+                          onClick={() => { const c2 = Math.max(0, ((parseInt(formQuantidade) || 0) - c1Qty) - 1); setFormQuantidade(String(c1Qty + c2)); }}
+                          className={`px-2 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                        >−</button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={formatMilhar(Math.max(0, (parseInt(formQuantidade) || 0) - c1Qty))}
+                          onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); setFormQuantidade(String(c1Qty + c2)); }}
+                          placeholder="0"
+                          className={`flex-1 min-w-0 py-2 text-sm text-center bg-transparent border-0 focus:outline-none focus:ring-0 ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { const c2 = Math.max(0, ((parseInt(formQuantidade) || 0) - c1Qty)) + 1; setFormQuantidade(String(c1Qty + c2)); }}
+                          className={`px-2 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                        >+</button>
+                      </div>
                     </div>
                     <div>
                       <div className={`text-[10px] uppercase tracking-wider mb-1 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
@@ -3740,7 +3751,7 @@ const ProjecaoInscritos: React.FC = () => {
                       <div className="flex items-center gap-2 px-1 pb-0.5">
                         <div className="flex-1" />
                         <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Convicta</div>
-                        <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Ajuste</div>
+                        <div className={`w-24 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Ajuste</div>
                         <div className={`w-14 text-center text-[10px] uppercase tracking-wider ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>Total</div>
                       </div>
                       {formKits.map((kit, idx) => {
@@ -3764,26 +3775,47 @@ const ProjecaoInscritos: React.FC = () => {
                             </div>
                             <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${c2BoxRead}`}>{kc1}</div>
                             {isCam ? (
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={formatMilhar(kc2)}
-                                onChange={e => { let c2 = parseInt(stripMilhar(e.target.value)); if (isNaN(c2)) c2 = 0; if (c2 > 0) c2 = 0; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
-                                placeholder="0"
-                                min={-kc1}
-                                max={0}
-                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-200 text-red-600') : (isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400')} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                              />
+                              <div className={`w-24 flex items-center rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200') : (isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300')}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => { let c2 = kc2 - 1; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-600 hover:bg-red-100'}`}
+                                >−</button>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatMilhar(kc2)}
+                                  onChange={e => { let c2 = parseInt(stripMilhar(e.target.value)); if (isNaN(c2)) c2 = 0; if (c2 > 0) c2 = 0; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  placeholder="0"
+                                  className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 font-semibold ${kc2 < 0 ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => { let c2 = kc2 + 1; if (c2 > 0) c2 = 0; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                                >+</button>
+                              </div>
                             ) : (
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={formatMilhar(Math.max(0, kc2))}
-                                onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
-                                placeholder="0"
-                                min={0}
-                                className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${isDark ? 'bg-gray-800/50 border-gray-600 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                              />
+                              <div className={`w-24 flex items-center rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300'}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => { const c2 = Math.max(0, kc2 - 1); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                                >−</button>
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={formatMilhar(Math.max(0, kc2))}
+                                  onChange={e => { const c2 = Math.max(0, parseInt(stripMilhar(e.target.value)) || 0); updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  placeholder="0"
+                                  className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 ${isDark ? 'text-white placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => { const c2 = Math.max(0, kc2) + 1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-600 hover:bg-gray-100'}`}
+                                >+</button>
+                              </div>
                             )}
                             <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center font-bold ${isDark ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>{ktotal}</div>
                           </div>
