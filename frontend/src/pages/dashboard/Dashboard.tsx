@@ -158,9 +158,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   const [collapsed, setCollapsed] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('data_evento');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [viewMode, setViewMode] = useState<'site' | 'projecoes'>('site');
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return rows.filter(r => {
@@ -207,14 +204,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
     const n = filtered.length || 1;
     return { ...sum, m7Avg: sum.m7 / n, m14Avg: sum.m14 / n };
   }, [filtered]);
-
-  const toggleRow = (id: number) => {
-    setExpandedRows(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -267,28 +256,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             Inscrições por Evento <span className={`text-xs font-normal ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>· {filtered.length} de {rows.length}</span>
             <ChevronUp className={`w-4 h-4 ml-1 transition-transform ${collapsed ? 'rotate-180' : ''} ${isDark ? 'text-gray-400' : 'text-gray-500'}`} />
           </button>
-          {!collapsed && (
-            <div className={`flex items-center rounded-lg border p-0.5 ${isDark ? 'bg-gray-700/60 border-gray-600' : 'bg-gray-100 border-gray-200'}`}>
-              <button
-                type="button"
-                onClick={() => setViewMode('site')}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${viewMode === 'site'
-                  ? 'bg-indigo-500 text-white shadow-sm'
-                  : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                Site
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('projecoes')}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${viewMode === 'projecoes'
-                  ? 'bg-violet-500 text-white shadow-sm'
-                  : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                Projeções
-              </button>
-            </div>
-          )}
         </div>
         {!collapsed && (
         <div className="flex flex-wrap items-center gap-2">
@@ -315,7 +282,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
         </div>
         )}
       </div>
-      {viewMode === 'site' && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -383,131 +349,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
           )}
         </table>
       </div>
-      )}
-
-      {viewMode === 'projecoes' && (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className={isDark ? 'bg-gray-700/40' : 'bg-gray-50/80'}>
-              <Th k="evento">Evento</Th>
-              <Th k="data_evento" align="center">Data</Th>
-              <Th k="total_geral" align="center">Total Inscritos</Th>
-              <Th align="center"><span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Expandir detalhes →</span></Th>
-            </tr>
-          </thead>
-          <tbody className={`divide-y ${isDark ? 'divide-gray-700/40' : 'divide-gray-100'}`}>
-            {!collapsed && sorted.length === 0 && (
-              <tr><td colSpan={4} className={`px-4 py-8 text-center text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Nenhum evento encontrado</td></tr>
-            )}
-            {!collapsed && sorted.map(r => {
-              const isExpanded = expandedRows.has(r.id);
-              const areas = (r.projecoes_por_area || []).slice().sort((a, b) => b.quantidade - a.quantidade);
-              const totalProj = r.inscritos_projetados || 0;
-              const totalGeral = r.total_geral ?? ((r.inscritos_total || 0) + totalProj);
-              return (
-                <React.Fragment key={r.id}>
-                  <tr
-                    className={`cursor-pointer transition-colors ${isExpanded
-                      ? isDark ? 'bg-violet-500/10' : 'bg-violet-50/60'
-                      : isDark ? 'hover:bg-gray-700/30' : 'hover:bg-violet-50/30'}`}
-                    onClick={() => toggleRow(r.id)}
-                  >
-                    <td className="px-4 py-3">
-                      <div className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{r.evento}</div>
-                      <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{r.cidade} · {r.modalidade}</div>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className={isDark ? 'text-gray-200' : 'text-gray-800'}>{fmtDate(r.data_evento)}</div>
-                      {r.dias_para_evento != null && r.dias_para_evento >= 0 && (
-                        <div className={`text-xs font-bold mt-0.5 inline-block px-2 py-0.5 rounded-full ${
-                          r.dias_para_evento <= 7 ? 'bg-red-500/20 text-red-400' :
-                          r.dias_para_evento <= 30 ? 'bg-amber-500/20 text-amber-400' :
-                          'bg-indigo-500/20 text-indigo-400'
-                        }`}>D-{r.dias_para_evento}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
-                        isDark
-                          ? 'bg-gradient-to-br from-violet-500/30 to-purple-500/20 text-white ring-1 ring-violet-400/40'
-                          : 'bg-gradient-to-br from-violet-100 to-purple-100 text-violet-900 ring-1 ring-violet-300/60'
-                      }`}>
-                        {fmtNum(totalProj)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className={`inline-flex items-center gap-1 text-xs font-semibold transition-colors ${
-                        isExpanded
-                          ? isDark ? 'text-violet-400' : 'text-violet-600'
-                          : isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'
-                      }`}>
-                        {areas.length > 0 ? `${areas.length} área${areas.length > 1 ? 's' : ''}` : 'sem projeções'}
-                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                      </div>
-                    </td>
-                  </tr>
-                  {isExpanded && (
-                    <tr className={isDark ? 'bg-gray-900/30' : 'bg-violet-50/40'}>
-                      <td colSpan={4} className="px-6 py-4">
-                        <div className={`rounded-xl border p-4 ${isDark ? 'bg-gray-800/60 border-gray-700/50' : 'bg-white border-violet-100'}`}>
-                          <p className={`text-xs font-bold uppercase tracking-wider mb-3 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-                            Composição de Inscritos
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                            {areas.map((a, idx) => {
-                              const areaColors = [
-                                { bg: isDark ? 'bg-violet-500/10 border-violet-500/20' : 'bg-violet-50 border-violet-200/60', text: isDark ? 'text-violet-400' : 'text-violet-700', val: isDark ? 'text-violet-300' : 'text-violet-800' },
-                                { bg: isDark ? 'bg-blue-500/10 border-blue-500/20' : 'bg-blue-50 border-blue-200/60', text: isDark ? 'text-blue-400' : 'text-blue-700', val: isDark ? 'text-blue-300' : 'text-blue-800' },
-                                { bg: isDark ? 'bg-amber-500/10 border-amber-500/20' : 'bg-amber-50 border-amber-200/60', text: isDark ? 'text-amber-400' : 'text-amber-700', val: isDark ? 'text-amber-300' : 'text-amber-800' },
-                                { bg: isDark ? 'bg-rose-500/10 border-rose-500/20' : 'bg-rose-50 border-rose-200/60', text: isDark ? 'text-rose-400' : 'text-rose-700', val: isDark ? 'text-rose-300' : 'text-rose-800' },
-                                { bg: isDark ? 'bg-teal-500/10 border-teal-500/20' : 'bg-teal-50 border-teal-200/60', text: isDark ? 'text-teal-400' : 'text-teal-700', val: isDark ? 'text-teal-300' : 'text-teal-800' },
-                                { bg: isDark ? 'bg-indigo-500/10 border-indigo-500/20' : 'bg-indigo-50 border-indigo-200/60', text: isDark ? 'text-indigo-400' : 'text-indigo-700', val: isDark ? 'text-indigo-300' : 'text-indigo-800' },
-                                { bg: isDark ? 'bg-fuchsia-500/10 border-fuchsia-500/20' : 'bg-fuchsia-50 border-fuchsia-200/60', text: isDark ? 'text-fuchsia-400' : 'text-fuchsia-700', val: isDark ? 'text-fuchsia-300' : 'text-fuchsia-800' },
-                                { bg: isDark ? 'bg-orange-500/10 border-orange-500/20' : 'bg-orange-50 border-orange-200/60', text: isDark ? 'text-orange-400' : 'text-orange-700', val: isDark ? 'text-orange-300' : 'text-orange-800' },
-                              ];
-                              const c = areaColors[idx % areaColors.length];
-                              return (
-                                <div key={a.area} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${c.bg}`}>
-                                  <span className={`text-xs font-semibold ${c.text}`}>{a.area}</span>
-                                  <span className={`text-sm font-black tabular-nums ${c.val}`}>{fmtNum(a.quantidade)}</span>
-                                </div>
-                              );
-                            })}
-                            {areas.length === 0 && (
-                              <div className={`col-span-full text-center text-xs italic ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-                                Nenhuma projeção cadastrada para este evento
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-          {sorted.length > 0 && (
-            <tfoot>
-              <tr className={`${isDark ? 'bg-gray-700/40 border-t border-gray-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
-                <td colSpan={2} className={`px-4 py-3 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Totais ({filtered.length} eventos)</td>
-                <td className="px-4 py-3 text-center">
-                  <span className={`inline-flex items-center justify-center min-w-[64px] px-3 py-1 rounded-lg text-base font-black tracking-tight shadow-sm ${
-                    isDark
-                      ? 'bg-gradient-to-br from-violet-500/40 to-purple-500/30 text-white ring-1 ring-violet-400/50'
-                      : 'bg-gradient-to-br from-violet-200 to-purple-200 text-violet-900 ring-1 ring-violet-400/60'
-                  }`}>
-                    {fmtNum(totals.projetados)}
-                  </span>
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-      )}
     </div>
   );
 };
