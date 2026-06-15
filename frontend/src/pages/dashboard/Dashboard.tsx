@@ -153,7 +153,7 @@ type SortKey = keyof Pick<EventoInscricoes,
 
 const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boolean }> = ({ rows, isDark }) => {
   const [search, setSearch] = useState('');
-  const [periodoFilter, setPeriodoFilter] = useState<string>('all');
+  const [mesFilter, setMesFilter] = useState<string>('all');
   const [eventoStatusFilter, setEventoStatusFilter] = useState<string>('em_andamento');
   const [collapsed, setCollapsed] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('data_evento');
@@ -167,16 +167,14 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
         if (eventoStatusFilter === 'em_andamento' && d != null && d < 0) return false;
         if (eventoStatusFilter === 'concluido' && (d == null || d >= 0)) return false;
       }
-      if (periodoFilter !== 'all') {
-        const d = r.dias_para_evento;
-        if (d == null || d < 0) return false;
-        if (periodoFilter === '30' && d > 30) return false;
-        if (periodoFilter === '60' && d > 60) return false;
-        if (periodoFilter === '90' && d > 90) return false;
+      if (mesFilter !== 'all') {
+        if (!r.data_evento) return false;
+        const mes = new Date(r.data_evento + 'T00:00:00').getMonth() + 1;
+        if (mes !== parseInt(mesFilter)) return false;
       }
       return true;
     });
-  }, [rows, search, eventoStatusFilter, periodoFilter]);
+  }, [rows, search, eventoStatusFilter, mesFilter]);
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
@@ -272,12 +270,21 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
             <option value="em_andamento">Em andamento</option>
             <option value="concluido">Concluídos</option>
           </select>
-          <select value={periodoFilter} onChange={e => setPeriodoFilter(e.target.value)}
+          <select value={mesFilter} onChange={e => setMesFilter(e.target.value)}
             className={`px-3 py-2 text-sm rounded-lg border ${isDark ? 'bg-gray-700/60 border-gray-600 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'} focus:ring-2 focus:ring-indigo-500 focus:border-transparent`}>
-            <option value="all">Todos os períodos</option>
-            <option value="30">Próximos 30 dias</option>
-            <option value="60">Próximos 60 dias</option>
-            <option value="90">Próximos 90 dias</option>
+            <option value="all">Todos os meses</option>
+            <option value="1">Janeiro</option>
+            <option value="2">Fevereiro</option>
+            <option value="3">Março</option>
+            <option value="4">Abril</option>
+            <option value="5">Maio</option>
+            <option value="6">Junho</option>
+            <option value="7">Julho</option>
+            <option value="8">Agosto</option>
+            <option value="9">Setembro</option>
+            <option value="10">Outubro</option>
+            <option value="11">Novembro</option>
+            <option value="12">Dezembro</option>
           </select>
         </div>
         )}
