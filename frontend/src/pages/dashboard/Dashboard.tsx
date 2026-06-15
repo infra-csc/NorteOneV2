@@ -5,18 +5,10 @@ import { usePermissions } from '../../context/PermissionContext';
 import { useAuth } from '../../context/AuthContext';
 import RelatorioFinanceiro from './RelatorioFinanceiro';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell
-} from 'recharts';
-import {
   Filter, Search, ChevronDown, LayoutDashboard, RotateCcw,
-  Users, CalendarDays, TrendingUp, AlertTriangle,
-  RefreshCw, Target, Percent, Zap, DollarSign, TrendingDown, ArrowRight,
+  CalendarDays, RefreshCw,
   ListOrdered, ArrowUp, ArrowDown, ArrowUpDown, ChevronUp
 } from 'lucide-react';
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value);
 
 const formatNumber = (value: number) =>
   new Intl.NumberFormat('pt-BR').format(value);
@@ -38,8 +30,6 @@ interface FilterOptions {
   modalidades: FilterOption[];
   cidades: FilterOption[];
 }
-
-const PIE_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#14b8a6'];
 
 const ISC_BADGE: Record<string, { bg: string; text: string; label: string }> = {
   accelerating: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', label: 'Acelerando' },
@@ -535,20 +525,6 @@ const EventosInscricoesTable: React.FC<{ rows: EventoInscricoes[]; isDark: boole
   );
 };
 
-const CustomTooltip = ({ active, payload, label, isDark }: any) => {
-  if (!active || !payload || !payload.length) return null;
-  return (
-    <div className={`rounded-xl p-3 shadow-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-      <p className={`text-sm font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</p>
-      {payload.map((entry: any, i: number) => (
-        <p key={i} className="text-xs" style={{ color: entry.color }}>
-          {entry.name}: {typeof entry.value === 'number' ? formatNumber(entry.value) : entry.value}
-        </p>
-      ))}
-    </div>
-  );
-};
-
 const Dashboard: React.FC = () => {
   const { isDark } = useTheme();
   const { canViewCampo } = usePermissions();
@@ -810,308 +786,40 @@ const Dashboard: React.FC = () => {
         {opData && (
           <div className="space-y-6">
 
-            <SectionLabel label="Portfólio Operacional" isDark={isDark}
-              color={isDark ? 'text-indigo-400 bg-indigo-500/10' : 'text-indigo-600 bg-indigo-50'} />
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
-                <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-indigo-500" />
-                <div className="relative flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Atletas Orçados vs Confirmados</p>
-                    <p className={`text-2xl font-black mt-1.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatNumber(opData.kpis?.total_atletas_orcado || 0)}</p>
-                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Confirmados: {formatNumber(opData.kpis?.total_atletas_confirmados || 0)}</p>
-                    {opData.kpis?.progresso_atletas_pct !== undefined && (
-                      <div className="mt-1.5">
-                        <div className="w-full h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
-                          <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(opData.kpis.progresso_atletas_pct, 100)}%` }} />
-                        </div>
-                        <p className="text-xs mt-0.5 text-indigo-400 font-medium">{opData.kpis.progresso_atletas_pct}% confirmados</p>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 shadow-lg"><Users className="w-5 h-5 text-white" /></div>
-                </div>
-              </div>
-              <KpiCard title="Ocupação Média" value={`${opData.kpis?.taxa_ocupacao_media || 0}%`}
-                subtitle={`${opData.kpis?.total_eventos || 0} eventos no portfólio`}
-                icon={<Percent className="w-5 h-5 text-white" />} gradient="from-purple-500 to-pink-500" isDark={isDark} />
-              <KpiCard title="Sell-out Projetado" value={`${opData.kpis?.candidatos_sellout || 0}`}
-                subtitle="Ocupação ≥ 80%"
-                icon={<Zap className="w-5 h-5 text-white" />} gradient="from-amber-500 to-orange-500" isDark={isDark} />
-              <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
-                <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Saúde ISC</p>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-emerald-400">Acelerando</span>
-                    <span className="text-sm font-bold text-emerald-400">{opData.kpis?.isc_acelerando || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-amber-400">Estável</span>
-                    <span className="text-sm font-bold text-amber-400">{opData.kpis?.isc_estavel || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-red-400">Desacelerando</span>
-                    <span className="text-sm font-bold text-red-400">{opData.kpis?.isc_desacelerando || 0}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {opData.tabela_eventos?.length > 0 && (
               <EventosInscricoesTable rows={opData.tabela_eventos} isDark={isDark} />
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {opData.proximos_eventos?.length > 0 && (
-                <div className={`${cardClass} md:col-span-2`}>
-                  <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                    <CalendarDays className="w-4 h-4 text-indigo-400" />
-                    Próximas 4 semanas
-                  </h3>
-                  <div className="space-y-2">
-                    {opData.proximos_eventos.slice(0, 7).map((ev: any, i: number) => (
-                      <div key={i} className={`flex items-center justify-between p-2.5 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-gray-50'}`}>
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{ev.cidade} · {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
-                            {ev.isc_status && <IscBadge status={ev.isc_status} />}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 ml-3">
-                          <OcupacaoBar taxa={ev.taxa_ocupacao} />
-                          <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                            ev.dias_para_evento <= 7
-                              ? 'bg-red-500/20 text-red-400'
-                              : ev.dias_para_evento <= 14
-                              ? 'bg-amber-500/20 text-amber-400'
-                              : 'bg-indigo-500/20 text-indigo-400'
-                          }`}>D-{ev.dias_para_evento}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-4">
-                {opData.alertas_ocupacao?.length > 0 && (
-                  <div className={cardClass}>
-                    <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      <AlertTriangle className="w-4 h-4 text-red-400" />
-                      Abaixo da Curva
-                    </h3>
-                    <div className="space-y-2">
-                      {opData.alertas_ocupacao.slice(0, 4).map((ev: any, i: number) => (
-                        <div key={i} className={`flex items-center justify-between p-2 rounded-lg ${isDark ? 'bg-gray-700/40' : 'bg-red-50'}`}>
-                          <p className={`text-xs font-medium truncate flex-1 ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{ev.evento}</p>
-                          <div className="flex items-center gap-1.5 ml-2">
-                            {ev.isc_status && <IscBadge status={ev.isc_status} />}
-                            <span className="text-xs font-bold text-red-400">{ev.taxa_ocupacao}%</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {opData.candidatos_sellout?.length > 0 && (
-                  <div className={cardClass}>
-                    <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      <Zap className="w-4 h-4 text-emerald-400" />
-                      Sell-out Projetado
-                    </h3>
-                    <div className="space-y-2">
-                      {opData.candidatos_sellout.slice(0, 4).map((ev: any, i: number) => (
-                        <div key={i} className={`flex items-center justify-between p-2 rounded-lg ${isDark ? 'bg-gray-700/40' : 'bg-emerald-50'}`}>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-xs font-medium truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}>{ev.evento}</p>
-                            {ev.vagas_restantes !== undefined && (
-                              <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{formatNumber(ev.vagas_restantes)} vagas restantes</p>
-                            )}
-                          </div>
-                          <span className="ml-2 text-xs font-bold text-emerald-400">{ev.taxa_ocupacao}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {opData.top_por_velocity?.length > 0 && (
+            {opData.proximos_eventos?.length > 0 && (
               <div className={cardClass}>
                 <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                  <TrendingUp className="w-4 h-4 text-amber-400" />
-                  Top Eventos — Velocidade Rolling 14d
+                  <CalendarDays className="w-4 h-4 text-indigo-400" />
+                  Próximas 4 semanas
                 </h3>
-                <ResponsiveContainer width="100%" height={Math.max(260, opData.top_por_velocity.length * 32 + 80)}>
-                  <BarChart data={opData.top_por_velocity} layout="vertical" margin={{ left: 8, right: 16 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={v => `${v.toFixed(1)}`} />
-                    <YAxis type="category" dataKey="evento" width={220} tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} />
-                    <Tooltip content={<CustomTooltip isDark={isDark} />} />
-                    <Bar dataKey="rolling14d" name="Vel. 14d (inscrições/dia)" fill="#f59e0b" radius={[0, 6, 6, 0]} barSize={20} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div className="space-y-2">
+                  {opData.proximos_eventos.slice(0, 7).map((ev: any, i: number) => (
+                    <div key={i} className={`flex items-center justify-between p-2.5 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-gray-50'}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{ev.cidade} · {new Date(ev.data_evento + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                          {ev.isc_status && <IscBadge status={ev.isc_status} />}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 ml-3">
+                        <OcupacaoBar taxa={ev.taxa_ocupacao} />
+                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                          ev.dias_para_evento <= 7
+                            ? 'bg-red-500/20 text-red-400'
+                            : ev.dias_para_evento <= 14
+                            ? 'bg-amber-500/20 text-amber-400'
+                            : 'bg-indigo-500/20 text-indigo-400'
+                        }`}>D-{ev.dias_para_evento}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
-
-            {canSeeFinancial && finData && (
-              <>
-                <SectionLabel label="Análise Financeira" isDark={isDark}
-                  color={isDark ? 'text-emerald-400 bg-emerald-500/10' : 'text-emerald-600 bg-emerald-50'} />
-
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
-                    <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-emerald-500" />
-                    <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Receita Projetada vs Orçada</p>
-                    <p className={`text-2xl font-black mt-1.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(finData.kpis?.receita_total_projetada || 0)}</p>
-                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Orçado: {formatCurrency(finData.kpis?.receita_total_orcada || 0)}</p>
-                    {finData.kpis?.variacao_receita !== undefined && (
-                      <p className={`text-xs font-semibold mt-0.5 ${finData.kpis.variacao_receita >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {finData.kpis.variacao_receita >= 0 ? '+' : ''}{formatCurrency(finData.kpis.variacao_receita)} vs orçado
-                      </p>
-                    )}
-                  </div>
-                  <div className={`relative overflow-hidden rounded-2xl p-5 ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`}>
-                    <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20 bg-blue-500" />
-                    <p className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Ticket Médio Realizado vs Planejado</p>
-                    <p className={`text-2xl font-black mt-1.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{formatCurrency(finData.kpis?.ticket_medio_realizado || 0)}</p>
-                    <p className={`text-xs mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Planejado: {formatCurrency(finData.kpis?.ticket_medio_planejado || 0)}</p>
-                    {finData.kpis?.variacao_ticket !== undefined && (
-                      <p className={`text-xs font-semibold mt-0.5 ${finData.kpis.variacao_ticket >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {finData.kpis.variacao_ticket >= 0 ? '+' : ''}{formatCurrency(finData.kpis.variacao_ticket)} vs planejado
-                      </p>
-                    )}
-                  </div>
-                  <KpiCard title="Margem Líquida Média" value={formatCurrency(finData.kpis?.margem_media_liquida || 0)}
-                    subtitle={finData.kpis?.percentual_margem_media ? `${finData.kpis.percentual_margem_media}% do ticket` : 'Após custo de kit'}
-                    icon={<Percent className="w-5 h-5 text-white" />} gradient="from-violet-500 to-purple-500" isDark={isDark} />
-                  <KpiCard title="Receita em Risco (ISC)" value={formatCurrency(finData.kpis?.receita_em_risco || 0)}
-                    subtitle={`${finData.eventos_em_risco?.length || 0} eventos desacelerando`}
-                    icon={<TrendingDown className="w-5 h-5 text-white" />} gradient="from-red-500 to-rose-500" isDark={isDark} />
-                </div>
-
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                  <KpiCard title="Atletas Orçados" value={formatNumber(finData.kpis?.atletas_orcado_total || 0)}
-                    subtitle={`Confirmados: ${formatNumber(finData.kpis?.atletas_confirmados_total || 0)}`}
-                    icon={<Users className="w-5 h-5 text-white" />} gradient="from-indigo-500 to-blue-500" isDark={isDark} />
-                  <KpiCard title="Atletas via Site" value={formatNumber(finData.kpis?.atletas_site_total || 0)}
-                    subtitle="Inscrições pagas canal site"
-                    icon={<Target className="w-5 h-5 text-white" />} gradient="from-purple-500 to-pink-500" isDark={isDark} />
-                  <KpiCard title="Oportunidades Yield (ISC)" value={String(finData.kpis?.total_oportunidades_yield || 0)}
-                    subtitle="Acelerando c/ ≥10% cap. disponível"
-                    icon={<Zap className="w-5 h-5 text-white" />} gradient="from-amber-500 to-orange-500" isDark={isDark} />
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {finData.margem_por_modalidade?.length > 0 && (
-                    <div className={cardClass}>
-                      <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        <DollarSign className="w-4 h-4 text-emerald-400" />
-                        Receita Projetada por Modalidade
-                      </h3>
-                      <ResponsiveContainer width="100%" height={260}>
-                        <BarChart data={finData.margem_por_modalidade} margin={{ left: 8, right: 16 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} />
-                          <XAxis dataKey="modalidade" tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} />
-                          <YAxis tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }} tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} />
-                          <Tooltip content={({ active, payload, label }: any) => {
-                            if (!active || !payload?.length) return null;
-                            return (
-                              <div className={`rounded-xl p-3 shadow-xl border ${isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                                <p className={`text-sm font-bold mb-1 ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</p>
-                                <p className="text-xs text-emerald-400">Receita: {formatCurrency(payload[0]?.value || 0)}</p>
-                                {payload[0]?.payload?.margem_media && (
-                                  <p className="text-xs text-purple-400">Margem média: {formatCurrency(payload[0].payload.margem_media)}</p>
-                                )}
-                              </div>
-                            );
-                          }} />
-                          <Bar dataKey="receita_projetada" name="Receita" fill="#10b981" radius={[6, 6, 0, 0]} barSize={40} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    {finData.eventos_em_risco?.length > 0 && (
-                      <div className={cardClass}>
-                        <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          <TrendingDown className="w-4 h-4 text-red-400" />
-                          Receita em Risco
-                        </h3>
-                        <div className="space-y-2">
-                          {finData.eventos_em_risco.slice(0, 4).map((ev: any, i: number) => (
-                            <div key={i} className={`flex items-center justify-between p-2.5 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-red-50'}`}>
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento}</p>
-                                <p className="text-xs text-red-400">{ev.taxa_ocupacao}% ocupação</p>
-                              </div>
-                              <span className={`ml-2 text-xs font-bold ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{formatCurrency(ev.receita_projetada)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {finData.oportunidades_yield?.length > 0 && (
-                      <div className={cardClass}>
-                        <h3 className={`text-sm font-bold mb-3 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                          <ArrowRight className="w-4 h-4 text-amber-400" />
-                          Oportunidades de Yield
-                        </h3>
-                        <div className={`p-2 rounded-lg mb-2 text-xs ${isDark ? 'text-gray-400 bg-gray-700/40' : 'text-gray-500 bg-amber-50'}`}>
-                          Eventos com boa ocupação e vagas disponíveis — candidatos a ajuste de preço
-                        </div>
-                        <div className="space-y-2">
-                          {finData.oportunidades_yield.slice(0, 4).map((ev: any, i: number) => (
-                            <div key={i} className={`flex items-center justify-between p-2.5 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-amber-50'}`}>
-                              <div className="flex-1 min-w-0">
-                                <p className={`text-xs font-medium truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>{ev.evento}</p>
-                                <p className="text-xs text-amber-400">{ev.taxa_ocupacao}% · {formatNumber(ev.vagas_restantes)} vagas</p>
-                              </div>
-                              <span className={`ml-2 text-xs font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{formatCurrency(ev.ticket_medio)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {finData.receita_por_produto?.length > 0 && (
-                  <div className={cardClass}>
-                    <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                      <TrendingUp className="w-4 h-4 text-blue-400" />
-                      Receita Projetada por Produto
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className={isDark ? 'bg-gray-700/50' : 'bg-gray-50'}>
-                            {['Produto', 'Receita Projetada', 'Ticket Médio', 'Atletas'].map(h => (
-                              <th key={h} className={`px-4 py-3 text-left text-xs font-bold uppercase tracking-wider ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody className={`divide-y ${isDark ? 'divide-gray-700/50' : 'divide-gray-100'}`}>
-                          {finData.receita_por_produto.map((row: any, i: number) => (
-                            <tr key={i} className={isDark ? 'hover:bg-gray-700/30' : 'hover:bg-gray-50/80'}>
-                              <td className={`px-4 py-3 font-medium ${isDark ? 'text-white' : 'text-gray-900'}`}>{row.produto}</td>
-                              <td className={`px-4 py-3 font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{formatCurrency(row.receita_projetada)}</td>
-                              <td className={`px-4 py-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{row.ticket_medio > 0 ? formatCurrency(row.ticket_medio) : '-'}</td>
-                              <td className={`px-4 py-3 ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{formatNumber(row.atletas)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </>
             )}
           </div>
         )}
