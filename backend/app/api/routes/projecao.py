@@ -1675,6 +1675,16 @@ def get_consolidado(
         if cached is not None:
             return cached
 
+    # Cache miss ou force_refresh: roda o congelamento ao vivo antes de computar,
+    # igual ao _swr_refresh. Caso típico: cache foi invalidado ao salvar data_corte_1
+    # e a próxima requisição chega aqui sem nenhum valor em cache para ficar stale.
+    from ...services.snapshot_service import congelar_cortes_para_eventos as _freeze
+    try:
+        _freeze(db, evento_ids=None)
+    except Exception as _e:
+        logger.warning(f"[Consolidado] congelamento ao vivo (cache miss) falhou: {_e}")
+        db.rollback()
+
     result = _compute_consolidado(db, mes, tipo_evento, modalidade, area_projecao_id, evento_id)
     projecao_consolidado_cache.set(cache_key, result)
     return result
