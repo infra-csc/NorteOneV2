@@ -19,9 +19,8 @@ _list_cache: dict = {"data": None, "json": None}
 _list_cache_lock = threading.Lock()
 _LIST_CACHE_LIMIT = 1000
 _last_auto_concluir_date: Optional[date] = None
-_opcoes_cache: dict = {"circuitos": None, "localizacoes": None, "ts": 0.0}
+_opcoes_cache: dict = {"circuitos": None, "localizacoes": None}
 _opcoes_cache_lock = threading.Lock()
-_OPCOES_CACHE_TTL = 300
 
 
 def _invalidate_list_cache():
@@ -51,7 +50,6 @@ def _invalidate_opcoes_cache(kind: str | None = None):
         else:
             _opcoes_cache["circuitos"] = None
             _opcoes_cache["localizacoes"] = None
-        _opcoes_cache["ts"] = 0.0
 
 
 def warm_list_cache(db: Session):
@@ -1080,15 +1078,13 @@ def deletar_cadastro(cadastro_id: int, db: Session = Depends(get_db), current_us
 
 @router.get("/opcoes/circuitos", response_model=List[CircuitoProdutoSchema])
 def listar_circuitos(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
-    now = _time.time()
     with _opcoes_cache_lock:
         cached = _opcoes_cache["circuitos"]
-        if cached is not None and (now - _opcoes_cache["ts"]) < _OPCOES_CACHE_TTL:
+        if cached is not None:
             return cached
     rows = db.query(CircuitoProduto).order_by(CircuitoProduto.nome).all()
     with _opcoes_cache_lock:
         _opcoes_cache["circuitos"] = rows
-        _opcoes_cache["ts"] = now
     return rows
 
 
@@ -1130,15 +1126,13 @@ def deletar_circuito(item_id: int, db: Session = Depends(get_db), current_user=D
 
 @router.get("/opcoes/localizacoes", response_model=List[LocalizacaoSchema])
 def listar_localizacoes(db: Session = Depends(get_db), current_user=Depends(require_permission("eventos", "pode_visualizar"))):
-    now = _time.time()
     with _opcoes_cache_lock:
         cached = _opcoes_cache["localizacoes"]
-        if cached is not None and (now - _opcoes_cache["ts"]) < _OPCOES_CACHE_TTL:
+        if cached is not None:
             return cached
     rows = db.query(Localizacao).order_by(Localizacao.nome).all()
     with _opcoes_cache_lock:
         _opcoes_cache["localizacoes"] = rows
-        _opcoes_cache["ts"] = now
     return rows
 
 
