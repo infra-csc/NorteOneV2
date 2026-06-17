@@ -1472,6 +1472,42 @@ def get_inscricoes_diarias(
             "variacao": total - prev,
         })
 
+    # --- 6. Daily breakdown per grupo (top 10) for stacked chart ----------------------
+    grupos_meta = [
+        {"key": grupo, "nome": nome_map.get(grupo, grupo), "rank": rank + 1}
+        for rank, (grupo, _) in enumerate(top_grupos)
+    ]
+
+    diario_por_grupo: list = []
+    if top_grupo_names:
+        dpg_rows = (
+            db.query(
+                VendasDiariaSnapshot.data_venda,
+                VendasDiariaSnapshot.evento_grupo,
+                sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
+            )
+            .filter(*snap_filter_active(date_start, yesterday, extra=[
+                VendasDiariaSnapshot.evento_grupo.in_(top_grupo_names)
+            ]))
+            .group_by(VendasDiariaSnapshot.data_venda, VendasDiariaSnapshot.evento_grupo)
+            .all()
+        )
+        dpg_map: dict = {}
+        for r in dpg_rows:
+            d_str = r.data_venda.isoformat()
+            if d_str not in dpg_map:
+                dpg_map[d_str] = {}
+            dpg_map[d_str][r.evento_grupo] = int(r.total or 0)
+
+        today_str = today.isoformat()
+        dpg_map[today_str] = {g: today_live_by_grupo.get(g, 0) for g in top_grupo_names}
+
+        for i in range(10):
+            d = date_start + timedelta(days=i)
+            d_str = d.isoformat()
+            entry: dict = {"data": d_str, "grupos": dpg_map.get(d_str, {})}
+            diario_por_grupo.append(entry)
+
     return {
         "periodo": {
             "inicio": date_start.isoformat(),
@@ -1479,4 +1515,6 @@ def get_inscricoes_diarias(
         },
         "diario": diario,
         "top10": top10,
+        "grupos_meta": grupos_meta,
+        "diario_por_grupo": diario_por_grupo,
     }
