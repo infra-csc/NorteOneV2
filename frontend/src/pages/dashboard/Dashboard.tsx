@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { usePermissions } from '../../context/PermissionContext';
 import { useAuth } from '../../context/AuthContext';
 import RelatorioFinanceiro from './RelatorioFinanceiro';
+import InscricoesDiariasPanel from './InscricoesDiariasPanel';
 import {
   Filter, Search, ChevronDown, LayoutDashboard, RotateCcw,
   RefreshCw,
@@ -394,6 +395,8 @@ const Dashboard: React.FC = () => {
 
   const isCacheStale = (key: string) => readCache(key) === null;
 
+  const CACHE_KEY_INSCR = `dash_inscr_${uid}`;
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -401,6 +404,8 @@ const Dashboard: React.FC = () => {
   const [finData, setFinData] = useState<any>(() => canSeeFinancial ? readCache(CACHE_KEY_FIN) : null);
   const [relData, setRelData] = useState<any>(() => canSeeFinancial ? readCache(CACHE_KEY_REL) : null);
   const [relLoading, setRelLoading] = useState(false);
+  const [inscrData, setInscrData] = useState<any>(() => readCache(CACHE_KEY_INSCR));
+  const [inscrLoading, setInscrLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [defaultAno, setDefaultAno] = useState<number>(new Date().getFullYear());
 
@@ -460,6 +465,17 @@ const Dashboard: React.FC = () => {
       } finally {
         setRelLoading(false);
       }
+    }
+
+    setInscrLoading(true);
+    try {
+      const inscr = await dashboardService.getInscricoesDiarias(f.ano);
+      setInscrData(inscr);
+      writeCache(CACHE_KEY_INSCR, inscr);
+    } catch (err: any) {
+      console.error('Erro ao carregar inscrições diárias:', err);
+    } finally {
+      setInscrLoading(false);
     }
   }, [canSeeFinancial]);
 
@@ -617,6 +633,19 @@ const Dashboard: React.FC = () => {
             />
           </div>
         )}
+
+        <div className="space-y-4">
+          <SectionLabel
+            label="Inscrições nos Últimos 10 Dias"
+            isDark={isDark}
+            color={isDark ? 'text-indigo-400 bg-indigo-500/10' : 'text-indigo-600 bg-indigo-50'}
+          />
+          <InscricoesDiariasPanel
+            data={inscrData}
+            loading={inscrLoading && !inscrData}
+            isDark={isDark}
+          />
+        </div>
 
         {opData && (
           <div className="space-y-6">

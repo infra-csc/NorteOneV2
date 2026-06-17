@@ -152,6 +152,12 @@ export const dashboardService = {
     const response = await api.get('/perfis-acesso/campos-dashboard');
     return response.data;
   },
+  getInscricoesDiarias: async (ano?: number | null) => {
+    const params = new URLSearchParams();
+    if (ano) params.append('ano', ano.toString());
+    const response = await api.get(`/dashboard/inscricoes-diarias?${params.toString()}`);
+    return response.data;
+  },
 };
 
 export const centrosCustoService = {

@@ -1269,3 +1269,118 @@ def get_dashboard_consolidado(
             "total_cidades": len(eventos_por_cidade),
         }
     }
+
+
+@router.get("/inscricoes-diarias")
+def get_inscricoes_diarias(
+    ano: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("dashboard", "pode_visualizar"))
+):
+    from ...models.vendas_snapshot import VendasDiariaSnapshot
+    from ...models.dimensoes import SkuMapping
+    from .marketing import today_brazil
+    from sqlalchemy import or_, and_, desc
+
+    today = today_brazil()
+    date_start = today - timedelta(days=9)
+    prev_end = date_start - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=9)
+
+    def ano_filter(date_from, date_to):
+        base = [
+            VendasDiariaSnapshot.data_venda >= date_from,
+            VendasDiariaSnapshot.data_venda <= date_to,
+        ]
+        if ano:
+            base.append(or_(
+                VendasDiariaSnapshot.ano == ano,
+                VendasDiariaSnapshot.ano.is_(None),
+            ))
+        return base
+
+    daily_rows = (
+        db.query(
+            VendasDiariaSnapshot.data_venda,
+            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
+        )
+        .filter(*ano_filter(date_start, today))
+        .group_by(VendasDiariaSnapshot.data_venda)
+        .order_by(VendasDiariaSnapshot.data_venda)
+        .all()
+    )
+
+    daily_map = {r.data_venda: int(r.total or 0) for r in daily_rows}
+    diario = []
+    for i in range(10):
+        d = date_start + timedelta(days=i)
+        diario.append({
+            "data": d.isoformat(),
+            "total": daily_map.get(d, 0),
+        })
+
+    top_rows = (
+        db.query(
+            VendasDiariaSnapshot.evento_grupo,
+            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_periodo"),
+        )
+        .filter(*ano_filter(date_start, today))
+        .group_by(VendasDiariaSnapshot.evento_grupo)
+        .order_by(desc(sa_func.sum(VendasDiariaSnapshot.quantidade)))
+        .limit(10)
+        .all()
+    )
+
+    grupo_nomes_set = {r.evento_grupo for r in top_rows}
+
+    nome_map: dict = {}
+    if grupo_nomes_set:
+        mapping_rows = (
+            db.query(SkuMapping.evento_grupo, SkuMapping.nome_evento)
+            .filter(
+                SkuMapping.evento_grupo.in_(grupo_nomes_set),
+                SkuMapping.ativo == True,
+            )
+            .distinct(SkuMapping.evento_grupo)
+            .all()
+        )
+        for m in mapping_rows:
+            if m.evento_grupo and m.nome_evento and m.evento_grupo not in nome_map:
+                nome_map[m.evento_grupo] = m.nome_evento
+
+    prev_map: dict = {}
+    if grupo_nomes_set:
+        prev_rows = (
+            db.query(
+                VendasDiariaSnapshot.evento_grupo,
+                sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_prev"),
+            )
+            .filter(
+                *ano_filter(prev_start, prev_end),
+                VendasDiariaSnapshot.evento_grupo.in_(grupo_nomes_set),
+            )
+            .group_by(VendasDiariaSnapshot.evento_grupo)
+            .all()
+        )
+        prev_map = {r.evento_grupo: int(r.total_prev or 0) for r in prev_rows}
+
+    top10 = []
+    for r in top_rows:
+        total = int(r.total_periodo or 0)
+        prev = prev_map.get(r.evento_grupo, 0)
+        top10.append({
+            "evento_grupo": r.evento_grupo,
+            "nome": nome_map.get(r.evento_grupo, r.evento_grupo),
+            "total_periodo": total,
+            "total_periodo_anterior": prev,
+            "variacao": total - prev,
+        })
+
+    return {
+        "periodo": {
+            "inicio": date_start.isoformat(),
+            "fim": today.isoformat(),
+        },
+        "diario": diario,
+        "top10": top10,
+    }
