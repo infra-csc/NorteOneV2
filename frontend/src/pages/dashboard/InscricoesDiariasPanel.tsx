@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, Legend,
+  ResponsiveContainer, Cell,
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2, Layers, AlignJustify } from 'lucide-react';
 
@@ -73,20 +73,12 @@ const CustomTooltipTotal: React.FC<any> = ({ active, payload, label, isDark }) =
   );
 };
 
-const CustomTooltipStacked: React.FC<any> = ({ active, payload, label, isDark }) => {
+const CustomTooltipHoriz: React.FC<any> = ({ active, payload, isDark }) => {
   if (!active || !payload?.length) return null;
-  const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0);
-  const sorted = [...payload].sort((a, b) => (b.value || 0) - (a.value || 0));
   return (
-    <div className={`px-3 py-2.5 rounded-xl shadow-xl border text-xs max-w-[220px] ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
-      <p className="font-bold text-sm mb-2">{label} — {fmtNum(total)}</p>
-      {sorted.filter(p => p.value > 0).map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-1.5 mb-1">
-          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.fill }} />
-          <span className={`truncate max-w-[140px] ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>{p.name}</span>
-          <span className="ml-auto font-semibold flex-shrink-0">{fmtNum(p.value)}</span>
-        </div>
-      ))}
+    <div className={`px-3 py-2 rounded-xl shadow-xl border text-sm ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+      <p className={`text-xs mb-0.5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{payload[0].payload.nome}</p>
+      <p className="font-bold">{fmtNum(payload[0].value)} inscrições</p>
     </div>
   );
 };
@@ -98,20 +90,13 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
 
   const maxTotal = data ? Math.max(...data.diario.map(d => d.total), 1) : 1;
 
-  const gruposMeta: GrupoMeta[] = data?.grupos_meta ?? [];
-  const hasByEvento = gruposMeta.length > 0 && (data?.diario_por_grupo?.length ?? 0) > 0;
+  const hasByEvento = (data?.top10.length ?? 0) > 0;
 
-  // Build flat Recharts-ready data for stacked chart
-  const stackedData = React.useMemo(() => {
-    if (!data?.diario_por_grupo) return [];
-    return data.diario_por_grupo.map(entry => {
-      const row: Record<string, any> = { data: entry.data };
-      for (const gm of gruposMeta) {
-        row[gm.key] = entry.grupos[gm.key] ?? 0;
-      }
-      return row;
-    });
-  }, [data, gruposMeta]);
+  // Reverse top10 so rank #1 appears at the top of the horizontal chart
+  const horizData = React.useMemo(
+    () => (data?.top10 ? [...data.top10].reverse() : []),
+    [data]
+  );
 
   const VariacaoBadge: React.FC<{ variacao: number; prev: number }> = ({ variacao, prev }) => {
     if (prev === 0 && variacao === 0) return <span className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>—</span>;
@@ -223,57 +208,43 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          /* ---- Vista Por Evento (empilhado) ---- */
-          <>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={stackedData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} vertical={false} />
-                <XAxis
-                  dataKey="data" tickFormatter={fmtDate}
-                  tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
-                  axisLine={false} tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
-                  axisLine={false} tickLine={false}
-                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
-                />
-                <Tooltip
-                  content={<CustomTooltipStacked isDark={isDark} />}
-                  cursor={{ fill: isDark ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.04)' }}
-                />
-                {gruposMeta.map((gm, idx) => (
-                  <Bar
-                    key={gm.key}
-                    dataKey={gm.key}
-                    name={gm.nome}
-                    stackId="a"
-                    fill={STACK_COLORS[idx % STACK_COLORS.length]}
-                    radius={idx === gruposMeta.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+          /* ---- Vista Por Evento (barras horizontais) ---- */
+          <ResponsiveContainer width="100%" height={Math.max(180, horizData.length * 28)}>
+            <BarChart
+              data={horizData}
+              layout="vertical"
+              margin={{ top: 4, right: 40, bottom: 0, left: 4 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} horizontal={false} />
+              <XAxis
+                type="number"
+                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                axisLine={false} tickLine={false}
+                tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+              />
+              <YAxis
+                type="category"
+                dataKey="nome"
+                width={110}
+                tick={{ fontSize: 10, fill: isDark ? '#d1d5db' : '#374151' }}
+                axisLine={false} tickLine={false}
+                tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 17) + '…' : v}
+              />
+              <Tooltip
+                content={<CustomTooltipHoriz isDark={isDark} />}
+                cursor={{ fill: isDark ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.04)' }}
+              />
+              <Bar dataKey="total_periodo" radius={[0, 6, 6, 0]} label={{ position: 'right', fontSize: 10, fill: isDark ? '#9ca3af' : '#6b7280', formatter: (v: number) => fmtNum(v) }}>
+                {horizData.map((entry, idx) => (
+                  <Cell
+                    key={entry.evento_grupo}
+                    fill={STACK_COLORS[(horizData.length - 1 - idx) % STACK_COLORS.length]}
+                    opacity={0.85}
                   />
                 ))}
-              </BarChart>
-            </ResponsiveContainer>
-            {/* Legenda compacta de eventos */}
-            <div className={`mt-3 pt-3 border-t ${isDark ? 'border-gray-700/60' : 'border-gray-100'}`}>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {gruposMeta.map((gm, idx) => (
-                  <div key={gm.key} className="flex items-center gap-1 min-w-0">
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ background: STACK_COLORS[idx % STACK_COLORS.length] }}
-                    />
-                    <span
-                      className={`text-xs truncate max-w-[110px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
-                      title={gm.nome}
-                    >
-                      {gm.nome}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         )}
 
         {data && !loading && viewMode === 'total' && (
