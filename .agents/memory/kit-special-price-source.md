@@ -1,6 +1,6 @@
 ---
 name: Kit special_price source
-description: De onde vem o special_price no Mapeamento de Kits e por que NÃO usar a cadeia baseada em lotes.
+description: De onde vem o special_price no Mapeamento de Kits, Regra B e pi_pai_min_price (bypass do filtro para o índice do Magento).
 ---
 
 # special_price do Mapeamento de Kits
@@ -27,3 +27,27 @@ ao `price`): bundles cujo componente "distância" foge da nomenclatura padrão
 Manter intactas as colunas `price`, `current_price` e `bundle_entity_id` (o
 resto do sistema depende: bundle_entity_id é PK do snapshot; current_price
 alimenta o ticket_atual ISC).
+
+## Regra B e pi_pai_min_price (Jun/2026)
+
+A **Regra B** (descartar `special_price >= price`) **NUNCA** deve ser aplicada
+ao valor vindo de `pi_pai.min_price` (índice do Magento), pois o índice reflete
+o preço real atual do bundle — que pode legitimamente ser MAIOR que a soma dos
+componentes EAV (`price`). Exemplo: Troféu Brasil 2ª Etapa tem
+`pi_pai.min_price = 1299,99` e `price` (EAV attr 77) = 999,99; sem o bypass,
+a Regra B zeraria o campo e o ISC cairia para o `current_price` (lote = 999,99).
+
+A Regra B só deve ser aplicada ao fallback (soma de componentes, quando
+`pi_pai.min_price` é NULL — caso de kits inativos, ex.: Night Run João Pessoa
+onde lot_value fantasma de R$129,99 > preço real R$99,99).
+
+**Implementação:** A query `MAGENTO_KITS_QUERY` expõe `pi_pai.min_price` como
+coluna separada `pi_pai_min_price` (já está no GROUP BY, sem custo). O
+`kit_mapping_snapshot` tem coluna própria `pi_pai_min_price` (migration 008).
+No read path (overlay de snapshot e `_fetch_ticket_atual_map`): se
+`pi_pai_min_price > 0` → usa diretamente, sem Regra B; senão → aplica
+`_normalize_special_price` ao fallback. Cache version bumped para v26.
+
+**Após deploy:** reiniciar backend + clicar "Atualizar" no Mapeamento de Kits
+para popular `pi_pai_min_price` no snapshot existente (ticket ISC já corrige
+imediatamente pois usa Magento ao vivo, não o snapshot).

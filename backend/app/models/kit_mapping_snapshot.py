@@ -22,6 +22,7 @@ class KitMappingSnapshot(Base):
     lote_atual       = Column(Text, nullable=True)
     price            = Column(Numeric(12, 2), nullable=True)
     special_price    = Column(Numeric(12, 2), nullable=True)
+    pi_pai_min_price = Column(Numeric(12, 2), nullable=True)
     status_kit       = Column(String(16), nullable=True)
     content_hash     = Column(String(64), nullable=False)
     atualizado_em    = Column(DateTime, nullable=False, server_default=func.now())

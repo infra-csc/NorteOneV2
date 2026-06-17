@@ -510,29 +510,41 @@ def _fetch_ticket_atual_map(db: Session) -> dict:
             row_dict = dict(zip(columns, row))
             bundle_id = int(row_dict["bundle_entity_id"])
             # Prioridade para ticket ISC:
-            # 1. special_price = MIN lote ativo (+ addon kit) — preço de entrada, fonte primária.
+            # 0. pi_pai_min_price = min_price do índice do bundle pai (catalog_product_index_price)
+            #    — fonte mais autoritativa, reflete price rules ativas do Magento. Quando
+            #    disponível, usada DIRETAMENTE sem passar pelo filtro >= price (Regra B),
+            #    pois o índice pode legitimamente ter min_price > soma de componentes EAV
+            #    (ex.: Troféu Brasil 2ª Etapa: índice=1299,99; componentes EAV=999,99).
+            # 1. special_price = COALESCE(pi_pai.min_price, fallback soma componentes)
+            #    — coincide com pi_pai_min_price quando o bundle está no índice.
             # 2. current_price = lote corrente (MAX record_id) — fallback se special_price ausente.
             # 3. price = soma dos componentes (atributo 77) — último recurso.
+            pi_pai_min_price_val = float(row_dict["pi_pai_min_price"]) if row_dict.get("pi_pai_min_price") is not None else None
             special_price_val = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
             current_price_val = float(row_dict["current_price"]) if row_dict.get("current_price") is not None else None
             price_val = float(row_dict["price"]) if row_dict.get("price") is not None else None
-            # Regra B (mai/2026, mesma do Mapeamento de Kits): se special_price/current_price >= price,
-            # não é uma promoção real — o fallback SQL traz MIN(lot_value) / lote corrente >= preço do
-            # componente EAV, indicando lot_value fantasma maior que o ticket real do kit.
-            # Descarta ambos para não inflar o ticket atual.
-            # Sem isso, kits como "Night Run João Pessoa Kit Básico" mostravam ticket de
-            # R$ 129,99 (lot_value fantasma) em vez de R$ 99,99 (preço real do componente).
-            if price_val is not None and price_val > 0:
-                if special_price_val is not None and special_price_val >= price_val:
-                    special_price_val = None
-                if current_price_val is not None and current_price_val >= price_val:
-                    current_price_val = None
-            sp_base = (
-                special_price_val if (special_price_val is not None and special_price_val > 0)
-                else current_price_val if (current_price_val is not None and current_price_val > 0)
-                else price_val if (price_val is not None and price_val > 0)
-                else None
-            )
+
+            if pi_pai_min_price_val and pi_pai_min_price_val > 0:
+                # Índice autoritativo — não aplica Regra B (>= price).
+                sp_base = pi_pai_min_price_val
+            else:
+                # Regra B (mai/2026): se special_price/current_price >= price,
+                # não é uma promoção real — o fallback SQL traz MIN(lot_value) / lote corrente
+                # >= preço do componente EAV, indicando lot_value fantasma maior que o ticket real.
+                # Descarta ambos para não inflar o ticket atual.
+                # Sem isso, kits como "Night Run João Pessoa Kit Básico" mostravam ticket de
+                # R$ 129,99 (lot_value fantasma) em vez de R$ 99,99 (preço real do componente).
+                if price_val is not None and price_val > 0:
+                    if special_price_val is not None and special_price_val >= price_val:
+                        special_price_val = None
+                    if current_price_val is not None and current_price_val >= price_val:
+                        current_price_val = None
+                sp_base = (
+                    special_price_val if (special_price_val is not None and special_price_val > 0)
+                    else current_price_val if (current_price_val is not None and current_price_val > 0)
+                    else price_val if (price_val is not None and price_val > 0)
+                    else None
+                )
             bundle_data[bundle_id] = {
                 "sp_base": sp_base,
                 "status_kit": row_dict.get("status_kit"),
@@ -4967,7 +4979,7 @@ _event_computing_lock = _threading_module.Lock()
 
 # Bump this when ISC calculation logic changes so old permanent cache entries
 # are automatically detected as stale and recomputed in background (SWR pattern).
-_DETAIL_CACHE_VERSION = "25"  # v25: Regra B estendida a current_price em _fetch_ticket_atual_map (special já cobria, current não)
+_DETAIL_CACHE_VERSION = "26"  # v26: pi_pai_min_price (índice Magento) bypass Regra B — ticket mostra min_price real do índice, não fallback EAV
 
 def build_query_isc_ativo(excluded_ids: Optional[list] = None) -> str:
     excl_clause = ""

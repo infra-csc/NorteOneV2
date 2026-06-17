@@ -506,6 +506,13 @@ SELECT /*+ MAX_EXECUTION_TIME(60000) */
         )
     )                                           AS special_price,
 
+    -- pi_pai_min_price: valor bruto do índice do bundle pai, antes de qualquer
+    -- normalização. Quando disponível, é a fonte autoritativa do preço atual
+    -- (reflete catalog price rules ativas). Exposto separadamente de special_price
+    -- para que a Regra B (>= price) seja aplicada APENAS ao fallback (soma de
+    -- componentes), nunca ao valor do índice em si.
+    pi_pai.min_price                            AS pi_pai_min_price,
+
     CASE cpei_status.value
         WHEN 1 THEN 'ativo'
         WHEN 2 THEN 'inativo'
@@ -955,11 +962,18 @@ def get_kits_with_config(
         "live" if (magento_ok or ativo_ok) else "local-fallback"
     )
     # Regra B (resposta apenas): esconde special_price/special_price_base quando >= price.
+    # Exceção: quando pi_pai_min_price está disponível, é a fonte autoritativa do índice
+    # do Magento e NÃO passa pelo filtro >= price (o índice reflete o preço real atual,
+    # que pode ser superior ao campo `price` baseado em EAV).
     # NÃO aplicada dentro de _build_kit_rows_internal porque a mesma função alimenta
     # rebuild_kit_snapshot, que deve persistir valores raw vindos de Magento/Ativo.
     for r in rows:
-        r.special_price = _normalize_special_price(r.price, r.special_price)
-        r.special_price_base = _normalize_special_price(r.price_base, r.special_price_base)
+        if r.pi_pai_min_price and r.pi_pai_min_price > 0:
+            r.special_price = r.pi_pai_min_price
+            r.special_price_base = r.pi_pai_min_price
+        else:
+            r.special_price = _normalize_special_price(r.price, r.special_price)
+            r.special_price_base = _normalize_special_price(r.price_base, r.special_price_base)
     return rows
 
 
@@ -1076,6 +1090,15 @@ def _apply_overlay_to_snapshot(db: Session, snapshot_dicts: list) -> List[KitRow
             d.get("fonte") or "", d.get("id_evento"),
             cfg.tipo_kit if cfg else None, d.get("nome_kit"),
         )
+        # Regra B no read do snapshot: se pi_pai_min_price disponível, é
+        # fonte autoritativa do índice Magento — usa diretamente sem >= price.
+        # Caso contrário, aplica normalização ao special_price raw do snapshot.
+        _pi_sp = d.get("pi_pai_min_price")
+        _sp_norm = (
+            _pi_sp
+            if (_pi_sp and float(_pi_sp) > 0)
+            else _normalize_special_price(d.get("price"), d.get("special_price"))
+        )
         rows.append(KitRow(
             id_evento=d.get("id_evento"),
             nome_evento=d.get("nome_evento"),
@@ -1087,9 +1110,9 @@ def _apply_overlay_to_snapshot(db: Session, snapshot_dicts: list) -> List[KitRow
             multiplicador_sugerido=1,
             multiplicador=cfg.multiplicador if cfg else 1,
             price_base=d.get("price"),
-            special_price_base=_normalize_special_price(d.get("price"), d.get("special_price")),
+            special_price_base=_sp_norm,
             price=d.get("price"),
-            special_price=_normalize_special_price(d.get("price"), d.get("special_price")),
+            special_price=_sp_norm,
             # Nota: snapshot armazena raw; aplica Regra B só na resposta.
             # Aqui é leitura do snapshot já persistido → normaliza no read.
             is_configured=is_configured,
@@ -1228,6 +1251,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
 
         price_raw = float(row_dict["price"]) if row_dict.get("price") is not None else None
         special_price_raw = float(row_dict["special_price"]) if row_dict.get("special_price") is not None else None
+        pi_pai_min_price_raw = float(row_dict["pi_pai_min_price"]) if row_dict.get("pi_pai_min_price") is not None else None
 
         cfg = config_map.get(bundle_id)
         multiplicador = cfg.multiplicador if cfg else 1
@@ -1263,6 +1287,7 @@ def _build_kit_rows_internal(db: Session, force_refresh: bool = False,
             fonte="magento",
             cenario_ciclismo=cfg.cenario_ciclismo if cfg else None,
             ignorado=cfg.ignorado if cfg else False,
+            pi_pai_min_price=pi_pai_min_price_raw,
         ))
 
     # --- Ativo-only events ---

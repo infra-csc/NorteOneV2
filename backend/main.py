@@ -1608,6 +1608,9 @@ def _run_column_migrations():
             "CREATE INDEX IF NOT EXISTS ix_cotacao_fob_produto ON cotacao_fob (produto)",
             # gratuito flag added to cadastro_evento (task #3769e50)
             "ALTER TABLE cadastro_evento ADD COLUMN IF NOT EXISTS gratuito BOOLEAN DEFAULT FALSE",
+            # pi_pai_min_price: valor bruto do índice Magento (catalog_product_index_price.min_price)
+            # separado do special_price (COALESCE) para bypass da Regra B no ticket ISC
+            "ALTER TABLE kit_mapping_snapshot ADD COLUMN IF NOT EXISTS pi_pai_min_price NUMERIC(12,2)",
         ]
         kit_basico_idx = [
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_kit_basico_per_evento ON kit_config (id_evento) WHERE is_kit_basico = TRUE",

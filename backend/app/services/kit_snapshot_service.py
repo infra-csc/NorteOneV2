@@ -57,6 +57,7 @@ def _content_hash(row: KitRow) -> str:
         row.lote_atual or "",
         f"{row.price:.2f}" if row.price is not None else "",
         f"{row.special_price:.2f}" if row.special_price is not None else "",
+        f"{row.pi_pai_min_price:.2f}" if row.pi_pai_min_price is not None else "",
         row.status_kit or "",
         row.fonte or "",
     ))
@@ -183,6 +184,7 @@ def rebuild_kit_snapshot(db: Session) -> dict:
                     lote_atual=row.lote_atual,
                     price=row.price,
                     special_price=row.special_price,
+                    pi_pai_min_price=row.pi_pai_min_price,
                     status_kit=row.status_kit,
                     content_hash=h,
                     atualizado_em=started_at,
@@ -195,17 +197,18 @@ def rebuild_kit_snapshot(db: Session) -> dict:
                 existing[key] = new_obj
                 novos += 1
             elif ex.content_hash != h:
-                ex.fonte         = row.fonte or ex.fonte
-                ex.id_evento     = row.id_evento
-                ex.nome_evento   = row.nome_evento
-                ex.nome_kit      = row.nome_kit
-                ex.lote_atual    = row.lote_atual
-                ex.price         = row.price
-                ex.special_price = row.special_price
-                ex.status_kit    = row.status_kit
-                ex.content_hash  = h
-                ex.atualizado_em = started_at
-                ex.visto_em      = started_at
+                ex.fonte             = row.fonte or ex.fonte
+                ex.id_evento         = row.id_evento
+                ex.nome_evento       = row.nome_evento
+                ex.nome_kit          = row.nome_kit
+                ex.lote_atual        = row.lote_atual
+                ex.price             = row.price
+                ex.special_price     = row.special_price
+                ex.pi_pai_min_price  = row.pi_pai_min_price
+                ex.status_kit        = row.status_kit
+                ex.content_hash      = h
+                ex.atualizado_em     = started_at
+                ex.visto_em          = started_at
                 alterados += 1
             else:
                 ex.visto_em = started_at
@@ -302,6 +305,7 @@ def read_kit_snapshot(db: Session) -> Optional[List[dict]]:
             "lote_atual": r.lote_atual,
             "price": float(r.price) if r.price is not None else None,
             "special_price": float(r.special_price) if r.special_price is not None else None,
+            "pi_pai_min_price": float(r.pi_pai_min_price) if r.pi_pai_min_price is not None else None,
             "status_kit": r.status_kit,
         }
         for r in rows

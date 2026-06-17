@@ -83,3 +83,4 @@ class KitRow(BaseModel):
     ignorado: bool = False
     status_kit: Optional[str] = None
     fonte: Optional[str] = None
+    pi_pai_min_price: Optional[float] = None
