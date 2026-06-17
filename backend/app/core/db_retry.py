@@ -61,25 +61,28 @@ _CIRCUIT_OPEN_DURATION_S = 60.0
 
 # ---------------------------------------------------------------------------
 # Semáforo de concorrência Magento — limita quantas queries podem rodar ao
-# MESMO TEMPO contra o tunnel SSH/MySQL externo. Sem isso, basta o usuário
-# abrir 5 grupos diferentes em sequência para saturar o tunnel (cada grupo
-# fan-out 3-7 queries pesadas via force_magento_refresh).
+# MESMO TEMPO contra o MySQL externo (conexão TCP/IP direta, sem SSH tunnel).
+# Sem isso, basta o usuário abrir 5 grupos diferentes em sequência para
+# saturar o servidor remoto (cada grupo fan-out 3-7 queries pesadas via
+# force_magento_refresh).
 #
 # Política por profile:
-#   - "request" (usuário/dia): serializado (default 1). Acquire SEM timeout
-#     agressivo — preferimos esperar na fila a derrubar a request. Cliente
-#     espera, queries drenam uma por vez. Timeout só pra evitar travar
-#     indefinido (default 180s = 3 min — suficiente pra fila de ~3 queries
-#     de 60s cada).
+#   - "request" (usuário/dia): limitado (default 3). Permite até 3 queries
+#     simultâneas de usuário, eliminando a fila que bloqueava o rebuild do
+#     Mapeamento de Kits por queries do ISC. Acquire com timeout generoso
+#     (default 180s = 3 min) — preferimos esperar na fila a derrubar a
+#     request com snapshot stale.
 #   - "background" (scheduler/warmup/job noturno): SEM limite. Concorrência
-#     livre, conforme já era antes do semáforo. O tunnel aguenta melhor
-#     quando a única carga é o lote noturno (sem clicks de usuário).
+#     livre, conforme já era antes do semáforo. Jobs noturnos correm sem
+#     competir com clicks de usuário.
 #
-# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 1) controla apenas
+# Configurável via env: MAGENTO_MAX_CONCURRENCY (default 3) controla apenas
 # o profile "request". MAGENTO_ACQUIRE_TIMEOUT_S (default 180) é o tempo
 # máximo na fila antes de cair pra snapshot piso.
+# Pool do engine_magento: pool_size=8, max_overflow=12 → folga suficiente
+# para 3 request + ~5 background sem pressionar o servidor Magento.
 # ---------------------------------------------------------------------------
-_MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "1")))
+_MAGENTO_MAX_CONCURRENCY = max(1, int(os.getenv("MAGENTO_MAX_CONCURRENCY", "3")))
 _MAGENTO_ACQUIRE_TIMEOUT_S = float(os.getenv("MAGENTO_ACQUIRE_TIMEOUT_S", "180"))
 _magento_concurrency_sem = threading.BoundedSemaphore(_MAGENTO_MAX_CONCURRENCY)
 
@@ -302,7 +305,7 @@ def magento_run(
     # Semáforo apenas para profile "request" (clicks de usuário durante o
     # dia). Profile "background" (scheduler/warmup/job noturno) roda livre
     # — é o cenário em que paralelismo é OK porque não há fan-out de
-    # múltiplos usuários competindo pelo tunnel.
+    # múltiplos usuários competindo pelo servidor remoto.
     _use_sem = profile == "request"
 
     last_exc: BaseException | None = None
