@@ -52,10 +52,8 @@ const fmtDate = (iso: string) => {
   return `${d}/${m}`;
 };
 
-const STACK_COLORS = [
-  '#6366f1', '#f59e0b', '#10b981', '#ef4444', '#3b82f6',
-  '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#84cc16',
-];
+const BAR_COLOR_DARK = '#818cf8';
+const BAR_COLOR_LIGHT = '#6366f1';
 
 const MEDAL: Record<number, string> = { 0: '🥇', 1: '🥈', 2: '🥉' };
 
@@ -238,8 +236,8 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                 {horizData.map((entry, idx) => (
                   <Cell
                     key={entry.evento_grupo}
-                    fill={STACK_COLORS[(horizData.length - 1 - idx) % STACK_COLORS.length]}
-                    opacity={0.85}
+                    fill={isDark ? BAR_COLOR_DARK : BAR_COLOR_LIGHT}
+                    opacity={1 - idx * 0.06}
                   />
                 ))}
               </Bar>
@@ -295,7 +293,6 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
               const barPct = data.top10[0].total_periodo > 0
                 ? Math.round((ev.total_periodo / data.top10[0].total_periodo) * 100)
                 : 0;
-              const dotColor = STACK_COLORS[idx % STACK_COLORS.length];
               return (
                 <div key={ev.evento_grupo} className="group">
                   <div className="flex items-center gap-2 mb-1">
@@ -304,11 +301,6 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                         <span className={`text-xs font-bold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{idx + 1}</span>
                       )}
                     </span>
-                    {/* Bolinha de cor correspondente ao gráfico empilhado */}
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ background: dotColor }}
-                    />
                     <span
                       className={`text-xs font-medium flex-1 truncate ${isDark ? 'text-gray-200' : 'text-gray-800'}`}
                       title={ev.nome}
@@ -322,10 +314,10 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                       </span>
                     </div>
                   </div>
-                  <div className={`ml-10 h-1.5 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'} overflow-hidden`}>
+                  <div className={`ml-7 h-1.5 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-100'} overflow-hidden`}>
                     <div
                       className="h-full rounded-full transition-all duration-500"
-                      style={{ width: `${barPct}%`, background: dotColor, opacity: 0.75 }}
+                      style={{ width: `${barPct}%`, background: isDark ? BAR_COLOR_DARK : BAR_COLOR_LIGHT, opacity: 0.6 }}
                     />
                   </div>
                 </div>
