@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from sqlalchemy import select as sa_select
 from sqlalchemy.orm import Session, selectinload
 from typing import List, Optional
 from datetime import datetime, date
@@ -14,10 +15,10 @@ from ...models.perfil_acesso import PerfilPermissaoCampo
 
 logger = logging.getLogger(__name__)
 
-_list_cache: dict = {"data": None, "json": None, "ts": 0.0}
+_list_cache: dict = {"data": None, "json": None}
 _list_cache_lock = threading.Lock()
-_LIST_CACHE_TTL = 300
 _LIST_CACHE_LIMIT = 1000
+_last_auto_concluir_date: Optional[date] = None
 _opcoes_cache: dict = {"circuitos": None, "localizacoes": None, "ts": 0.0}
 _opcoes_cache_lock = threading.Lock()
 _OPCOES_CACHE_TTL = 300
@@ -27,7 +28,6 @@ def _invalidate_list_cache():
     with _list_cache_lock:
         _list_cache["data"] = None
         _list_cache["json"] = None
-        _list_cache["ts"] = 0.0
 
 
 def _invalidate_projecao_consolidado():
@@ -60,21 +60,14 @@ def warm_list_cache(db: Session):
     _log = _logging.getLogger(__name__)
     try:
         t0 = _time.time()
-        cadastros = (
-            db.query(CadastroEvento)
-            .filter(CadastroEvento.deleted_at.is_(None))
-            .order_by(CadastroEvento.id.desc())
-            .limit(_LIST_CACHE_LIMIT)
-            .all()
-        )
-        items = [db_to_list_response(c) for c in cadastros]
+        rows = _query_list_rows(db)
+        items = [db_to_list_response(r) for r in rows]
         from fastapi.encoders import jsonable_encoder
         json_data = jsonable_encoder(items)
         with _list_cache_lock:
             _list_cache["data"] = items
             _list_cache["json"] = json_data
-            _list_cache["ts"] = _time.time()
-        _log.warning(f"[CadastrosCache] Pré-aquecido: {len(items)} eventos em {_time.time()-t0:.2f}s (json pré-serializado)")
+        _log.warning(f"[CadastrosCache] Pré-aquecido: {len(items)} eventos em {_time.time()-t0:.2f}s")
     except Exception as e:
         _log.error(f"[CadastrosCache] Falha no pré-aquecimento: {e}")
 
@@ -87,6 +80,48 @@ from app.models.cadastro_evento import (
     CircuitoProduto, Localizacao
 )
 from app.models.dimensoes import DimProjeto
+
+_LIST_COLUMNS = [
+    CadastroEvento.id, CadastroEvento.projeto_id, CadastroEvento.nome,
+    CadastroEvento.id_evento_magento, CadastroEvento.circuito_produto,
+    CadastroEvento.localizacao_evento, CadastroEvento.ano_evento,
+    CadastroEvento.imagem_kv, CadastroEvento.status, CadastroEvento.modalidade,
+    CadastroEvento.sku, CadastroEvento.produto, CadastroEvento.tipo_evento,
+    CadastroEvento.lei, CadastroEvento.capacidade_maxima,
+    CadastroEvento.cidade, CadastroEvento.estado,
+    CadastroEvento.data_evento, CadastroEvento.horario_largada,
+    CadastroEvento.local, CadastroEvento.distancias,
+    CadastroEvento.dias_encerramento_inscricao,
+    CadastroEvento.atletas_site_pago, CadastroEvento.atletas_site_tkt_medio,
+    CadastroEvento.atletas_grupos_pago, CadastroEvento.atletas_grupos_tkt_medio,
+    CadastroEvento.atletas_cortesia,
+    CadastroEvento.atletas_appai_pago, CadastroEvento.atletas_appai_tkt_medio,
+    CadastroEvento.ciclismo_participacao_pago,
+    CadastroEvento.ciclismo_sem_bike_pago, CadastroEvento.ciclismo_sem_bike_tkt_medio,
+    CadastroEvento.ciclismo_com_bike_pago, CadastroEvento.ciclismo_com_bike_tkt_medio,
+    CadastroEvento.retirada_kit_local, CadastroEvento.retirada_kit_data_horario,
+    CadastroEvento.created_at, CadastroEvento.updated_at,
+]
+
+
+def _query_list_rows(db: Session, status: Optional[str] = None, skip: int = 0, limit: int = _LIST_CACHE_LIMIT) -> list:
+    """Executa query leve selecionando apenas as colunas necessárias para listagem.
+
+    Retorna lista de dicts planos — sem hidratar o modelo ORM completo
+    (evita carregar os 6 relationships que a listagem não usa).
+    """
+    stmt = (
+        sa_select(*_LIST_COLUMNS)
+        .where(CadastroEvento.deleted_at.is_(None))
+        .order_by(CadastroEvento.id.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    if status:
+        stmt = stmt.where(CadastroEvento.status == status)
+    return [dict(r) for r in db.execute(stmt).mappings().all()]
+
+
 from app.schemas.cadastro_evento import (
     CadastroEventoCreate, CadastroEventoUpdate, CadastroEventoResponse,
     InfoGeral, AtletasData, RetiradaKit, FaixasPrecoByKit,
@@ -427,50 +462,52 @@ def db_to_response(cadastro: CadastroEvento) -> dict:
     }
 
 
-def db_to_list_response(cadastro: CadastroEvento) -> dict:
-    """Versão leve de db_to_response para listagem — sem relacionamentos aninhados."""
+def db_to_list_response(row) -> dict:
+    """Versão leve para listagem — aceita dict de colunas (sem ORM completo nem relacionamentos)."""
+    data_evento = row.get("data_evento")
+    retirada_dt = row.get("retirada_kit_data_horario")
     info_geral = InfoGeral(
-        data=cadastro.data_evento.isoformat() if cadastro.data_evento else "",
-        horario_largada=cadastro.horario_largada or "",
-        local=cadastro.local or "",
-        distancias=cadastro.distancias or [],
-        dias_encerramento_inscricao=cadastro.dias_encerramento_inscricao if cadastro.dias_encerramento_inscricao is not None else 2
+        data=data_evento.isoformat() if data_evento else "",
+        horario_largada=row.get("horario_largada") or "",
+        local=row.get("local") or "",
+        distancias=row.get("distancias") or [],
+        dias_encerramento_inscricao=row.get("dias_encerramento_inscricao") if row.get("dias_encerramento_inscricao") is not None else 2
     )
     atletas = AtletasData(
-        site={"pago": cadastro.atletas_site_pago or 0, "tkt_medio": float(cadastro.atletas_site_tkt_medio or 0)},
-        grupos={"pago": cadastro.atletas_grupos_pago or 0, "tkt_medio": float(cadastro.atletas_grupos_tkt_medio or 0)},
-        cortesia=cadastro.atletas_cortesia or 0,
-        appai=AppaiData(pago=cadastro.atletas_appai_pago or 0, tkt_medio=float(cadastro.atletas_appai_tkt_medio or 0)),
+        site={"pago": row.get("atletas_site_pago") or 0, "tkt_medio": float(row.get("atletas_site_tkt_medio") or 0)},
+        grupos={"pago": row.get("atletas_grupos_pago") or 0, "tkt_medio": float(row.get("atletas_grupos_tkt_medio") or 0)},
+        cortesia=row.get("atletas_cortesia") or 0,
+        appai=AppaiData(pago=row.get("atletas_appai_pago") or 0, tkt_medio=float(row.get("atletas_appai_tkt_medio") or 0)),
         ciclismo=CiclismoCenariosData(
-            participacao_pago=cadastro.ciclismo_participacao_pago or 0,
-            sem_bike_pago=cadastro.ciclismo_sem_bike_pago or 0,
-            sem_bike_tkt_medio=float(cadastro.ciclismo_sem_bike_tkt_medio or 0),
-            com_bike_pago=cadastro.ciclismo_com_bike_pago or 0,
-            com_bike_tkt_medio=float(cadastro.ciclismo_com_bike_tkt_medio or 0),
+            participacao_pago=row.get("ciclismo_participacao_pago") or 0,
+            sem_bike_pago=row.get("ciclismo_sem_bike_pago") or 0,
+            sem_bike_tkt_medio=float(row.get("ciclismo_sem_bike_tkt_medio") or 0),
+            com_bike_pago=row.get("ciclismo_com_bike_pago") or 0,
+            com_bike_tkt_medio=float(row.get("ciclismo_com_bike_tkt_medio") or 0),
         )
     )
     retirada_kit = RetiradaKit(
-        local=cadastro.retirada_kit_local or "",
-        data_horario=cadastro.retirada_kit_data_horario.isoformat() if cadastro.retirada_kit_data_horario else ""
+        local=row.get("retirada_kit_local") or "",
+        data_horario=retirada_dt.isoformat() if retirada_dt else ""
     )
     return {
-        "id": cadastro.id,
-        "projeto_id": cadastro.projeto_id,
-        "nome": cadastro.nome,
-        "id_evento_magento": cadastro.id_evento_magento,
-        "circuito_produto": cadastro.circuito_produto or None,
-        "localizacao_evento": cadastro.localizacao_evento or None,
-        "ano_evento": cadastro.ano_evento or None,
-        "imagem_kv": cadastro.imagem_kv or "",
-        "status": cadastro.status or "Em andamento",
-        "modalidade": cadastro.modalidade or "Corrida",
-        "sku": cadastro.sku or None,
-        "produto": cadastro.produto or None,
-        "tipo_evento": cadastro.tipo_evento or None,
-        "lei": cadastro.lei or None,
-        "capacidade_maxima": cadastro.capacidade_maxima or None,
-        "cidade": cadastro.cidade or None,
-        "estado": cadastro.estado or None,
+        "id": row.get("id"),
+        "projeto_id": row.get("projeto_id"),
+        "nome": row.get("nome"),
+        "id_evento_magento": row.get("id_evento_magento"),
+        "circuito_produto": row.get("circuito_produto") or None,
+        "localizacao_evento": row.get("localizacao_evento") or None,
+        "ano_evento": row.get("ano_evento") or None,
+        "imagem_kv": row.get("imagem_kv") or "",
+        "status": row.get("status") or "Em andamento",
+        "modalidade": row.get("modalidade") or "Corrida",
+        "sku": row.get("sku") or None,
+        "produto": row.get("produto") or None,
+        "tipo_evento": row.get("tipo_evento") or None,
+        "lei": row.get("lei") or None,
+        "capacidade_maxima": row.get("capacidade_maxima") or None,
+        "cidade": row.get("cidade") or None,
+        "estado": row.get("estado") or None,
         "info_geral": info_geral,
         "atletas": atletas,
         "cortesias": [],
@@ -480,8 +517,8 @@ def db_to_list_response(cadastro: CadastroEvento) -> dict:
         "merchan": [],
         "faixas_preco_site": FaixasPrecoByKit(kit_basico=[], kit_participacao=[]),
         "faixas_preco_grupos": FaixasPrecoByKit(kit_basico=[], kit_participacao=[]),
-        "created_at": cadastro.created_at,
-        "updated_at": cadastro.updated_at
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
     }
 
 
@@ -494,23 +531,28 @@ def listar_cadastros(
     current_user=Depends(require_permission("eventos", "pode_visualizar"))
 ):
     """Lista todos os cadastros de eventos ativos (não deletados) — resposta leve sem relacionamentos."""
+    global _last_auto_concluir_date
     t0 = _time.time()
-    try:
-        from app.services.event_status_service import auto_concluir_eventos_passados
-        if auto_concluir_eventos_passados(db) > 0:
-            _invalidate_list_cache()
-    except Exception as _auto_err:
-        logger.error(f"[CadastrosCache] auto-conclusão de eventos falhou (não bloqueante): {_auto_err}")
+
+    hoje = date.today()
+    if _last_auto_concluir_date != hoje:
+        try:
+            from app.services.event_status_service import auto_concluir_eventos_passados
+            if auto_concluir_eventos_passados(db) > 0:
+                _invalidate_list_cache()
+            _last_auto_concluir_date = hoje
+        except Exception as _auto_err:
+            logger.error(f"[CadastrosCache] auto-conclusão falhou (não bloqueante): {_auto_err}")
+
     if not status and skip == 0:
         with _list_cache_lock:
             cached_json = _list_cache.get("json")
-            cached_data = _list_cache["data"]
-            age = _time.time() - _list_cache["ts"]
+            cached_data = _list_cache.get("data")
         restricted_view = _has_event_view_restrictions(db, current_user)
-        if cached_json is not None and age < _LIST_CACHE_TTL and not restricted_view:
-            logger.warning(f"[CadastrosCache] HIT: {len(cached_data)} eventos em {_time.time()-t0:.4f}s (age={age:.0f}s)")
+        if cached_json is not None and not restricted_view:
+            logger.warning(f"[CadastrosCache] HIT: {len(cached_data)} eventos em {_time.time()-t0:.4f}s")
             return JSONResponse(content=cached_json[:limit])
-        if cached_data is not None and age < _LIST_CACHE_TTL:
+        if cached_data is not None:
             logger.warning(f"[CadastrosCache] HIT(raw): {len(cached_data)} eventos em {_time.time()-t0:.4f}s")
             items = cached_data[:limit]
             if restricted_view:
@@ -519,13 +561,8 @@ def listar_cadastros(
             return items
 
     logger.warning(f"[CadastrosCache] MISS — consultando banco (status={status}, skip={skip})")
-    query = db.query(CadastroEvento).filter(CadastroEvento.deleted_at.is_(None))
-
-    if status:
-        query = query.filter(CadastroEvento.status == status)
-
-    cadastros = query.order_by(CadastroEvento.id.desc()).offset(skip).limit(limit).all()
-    items = [db_to_list_response(c) for c in cadastros]
+    rows = _query_list_rows(db, status=status, skip=skip, limit=limit)
+    items = [db_to_list_response(r) for r in rows]
     logger.warning(f"[CadastrosCache] DB query: {len(items)} eventos em {_time.time()-t0:.4f}s")
 
     if not status and skip == 0:
@@ -534,7 +571,6 @@ def listar_cadastros(
         with _list_cache_lock:
             _list_cache["data"] = items
             _list_cache["json"] = json_data
-            _list_cache["ts"] = _time.time()
 
     if _has_event_view_restrictions(db, current_user):
         view_permissions = _event_field_permissions(db, current_user, "pode_visualizar")
