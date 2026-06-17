@@ -92,9 +92,9 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
 
   const hasByEvento = (data?.top10.length ?? 0) > 0;
 
-  // Reverse top10 so rank #1 appears at the top of the horizontal chart
+  // top10 already sorted desc; use as-is so rank #1 (largest) appears at top
   const horizData = React.useMemo(
-    () => (data?.top10 ? [...data.top10].reverse() : []),
+    () => data?.top10 ?? [],
     [data]
   );
 
