@@ -1279,66 +1279,165 @@ def get_inscricoes_diarias(
 ):
     from ...models.vendas_snapshot import VendasDiariaSnapshot
     from ...models.dimensoes import SkuMapping
-    from .marketing import today_brazil
-    from sqlalchemy import or_, and_, desc
+    from .marketing import today_brazil, fetch_isc_pricing_data, _build_sku_to_grupo_map
+    from sqlalchemy import or_, desc
 
     today = today_brazil()
-    date_start = today - timedelta(days=9)
+    yesterday = today - timedelta(days=1)
+    date_start = today - timedelta(days=9)  # D-9 inclusive
     prev_end = date_start - timedelta(days=1)
     prev_start = prev_end - timedelta(days=9)
 
-    def ano_filter(date_from, date_to):
-        base = [
+    target_ano = ano or today.year
+
+    # --- 1. Build active grupos set (events with ativo=True SKU mappings) -----------
+    active_sku_q = (
+        db.query(SkuMapping.evento_grupo)
+        .filter(
+            SkuMapping.ativo == True,
+            SkuMapping.evento_grupo.isnot(None),
+            SkuMapping.ano == target_ano,
+        )
+        .distinct()
+        .all()
+    )
+    active_grupos: set = {r.evento_grupo for r in active_sku_q}
+    # If no active mappings for the year, fall back to all active groups (safety net)
+    if not active_grupos:
+        all_active_q = (
+            db.query(SkuMapping.evento_grupo)
+            .filter(SkuMapping.ativo == True, SkuMapping.evento_grupo.isnot(None))
+            .distinct()
+            .all()
+        )
+        active_grupos = {r.evento_grupo for r in all_active_q}
+
+    def snap_filter_active(date_from, date_to, extra=None):
+        conds: list = [
             VendasDiariaSnapshot.data_venda >= date_from,
             VendasDiariaSnapshot.data_venda <= date_to,
         ]
-        if ano:
-            base.append(or_(
-                VendasDiariaSnapshot.ano == ano,
-                VendasDiariaSnapshot.ano.is_(None),
-            ))
-        return base
+        if active_grupos:
+            conds.append(VendasDiariaSnapshot.evento_grupo.in_(active_grupos))
+        conds.append(or_(
+            VendasDiariaSnapshot.ano == target_ano,
+            VendasDiariaSnapshot.ano.is_(None),
+        ))
+        if extra:
+            conds.extend(extra)
+        return conds
 
-    daily_rows = (
+    # --- 2. Snapshot for past 9 days (D-9 to yesterday) – confirmed historical ------
+    hist_rows = (
         db.query(
             VendasDiariaSnapshot.data_venda,
             sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
         )
-        .filter(*ano_filter(date_start, today))
+        .filter(*snap_filter_active(date_start, yesterday))
         .group_by(VendasDiariaSnapshot.data_venda)
         .order_by(VendasDiariaSnapshot.data_venda)
         .all()
     )
+    hist_daily_map: dict = {r.data_venda: int(r.total or 0) for r in hist_rows}
 
-    daily_map = {r.data_venda: int(r.total or 0) for r in daily_rows}
-    diario = []
-    for i in range(10):
-        d = date_start + timedelta(days=i)
-        diario.append({
-            "data": d.isoformat(),
-            "total": daily_map.get(d, 0),
-        })
-
-    top_rows = (
+    # Snapshot for today (may be partial / not yet synced)
+    today_snap_rows = (
         db.query(
             VendasDiariaSnapshot.evento_grupo,
-            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_periodo"),
+            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
         )
-        .filter(*ano_filter(date_start, today))
+        .filter(*snap_filter_active(today, today))
         .group_by(VendasDiariaSnapshot.evento_grupo)
-        .order_by(desc(sa_func.sum(VendasDiariaSnapshot.quantidade)))
-        .limit(10)
         .all()
     )
+    today_snap_by_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in today_snap_rows}
+    today_snap_total: int = sum(today_snap_by_grupo.values())
 
-    grupo_nomes_set = {r.evento_grupo for r in top_rows}
+    # --- 3. Live source for today via isc_data (same pattern as /operacional) --------
+    # isc_data[sku_norm]['qtd_site'] = cumulative live total for that SKU.
+    # Subtract each grupo's snapshot total through yesterday to estimate today-only.
+    try:
+        isc_data = fetch_isc_pricing_data(db=db, force_refresh=False)
+        sku_to_grupo = _build_sku_to_grupo_map(db, target_ano)
+    except Exception:
+        isc_data = {}
+        sku_to_grupo = {}
 
+    # Cumulative snapshot total (all time ≤ yesterday) per grupo — used as baseline
+    cumulative_hist_rows = (
+        db.query(
+            VendasDiariaSnapshot.evento_grupo,
+            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
+        )
+        .filter(
+            VendasDiariaSnapshot.data_venda <= yesterday,
+            VendasDiariaSnapshot.evento_grupo.in_(active_grupos) if active_grupos else True,
+            or_(
+                VendasDiariaSnapshot.ano == target_ano,
+                VendasDiariaSnapshot.ano.is_(None),
+            ),
+        )
+        .group_by(VendasDiariaSnapshot.evento_grupo)
+        .all()
+    )
+    cum_hist_by_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in cumulative_hist_rows}
+
+    # Live cumulative total per grupo from isc_data
+    live_total_by_grupo: dict = {}
+    for sku_norm, metrics in isc_data.items():
+        grupo = sku_to_grupo.get(sku_norm)
+        if grupo and (not active_grupos or grupo in active_grupos):
+            live_total_by_grupo[grupo] = live_total_by_grupo.get(grupo, 0) + int(metrics.get("qtd_site", 0) or 0)
+
+    # Today estimate per grupo = max(snapshot_today, live_today_delta)
+    today_live_by_grupo: dict = {}
+    for grupo in active_grupos:
+        snap_val = today_snap_by_grupo.get(grupo, 0)
+        live_cum = live_total_by_grupo.get(grupo, 0)
+        hist_cum = cum_hist_by_grupo.get(grupo, 0)
+        live_delta = max(0, live_cum - hist_cum)
+        today_live_by_grupo[grupo] = max(snap_val, live_delta)
+
+    today_live_total: int = sum(today_live_by_grupo.values())
+    # Use the larger of snapshot-today or live estimate for the daily chart
+    today_total: int = max(today_snap_total, today_live_total)
+
+    # --- 4. Build diario array -------------------------------------------------------
+    diario = []
+    for i in range(9):
+        d = date_start + timedelta(days=i)
+        diario.append({"data": d.isoformat(), "total": hist_daily_map.get(d, 0)})
+    diario.append({"data": today.isoformat(), "total": today_total})
+
+    # --- 5. TOP 10 per grupo over the full 10-day window -----------------------------
+    # Historical snapshot (D-9 to D-1) per grupo
+    hist_per_grupo_rows = (
+        db.query(
+            VendasDiariaSnapshot.evento_grupo,
+            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
+        )
+        .filter(*snap_filter_active(date_start, yesterday))
+        .group_by(VendasDiariaSnapshot.evento_grupo)
+        .all()
+    )
+    hist_per_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in hist_per_grupo_rows}
+
+    # Total for each grupo = hist (D-9..D-1) + live today
+    grupo_total_periodo: dict = {}
+    all_grupos_in_window = set(hist_per_grupo.keys()) | set(today_live_by_grupo.keys())
+    for g in all_grupos_in_window:
+        grupo_total_periodo[g] = hist_per_grupo.get(g, 0) + today_live_by_grupo.get(g, 0)
+
+    top_grupos = sorted(grupo_total_periodo.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_grupo_names = {g for g, _ in top_grupos}
+
+    # Resolve event names
     nome_map: dict = {}
-    if grupo_nomes_set:
+    if top_grupo_names:
         mapping_rows = (
             db.query(SkuMapping.evento_grupo, SkuMapping.nome_evento)
             .filter(
-                SkuMapping.evento_grupo.in_(grupo_nomes_set),
+                SkuMapping.evento_grupo.in_(top_grupo_names),
                 SkuMapping.ativo == True,
             )
             .distinct(SkuMapping.evento_grupo)
@@ -1348,29 +1447,26 @@ def get_inscricoes_diarias(
             if m.evento_grupo and m.nome_evento and m.evento_grupo not in nome_map:
                 nome_map[m.evento_grupo] = m.nome_evento
 
-    prev_map: dict = {}
-    if grupo_nomes_set:
-        prev_rows = (
-            db.query(
-                VendasDiariaSnapshot.evento_grupo,
-                sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_prev"),
-            )
-            .filter(
-                *ano_filter(prev_start, prev_end),
-                VendasDiariaSnapshot.evento_grupo.in_(grupo_nomes_set),
-            )
-            .group_by(VendasDiariaSnapshot.evento_grupo)
-            .all()
+    # Previous period totals (D-19 to D-10) for comparison
+    prev_rows = (
+        db.query(
+            VendasDiariaSnapshot.evento_grupo,
+            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_prev"),
         )
-        prev_map = {r.evento_grupo: int(r.total_prev or 0) for r in prev_rows}
+        .filter(*snap_filter_active(prev_start, prev_end, extra=[
+            VendasDiariaSnapshot.evento_grupo.in_(top_grupo_names)
+        ] if top_grupo_names else []))
+        .group_by(VendasDiariaSnapshot.evento_grupo)
+        .all()
+    ) if top_grupo_names else []
+    prev_map: dict = {r.evento_grupo: int(r.total_prev or 0) for r in prev_rows}
 
     top10 = []
-    for r in top_rows:
-        total = int(r.total_periodo or 0)
-        prev = prev_map.get(r.evento_grupo, 0)
+    for grupo, total in top_grupos:
+        prev = prev_map.get(grupo, 0)
         top10.append({
-            "evento_grupo": r.evento_grupo,
-            "nome": nome_map.get(r.evento_grupo, r.evento_grupo),
+            "evento_grupo": grupo,
+            "nome": nome_map.get(grupo, grupo),
             "total_periodo": total,
             "total_periodo_anterior": prev,
             "variacao": total - prev,
