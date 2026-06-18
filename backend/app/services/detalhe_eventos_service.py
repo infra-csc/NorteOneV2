@@ -135,6 +135,14 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
 # ---------------------------------------------------------------------------
 
 def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Optional[str]]:
+    """
+    ids=None  → query sem filtro (modo global sem evento_grupo selecionado)
+    ids=[]    → evento selecionado mas sem IDs Ativo → retorna vazio, NÃO executa query
+    ids=[...] → filtra pelos IDs fornecidos
+    """
+    if isinstance(ids, list) and len(ids) == 0:
+        logger.info("[DetalheEventos] Ativo: nenhum ID para este evento_grupo, retornando vazio")
+        return [], None
     if db_module.engine_ssh is None:
         return None, "SSH tunnel não configurado"
     try:
@@ -150,6 +158,14 @@ def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Option
 
 
 def _fetch_magento(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Optional[str]]:
+    """
+    ids=None  → query sem filtro (modo global sem evento_grupo selecionado)
+    ids=[]    → evento selecionado mas sem IDs Magento → retorna vazio, NÃO executa query
+    ids=[...] → filtra pelos IDs fornecidos
+    """
+    if isinstance(ids, list) and len(ids) == 0:
+        logger.info("[DetalheEventos] Magento: nenhum ID para este evento_grupo, retornando vazio")
+        return [], None
     if db_module.engine_magento is None:
         return None, "Magento não configurado"
     try:
@@ -286,32 +302,47 @@ def _check_divergencias(
     rows_magento: List[Dict],
 ) -> List[Dict]:
     """
-    Para cada combinação de DIM_KEYS, verifica se a soma por banco
-    coincide com o total consolidado. Retorna lista de divergências.
+    Para cada combinação (canonical_grupo + DIM_KEYS), verifica se a soma
+    das linhas brutas por banco coincide com o total consolidado.
+
+    Agrega por (canonical_grupo, DIM_KEYS, banco) via SUM para evitar
+    false-divergence quando múltiplos IDs do mesmo banco compartilham
+    as mesmas dimensões (ex: dois IDs Ativo no mesmo evento).
     """
-    by_key_banco: Dict[tuple, Dict[str, Dict]] = defaultdict(dict)
+    # Acumula totais por (canonical_grupo, *DIM_KEYS, banco)
+    bank_sums: Dict[tuple, Dict[str, float]] = defaultdict(lambda: {"inscritos": 0.0, "receita_liquida": 0.0})
 
     for row in (rows_ativo or []) + (rows_magento or []):
-        key = tuple(row.get(k) for k in DIM_KEYS)
+        canonical = row.get("canonical_grupo") or "__unknown__"
+        agg_key = (canonical,) + tuple(row.get(k) for k in DIM_KEYS)
         banco = row.get("banco", "?")
-        by_key_banco[key][banco] = row
+        slot_key = agg_key + (banco,)
+        bank_sums[slot_key]["inscritos"] += row.get("inscritos") or 0
+        bank_sums[slot_key]["receita_liquida"] += row.get("receita_liquida") or 0.0
 
+    # Para cada linha consolidada, soma todos os bancos sob a mesma chave canônica
     divergencias = []
     for rec in consolidado:
-        key = tuple(rec.get(k) for k in DIM_KEYS)
-        banco_rows = by_key_banco.get(key, {})
-        soma_ins = sum(r.get("inscritos", 0) for r in banco_rows.values())
-        soma_liq = sum(r.get("receita_liquida", 0.0) for r in banco_rows.values())
+        canonical = rec.get("canonical_grupo") or "__unknown__"
+        agg_key = (canonical,) + tuple(rec.get(k) for k in DIM_KEYS)
+
+        soma_ins = 0.0
+        soma_liq = 0.0
+        for slot_key, totals in bank_sums.items():
+            # slot_key = (canonical, *DIM_KEYS, banco) — prefix must match agg_key
+            if slot_key[:len(agg_key)] == agg_key:
+                soma_ins += totals["inscritos"]
+                soma_liq += totals["receita_liquida"]
 
         diff_ins = abs(soma_ins - (rec.get("inscritos") or 0))
         diff_liq = abs(soma_liq - (rec.get("receita_liquida") or 0.0))
 
-        if diff_ins > 0 or diff_liq > 0.01:
+        if diff_ins > 0.5 or diff_liq > 0.01:
             divergencias.append({
                 "dimensoes": {k: rec.get(k) for k in DIM_KEYS},
                 "consolidado_inscritos": rec.get("inscritos"),
-                "soma_bancos_inscritos": soma_ins,
-                "diff_inscritos": diff_ins,
+                "soma_bancos_inscritos": int(soma_ins),
+                "diff_inscritos": int(diff_ins),
                 "consolidado_receita_liquida": rec.get("receita_liquida"),
                 "soma_bancos_receita_liquida": round(soma_liq, 2),
                 "diff_receita_liquida": round(diff_liq, 2),
@@ -350,8 +381,23 @@ def get_detalhe(
 
     if evento_grupo:
         ativo_ids_list, magento_ids_list = get_evento_ids(db, evento_grupo)
-        ativo_ids = ativo_ids_list or None
-        magento_ids = magento_ids_list or None
+
+        # IMPORTANT: keep empty list as [] — do NOT convert to None.
+        # _fetch_ativo/magento(ids=[]) → returns empty rows immediately.
+        # _fetch_ativo/magento(ids=None) → unfiltered full-year query (global mode only).
+        # Converting [] to None would silently run full-year queries for an event
+        # that simply has no IDs registered for one bank.
+        ativo_ids = ativo_ids_list      # [] or [id, ...]
+        magento_ids = magento_ids_list  # [] or [id, ...]
+
+        # Reject unknown evento_grupo: if BOTH banks have zero IDs, the group
+        # doesn't exist (or has no active mappings). Raise explicitly.
+        if len(ativo_ids) == 0 and len(magento_ids) == 0:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=404,
+                detail=f"evento_grupo '{evento_grupo}' não encontrado ou sem mapeamentos ativos em sku_mappings.",
+            )
 
         mapping = (
             db.query(SkuMapping)
