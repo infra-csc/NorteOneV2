@@ -70,7 +70,7 @@ const CustomTooltipDaily: React.FC<any> = ({ active, payload, label, isDark, day
 
   return (
     <div className={`px-3 py-2.5 rounded-xl shadow-xl border text-xs ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
-      style={{ minWidth: 340, maxWidth: 480 }}>
+      style={{ minWidth: 460, maxWidth: 640 }}>
       <div className="flex items-center justify-between mb-2">
         <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</span>
         <span className={`font-black text-sm ml-4 ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{fmtNum(total)}</span>
