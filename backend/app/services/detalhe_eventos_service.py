@@ -9,10 +9,12 @@ Fluxo:
 5. Mantém os result sets brutos por banco para auditoria/cross-validation.
 
 Chave canônica de consolidação:
-- Para consulta de evento único (evento_grupo fornecido): agrega por DIM_KEYS apenas,
-  permitindo que linhas Ativo e Magento do mesmo evento se fundam por dimensão.
-- Para consulta sem filtro (evento_grupo=None): inclui (banco, id_evento) na chave
-  para evitar fusão entre eventos diferentes que coincidam em dimensões.
+- Cada linha raw é enriquecida com `canonical_grupo` = evento_grupo resolvido via
+  mapa reverso sku_mappings: (fonte.upper(), id_externo) → evento_grupo.
+- A consolidação sempre agrega por (canonical_grupo, DIM_KEYS), o que garante:
+  * Linhas Ativo e Magento do MESMO evento canônico se fundem por dimensão.
+  * Eventos distintos que coincidam em dimensões NUNCA são fundidos.
+- Isso funciona tanto para query de evento único quanto para query global sem filtro.
 
 Cache: dict em memória por chave (evento_grupo or "__all__"), TTL 15 min.
 """
@@ -170,40 +172,83 @@ def _fetch_magento(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Opti
 # Consolidação
 # ---------------------------------------------------------------------------
 
+def _build_canonical_map(db: Session) -> Dict[Tuple[str, int], str]:
+    """
+    Constrói mapa reverso (fonte.upper(), id_externo) → evento_grupo
+    a partir de sku_mappings ativos.
+
+    Utilizado para resolver a identidade canônica de cada linha raw
+    retornada pelo Ativo/Magento antes de consolidar — garantindo que
+    linhas de bancos diferentes que representam o MESMO evento se fundam
+    pela chave canônica, não pelo id_externo individual.
+    """
+    mappings = (
+        db.query(SkuMapping)
+        .filter(SkuMapping.ativo == True, SkuMapping.evento_grupo != None)
+        .all()
+    )
+    result: Dict[Tuple[str, int], str] = {}
+    for m in mappings:
+        if m.id_externo and m.fonte and m.evento_grupo:
+            key = (m.fonte.upper(), int(m.id_externo))
+            result[key] = m.evento_grupo
+    return result
+
+
+def _tag_canonical_grupo(
+    rows: List[Dict],
+    canonical_map: Dict[Tuple[str, int], str],
+    default_grupo: Optional[str],
+) -> None:
+    """
+    Enriquece cada linha in-place com `canonical_grupo` resolvido a partir do
+    mapa reverso de sku_mappings. Quando não encontrado, usa `default_grupo`
+    (evento_grupo da query, se for query de evento único) ou fallback
+    para 'banco:id_evento' garantindo isolamento mínimo.
+    """
+    for row in rows:
+        banco = (row.get("banco") or "").upper()
+        id_ev = row.get("id_evento")
+        try:
+            id_ev_int = int(id_ev) if id_ev is not None else None
+        except (ValueError, TypeError):
+            id_ev_int = None
+
+        resolved: Optional[str] = None
+        if id_ev_int is not None:
+            resolved = canonical_map.get((banco, id_ev_int))
+        if resolved is None:
+            resolved = default_grupo
+        if resolved is None:
+            # Último fallback: isolamento por banco+id evita cross-event merge
+            resolved = f"__raw__{banco}_{id_ev}"
+        row["canonical_grupo"] = resolved
+
+
 def _consolidar(
     rows_ativo: List[Dict],
     rows_magento: List[Dict],
-    evento_grupo: Optional[str],
 ) -> List[Dict]:
     """
-    Agrega todas as linhas por DIM_KEYS (+ event identity quando multi-evento).
+    Agrega todas as linhas por (canonical_grupo, DIM_KEYS).
 
-    Quando evento_grupo é fornecido (query de evento único), agrega apenas por
-    DIM_KEYS — isso permite fusão de linhas Ativo+Magento para o mesmo evento.
-
-    Quando evento_grupo é None (consulta global sem filtro), inclui (banco, id_evento)
-    na chave para prevenir merge cross-event (eventos distintos que coincidam em
-    dimensões devem permanecer separados).
+    canonical_grupo é resolvido previamente via _tag_canonical_grupo() usando
+    o mapa reverso de sku_mappings. Isso garante:
+    - Linhas Ativo e Magento do MESMO evento canônico se fundem por dimensão.
+    - Eventos distintos que coincidam em dimensões nunca são fundidos,
+      independentemente de a query ser de evento único ou global sem filtro.
     """
-    multi_event_mode = evento_grupo is None
-
     agg: Dict[tuple, Dict] = {}
 
     for row in (rows_ativo or []) + (rows_magento or []):
+        canonical = row.get("canonical_grupo") or "__unknown__"
         dim_key = tuple(row.get(k) for k in DIM_KEYS)
-        if multi_event_mode:
-            # Inclui identidade canônica do evento para evitar cross-event merge
-            event_key = (row.get("banco"), row.get("id_evento"))
-            key = event_key + dim_key
-        else:
-            key = dim_key
+        key = (canonical,) + dim_key
 
         if key not in agg:
             agg[key] = {k: row.get(k) for k in DIM_KEYS}
-            if multi_event_mode:
-                # Preserva informações de evento para o modo global
-                agg[key]["evento"] = row.get("evento")
-                agg[key]["id_evento"] = row.get("id_evento")
+            agg[key]["canonical_grupo"] = canonical
+            agg[key]["evento"] = row.get("evento")
             agg[key]["inscritos"] = 0
             agg[key]["receita_bruta"] = 0.0
             agg[key]["receita_liquida"] = 0.0
@@ -327,6 +372,9 @@ def get_detalhe(
     error_ativo: Optional[str] = None
     error_magento: Optional[str] = None
 
+    # Build canonical map BEFORE fetching (lightweight PG query)
+    canonical_map = _build_canonical_map(db)
+
     with ThreadPoolExecutor(max_workers=2) as executor:
         fut_ativo = executor.submit(_fetch_ativo, ativo_ids)
         fut_magento = executor.submit(_fetch_magento, magento_ids)
@@ -334,7 +382,11 @@ def get_detalhe(
         rows_ativo, error_ativo = fut_ativo.result()
         rows_magento, error_magento = fut_magento.result()
 
-    consolidado = _consolidar(rows_ativo or [], rows_magento or [], evento_grupo)
+    # Tag each row with its canonical_grupo before consolidating
+    _tag_canonical_grupo(rows_ativo or [], canonical_map, evento_grupo)
+    _tag_canonical_grupo(rows_magento or [], canonical_map, evento_grupo)
+
+    consolidado = _consolidar(rows_ativo or [], rows_magento or [])
     divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
 
     payload = {

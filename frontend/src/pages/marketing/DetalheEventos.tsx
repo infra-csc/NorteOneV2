@@ -217,7 +217,11 @@ function buildTree(
   hierarchy: DimKey[],
   divergencias: Set<string>,
 ): TreeNode[] {
-  function group(items: DetalheRow[], dims: DimKey[], depth: number): TreeNode[] {
+  // parentKey is threaded through to build path-stable, globally-unique keys.
+  // Format: "<parentKey>|<dim>:<escaped-value>"
+  // This ensures that the same label at the same depth under different parents
+  // gets a distinct key — preventing expand/collapse cross-contamination.
+  function group(items: DetalheRow[], dims: DimKey[], depth: number, parentKey: string): TreeNode[] {
     if (items.length === 0) return [];
     const [dim, ...rest] = dims;
     const grouped = new Map<string, DetalheRow[]>();
@@ -244,8 +248,12 @@ function buildTree(
         return divergencias.has(dk);
       });
 
+      // Path-stable unique key: includes full ancestor lineage
+      const escapedK = k.replace(/[|:]/g, '_');
+      const nodeKey = `${parentKey}|${dim}:${escapedK}`;
+
       const node: TreeNode = {
-        key: `${depth}-${dim}-${k}`,
+        key: nodeKey,
         label: k,
         dimKey: dim,
         inscritos: totalIns,
@@ -259,13 +267,21 @@ function buildTree(
       };
 
       if (isLeaf) {
-        // Leaf: add bank-split sub-nodes by matching against por_banco rows
-        const matching = findBancoRows(groupRows[0], allBancoRows);
-        if (matching.length > 0) {
-          node.bankSplit = buildBankSplit(matching);
+        // Leaf: add bank-split sub-nodes by matching all groupRows against por_banco rows
+        const matching = groupRows.flatMap(gr => findBancoRows(gr, allBancoRows));
+        // Deduplicate by banco+id_evento combination
+        const seen = new Set<string>();
+        const deduped = matching.filter(r => {
+          const id = `${r.banco}|${r.id_evento}|${r.canal}|${r.kit}|${r.distancia}`;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+        if (deduped.length > 0) {
+          node.bankSplit = buildBankSplit(deduped);
         }
       } else {
-        node.children = group(groupRows, rest, depth + 1);
+        node.children = group(groupRows, rest, depth + 1, nodeKey);
       }
 
       nodes.push(node);
@@ -275,7 +291,7 @@ function buildTree(
     return nodes;
   }
 
-  return group(rows, hierarchy, 0);
+  return group(rows, hierarchy, 0, 'root');
 }
 
 // ---------------------------------------------------------------------------
