@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
-import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2, Info } from 'lucide-react';
 
 interface DayEntry {
   data: string;
@@ -213,13 +213,35 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
           <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/20">
             <Trophy className="w-4 h-4 text-white" />
           </div>
-          <div>
+          <div className="flex-1">
             <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
               TOP 10 Eventos
             </h3>
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
               Mais vendidos nos últimos 10 dias
             </p>
+          </div>
+          <div className="group relative flex-shrink-0">
+            <Info className={`w-4 h-4 cursor-help ${isDark ? 'text-gray-500 hover:text-gray-300' : 'text-gray-400 hover:text-gray-600'}`} />
+            <div className={`
+              pointer-events-none absolute right-0 top-6 z-50 w-64 rounded-xl p-3 shadow-xl
+              opacity-0 group-hover:opacity-100 transition-opacity duration-150
+              ${isDark ? 'bg-gray-900 border border-gray-700 text-gray-200' : 'bg-white border border-gray-200 text-gray-700'}
+            `}>
+              <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Como ler os números</p>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-400 flex-shrink-0 mt-0.5">
+                    <TrendingUp className="w-3 h-3" />+31
+                  </span>
+                  <p className="text-xs leading-snug">Variação vs. os 10 dias anteriores (positivo = acelerando, negativo = desacelerando).</p>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className={`text-xs font-black flex-shrink-0 mt-0.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>31</span>
+                  <p className="text-xs leading-snug">Total de inscrições nos últimos 10 dias — critério de ordenação do ranking.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
