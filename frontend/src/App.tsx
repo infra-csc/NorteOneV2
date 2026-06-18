@@ -115,7 +115,7 @@ function App() {
               <Route path="/admin/saude-sistema" element={<PermissionRoute module="admin_monitoramento"><Layout><SaudeSistema /></Layout></PermissionRoute>} />
               <Route path="/projecao-inscritos" element={<PermissionRoute module="projecao_inscritos"><Layout><ProjecaoInscritos /></Layout></PermissionRoute>} />
               <Route path="/cotacoes" element={<PermissionRoute module="cotacoes_importacao"><Layout><CotacoesImportacao /></Layout></PermissionRoute>} />
-              <Route path="/manual" element={<PrivateRoute><Layout><ManualSistema /></Layout></PrivateRoute>} />
+              <Route path="/manual" element={<PermissionRoute module="manual_sistema" fallback="/"><Layout><ManualSistema /></Layout></PermissionRoute>} />
               <Route path="/perfil" element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>} />
             </Routes>
           </Suspense>
