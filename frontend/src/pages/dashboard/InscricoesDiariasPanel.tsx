@@ -228,18 +228,41 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
               opacity-0 group-hover:opacity-100 transition-opacity duration-150
               ${isDark ? 'bg-gray-900 border border-gray-700 text-gray-200' : 'bg-white border border-gray-200 text-gray-700'}
             `}>
-              <p className={`text-xs font-semibold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Como ler os números</p>
-              <div className="space-y-2">
-                <div className="flex items-start gap-2">
-                  <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-400 flex-shrink-0 mt-0.5">
-                    <TrendingUp className="w-3 h-3" />+31
-                  </span>
-                  <p className="text-xs leading-snug">Variação vs. os 10 dias anteriores (positivo = acelerando, negativo = desacelerando).</p>
+              <p className={`text-xs font-semibold mb-2.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>Como ler os números</p>
+
+              {/* Number on the right */}
+              <div className="flex items-start gap-2 mb-2.5">
+                <span className={`text-xs font-black flex-shrink-0 mt-0.5 w-8 text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>31</span>
+                <p className="text-xs leading-snug"><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total dos últimos 10 dias</span> — inscrições de hoje até D‑9. É o critério de ordenação do ranking.</p>
+              </div>
+
+              {/* Divider */}
+              <div className={`border-t mb-2.5 ${isDark ? 'border-gray-700' : 'border-gray-100'}`} />
+
+              {/* Variation badge */}
+              <div className="flex items-start gap-2 mb-2.5">
+                <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-400 flex-shrink-0 mt-0.5 w-8 justify-end">
+                  <TrendingUp className="w-3 h-3" />+31
+                </span>
+                <p className="text-xs leading-snug"><span className="font-semibold text-emerald-400">Variação</span> = inscrições dos últimos 10 dias <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> as inscrições dos 10 dias anteriores a esses (D‑10 a D‑19).</p>
+              </div>
+
+              {/* Period diagram */}
+              <div className={`rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                <div className="flex items-center gap-1 mb-1">
+                  <div className={`w-2 h-2 rounded-sm flex-shrink-0 ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`} />
+                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>D‑19 até D‑10 → período anterior</span>
                 </div>
-                <div className="flex items-start gap-2">
-                  <span className={`text-xs font-black flex-shrink-0 mt-0.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>31</span>
-                  <p className="text-xs leading-snug">Total de inscrições nos últimos 10 dias — critério de ordenação do ranking.</p>
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-sm flex-shrink-0 bg-indigo-500" />
+                  <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>D‑9 até hoje → período atual</span>
                 </div>
+              </div>
+
+              {/* Example */}
+              <div className={`mt-2 rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
+                <p className={`mb-1 font-semibold ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Exemplo: badge <span className="text-red-400">−208</span></p>
+                <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>25 inscrições (atual) − 233 (anterior) = −208. O evento vendeu muito menos nesta janela do que na anterior.</p>
               </div>
             </div>
           </div>
