@@ -3495,7 +3495,7 @@ const Cadastro: React.FC = () => {
                 <p className="text-sm">O servidor pode estar inicializando. Aguarde alguns instantes e tente novamente.</p>
               </div>
               <button
-                onClick={loadCadastros}
+                onClick={() => loadCadastros()}
                 className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
               >
                 Tentar novamente
