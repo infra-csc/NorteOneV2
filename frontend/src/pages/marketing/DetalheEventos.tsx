@@ -502,6 +502,14 @@ const DetalheEventos: React.FC = () => {
   const [viewMode, setViewMode] = useState<'tree' | 'flat'>('tree');
   const [activeTab, setActiveTab] = useState<'consolidado' | 'ativo' | 'magento'>('consolidado');
   const [searchEventos, setSearchEventos] = useState('');
+  const [loadingSecs, setLoadingSecs] = useState(0);
+
+  useEffect(() => {
+    if (!loading) { setLoadingSecs(0); return; }
+    setLoadingSecs(0);
+    const t = setInterval(() => setLoadingSecs(s => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [loading]);
 
   useEffect(() => {
     setLoadingEventos(true);
@@ -778,6 +786,18 @@ const DetalheEventos: React.FC = () => {
 
       {loading && (
         <div className="space-y-4">
+          <div className={`rounded-xl border ${dark ? 'border-indigo-700 bg-indigo-900/30' : 'border-indigo-200 bg-indigo-50'} px-5 py-4 flex items-center gap-4`}>
+            <RefreshCw className="w-5 h-5 text-indigo-500 animate-spin flex-shrink-0" />
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>
+                Buscando dados dos bancos Ativo e Magento…
+              </p>
+              <p className={`text-xs mt-0.5 ${dark ? 'text-indigo-400' : 'text-indigo-500'}`}>
+                A consulta envolve bancos externos via SSH e pode levar até 2 minutos.
+                {loadingSecs > 0 && <span className="ml-2 font-mono">{loadingSecs}s</span>}
+              </p>
+            </div>
+          </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
               <div key={i} className={`h-20 rounded-xl animate-pulse ${dark ? 'bg-gray-800' : 'bg-gray-200'}`} />
