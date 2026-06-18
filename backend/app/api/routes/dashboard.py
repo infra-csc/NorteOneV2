@@ -1465,12 +1465,19 @@ def get_inscricoes_diarias(
     top10 = []
     for grupo, total in top_grupos:
         prev = prev_map.get(grupo, 0)
+        t_hoje = today_live_by_grupo.get(grupo, 0)
+        t_ontem = yest_per_grupo.get(grupo, 0)
         top10.append({
             "evento_grupo": grupo,
             "nome": nome_map.get(grupo, grupo),
             "total_periodo": total,
             "total_periodo_anterior": prev,
             "variacao": total - prev,
+            "total_hoje": t_hoje,
+            "total_ontem": t_ontem,
+            # variações por modo
+            "variacao_hoje": t_hoje - t_ontem,       # hoje vs ontem
+            "variacao_ontem": t_ontem - prev,         # ontem vs anteontem
         })
 
     # --- 6. Daily breakdown per grupo (top 10) for stacked chart ----------------------

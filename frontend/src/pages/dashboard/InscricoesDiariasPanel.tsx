@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
 import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2, Info } from 'lucide-react';
+
+type Top10Filter = 'ambos' | 'hoje' | 'ontem';
 
 interface DayEntry {
   data: string;
@@ -16,6 +18,10 @@ interface Top10Entry {
   total_periodo: number;
   total_periodo_anterior: number;
   variacao: number;
+  total_hoje?: number;
+  total_ontem?: number;
+  variacao_hoje?: number;
+  variacao_ontem?: number;
 }
 
 interface GrupoMeta {
@@ -106,9 +112,34 @@ const CustomTooltipDaily: React.FC<any> = ({ active, payload, label, isDark, day
 
 const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
   const cardClass = `rounded-2xl ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
+  const [top10Filter, setTop10Filter] = useState<Top10Filter>('ambos');
 
   const maxTotal = data ? Math.max(...data.diario.map(d => d.total), 1) : 1;
   const gruposMeta = data?.grupos_meta ?? [];
+
+  // Derive sorted top10 list based on selected filter
+  const sortedTop10 = React.useMemo(() => {
+    if (!data?.top10) return [];
+    const list = [...data.top10];
+    if (top10Filter === 'hoje') {
+      list.sort((a, b) => (b.total_hoje ?? 0) - (a.total_hoje ?? 0));
+    } else if (top10Filter === 'ontem') {
+      list.sort((a, b) => (b.total_ontem ?? 0) - (a.total_ontem ?? 0));
+    }
+    return list;
+  }, [data, top10Filter]);
+
+  const getDisplayTotal = (ev: Top10Entry) => {
+    if (top10Filter === 'hoje') return ev.total_hoje ?? 0;
+    if (top10Filter === 'ontem') return ev.total_ontem ?? 0;
+    return ev.total_periodo;
+  };
+
+  const getDisplayVariacao = (ev: Top10Entry): { variacao: number; prev: number } => {
+    if (top10Filter === 'hoje') return { variacao: ev.variacao_hoje ?? 0, prev: ev.total_ontem ?? 0 };
+    if (top10Filter === 'ontem') return { variacao: ev.variacao_ontem ?? 0, prev: ev.total_periodo_anterior };
+    return { variacao: ev.variacao, prev: ev.total_periodo_anterior };
+  };
 
   // Map: date_iso → [{key, nome, count}] sorted desc by count
   const dayGruposMap = React.useMemo<Record<string, { key: string; nome: string; count: number }[]>>(() => {
@@ -212,7 +243,7 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
 
       {/* Tabela: TOP 10 eventos */}
       <div className={`${cardClass} p-5`}>
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-3">
           <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 shadow-lg shadow-amber-500/20">
             <Trophy className="w-4 h-4 text-white" />
           </div>
@@ -221,7 +252,7 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
               TOP 10 Eventos
             </h3>
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              Mais vendidos hoje e ontem
+              {top10Filter === 'ambos' ? 'Mais vendidos hoje e ontem' : top10Filter === 'hoje' ? 'Inscrições de hoje' : 'Inscrições de ontem'}
             </p>
           </div>
           <div className="group relative flex-shrink-0">
@@ -232,43 +263,67 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
               ${isDark ? 'bg-gray-900 border border-gray-700 text-gray-200' : 'bg-white border border-gray-200 text-gray-700'}
             `}>
               <p className={`text-xs font-semibold mb-2.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>Como ler os números</p>
-
-              {/* Number on the right */}
               <div className="flex items-start gap-2 mb-2.5">
                 <span className={`text-xs font-black flex-shrink-0 mt-0.5 w-8 text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>31</span>
-                <p className="text-xs leading-snug"><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de hoje e ontem</span> — soma das inscrições do dia atual (estimativa ao vivo) com as de ontem (snapshot). É o critério de ordenação do ranking.</p>
+                <p className="text-xs leading-snug">
+                  {top10Filter === 'ambos' && <><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de hoje e ontem</span> — soma das inscrições do dia atual (estimativa ao vivo) com as de ontem (snapshot).</>}
+                  {top10Filter === 'hoje' && <><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de hoje</span> — estimativa ao vivo do dia atual.</>}
+                  {top10Filter === 'ontem' && <><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de ontem</span> — snapshot consolidado do dia anterior.</>}
+                </p>
               </div>
-
-              {/* Divider */}
               <div className={`border-t mb-2.5 ${isDark ? 'border-gray-700' : 'border-gray-100'}`} />
-
-              {/* Variation badge */}
               <div className="flex items-start gap-2 mb-2.5">
                 <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-400 flex-shrink-0 mt-0.5 w-8 justify-end">
-                  <TrendingUp className="w-3 h-3" />+31
+                  <TrendingUp className="w-3 h-3" />+5
                 </span>
-                <p className="text-xs leading-snug"><span className="font-semibold text-emerald-400">Variação</span> = inscrições de hoje + ontem <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> as inscrições de anteontem.</p>
+                <p className="text-xs leading-snug">
+                  <span className="font-semibold text-emerald-400">Variação</span>
+                  {top10Filter === 'ambos' && <> = (hoje + ontem) <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> anteontem.</>}
+                  {top10Filter === 'hoje' && <> = hoje <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> ontem.</>}
+                  {top10Filter === 'ontem' && <> = ontem <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> anteontem.</>}
+                </p>
               </div>
-
-              {/* Period diagram */}
               <div className={`rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                 <div className="flex items-center gap-1 mb-1">
                   <div className={`w-2 h-2 rounded-sm flex-shrink-0 ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`} />
-                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Anteontem → período anterior (comparação)</span>
+                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+                    {top10Filter === 'ambos' ? 'Anteontem → comparação' : top10Filter === 'hoje' ? 'Ontem → comparação' : 'Anteontem → comparação'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="w-2 h-2 rounded-sm flex-shrink-0 bg-indigo-500" />
-                  <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>Ontem + hoje → período atual (ranking)</span>
+                  <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>
+                    {top10Filter === 'ambos' ? 'Ontem + hoje → ranking' : top10Filter === 'hoje' ? 'Hoje → ranking' : 'Ontem → ranking'}
+                  </span>
                 </div>
-              </div>
-
-              {/* Example */}
-              <div className={`mt-2 rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                <p className={`mb-1 font-semibold ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Exemplo: badge <span className="text-red-400">−5</span></p>
-                <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>12 inscrições (hoje + ontem) − 17 (anteontem) = −5. O evento vendeu menos nestes 2 dias do que no dia anterior.</p>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Filter buttons */}
+        <div className={`flex gap-1.5 mb-3 p-1 rounded-xl ${isDark ? 'bg-gray-700/40' : 'bg-gray-100/80'}`}>
+          {([
+            { key: 'ambos', label: 'Hoje + Ontem' },
+            { key: 'hoje',  label: 'Só Hoje' },
+            { key: 'ontem', label: 'Só Ontem' },
+          ] as { key: Top10Filter; label: string }[]).map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTop10Filter(key)}
+              className={`flex-1 text-xs font-semibold py-1.5 rounded-lg transition-all duration-150 ${
+                top10Filter === key
+                  ? isDark
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'bg-amber-500 text-white shadow-sm'
+                  : isDark
+                    ? 'text-gray-400 hover:text-gray-200'
+                    : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {loading ? (
@@ -287,10 +342,11 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
           </div>
         ) : (
           <div className="space-y-2">
-            {data.top10.map((ev, idx) => {
-              const barPct = data.top10[0].total_periodo > 0
-                ? Math.round((ev.total_periodo / data.top10[0].total_periodo) * 100)
-                : 0;
+            {sortedTop10.map((ev, idx) => {
+              const displayTotal = getDisplayTotal(ev);
+              const { variacao, prev } = getDisplayVariacao(ev);
+              const maxVal = getDisplayTotal(sortedTop10[0]);
+              const barPct = maxVal > 0 ? Math.round((displayTotal / maxVal) * 100) : 0;
               return (
                 <div key={ev.evento_grupo}>
                   <div className="flex items-center gap-2 mb-1">
@@ -306,9 +362,9 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                       {ev.nome}
                     </span>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <VariacaoBadge variacao={ev.variacao} prev={ev.total_periodo_anterior} />
+                      <VariacaoBadge variacao={variacao} prev={prev} />
                       <span className={`text-xs font-black w-14 text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>
-                        {fmtNum(ev.total_periodo)}
+                        {fmtNum(displayTotal)}
                       </span>
                     </div>
                   </div>
