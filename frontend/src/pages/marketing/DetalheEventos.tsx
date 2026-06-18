@@ -793,7 +793,7 @@ const DetalheEventos: React.FC = () => {
                 Buscando dados dos bancos Ativo e Magento…
               </p>
               <p className={`text-xs mt-0.5 ${dark ? 'text-indigo-400' : 'text-indigo-500'}`}>
-                A consulta envolve bancos externos via SSH e pode levar até 2 minutos.
+                A consulta envolve bancos externos (Ativo via SSH, Magento direto) e pode levar até 2 minutos.
                 {loadingSecs > 0 && <span className="ml-2 font-mono">{loadingSecs}s</span>}
               </p>
             </div>
