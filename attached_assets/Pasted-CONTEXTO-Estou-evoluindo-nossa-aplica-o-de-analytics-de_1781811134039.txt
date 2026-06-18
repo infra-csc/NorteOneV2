@@ -1,0 +1,69 @@
+CONTEXTO
+Estou evoluindo nossa aplicação de analytics de inscrições (single source of truth).
+Stack: React + TypeScript, Tailwind, shadcn/ui, TanStack Query, Recharts no front;
+Node.js no back. Já existe a tela Dash ISC que consolida números de duas bases — quero
+seguir o MESMO padrão de consolidação nesta nova tela.
+
+OBJETIVO
+Criar a tela "Detalhamento de Eventos": exibe, por evento, todos os detalhes de grão
+fino consolidando DUAS bases em números únicos — Canais de venda, Kit, Distâncias,
+Modalidade, Pelotão, Produtos, Tamanho de camiseta.
+
+FONTES DE DADOS (anexei dois arquivos .sql)
+- Magento_QueryDetalhe_consolidado.sql  -> roda na conexão Magento (réplica read-only, MySQL 5.7)
+- Ativo_QueryDetalhe_consolidado.sql    -> roda na conexão Ativo (banco "0_transfer", MySQL)
+As duas queries JÁ retornam o MESMO contrato de colunas, na mesma ordem:
+  banco, id_evento, evento, canal, kit, distancia, modalidade,
+  pelotao, produtos, tamanho_camiseta,
+  inscritos, receita_bruta, receita_liquida, ticket_medio
+
+PONTO CRÍTICO DE ARQUITETURA
+São DOIS bancos diferentes — NÃO dá para fazer JOIN/UNION entre eles em SQL.
+A consolidação acontece na camada de aplicação (Node):
+1. Executar as duas queries (cada uma na sua conexão), em paralelo.
+2. Concatenar os dois result sets (cada linha já vem com o campo "banco").
+3. Agregar por estas dimensões comuns:
+   [id_evento, evento, canal, kit, distancia, modalidade, pelotao, produtos, tamanho_camiseta]
+   - SUM(inscritos), SUM(receita_bruta), SUM(receita_liquida)
+   - ATENÇÃO: NÃO somar ticket_medio. Recalcular:
+     ticket_medio = SUM(receita_liquida) / NULLIF(SUM(inscritos), 0)
+4. Manter "banco" como dimensão de drill-down (poder abrir Magento vs Ativo dentro de
+   cada linha) e como cross-validation: a soma das linhas por banco TEM que bater com a
+   linha consolidada. Exibir um aviso na UI se divergir.
+
+REGRAS DE NEGÓCIO / CONSISTÊNCIA
+- Canais padronizados nas duas bases: 'Site', 'Grupos/B2B', 'Cortesia'. Cortesia tem
+  receita zerada; Grupos/B2B são pagantes legítimos (não excluir).
+- Não há dupla contagem: Magento e Ativo são fontes de inscrição distintas; somar é o
+  correto. (Se um mesmo id_evento aparecer nas duas bases, é esperado — são inscrições
+  diferentes do mesmo evento.)
+- Assimetrias conhecidas (tratar null como '—', nunca quebrar):
+    * modalidade: só vem do Ativo; no Magento é NULL.
+    * produtos: só vem do Magento; no Ativo é NULL.
+
+PERFORMANCE
+- TanStack Query com cache e staleTime adequados; nada de refetch a cada interação de filtro.
+- A query do Magento é pesada (EAV). Rodar as duas em paralelo no back e cachear o
+  resultado consolidado por (evento + filtros). Considerar filtrar por evento no back
+  (as queries têm o filtro de evento comentado, pronto pra parametrizar via prepared
+  statement) para não trazer o ano inteiro quando o usuário escolher 1 evento.
+- Na tabela do front: virtualização/paginação; agregação já vem pronta do back.
+
+LAYOUT / UX (quero algo bonito e inovador, fácil de consumir)
+- Topo: cards de KPI (total de inscritos, receita líquida, ticket médio, split por canal)
+  com mini-sparklines.
+- Filtros: seletor de evento, canal, modalidade, distância.
+- Corpo: visão MASTER-DETAIL hierárquica e expansível, já que os dados são uma árvore
+  natural: Evento → Kit → Distância → Modalidade → Pelotão → Produtos → Tamanho.
+  Linhas expansíveis (drill-down), e dentro de cada folha permitir abrir o split por
+  banco (Magento/Ativo) pra auditoria.
+- Gráficos de apoio (Recharts): distribuição por canal, por distância, por tamanho de camiseta.
+- shadcn/ui, dark/light, responsivo, badges de canal com cores fixas, skeleton no loading,
+  empty states, e um selo de "fonte" (Magento / Ativo / ambos) por linha.
+
+ENTREGÁVEL
+- Endpoint(s) no back que executam + consolidam as duas queries (com o recálculo do ticket_medio).
+- A tela React completa (hierárquica + KPIs + gráficos + filtros).
+- Me devolva os ARQUIVOS COMPLETOS, não snippets.
+
+Antes de implementar, me

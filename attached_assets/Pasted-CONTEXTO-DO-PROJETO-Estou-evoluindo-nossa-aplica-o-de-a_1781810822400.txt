@@ -1,0 +1,64 @@
+CONTEXTO DO PROJETO
+Estou evoluindo nossa aplicação de analytics de inscrições de eventos (single source 
+of truth). O stack é: React + TypeScript, Tailwind, shadcn/ui, TanStack Query e Recharts 
+no front; Node.js no back. Os dados vêm de DOIS bancos MySQL distintos:
+- Magento (réplica read-only, MySQL 5.7) — e-commerce/inscrições online
+- Ativo (banco "0_transfer", MySQL) — sistema interno de inscrições
+
+Já existe uma tela (Dash ISC) que consolida números das duas fontes — quero seguir o 
+MESMO padrão de consolidação aqui.
+
+OBJETIVO
+Criar uma nova tela de "Detalhamento de Eventos" que exiba, por evento, todos os 
+detalhes de grão fino consolidando as duas bases em números únicos:
+- Canais de venda (Site, Grupos/B2B, Cortesia)
+- Kit
+- Distâncias
+- Modalidade
+- Pelotão
+- Produtos
+- Tamanho de camiseta
+
+CONSOLIDAÇÃO DAS DUAS QUERIES (igual Dash ISC)
+- Tenho uma query para Magento e uma para Ativo. Cada uma retorna inscrições no mesmo 
+  grão (evento + modalidade + distância + pelotão + produto + tamanho + canal).
+- O back deve executar as duas queries e UNIFICAR os resultados em um único dataset 
+  normalizado (mesmas chaves/dimensões e mesmas colunas de métrica), somando inscrições 
+  e receita por dimensão.
+- Padronizar a classificação de canais entre as bases: Site (pago padrão), Grupos/B2B 
+  (pedidos com desconto de grupo / cupom 'Grupos' — são pagantes legítimos, NÃO excluir), 
+  e Cortesia (receita zerada).
+- Garantir cross-validation: o total consolidado da tela deve bater com a soma das linhas 
+  detalhadas. Se possível, exibir um indicador de "fonte" (Magento / Ativo / ambos) por linha.
+
+PERFORMANCE (crítico)
+- MySQL 5.7: NÃO use CTE (WITH). Use derived tables no FROM.
+- Filtre SEMPRE dentro das derived tables (antes do GROUP BY/materialização), nunca só 
+  no WHERE externo — a réplica é read-only, então não há criação de índices disponível.
+- Pré-agregue tabelas joinadas em derived tables pela coluna de join para evitar explosão 
+  de linhas antes da agregação principal.
+- Se a query única ficar pesada, prefira o fallback de DIVIDIR em duas queries sequenciais 
+  na camada de aplicação (Node): primeiro buscar o conjunto pequeno filtrado, depois passar 
+  listas explícitas IN (?) para a segunda query.
+- No front, usar TanStack Query com cache adequado; paginação/virtualização na tabela; 
+  evitar refetch desnecessário ao filtrar.
+
+LAYOUT / UX (quero algo bonito e inovador, fácil de consumir)
+- Topo: cards de KPI (total de inscrições, receita, ticket médio, distribuição por canal) 
+  com mini-sparklines.
+- Filtros no topo: seletor de evento, período, canal, modalidade.
+- Corpo principal: visão master-detail / hierárquica e expansível, já que os dados são 
+  naturalmente em árvore (Evento → Modalidade → Distância → Pelotão → Produtos → Tamanho). 
+  Linhas expansíveis (drill-down) em vez de uma tabela plana gigante.
+- Ao lado/abaixo: gráficos de apoio (Recharts) — distribuição por canal, por distância, 
+  por tamanho de camiseta.
+- Componentes shadcn/ui, dark/light, responsivo, badges de canal com cores consistentes, 
+  estados de loading com skeleton e empty states.
+
+ENTREGÁVEL
+- Endpoint(s) no back que executam e consolidam as duas queries.
+- A tela React completa com a visão hierárquica + KPIs + gráficos + filtros.
+- Me devolva os arquivos completos (não snippets parciais).
+
+Antes de implementar, me proponha a estrutura do dataset consolidado (colunas/chaves) e 
+a abordagem de query (única vs. duas sequenciais) para eu validar.
