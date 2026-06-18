@@ -526,40 +526,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
         </header>
 
-        {isAdmin && unconfiguredKits && unconfiguredKits.total > 0 && !kitsBannerDismissed && (
-          <div className={`flex items-start gap-3 px-4 py-3 border-b ${isDark ? 'bg-amber-900/20 border-amber-700/40' : 'bg-amber-50 border-amber-200'}`}>
-            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 min-w-0">
-              <p className={`text-sm font-medium ${isDark ? 'text-amber-300' : 'text-amber-800'}`}>
-                {unconfiguredKits.total} kit{unconfiguredKits.total !== 1 ? 's' : ''} sem configuração encontrado{unconfiguredKits.total !== 1 ? 's' : ''}
-              </p>
-              <p className={`text-xs mt-0.5 ${isDark ? 'text-amber-400/80' : 'text-amber-700'}`}>
-                {unconfiguredKits.events.slice(0, 3).map(e => `${e.nome_evento} (${e.count})`).join(' · ')}
-                {unconfiguredKits.events.length > 3 && ` · +${unconfiguredKits.events.length - 3} evento(s)`}
-                {' '}— Kits sem mapeamento podem causar divergência nos relatórios de margem.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              <Link
-                to="/admin/kit-config"
-                className={`text-xs font-medium px-3 py-1 rounded-md transition-colors ${
-                  isDark
-                    ? 'bg-amber-700/40 text-amber-300 hover:bg-amber-700/60'
-                    : 'bg-amber-200 text-amber-800 hover:bg-amber-300'
-                }`}
-              >
-                Configurar kits
-              </Link>
-              <button
-                onClick={() => setKitsBannerDismissed(true)}
-                className={`p-1 rounded-md transition-colors ${isDark ? 'text-amber-400 hover:bg-amber-700/30' : 'text-amber-600 hover:bg-amber-100'}`}
-                title="Dispensar aviso"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
 
         <main className="p-3 sm:p-4 lg:p-6">
           {children}
