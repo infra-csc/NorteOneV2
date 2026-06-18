@@ -277,12 +277,29 @@ const tabs = [
 
 const CADASTROS_RENDER_BATCH = 60;
 
+const CAD_CACHE_TTL = 30 * 60 * 1000;
+const cadReadCache = (key: string): any => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CAD_CACHE_TTL) return null;
+    return data;
+  } catch { return null; }
+};
+const cadWriteCache = (key: string, data: any) => {
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+};
+const cadClearCache = (...keys: string[]) => {
+  keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+};
+
 const Cadastro: React.FC = () => {
   const { isDark } = useTheme();
   const { permissions, canViewCampo, canEditCampo } = usePermissions();
   const isAdmin = permissions?.is_admin || false;
-  const [cadastros, setCadastros] = useState<CadastroEvento[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [cadastros, setCadastros] = useState<CadastroEvento[]>(() => cadReadCache('cad_eventos_v1') || []);
+  const [loading, setLoading] = useState(() => !cadReadCache('cad_eventos_v1'));
   const [loadError, setLoadError] = useState(false);
   const [loadingEditId, setLoadingEditId] = useState<number | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -299,8 +316,8 @@ const Cadastro: React.FC = () => {
   const [filterLocalizacao, setFilterLocalizacao] = useState('');
   const [visibleCadastrosCount, setVisibleCadastrosCount] = useState(CADASTROS_RENDER_BATCH);
   
-  const [circuitos, setCircuitos] = useState<{id: number; nome: string}[]>([]);
-  const [localizacoes, setLocalizacoes] = useState<{id: number; nome: string}[]>([]);
+  const [circuitos, setCircuitos] = useState<{id: number; nome: string}[]>(() => cadReadCache('cad_opcoes_v1')?.circuitos || []);
+  const [localizacoes, setLocalizacoes] = useState<{id: number; nome: string}[]>(() => cadReadCache('cad_opcoes_v1')?.localizacoes || []);
   const [editingCircuito, setEditingCircuito] = useState<{id: number; nome: string} | null>(null);
   const [editingLocalizacao, setEditingLocalizacao] = useState<{id: number; nome: string} | null>(null);
   const [newCircuito, setNewCircuito] = useState('');
@@ -308,7 +325,7 @@ const Cadastro: React.FC = () => {
   const [showAddCircuito, setShowAddCircuito] = useState(false);
   const [showAddLocalizacao, setShowAddLocalizacao] = useState(false);
 
-  const [distanciasOptions, setDistanciasOptions] = useState<string[]>(distanciasOptionsFallback);
+  const [distanciasOptions, setDistanciasOptions] = useState<string[]>(() => cadReadCache('cad_distancias_v1') || distanciasOptionsFallback);
   const [showAddDistancia, setShowAddDistancia] = useState(false);
   const [newDistancia, setNewDistancia] = useState('');
 
@@ -330,7 +347,8 @@ const Cadastro: React.FC = () => {
   }, [visibleTabs]);
 
   useEffect(() => {
-    loadCadastros();
+    const hasCached = !!cadReadCache('cad_eventos_v1');
+    loadCadastros(hasCached);
     loadOpcoes();
     loadDistancias();
   }, []);
@@ -339,6 +357,7 @@ const Cadastro: React.FC = () => {
     if (!confirm(`Mover "${cadastro.nome}" para a lixeira?\n\nVocê poderá restaurar este evento nos próximos 30 dias.`)) return;
     try {
       await cadastrosService.delete(cadastro.id!);
+      cadClearCache('cad_eventos_v1');
       setCadastros(prev => prev.filter(c => c.id !== cadastro.id));
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Erro ao mover para lixeira');
@@ -361,6 +380,7 @@ const Cadastro: React.FC = () => {
     if (!confirm(`Restaurar "${nome}"?`)) return;
     try {
       await cadastrosService.restore(id);
+      cadClearCache('cad_eventos_v1');
       setLixeira(prev => prev.filter(c => c.id !== id));
       await loadCadastros();
     } catch (err: any) {
@@ -368,9 +388,9 @@ const Cadastro: React.FC = () => {
     }
   };
 
-  const loadCadastros = async () => {
+  const loadCadastros = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setLoadError(false);
       const data = await cadastrosService.list();
       const today = new Date();
@@ -386,6 +406,7 @@ const Cadastro: React.FC = () => {
         return item;
       });
       setCadastros(processed);
+      cadWriteCache('cad_eventos_v1', processed);
     } catch (error) {
       console.error('Erro ao carregar cadastros:', error);
       setLoadError(true);
@@ -402,6 +423,7 @@ const Cadastro: React.FC = () => {
       ]);
       setCircuitos(circData);
       setLocalizacoes(locData);
+      cadWriteCache('cad_opcoes_v1', { circuitos: circData, localizacoes: locData });
     } catch (error) {
       console.error('Erro ao carregar opções:', error);
     }
@@ -411,7 +433,9 @@ const Cadastro: React.FC = () => {
     try {
       const res = await api.get('/distancias/');
       if (res.data && res.data.length > 0) {
-        setDistanciasOptions(res.data.map((d: any) => d.nome));
+        const opts = res.data.map((d: any) => d.nome);
+        setDistanciasOptions(opts);
+        cadWriteCache('cad_distancias_v1', opts);
       }
     } catch (error) {
       console.error('Erro ao carregar distâncias:', error);
@@ -836,7 +860,7 @@ const Cadastro: React.FC = () => {
       } else {
         await cadastrosService.create(payload);
       }
-      
+      cadClearCache('cad_eventos_v1');
       await loadCadastros();
       setShowModal(false);
       setEditItem(null);

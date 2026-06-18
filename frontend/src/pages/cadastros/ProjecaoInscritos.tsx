@@ -420,6 +420,23 @@ const ClientesTooltip: React.FC<{
   </div>
 );
 
+const PROJ_CACHE_TTL = 20 * 60 * 1000;
+const projReadCache = (key: string): any => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > PROJ_CACHE_TTL) return null;
+    return data;
+  } catch { return null; }
+};
+const projWriteCache = (key: string, data: any) => {
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch {}
+};
+const projClearCache = (...keys: string[]) => {
+  keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+};
+
 const ProjecaoInscritos: React.FC = () => {
   const { isDark } = useTheme();
   const { user } = useAuth();
@@ -431,18 +448,18 @@ const ProjecaoInscritos: React.FC = () => {
   const canDeleteProjecao = canDelete('projecao_inscritos');
 
   const [activeTab, setActiveTab] = useState<'projecoes' | 'consolidado' | 'config' | 'lixeira'>('projecoes');
-  const [projecoes, setProjecoes] = useState<Projecao[]>([]);
-  const [areas, setAreas] = useState<AreaProjecao[]>([]);
-  const [myAreaIds, setMyAreaIds] = useState<Set<number>>(new Set());
-  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [projecoes, setProjecoes] = useState<Projecao[]>(() => projReadCache('proj_projecoes_v1') || []);
+  const [areas, setAreas] = useState<AreaProjecao[]>(() => projReadCache('proj_areas_v1') || []);
+  const [myAreaIds, setMyAreaIds] = useState<Set<number>>(() => { const d = projReadCache('proj_my_areas_v1'); return d ? new Set<number>(d) : new Set<number>(); });
+  const [eventos, setEventos] = useState<Evento[]>(() => projReadCache('proj_eventos_v1') || []);
   const [consolidado, setConsolidado] = useState<ConsolidadoEvento[]>([]);
-  const [cutoffEnvioMap, setCutoffEnvioMap] = useState<Record<string, string>>({});
+  const [cutoffEnvioMap, setCutoffEnvioMap] = useState<Record<string, string>>(() => projReadCache('proj_cutoff_envio_v1') || {});
   const [consolidadoLoading, setConsolidadoLoading] = useState(false);
   const [consolidadoLoaded, setConsolidadoLoaded] = useState(false);
   const [areasDetail, setAreasDetail] = useState<AreaDetail[]>([]);
   const [allUsers, setAllUsers] = useState<SimpleUser[]>([]);
   const [lixeira, setLixeira] = useState<Projecao[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !projReadCache('proj_projecoes_v1'));
 
   const [filterMes, setFilterMes] = useState<string[]>([]);
   const [filterTipoEvento, setFilterTipoEvento] = useState<string[]>([]);
@@ -593,17 +610,22 @@ const ProjecaoInscritos: React.FC = () => {
   const inputClass = `w-full px-4 py-2.5 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-blue-500`;
   const selectClass = `px-3 py-2 rounded-xl border text-sm ${isDark ? 'bg-gray-800/50 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} focus:outline-none focus:ring-2 focus:ring-blue-500`;
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
+      const filters = buildFilters();
+      const isDefaultFilters = Object.keys(filters).length === 0;
       const [areasData, myAreasData, projecoesData] = await Promise.all([
         projecaoService.listAreas(),
         projecaoService.minhasAreas(),
-        projecaoService.list(buildFilters()),
+        projecaoService.list(filters),
       ]);
       setAreas(areasData);
       setMyAreaIds(new Set(myAreasData.map((a: AreaProjecao) => a.id)));
       setProjecoes(projecoesData);
+      projWriteCache('proj_areas_v1', areasData);
+      projWriteCache('proj_my_areas_v1', myAreasData.map((a: AreaProjecao) => a.id));
+      if (isDefaultFilters) projWriteCache('proj_projecoes_v1', projecoesData);
       // Pendências can change any time projections are mutated; refresh in background.
       loadPendencias();
     } catch (error) {
@@ -618,6 +640,7 @@ const ProjecaoInscritos: React.FC = () => {
       const { default: api } = await import('../../services/api');
       const res = await api.get('/cadastros/');
       setEventos(res.data);
+      projWriteCache('proj_eventos_v1', res.data);
     } catch (error) {
       console.error('Erro ao carregar eventos:', error);
     }
@@ -987,6 +1010,7 @@ const ProjecaoInscritos: React.FC = () => {
       onConfirm: async () => {
         try {
           await projecaoService.restaurar(id);
+          projClearCache('proj_projecoes_v1');
           loadLixeira();
           loadData();
           showToast('Projeção restaurada com sucesso', 'success');
@@ -1028,13 +1052,15 @@ const ProjecaoInscritos: React.FC = () => {
     try {
       const map = await projecaoService.getCutoffEnvioMap();
       setCutoffEnvioMap(map || {});
+      projWriteCache('proj_cutoff_envio_v1', map || {});
     } catch (error) {
       console.error('Erro ao carregar mapa de Data de corte Envio:', error);
     }
   };
 
   useEffect(() => {
-    loadData();
+    const hasCached = !!projReadCache('proj_projecoes_v1');
+    loadData(hasCached);
     loadEventos();
     loadCutoffEnvioMap();
   }, []);
@@ -1408,6 +1434,7 @@ const ProjecaoInscritos: React.FC = () => {
         clientes,
         kits,
       });
+      projClearCache('proj_projecoes_v1');
       setShowCreateModal(false);
       resetForm();
       loadData();
@@ -1474,6 +1501,7 @@ const ProjecaoInscritos: React.FC = () => {
             .map(k => ({ nome_kit: k.nome_kit.trim(), quantidade: parseInt(k.quantidade) }))
         : [];
       await projecaoService.update(editingProjecao.id, { quantidade: qty, clientes, kits });
+      projClearCache('proj_projecoes_v1');
       setEditingProjecao(null);
       resetForm();
       loadData();
@@ -1491,6 +1519,7 @@ const ProjecaoInscritos: React.FC = () => {
       onConfirm: async () => {
         try {
           await projecaoService.delete(id);
+          projClearCache('proj_projecoes_v1');
           loadData();
           showToast('Projeção excluída com sucesso', 'success');
         } catch (error: any) {
@@ -1514,6 +1543,7 @@ const ProjecaoInscritos: React.FC = () => {
         setLockingEventoId(eventoId);
         try {
           await projecaoService.toggleLock(eventoId);
+          projClearCache('proj_projecoes_v1');
           await loadData();
           showToast(allLocked ? 'Projeções destravadas com sucesso' : 'Projeções travadas com sucesso', 'success');
         } catch (error: any) {
@@ -1710,6 +1740,7 @@ const ProjecaoInscritos: React.FC = () => {
     }
     try {
       await projecaoService.createArea(nome);
+      projClearCache('proj_projecoes_v1', 'proj_areas_v1');
       setShowCreateAreaModal(false);
       setNewAreaNome('');
       loadAreasDetail();
