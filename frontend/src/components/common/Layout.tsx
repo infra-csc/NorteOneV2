@@ -53,9 +53,10 @@ const cotacaoItems = [
 const marketingItems = [
   { path: '/marketing', icon: Activity, label: 'Dashboard ISC', modulo: 'marketing_dashboard' },
   { path: '/marketing/comparativo', icon: BarChart3, label: 'Comparativo', modulo: 'marketing_comparativo' },
-  { path: '/marketing/detalhe', icon: Table2, label: 'Detalhamento', modulo: 'marketing_dashboard' },
   { path: '/marketing/configuracoes', icon: Settings, label: 'Configuracoes', modulo: 'marketing_configuracoes' },
 ];
+
+const detalheEventosItem = { path: '/marketing/detalhe', icon: Table2, label: 'Detalhamento', modulo: 'marketing_dashboard' };
 
 const adminItems = [
   { path: '/admin/dados-consolidados', icon: Database, label: 'Dados Consolidados', modulo: 'admin_dados_consolidados' },
@@ -226,6 +227,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     cadastroItems.splice(insertAt, 0, projecaoInscritosItem);
   }
   const filteredAdminItems = adminItems.filter(item => canView(item.modulo));
+  const showDetalheEventos = canView(detalheEventosItem.modulo);
 
   return (
     <div className={`min-h-screen ${isDark ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
@@ -389,6 +391,26 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             )}
           </div>
           )}
+
+          {showDetalheEventos && (() => {
+            const isActive = location.pathname === detalheEventosItem.path;
+            const Icon = detalheEventosItem.icon;
+            return (
+              <Link
+                to={detalheEventosItem.path}
+                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white'
+                    : isDark
+                    ? 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Icon className="w-5 h-5 mr-3" />
+                {detalheEventosItem.label}
+              </Link>
+            );
+          })()}
 
           {filteredAdminItems.length > 0 && (
             <div>
