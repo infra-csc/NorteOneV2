@@ -454,29 +454,27 @@ const Dashboard: React.FC = () => {
       setRefreshing(false);
     }
 
+    const parallelOps: Promise<void>[] = [];
+
     if (canSeeFinancial) {
       setRelLoading(true);
-      try {
-        const rel = await dashboardService.getRelatorioFinanceiro(apiF);
-        setRelData(rel);
-        writeCache(CACHE_KEY_REL, rel);
-      } catch (err: any) {
-        console.error('Erro ao carregar relatório financeiro:', err);
-      } finally {
-        setRelLoading(false);
-      }
+      parallelOps.push(
+        dashboardService.getRelatorioFinanceiro(apiF)
+          .then(rel => { setRelData(rel); writeCache(CACHE_KEY_REL, rel); })
+          .catch((err: any) => console.error('Erro ao carregar relatório financeiro:', err))
+          .finally(() => setRelLoading(false))
+      );
     }
 
     setInscrLoading(true);
-    try {
-      const inscr = await dashboardService.getInscricoesDiarias(f.ano);
-      setInscrData(inscr);
-      writeCache(CACHE_KEY_INSCR, inscr);
-    } catch (err: any) {
-      console.error('Erro ao carregar inscrições diárias:', err);
-    } finally {
-      setInscrLoading(false);
-    }
+    parallelOps.push(
+      dashboardService.getInscricoesDiarias(f.ano)
+        .then(inscr => { setInscrData(inscr); writeCache(CACHE_KEY_INSCR, inscr); })
+        .catch((err: any) => console.error('Erro ao carregar inscrições diárias:', err))
+        .finally(() => setInscrLoading(false))
+    );
+
+    await Promise.all(parallelOps);
   }, [canSeeFinancial]);
 
   useEffect(() => {
