@@ -1790,4 +1790,85 @@ export const projecaoService = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Detalhamento de Eventos
+// ---------------------------------------------------------------------------
+
+export interface DetalheEventoDisponivel {
+  evento_grupo: string;
+  nome_evento: string;
+  ativo_ids: number[];
+  magento_ids: number[];
+  anos: number[];
+}
+
+export interface DetalheRow {
+  canal: string | null;
+  kit: string | null;
+  distancia: string | null;
+  modalidade: string | null;
+  pelotao: string | null;
+  produtos: string | null;
+  tamanho_camiseta: string | null;
+  inscritos: number;
+  receita_bruta: number;
+  receita_liquida: number;
+  ticket_medio: number;
+  bancos?: string[];
+}
+
+export interface DetalheBancoRow extends DetalheRow {
+  banco: string;
+  id_evento: string | number | null;
+  evento: string | null;
+}
+
+export interface DetalheDivergencia {
+  dimensoes: Record<string, string | null>;
+  consolidado_inscritos: number;
+  soma_bancos_inscritos: number;
+  diff_inscritos: number;
+  consolidado_receita_liquida: number;
+  soma_bancos_receita_liquida: number;
+  diff_receita_liquida: number;
+}
+
+export interface DetalheTotais {
+  inscritos: number;
+  receita_bruta: number;
+  receita_liquida: number;
+  ticket_medio: number;
+  por_canal: Record<string, { inscritos: number; receita_liquida: number }>;
+}
+
+export interface DetalheEventoPayload {
+  evento_grupo: string | null;
+  nome_evento: string | null;
+  consolidado: DetalheRow[];
+  por_banco: {
+    Ativo: DetalheBancoRow[];
+    Magento: DetalheBancoRow[];
+  };
+  divergencias: DetalheDivergencia[];
+  erros: Record<string, string>;
+  totais: DetalheTotais;
+}
+
+export const detalheEventosService = {
+  listEventos: async (): Promise<DetalheEventoDisponivel[]> => {
+    const response = await api.get('/marketing/detalhe-eventos/eventos');
+    return response.data;
+  },
+
+  getDetalhe: async (
+    eventoGrupo: string,
+    forceRefresh = false,
+  ): Promise<DetalheEventoPayload> => {
+    const response = await api.get('/marketing/detalhe-eventos', {
+      params: { evento_grupo: eventoGrupo, force_refresh: forceRefresh },
+    });
+    return response.data;
+  },
+};
+
 export default api;

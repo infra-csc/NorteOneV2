@@ -30,6 +30,7 @@ import {
   Layers,
   Shield,
   AlertTriangle,
+  Table2,
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -52,6 +53,7 @@ const cotacaoItems = [
 const marketingItems = [
   { path: '/marketing', icon: Activity, label: 'Dashboard ISC', modulo: 'marketing_dashboard' },
   { path: '/marketing/comparativo', icon: BarChart3, label: 'Comparativo', modulo: 'marketing_comparativo' },
+  { path: '/marketing/detalhe', icon: Table2, label: 'Detalhamento', modulo: 'marketing_dashboard' },
   { path: '/marketing/configuracoes', icon: Settings, label: 'Configuracoes', modulo: 'marketing_configuracoes' },
 ];
 

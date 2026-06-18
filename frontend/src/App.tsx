@@ -46,6 +46,7 @@ const CotacoesImportacao = lazyWithRetry(() => import('./pages/cotacoes/Cotacoes
 const ManualSistema = lazyWithRetry(() => import('./pages/manual/ManualSistema'));
 const ProjecaoInscritos = lazyWithRetry(() => import('./pages/cadastros/ProjecaoInscritos'));
 const Profile = lazyWithRetry(() => import('./pages/profile/Profile'));
+const DetalheEventos = lazyWithRetry(() => import('./pages/marketing/DetalheEventos'));
 
 
 const PageLoader = () => (
@@ -102,6 +103,7 @@ function App() {
               <Route path="/marketing/evento/:id" element={<PermissionRoute module="marketing_dashboard"><Layout><ErrorBoundary fallbackNavigate="/marketing"><EventDetail /></ErrorBoundary></Layout></PermissionRoute>} />
               <Route path="/marketing/evento/:id/operacao" element={<PermissionRoute module="marketing_dashboard"><ErrorBoundary fallbackNavigate="/marketing"><EventOpsView /></ErrorBoundary></PermissionRoute>} />
               <Route path="/marketing/comparativo" element={<PermissionRoute module="marketing_comparativo"><Layout><EventComparison /></Layout></PermissionRoute>} />
+              <Route path="/marketing/detalhe" element={<PermissionRoute module="marketing_dashboard"><Layout><DetalheEventos /></Layout></PermissionRoute>} />
               <Route path="/marketing/configuracoes" element={<PermissionRoute module="marketing_configuracoes"><Layout><MarketingSettings /></Layout></PermissionRoute>} />
               <Route path="/marketing/playbook" element={<PermissionRoute module="marketing_dashboard"><PlaybookPage /></PermissionRoute>} />
               <Route path="/nori" element={<PermissionRoute module="nori"><Layout><NoriAssistant /></Layout></PermissionRoute>} />

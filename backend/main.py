@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 import os
 import time
 from app.core.database import engine, Base, init_mysql_connections, engine_ativo, init_ssh_tunnel, close_ssh_tunnel, stop_ssh_watchdog, engine_ssh
-from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile, projecao
+from app.api.routes import auth, users, centros_custo, projetos, categorias_atletas, dashboard, nori, tarefas, cadastros, atletas_externos, magento, inscricoes_consolidado, marketing, sku_mappings, perfil_acesso, distancias, cotacoes, admin, kit_config, profile, projecao, detalhe_eventos
 from app.core.cache import (
     cache_scheduler, warm_all_caches_from_db,
     set_last_full_refresh, set_full_refresh_in_progress, 
@@ -2667,6 +2667,7 @@ app.include_router(inscricoes_consolidado.router, prefix="/api/inscricoes", tags
 app.include_router(marketing.router, prefix="/api", tags=["Marketing ISC"])
 app.include_router(sku_mappings.router, tags=["SKU Mappings"])
 app.include_router(sku_mappings.grupo_router, tags=["Evento Grupos"])
+app.include_router(detalhe_eventos.router, tags=["Detalhe Eventos"])
 app.include_router(perfil_acesso.router, prefix="/api", tags=["Perfis de Acesso"])
 app.include_router(distancias.router, prefix="/api", tags=["Distâncias"])
 app.include_router(cotacoes.router, prefix="/api", tags=["Cotações & Importação"])
