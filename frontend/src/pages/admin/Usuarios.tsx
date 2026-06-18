@@ -62,7 +62,8 @@ const Usuarios: React.FC = () => {
     perfil_acesso_id: null,
     centro_custo_id: null,
     ativo: true,
-    recebe_alertas_corte: false
+    recebe_alertas_corte: false,
+    recebe_insights_nori: false
   });
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
