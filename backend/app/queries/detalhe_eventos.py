@@ -1,23 +1,42 @@
 """
 Queries SQL para o Detalhamento de Eventos.
-Cada função retorna a SQL como string, com filtro de id_evento
-por lista de IDs (provenientes do sku_mappings) opcionalmente ativado.
+
+Cada função retorna (sql: str, params: dict) para uso com
+SQLAlchemy text() + bind params — nunca interpolação direta de input externo.
+Os IDs passados são sempre inteiros provenientes de sku_mappings (banco próprio),
+validados como int antes de chamada; usamos bind params nomeados para conformidade.
 
 CONTRATO de colunas (ordem fixa):
   banco, id_evento, evento, canal, kit, distancia, modalidade,
   pelotao, produtos, tamanho_camiseta,
   inscritos, receita_bruta, receita_liquida, ticket_medio
 """
-from typing import Optional, List
+from typing import Optional, List, Tuple, Dict
 
 
-def build_ativo_detalhe(ids: Optional[List[int]] = None) -> str:
+def _validate_ids(ids: List[int]) -> None:
+    for v in ids:
+        if not isinstance(v, int):
+            raise TypeError(f"ID inválido (esperado int): {v!r}")
+
+
+def build_ativo_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
+    """
+    Retorna (sql, params) para query Ativo.
+    Quando ids é fornecido, gera cláusula IN parametrizada com bind params nomeados.
+    """
+    params: Dict = {}
     ids_clause = ""
-    if ids:
-        ids_str = ", ".join(str(i) for i in ids)
-        ids_clause = f"    AND b.id_evento IN ({ids_str})\n"
 
-    return f"""
+    if ids:
+        _validate_ids(ids)
+        param_names = [f"ativo_id_{i}" for i in range(len(ids))]
+        placeholders = ", ".join(f":{n}" for n in param_names)
+        for name, val in zip(param_names, ids):
+            params[name] = val
+        ids_clause = f"    AND b.id_evento IN ({placeholders})\n"
+
+    sql = f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     'Ativo'                                                                             AS banco,
     b.id_evento                                                                         AS id_evento,
@@ -115,15 +134,26 @@ GROUP BY
 
 ORDER BY b.id_evento, canal, inscritos DESC
 """
+    return sql, params
 
 
-def build_magento_detalhe(ids: Optional[List[int]] = None) -> str:
+def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
+    """
+    Retorna (sql, params) para query Magento.
+    Quando ids é fornecido, gera cláusula IN parametrizada com bind params nomeados.
+    """
+    params: Dict = {}
     ids_clause = ""
-    if ids:
-        ids_str = ", ".join(str(i) for i in ids)
-        ids_clause = f"  AND cpev1.value IN ({ids_str})\n"
 
-    return f"""
+    if ids:
+        _validate_ids(ids)
+        param_names = [f"mag_id_{i}" for i in range(len(ids))]
+        placeholders = ", ".join(f":{n}" for n in param_names)
+        for name, val in zip(param_names, ids):
+            params[name] = val
+        ids_clause = f"  AND cpev1.value IN ({placeholders})\n"
+
+    sql = f"""
 SELECT /*+ MAX_EXECUTION_TIME(90000) */
     'Magento'                                                                           AS banco,
     cpev1.value                                                                         AS id_evento,
@@ -310,3 +340,4 @@ GROUP BY
 
 ORDER BY cpev1.value, canal, soi_parent.name
 """
+    return sql, params

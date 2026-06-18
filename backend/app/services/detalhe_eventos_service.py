@@ -4,11 +4,17 @@ Serviço de consolidação de inscrições em grão fino (Detalhamento de Evento
 Fluxo:
 1. Busca em sku_mappings os IDs de Ativo e Magento para o evento_grupo pedido.
 2. Executa as duas queries em paralelo (ThreadPoolExecutor).
-3. Concatena e agrega por dimensões comuns.
+3. Concatena e agrega por dimensões comuns + canonical event key.
 4. Recalcula ticket_medio = SUM(receita_liquida) / SUM(inscritos).
 5. Mantém os result sets brutos por banco para auditoria/cross-validation.
 
-Cache: dict em memória por chave (evento_grupo or "all"), TTL 15 min.
+Chave canônica de consolidação:
+- Para consulta de evento único (evento_grupo fornecido): agrega por DIM_KEYS apenas,
+  permitindo que linhas Ativo e Magento do mesmo evento se fundam por dimensão.
+- Para consulta sem filtro (evento_grupo=None): inclui (banco, id_evento) na chave
+  para evitar fusão entre eventos diferentes que coincidam em dimensões.
+
+Cache: dict em memória por chave (evento_grupo or "__all__"), TTL 15 min.
 """
 from __future__ import annotations
 
@@ -16,7 +22,7 @@ import logging
 import time
 import threading
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple, Any
 
 from sqlalchemy import text
@@ -33,9 +39,8 @@ CACHE_TTL_SECONDS = 900  # 15 minutos
 _cache: Dict[str, Tuple[float, Any]] = {}
 _cache_lock = threading.Lock()
 
-
 # ---------------------------------------------------------------------------
-# Tipos internos
+# Contrato de colunas
 # ---------------------------------------------------------------------------
 
 COLUMNS = [
@@ -51,7 +56,7 @@ def _row_to_dict(row) -> Dict:
     d = {}
     for i, col in enumerate(COLUMNS):
         val = row[i]
-        if col in ("inscritos",):
+        if col == "inscritos":
             val = int(val) if val is not None else 0
         elif col in ("receita_bruta", "receita_liquida", "ticket_medio"):
             val = float(val) if val is not None else 0.0
@@ -79,8 +84,8 @@ def get_evento_ids(db: Session, evento_grupo: str) -> Tuple[List[int], List[int]
 
 def list_eventos_disponiveis(db: Session) -> List[Dict]:
     """
-    Lista todos os evento_grupos com pelo menos um mapeamento ativo,
-    agrupando pelo nome canônico e retornando os IDs de cada banco.
+    Lista todos os evento_grupos com pelo menos um mapeamento ativo.
+    Retorna nome canônico, evento_grupo (chave SKU), IDs por banco e anos.
     """
     mappings = (
         db.query(SkuMapping)
@@ -100,6 +105,7 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
                 "nome_evento": m.nome_evento or eg,
                 "ativo_ids": [],
                 "magento_ids": [],
+                "skus": [],
                 "anos": set(),
             }
         g = grupos[eg]
@@ -109,6 +115,8 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
             g["ativo_ids"].append(m.id_externo)
         elif m.fonte == "MAGENTO" and m.id_externo and m.id_externo not in g["magento_ids"]:
             g["magento_ids"].append(m.id_externo)
+        if m.sku and m.sku not in g["skus"]:
+            g["skus"].append(m.sku)
         if m.ano:
             g["anos"].add(m.ano)
 
@@ -121,17 +129,17 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
-# Fetch individual por banco
+# Fetch individual por banco (usa bind params via SQLAlchemy text())
 # ---------------------------------------------------------------------------
 
 def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Optional[str]]:
     if db_module.engine_ssh is None:
         return None, "SSH tunnel não configurado"
     try:
-        sql = build_ativo_detalhe(ids)
+        sql, params = build_ativo_detalhe(ids)
         logger.info(f"[DetalheEventos] Ativo query ids={ids}")
         with db_module.engine_ssh.connect() as conn:
-            rows = conn.execute(text(sql)).fetchall()
+            rows = conn.execute(text(sql), params).fetchall()
         logger.info(f"[DetalheEventos] Ativo: {len(rows)} linhas")
         return [_row_to_dict(r) for r in rows], None
     except Exception as e:
@@ -144,11 +152,11 @@ def _fetch_magento(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Opti
         return None, "Magento não configurado"
     try:
         from app.core.db_retry import magento_run
-        sql = build_magento_detalhe(ids)
+        sql, params = build_magento_detalhe(ids)
         logger.info(f"[DetalheEventos] Magento query ids={ids}")
 
         def _work(conn):
-            return conn.execute(text(sql)).fetchall()
+            return conn.execute(text(sql), params).fetchall()
 
         rows = magento_run(_work, label="detalhe-eventos:fetch-magento", profile="request")
         logger.info(f"[DetalheEventos] Magento: {len(rows)} linhas")
@@ -162,20 +170,40 @@ def _fetch_magento(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Opti
 # Consolidação
 # ---------------------------------------------------------------------------
 
-def _consolidar(rows_ativo: List[Dict], rows_magento: List[Dict]) -> List[Dict]:
+def _consolidar(
+    rows_ativo: List[Dict],
+    rows_magento: List[Dict],
+    evento_grupo: Optional[str],
+) -> List[Dict]:
     """
-    Agrega todas as linhas por DIM_KEYS.
-    SUM inscritos/receita_bruta/receita_liquida;
-    recalcula ticket_medio; mantém lista de bancos presentes.
+    Agrega todas as linhas por DIM_KEYS (+ event identity quando multi-evento).
+
+    Quando evento_grupo é fornecido (query de evento único), agrega apenas por
+    DIM_KEYS — isso permite fusão de linhas Ativo+Magento para o mesmo evento.
+
+    Quando evento_grupo é None (consulta global sem filtro), inclui (banco, id_evento)
+    na chave para prevenir merge cross-event (eventos distintos que coincidam em
+    dimensões devem permanecer separados).
     """
+    multi_event_mode = evento_grupo is None
+
     agg: Dict[tuple, Dict] = {}
 
-    all_rows = (rows_ativo or []) + (rows_magento or [])
+    for row in (rows_ativo or []) + (rows_magento or []):
+        dim_key = tuple(row.get(k) for k in DIM_KEYS)
+        if multi_event_mode:
+            # Inclui identidade canônica do evento para evitar cross-event merge
+            event_key = (row.get("banco"), row.get("id_evento"))
+            key = event_key + dim_key
+        else:
+            key = dim_key
 
-    for row in all_rows:
-        key = tuple(row.get(k) for k in DIM_KEYS)
         if key not in agg:
             agg[key] = {k: row.get(k) for k in DIM_KEYS}
+            if multi_event_mode:
+                # Preserva informações de evento para o modo global
+                agg[key]["evento"] = row.get("evento")
+                agg[key]["id_evento"] = row.get("id_evento")
             agg[key]["inscritos"] = 0
             agg[key]["receita_bruta"] = 0.0
             agg[key]["receita_liquida"] = 0.0
@@ -273,19 +301,26 @@ def get_detalhe(
     ativo_ids: Optional[List[int]] = None
     magento_ids: Optional[List[int]] = None
     evento_nome: Optional[str] = None
+    skus: List[str] = []
 
     if evento_grupo:
         ativo_ids_list, magento_ids_list = get_evento_ids(db, evento_grupo)
         ativo_ids = ativo_ids_list or None
         magento_ids = magento_ids_list or None
 
-        mappings = (
+        mapping = (
             db.query(SkuMapping)
             .filter(SkuMapping.evento_grupo == evento_grupo, SkuMapping.ativo == True)
             .first()
         )
-        if mappings:
-            evento_nome = mappings.nome_evento
+        if mapping:
+            evento_nome = mapping.nome_evento
+            skus_q = (
+                db.query(SkuMapping.sku)
+                .filter(SkuMapping.evento_grupo == evento_grupo, SkuMapping.ativo == True)
+                .all()
+            )
+            skus = [s[0] for s in skus_q if s[0]]
 
     rows_ativo: Optional[List[Dict]] = None
     rows_magento: Optional[List[Dict]] = None
@@ -299,12 +334,13 @@ def get_detalhe(
         rows_ativo, error_ativo = fut_ativo.result()
         rows_magento, error_magento = fut_magento.result()
 
-    consolidado = _consolidar(rows_ativo or [], rows_magento or [])
+    consolidado = _consolidar(rows_ativo or [], rows_magento or [], evento_grupo)
     divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
 
     payload = {
         "evento_grupo": evento_grupo,
         "nome_evento": evento_nome,
+        "skus": skus,
         "consolidado": consolidado,
         "por_banco": {
             "Ativo": rows_ativo or [],
