@@ -174,8 +174,8 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Gráfico de barras diário */}
-      <div className={`${cardClass} p-5`}>
-        <div className="flex items-center gap-2 mb-4">
+      <div className={`${cardClass} p-5 flex flex-col`}>
+        <div className="flex items-center gap-2 mb-4 flex-shrink-0">
           <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/20">
             <BarChart2 className="w-4 h-4 text-white" />
           </div>
@@ -190,46 +190,49 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
         </div>
 
         {loading ? (
-          <div className="space-y-3 py-4">
+          <div className="space-y-3 py-4 flex-1">
             {Array.from({ length: 5 }).map((_, i) => <SkeletonBar key={i} isDark={isDark} />)}
           </div>
         ) : isEmpty ? (
-          <div className={`flex items-center justify-center h-40 text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+          <div className={`flex items-center justify-center flex-1 text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
             Sem dados de inscrições no período
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data!.diario} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} vertical={false} />
-              <XAxis
-                dataKey="data" tickFormatter={fmtDate}
-                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
-                axisLine={false} tickLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
-                axisLine={false} tickLine={false}
-                tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
-              />
-              <Tooltip
-                content={<CustomTooltipDaily isDark={isDark} dayGruposMap={dayGruposMap} gruposMeta={gruposMeta} />}
-                cursor={{ fill: isDark ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.05)' }}
-              />
-              <Bar dataKey="total" radius={[6, 6, 0, 0]}>
-                {data!.diario.map(entry => (
-                  <Cell
-                    key={entry.data}
-                    fill={isDark ? BAR_COLOR_DARK : BAR_COLOR_LIGHT}
-                    opacity={entry.total === maxTotal ? 1 : 0.65}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="flex-1 min-h-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data!.diario} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} vertical={false} />
+                <XAxis
+                  dataKey="data" tickFormatter={fmtDate}
+                  tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                  axisLine={false} tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
+                  axisLine={false} tickLine={false}
+                  tickCount={8}
+                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)}
+                />
+                <Tooltip
+                  content={<CustomTooltipDaily isDark={isDark} dayGruposMap={dayGruposMap} gruposMeta={gruposMeta} />}
+                  cursor={{ fill: isDark ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.05)' }}
+                />
+                <Bar dataKey="total" radius={[6, 6, 0, 0]}>
+                  {data!.diario.map(entry => (
+                    <Cell
+                      key={entry.data}
+                      fill={isDark ? BAR_COLOR_DARK : BAR_COLOR_LIGHT}
+                      opacity={entry.total === maxTotal ? 1 : 0.65}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         )}
 
         {data && !loading && !isEmpty && (
-          <div className={`mt-3 pt-3 border-t ${isDark ? 'border-gray-700/60' : 'border-gray-100'} flex items-center justify-between`}>
+          <div className={`mt-3 pt-3 border-t flex-shrink-0 ${isDark ? 'border-gray-700/60' : 'border-gray-100'} flex items-center justify-between`}>
             <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total no período</span>
             <span className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
               {fmtNum(data.diario.reduce((s, d) => s + d.total, 0))}
