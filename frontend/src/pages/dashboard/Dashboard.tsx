@@ -436,6 +436,25 @@ const Dashboard: React.FC = () => {
     if (!silent) setRefreshing(true);
     setError(null);
     const apiF = { ano: f.ano, mes: f.mes, produto: f.produto, modalidade: f.modalidade, cidade: f.cidade };
+
+    // Inscrições diárias não depende de operacional/financeiro — inicia imediatamente
+    setInscrLoading(true);
+    const inscrPromise = dashboardService.getInscricoesDiarias(f.ano)
+      .then(inscr => { setInscrData(inscr); writeCache(CACHE_KEY_INSCR, inscr); })
+      .catch((err: any) => console.error('Erro ao carregar inscrições diárias:', err))
+      .finally(() => setInscrLoading(false));
+
+    // Relatório financeiro também inicia imediatamente (só se tiver permissão)
+    let relPromise: Promise<void> = Promise.resolve();
+    if (canSeeFinancial) {
+      setRelLoading(true);
+      relPromise = dashboardService.getRelatorioFinanceiro(apiF)
+        .then(rel => { setRelData(rel); writeCache(CACHE_KEY_REL, rel); })
+        .catch((err: any) => console.error('Erro ao carregar relatório financeiro:', err))
+        .finally(() => setRelLoading(false));
+    }
+
+    // Operacional + financeiro em paralelo
     try {
       const ops: Promise<any>[] = [dashboardService.getOperacional(apiF)];
       if (canSeeFinancial) ops.push(dashboardService.getFinanceiro(apiF));
@@ -454,27 +473,7 @@ const Dashboard: React.FC = () => {
       setRefreshing(false);
     }
 
-    const parallelOps: Promise<void>[] = [];
-
-    if (canSeeFinancial) {
-      setRelLoading(true);
-      parallelOps.push(
-        dashboardService.getRelatorioFinanceiro(apiF)
-          .then(rel => { setRelData(rel); writeCache(CACHE_KEY_REL, rel); })
-          .catch((err: any) => console.error('Erro ao carregar relatório financeiro:', err))
-          .finally(() => setRelLoading(false))
-      );
-    }
-
-    setInscrLoading(true);
-    parallelOps.push(
-      dashboardService.getInscricoesDiarias(f.ano)
-        .then(inscr => { setInscrData(inscr); writeCache(CACHE_KEY_INSCR, inscr); })
-        .catch((err: any) => console.error('Erro ao carregar inscrições diárias:', err))
-        .finally(() => setInscrLoading(false))
-    );
-
-    await Promise.all(parallelOps);
+    await Promise.all([inscrPromise, relPromise]);
   }, [canSeeFinancial]);
 
   useEffect(() => {
