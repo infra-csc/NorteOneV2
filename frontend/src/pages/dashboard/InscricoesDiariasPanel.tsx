@@ -69,7 +69,7 @@ const CustomTooltipDaily: React.FC<any> = ({ active, payload, label, isDark, day
   const rows = gruposOnDay.filter((r: any) => r.count > 0);
 
   return (
-    <div className={`px-3 py-2.5 rounded-xl shadow-xl border text-xs w-52 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+    <div className={`px-3 py-2.5 rounded-xl shadow-xl border text-xs w-72 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
       <div className="flex items-center justify-between mb-2">
         <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</span>
         <span className={`font-black text-sm ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{fmtNum(total)}</span>
@@ -82,7 +82,7 @@ const CustomTooltipDaily: React.FC<any> = ({ active, payload, label, isDark, day
               const pct = total > 0 ? Math.round((r.count / total) * 100) : 0;
               return (
                 <div key={r.key} className="flex items-center gap-1.5">
-                  <span className={`truncate flex-1 max-w-[130px] ${isDark ? 'text-gray-300' : 'text-gray-600'}`} title={r.nome}>
+                  <span className={`truncate flex-1 max-w-[185px] ${isDark ? 'text-gray-300' : 'text-gray-600'}`} title={r.nome}>
                     {r.nome}
                   </span>
                   <span className={`flex-shrink-0 tabular-nums font-semibold ${isDark ? 'text-gray-100' : 'text-gray-800'}`}>
