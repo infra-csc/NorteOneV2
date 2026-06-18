@@ -16,12 +16,9 @@ interface Top10Entry {
   evento_grupo: string;
   nome: string;
   total_periodo: number;
-  total_periodo_anterior: number;
-  variacao: number;
+  variacao: number;       // sempre hoje - ontem
   total_hoje?: number;
   total_ontem?: number;
-  variacao_hoje?: number;
-  variacao_ontem?: number;
 }
 
 interface GrupoMeta {
@@ -135,11 +132,11 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
     return ev.total_periodo;
   };
 
-  const getDisplayVariacao = (ev: Top10Entry): { variacao: number; prev: number } => {
-    if (top10Filter === 'hoje') return { variacao: ev.variacao_hoje ?? 0, prev: ev.total_ontem ?? 0 };
-    if (top10Filter === 'ontem') return { variacao: ev.variacao_ontem ?? 0, prev: ev.total_periodo_anterior };
-    return { variacao: ev.variacao, prev: ev.total_periodo_anterior };
-  };
+  // Variação é sempre hoje - ontem, independente do modo
+  const getDisplayVariacao = (ev: Top10Entry): { variacao: number; prev: number } => ({
+    variacao: ev.variacao,
+    prev: ev.total_ontem ?? 0,
+  });
 
   // Map: date_iso → [{key, nome, count}] sorted desc by count
   const dayGruposMap = React.useMemo<Record<string, { key: string; nome: string; count: number }[]>>(() => {
@@ -277,18 +274,13 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                   <TrendingUp className="w-3 h-3" />+5
                 </span>
                 <p className="text-xs leading-snug">
-                  <span className="font-semibold text-emerald-400">Variação</span>
-                  {top10Filter === 'ambos' && <> = (hoje + ontem) <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> anteontem.</>}
-                  {top10Filter === 'hoje' && <> = hoje <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> ontem.</>}
-                  {top10Filter === 'ontem' && <> = ontem <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> anteontem.</>}
+                  <span className="font-semibold text-emerald-400">Variação</span> = hoje <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> ontem — sempre compara os dois dias visíveis.
                 </p>
               </div>
               <div className={`rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                 <div className="flex items-center gap-1 mb-1">
                   <div className={`w-2 h-2 rounded-sm flex-shrink-0 ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`} />
-                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>
-                    {top10Filter === 'ambos' ? 'Anteontem → comparação' : top10Filter === 'hoje' ? 'Ontem → comparação' : 'Anteontem → comparação'}
-                  </span>
+                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Ontem → referência da variação</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="w-2 h-2 rounded-sm flex-shrink-0 bg-indigo-500" />

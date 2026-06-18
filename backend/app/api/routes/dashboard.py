@@ -1448,36 +1448,18 @@ def get_inscricoes_diarias(
             if m.evento_grupo and m.nome_evento and m.evento_grupo not in nome_map:
                 nome_map[m.evento_grupo] = m.nome_evento
 
-    # Previous period = anteontem (D-2) for comparison
-    prev_rows = (
-        db.query(
-            VendasDiariaSnapshot.evento_grupo,
-            sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_prev"),
-        )
-        .filter(*snap_filter_active(day_before_yesterday, day_before_yesterday, extra=[
-            VendasDiariaSnapshot.evento_grupo.in_(top_grupo_names)
-        ] if top_grupo_names else []))
-        .group_by(VendasDiariaSnapshot.evento_grupo)
-        .all()
-    ) if top_grupo_names else []
-    prev_map: dict = {r.evento_grupo: int(r.total_prev or 0) for r in prev_rows}
-
     top10 = []
     for grupo, total in top_grupos:
-        prev = prev_map.get(grupo, 0)
         t_hoje = today_live_by_grupo.get(grupo, 0)
         t_ontem = yest_per_grupo.get(grupo, 0)
         top10.append({
             "evento_grupo": grupo,
             "nome": nome_map.get(grupo, grupo),
             "total_periodo": total,
-            "total_periodo_anterior": prev,
-            "variacao": total - prev,
             "total_hoje": t_hoje,
             "total_ontem": t_ontem,
-            # variações por modo
-            "variacao_hoje": t_hoje - t_ontem,       # hoje vs ontem
-            "variacao_ontem": t_ontem - prev,         # ontem vs anteontem
+            # variação única: sempre hoje vs ontem (janela visível)
+            "variacao": t_hoje - t_ontem,
         })
 
     # --- 6. Daily breakdown per grupo (top 10) for stacked chart ----------------------
