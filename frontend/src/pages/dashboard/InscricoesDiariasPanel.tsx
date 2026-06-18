@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
 } from 'recharts';
-import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2, Layers, AlignJustify } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Trophy, BarChart2 } from 'lucide-react';
 
 interface DayEntry {
   data: string;
@@ -43,8 +43,6 @@ interface Props {
   isDark: boolean;
 }
 
-type ViewMode = 'total' | 'por_evento';
-
 const fmtNum = (v: number) => new Intl.NumberFormat('pt-BR').format(v);
 
 const fmtDate = (iso: string) => {
@@ -55,62 +53,70 @@ const fmtDate = (iso: string) => {
 const BAR_COLOR_DARK = '#818cf8';
 const BAR_COLOR_LIGHT = '#6366f1';
 
-// 5 muted tones, cycling for up to 10 events — distinct but not garish
-const EVENT_PALETTE = ['#6366f1', '#0d9488', '#d97706', '#3b82f6', '#9333ea'];
-const eventColor = (idx: number) => EVENT_PALETTE[idx % EVENT_PALETTE.length];
-
 const MEDAL: Record<number, string> = { 0: '🥇', 1: '🥈', 2: '🥉' };
 
 const SkeletonBar: React.FC<{ isDark: boolean }> = ({ isDark }) => (
   <div className={`h-4 rounded-full animate-pulse ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
 );
 
-const CustomTooltipTotal: React.FC<any> = ({ active, payload, label, isDark }) => {
+const CustomTooltipDaily: React.FC<any> = ({ active, payload, label, isDark, dayGruposMap, gruposMeta }) => {
   if (!active || !payload?.length) return null;
-  return (
-    <div className={`px-3 py-2 rounded-xl shadow-xl border text-sm ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
-      <p className="font-bold mb-1">{label}</p>
-      <p>{fmtNum(payload[0].value)} inscrições</p>
-    </div>
-  );
-};
+  const total: number = payload[0]?.value ?? 0;
 
-const CustomTooltipStacked: React.FC<any> = ({ active, payload, label, isDark }) => {
-  if (!active || !payload?.length) return null;
-  const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0);
-  const sorted = [...payload].filter(p => p.value > 0).sort((a, b) => b.value - a.value);
+  // per-event rows for this day, sorted desc, non-zero only
+  const dateKey = payload[0]?.payload?.data as string | undefined;
+  const gruposOnDay = dateKey ? (dayGruposMap[dateKey] ?? []) : [];
+  const rows = gruposOnDay.filter((r: any) => r.count > 0);
+
   return (
-    <div className={`px-3 py-2.5 rounded-xl shadow-xl border text-xs max-w-[200px] ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
-      <p className="font-bold text-sm mb-1.5">{label} — {fmtNum(total)}</p>
-      {sorted.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-1.5 mb-0.5">
-          <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ background: p.fill }} />
-          <span className={`truncate max-w-[120px] ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{p.name}</span>
-          <span className="ml-auto font-semibold pl-2 flex-shrink-0">{fmtNum(p.value)}</span>
-        </div>
-      ))}
+    <div className={`px-3 py-2.5 rounded-xl shadow-xl border text-xs w-52 ${isDark ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-gray-900'}`}>{label}</span>
+        <span className={`font-black text-sm ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>{fmtNum(total)}</span>
+      </div>
+      {rows.length > 0 && (
+        <>
+          <div className={`border-t mb-1.5 ${isDark ? 'border-gray-700' : 'border-gray-100'}`} />
+          <div className="space-y-1">
+            {rows.map((r: any) => {
+              const pct = total > 0 ? Math.round((r.count / total) * 100) : 0;
+              return (
+                <div key={r.key} className="flex items-center gap-1.5">
+                  <span className={`truncate flex-1 max-w-[130px] ${isDark ? 'text-gray-300' : 'text-gray-600'}`} title={r.nome}>
+                    {r.nome}
+                  </span>
+                  <span className={`flex-shrink-0 tabular-nums font-semibold ${isDark ? 'text-gray-100' : 'text-gray-800'}`}>
+                    {fmtNum(r.count)}
+                  </span>
+                  <span className={`flex-shrink-0 w-8 text-right ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    {pct}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 };
 
 const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('total');
-
   const cardClass = `rounded-2xl ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
 
   const maxTotal = data ? Math.max(...data.diario.map(d => d.total), 1) : 1;
-
   const gruposMeta = data?.grupos_meta ?? [];
-  const hasByEvento = gruposMeta.length > 0 && (data?.diario_por_grupo?.length ?? 0) > 0;
 
-  // Flat Recharts-ready rows for stacked chart: {data, grupoKey: count, …}
-  const stackedData = React.useMemo(() => {
-    if (!data?.diario_por_grupo) return [];
-    return data.diario_por_grupo.map(entry => {
-      const row: Record<string, any> = { data: entry.data };
-      for (const gm of gruposMeta) row[gm.key] = entry.grupos[gm.key] ?? 0;
-      return row;
-    });
+  // Map: date_iso → [{key, nome, count}] sorted desc by count
+  const dayGruposMap = React.useMemo<Record<string, { key: string; nome: string; count: number }[]>>(() => {
+    if (!data?.diario_por_grupo || !gruposMeta.length) return {};
+    const map: Record<string, { key: string; nome: string; count: number }[]> = {};
+    for (const entry of data.diario_por_grupo) {
+      map[entry.data] = gruposMeta
+        .map(gm => ({ key: gm.key, nome: gm.nome, count: entry.grupos[gm.key] ?? 0 }))
+        .sort((a, b) => b.count - a.count);
+    }
+    return map;
   }, [data, gruposMeta]);
 
   const VariacaoBadge: React.FC<{ variacao: number; prev: number }> = ({ variacao, prev }) => {
@@ -136,64 +142,31 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Gráfico de barras */}
+      {/* Gráfico de barras diário */}
       <div className={`${cardClass} p-5`}>
-        {/* Header com toggle */}
         <div className="flex items-center gap-2 mb-4">
           <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/20">
             <BarChart2 className="w-4 h-4 text-white" />
           </div>
-          <div className="flex-1 min-w-0">
+          <div>
             <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
               Inscrições Diárias
             </h3>
-            <p className={`text-xs truncate ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              {viewMode === 'total' ? 'Todos os eventos — últimos 10 dias' : 'Por evento — últimos 10 dias'}
+            <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              Todos os eventos — últimos 10 dias
             </p>
           </div>
-          {/* Toggle Total / Por Evento */}
-          {hasByEvento && !loading && !isEmpty && (
-            <div className={`flex items-center rounded-lg p-0.5 ${isDark ? 'bg-gray-700/60' : 'bg-gray-100'}`}>
-              <button
-                onClick={() => setViewMode('total')}
-                title="Ver total agregado"
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  viewMode === 'total'
-                    ? isDark ? 'bg-indigo-600 text-white shadow' : 'bg-indigo-500 text-white shadow'
-                    : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <AlignJustify className="w-3 h-3" />
-                Total
-              </button>
-              <button
-                onClick={() => setViewMode('por_evento')}
-                title="Ver por evento empilhado"
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  viewMode === 'por_evento'
-                    ? isDark ? 'bg-indigo-600 text-white shadow' : 'bg-indigo-500 text-white shadow'
-                    : isDark ? 'text-gray-400 hover:text-gray-200' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <Layers className="w-3 h-3" />
-                Por Evento
-              </button>
-            </div>
-          )}
         </div>
 
         {loading ? (
           <div className="space-y-3 py-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <SkeletonBar key={i} isDark={isDark} />
-            ))}
+            {Array.from({ length: 5 }).map((_, i) => <SkeletonBar key={i} isDark={isDark} />)}
           </div>
         ) : isEmpty ? (
           <div className={`flex items-center justify-center h-40 text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
             Sem dados de inscrições no período
           </div>
-        ) : viewMode === 'total' ? (
-          /* ---- Vista Total ---- */
+        ) : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={data!.diario} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} vertical={false} />
@@ -208,72 +181,25 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                 tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
               />
               <Tooltip
-                content={<CustomTooltipTotal isDark={isDark} />}
+                content={<CustomTooltipDaily isDark={isDark} dayGruposMap={dayGruposMap} gruposMeta={gruposMeta} />}
                 cursor={{ fill: isDark ? 'rgba(99,102,241,0.1)' : 'rgba(99,102,241,0.05)' }}
               />
               <Bar dataKey="total" radius={[6, 6, 0, 0]}>
-                {data!.diario.map((entry, index) => (
+                {data!.diario.map(entry => (
                   <Cell
                     key={entry.data}
-                    fill={isDark ? '#818cf8' : '#6366f1'}
+                    fill={isDark ? BAR_COLOR_DARK : BAR_COLOR_LIGHT}
                     opacity={entry.total === maxTotal ? 1 : 0.65}
                   />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        ) : (
-          /* ---- Vista Por Evento (barras empilhadas por dia) ---- */
-          <>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={stackedData} margin={{ top: 4, right: 4, bottom: 0, left: -8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#374151' : '#e5e7eb'} vertical={false} />
-                <XAxis
-                  dataKey="data" tickFormatter={fmtDate}
-                  tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
-                  axisLine={false} tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
-                  axisLine={false} tickLine={false}
-                  tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
-                />
-                <Tooltip
-                  content={<CustomTooltipStacked isDark={isDark} />}
-                  cursor={{ fill: isDark ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.04)' }}
-                />
-                {gruposMeta.map((gm, idx) => (
-                  <Bar
-                    key={gm.key}
-                    dataKey={gm.key}
-                    name={gm.nome}
-                    stackId="a"
-                    fill={eventColor(idx)}
-                    opacity={0.82}
-                    radius={idx === gruposMeta.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                  />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-            {/* Legenda compacta */}
-            <div className={`mt-3 pt-3 border-t ${isDark ? 'border-gray-700/60' : 'border-gray-100'} flex flex-wrap gap-x-4 gap-y-1`}>
-              {gruposMeta.map((gm, idx) => (
-                <div key={gm.key} className="flex items-center gap-1.5 min-w-0">
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: eventColor(idx), opacity: 0.85 }} />
-                  <span className={`text-xs truncate max-w-[100px] ${isDark ? 'text-gray-400' : 'text-gray-500'}`} title={gm.nome}>
-                    {gm.nome}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
         )}
 
-        {data && !loading && viewMode === 'total' && (
+        {data && !loading && !isEmpty && (
           <div className={`mt-3 pt-3 border-t ${isDark ? 'border-gray-700/60' : 'border-gray-100'} flex items-center justify-between`}>
-            <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              Total no período
-            </span>
+            <span className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Total no período</span>
             <span className={`text-sm font-black ${isDark ? 'text-white' : 'text-gray-900'}`}>
               {fmtNum(data.diario.reduce((s, d) => s + d.total, 0))}
             </span>
@@ -318,7 +244,7 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                 ? Math.round((ev.total_periodo / data.top10[0].total_periodo) * 100)
                 : 0;
               return (
-                <div key={ev.evento_grupo} className="group">
+                <div key={ev.evento_grupo}>
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm w-5 text-center flex-shrink-0">
                       {MEDAL[idx] ?? (
