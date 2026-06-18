@@ -221,7 +221,7 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
               TOP 10 Eventos
             </h3>
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              Mais vendidos nos últimos 10 dias
+              Mais vendidos hoje e ontem
             </p>
           </div>
           <div className="group relative flex-shrink-0">
@@ -236,7 +236,7 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
               {/* Number on the right */}
               <div className="flex items-start gap-2 mb-2.5">
                 <span className={`text-xs font-black flex-shrink-0 mt-0.5 w-8 text-right ${isDark ? 'text-white' : 'text-gray-900'}`}>31</span>
-                <p className="text-xs leading-snug"><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total dos últimos 10 dias</span> — inscrições de hoje até D‑9. É o critério de ordenação do ranking.</p>
+                <p className="text-xs leading-snug"><span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>Total de hoje e ontem</span> — soma das inscrições do dia atual (estimativa ao vivo) com as de ontem (snapshot). É o critério de ordenação do ranking.</p>
               </div>
 
               {/* Divider */}
@@ -247,25 +247,25 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                 <span className="flex items-center gap-0.5 text-xs font-semibold text-emerald-400 flex-shrink-0 mt-0.5 w-8 justify-end">
                   <TrendingUp className="w-3 h-3" />+31
                 </span>
-                <p className="text-xs leading-snug"><span className="font-semibold text-emerald-400">Variação</span> = inscrições dos últimos 10 dias <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> as inscrições dos 10 dias anteriores a esses (D‑10 a D‑19).</p>
+                <p className="text-xs leading-snug"><span className="font-semibold text-emerald-400">Variação</span> = inscrições de hoje + ontem <span className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>menos</span> as inscrições de anteontem.</p>
               </div>
 
               {/* Period diagram */}
               <div className={`rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
                 <div className="flex items-center gap-1 mb-1">
                   <div className={`w-2 h-2 rounded-sm flex-shrink-0 ${isDark ? 'bg-gray-600' : 'bg-gray-300'}`} />
-                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>D‑19 até D‑10 → período anterior</span>
+                  <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Anteontem → período anterior (comparação)</span>
                 </div>
                 <div className="flex items-center gap-1">
                   <div className="w-2 h-2 rounded-sm flex-shrink-0 bg-indigo-500" />
-                  <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>D‑9 até hoje → período atual</span>
+                  <span className={isDark ? 'text-gray-300' : 'text-gray-600'}>Ontem + hoje → período atual (ranking)</span>
                 </div>
               </div>
 
               {/* Example */}
               <div className={`mt-2 rounded-lg p-2 text-xs ${isDark ? 'bg-gray-800' : 'bg-gray-50'}`}>
-                <p className={`mb-1 font-semibold ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Exemplo: badge <span className="text-red-400">−208</span></p>
-                <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>25 inscrições (atual) − 233 (anterior) = −208. O evento vendeu muito menos nesta janela do que na anterior.</p>
+                <p className={`mb-1 font-semibold ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>Exemplo: badge <span className="text-red-400">−5</span></p>
+                <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>12 inscrições (hoje + ontem) − 17 (anteontem) = −5. O evento vendeu menos nestes 2 dias do que no dia anterior.</p>
               </div>
             </div>
           </div>

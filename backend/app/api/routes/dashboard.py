@@ -1284,6 +1284,7 @@ def get_inscricoes_diarias(
 
     today = today_brazil()
     yesterday = today - timedelta(days=1)
+    day_before_yesterday = today - timedelta(days=2)
     date_start = today - timedelta(days=9)  # D-9 inclusive
     prev_end = date_start - timedelta(days=1)
     prev_start = prev_end - timedelta(days=9)
@@ -1409,24 +1410,24 @@ def get_inscricoes_diarias(
         diario.append({"data": d.isoformat(), "total": hist_daily_map.get(d, 0)})
     diario.append({"data": today.isoformat(), "total": today_total})
 
-    # --- 5. TOP 10 per grupo over the full 10-day window -----------------------------
-    # Historical snapshot (D-9 to D-1) per grupo
-    hist_per_grupo_rows = (
+    # --- 5. TOP 10 per grupo — window = hoje + ontem ---------------------------------
+    # Snapshot for yesterday per grupo
+    yest_per_grupo_rows = (
         db.query(
             VendasDiariaSnapshot.evento_grupo,
             sa_func.sum(VendasDiariaSnapshot.quantidade).label("total"),
         )
-        .filter(*snap_filter_active(date_start, yesterday))
+        .filter(*snap_filter_active(yesterday, yesterday))
         .group_by(VendasDiariaSnapshot.evento_grupo)
         .all()
     )
-    hist_per_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in hist_per_grupo_rows}
+    yest_per_grupo: dict = {r.evento_grupo: int(r.total or 0) for r in yest_per_grupo_rows}
 
-    # Total for each grupo = hist (D-9..D-1) + live today
+    # Total for each grupo = yesterday snapshot + live today estimate
     grupo_total_periodo: dict = {}
-    all_grupos_in_window = set(hist_per_grupo.keys()) | set(today_live_by_grupo.keys())
+    all_grupos_in_window = set(yest_per_grupo.keys()) | set(today_live_by_grupo.keys())
     for g in all_grupos_in_window:
-        grupo_total_periodo[g] = hist_per_grupo.get(g, 0) + today_live_by_grupo.get(g, 0)
+        grupo_total_periodo[g] = yest_per_grupo.get(g, 0) + today_live_by_grupo.get(g, 0)
 
     top_grupos = sorted(grupo_total_periodo.items(), key=lambda x: x[1], reverse=True)[:10]
     top_grupo_names = {g for g, _ in top_grupos}
@@ -1447,13 +1448,13 @@ def get_inscricoes_diarias(
             if m.evento_grupo and m.nome_evento and m.evento_grupo not in nome_map:
                 nome_map[m.evento_grupo] = m.nome_evento
 
-    # Previous period totals (D-19 to D-10) for comparison
+    # Previous period = anteontem (D-2) for comparison
     prev_rows = (
         db.query(
             VendasDiariaSnapshot.evento_grupo,
             sa_func.sum(VendasDiariaSnapshot.quantidade).label("total_prev"),
         )
-        .filter(*snap_filter_active(prev_start, prev_end, extra=[
+        .filter(*snap_filter_active(day_before_yesterday, day_before_yesterday, extra=[
             VendasDiariaSnapshot.evento_grupo.in_(top_grupo_names)
         ] if top_grupo_names else []))
         .group_by(VendasDiariaSnapshot.evento_grupo)
