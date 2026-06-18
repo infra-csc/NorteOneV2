@@ -3983,24 +3983,26 @@ const ProjecaoInscritos: React.FC = () => {
                             </div>
                             <div className={`w-14 px-2 py-2 rounded-lg border text-sm text-center ${c2BoxRead}`}>{kc1}</div>
                             {isCam ? (
-                              <div className={`w-24 flex items-center rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${kc2 < 0 ? (isDark ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200') : (isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300')}`}>
+                              <div className={`w-24 flex items-center rounded-lg border overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 ${ktotal < kc1 ? (isDark ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200') : (isDark ? 'bg-gray-800/50 border-gray-600' : 'bg-white border-gray-300')}`}>
                                 <button
                                   type="button"
-                                  onClick={() => { let c2 = kc2 - 1; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
-                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-600 hover:bg-red-100'}`}
+                                  onClick={() => { const total = Math.max(0, ktotal - 1); updateKit(idx, 'quantidade', String(total)); }}
+                                  disabled={ktotal <= 0}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors disabled:opacity-30 ${isDark ? 'text-red-400 hover:bg-red-500/20' : 'text-red-600 hover:bg-red-100'}`}
                                 >−</button>
                                 <input
                                   type="text"
                                   inputMode="numeric"
-                                  value={formatMilhar(kc2)}
-                                  onChange={e => { let c2 = parseInt(stripMilhar(e.target.value)); if (isNaN(c2)) c2 = 0; if (c2 > 0) c2 = 0; if (c2 < -kc1) c2 = -kc1; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
-                                  placeholder="0"
-                                  className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 font-semibold ${kc2 < 0 ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
+                                  value={formatMilhar(ktotal)}
+                                  onChange={e => { let total = parseInt(stripMilhar(e.target.value)); if (isNaN(total)) total = kc1; if (total > kc1) total = kc1; if (total < 0) total = 0; updateKit(idx, 'quantidade', String(total)); }}
+                                  placeholder={String(kc1)}
+                                  className={`flex-1 min-w-0 py-2 text-xs text-center bg-transparent border-0 focus:outline-none focus:ring-0 font-semibold ${ktotal < kc1 ? (isDark ? 'text-red-300' : 'text-red-600') : (isDark ? 'text-white' : 'text-gray-900')}`}
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => { let c2 = kc2 + 1; if (c2 > 0) c2 = 0; updateKit(idx, 'quantidade', String(kc1 + c2)); }}
-                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors ${isDark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
+                                  onClick={() => { const total = Math.min(kc1, ktotal + 1); updateKit(idx, 'quantidade', String(total)); }}
+                                  disabled={ktotal >= kc1}
+                                  className={`px-1.5 py-2 text-sm font-bold shrink-0 select-none transition-colors disabled:opacity-30 ${isDark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
                                 >+</button>
                               </div>
                             ) : (
