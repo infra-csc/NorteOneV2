@@ -107,9 +107,13 @@ const CustomTooltipDaily: React.FC<any> = ({ active, payload, label, isDark, day
   );
 };
 
+type YAxisDensity = 'suave' | 'medio' | 'fino';
+const Y_TICK_COUNT: Record<YAxisDensity, number> = { suave: 4, medio: 8, fino: 12 };
+
 const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
   const cardClass = `rounded-2xl ${isDark ? 'bg-gray-800/60 backdrop-blur-xl border border-gray-700/50' : 'bg-white/80 backdrop-blur-xl border border-gray-200/80'}`;
   const [top10Filter, setTop10Filter] = useState<Top10Filter>('ambos');
+  const [yDensity, setYDensity] = useState<YAxisDensity>('medio');
 
   const maxTotal = data ? Math.max(...data.diario.map(d => d.total), 1) : 1;
   const gruposMeta = data?.grupos_meta ?? [];
@@ -179,13 +183,32 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
           <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 shadow-lg shadow-indigo-500/20">
             <BarChart2 className="w-4 h-4 text-white" />
           </div>
-          <div>
+          <div className="flex-1">
             <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
               Inscrições Diárias
             </h3>
             <p className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
               Todos os eventos — últimos 10 dias
             </p>
+          </div>
+          <div className={`flex items-center gap-0.5 rounded-lg p-0.5 text-xs ${isDark ? 'bg-gray-700/60' : 'bg-gray-100'}`}>
+            {(['suave', 'medio', 'fino'] as YAxisDensity[]).map(opt => (
+              <button
+                key={opt}
+                onClick={() => setYDensity(opt)}
+                className={`px-2 py-1 rounded-md font-medium transition-all capitalize ${
+                  yDensity === opt
+                    ? isDark
+                      ? 'bg-indigo-600 text-white shadow'
+                      : 'bg-white text-indigo-700 shadow'
+                    : isDark
+                      ? 'text-gray-400 hover:text-gray-200'
+                      : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {opt === 'medio' ? 'Médio' : opt.charAt(0).toUpperCase() + opt.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -210,7 +233,7 @@ const InscricoesDiariasPanel: React.FC<Props> = ({ data, loading, isDark }) => {
                 <YAxis
                   tick={{ fontSize: 11, fill: isDark ? '#9ca3af' : '#6b7280' }}
                   axisLine={false} tickLine={false}
-                  tickCount={8}
+                  tickCount={Y_TICK_COUNT[yDensity]}
                   tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v)}
                 />
                 <Tooltip
