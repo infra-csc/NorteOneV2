@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
   detalheEventosService,
@@ -502,6 +502,9 @@ const DetalheEventos: React.FC = () => {
   const [viewMode, setViewMode] = useState<'tree' | 'flat'>('tree');
   const [activeTab, setActiveTab] = useState<'consolidado' | 'ativo' | 'magento'>('consolidado');
   const [searchEventos, setSearchEventos] = useState('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [loadingSecs, setLoadingSecs] = useState(0);
 
   useEffect(() => {
@@ -539,6 +542,23 @@ const DetalheEventos: React.FC = () => {
   useEffect(() => {
     if (eventoGrupo) loadDetalhe(eventoGrupo);
   }, [eventoGrupo]);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+        setSearchEventos('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [dropdownOpen]);
+
+  useEffect(() => {
+    if (dropdownOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
+    else setSearchEventos('');
+  }, [dropdownOpen]);
 
   const handleToggle = useCallback((key: string) => {
     setExpanded(prev => {
@@ -694,7 +714,7 @@ const DetalheEventos: React.FC = () => {
       {/* Event Selector */}
       <div className={`rounded-xl border ${cardBg} p-4 mb-6 shadow-sm`}>
         <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0" ref={comboboxRef}>
             <label className={`block text-xs font-semibold uppercase tracking-wide mb-1 ${textSec}`}>
               Evento
             </label>
@@ -702,41 +722,89 @@ const DetalheEventos: React.FC = () => {
               <div className="h-9 w-full rounded-lg bg-gray-200 dark:bg-gray-700 animate-pulse" />
             ) : (
               <div className="relative">
-                <select
-                  value={eventoGrupo}
-                  onChange={e => setEventoGrupo(e.target.value)}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm appearance-none pr-8 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                {/* Trigger */}
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen(o => !o)}
+                  className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-sm text-left focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                     dark ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-white border-gray-300 text-gray-900'
                   }`}
                 >
-                  <option value="">— Selecionar evento —</option>
-                  {filteredEventos.map(e => (
-                    <option key={e.evento_grupo} value={e.evento_grupo}>
-                      {e.nome_evento}
-                      {e.anos.length > 0 ? ` (${e.anos[0]})` : ''}
-                      {' · '}
-                      {e.evento_grupo}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className={`absolute right-2 top-2.5 w-4 h-4 pointer-events-none ${textSec}`} />
+                  <span className="truncate">
+                    {selectedEvento
+                      ? `${selectedEvento.nome_evento}${selectedEvento.anos.length > 0 ? ` (${selectedEvento.anos[0]})` : ''} · ${selectedEvento.evento_grupo}`
+                      : '— Selecionar evento —'}
+                  </span>
+                  <ChevronDown className={`ml-2 w-4 h-4 flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''} ${textSec}`} />
+                </button>
+
+                {/* Dropdown panel */}
+                {dropdownOpen && (
+                  <div className={`absolute z-50 mt-1 w-full rounded-xl border shadow-xl overflow-hidden ${
+                    dark ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'
+                  }`}>
+                    {/* Search inside dropdown */}
+                    <div className={`flex items-center gap-2 px-3 py-2 border-b ${dark ? 'border-gray-700' : 'border-gray-100'}`}>
+                      <Search className={`w-3.5 h-3.5 flex-shrink-0 ${textSec}`} />
+                      <input
+                        ref={searchInputRef}
+                        type="text"
+                        placeholder="Filtrar eventos…"
+                        value={searchEventos}
+                        onChange={e => setSearchEventos(e.target.value)}
+                        className={`flex-1 text-sm bg-transparent outline-none ${dark ? 'text-gray-100 placeholder-gray-500' : 'text-gray-900 placeholder-gray-400'}`}
+                      />
+                      {searchEventos && (
+                        <button onClick={() => setSearchEventos('')} className={`${textSec} hover:text-red-500`}>
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Options list */}
+                    <div className="max-h-72 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => { setEventoGrupo(''); setDropdownOpen(false); }}
+                        className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                          !eventoGrupo
+                            ? 'bg-indigo-600 text-white'
+                            : dark ? 'text-gray-400 hover:bg-gray-700' : 'text-gray-400 hover:bg-gray-50'
+                        }`}
+                      >
+                        — Selecionar evento —
+                      </button>
+                      {filteredEventos.length === 0 && (
+                        <p className={`px-4 py-3 text-sm ${textSec}`}>Nenhum evento encontrado.</p>
+                      )}
+                      {filteredEventos.map(e => {
+                        const isSelected = e.evento_grupo === eventoGrupo;
+                        return (
+                          <button
+                            key={e.evento_grupo}
+                            type="button"
+                            onClick={() => { setEventoGrupo(e.evento_grupo); setDropdownOpen(false); }}
+                            className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white'
+                                : dark ? 'text-gray-200 hover:bg-gray-700' : 'text-gray-800 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span className="block font-medium truncate">
+                              {e.nome_evento}
+                              {e.anos.length > 0 ? ` (${e.anos[0]})` : ''}
+                            </span>
+                            <span className={`block text-xs truncate ${isSelected ? 'text-indigo-200' : textSec}`}>
+                              {e.evento_grupo}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-
-          {/* Search */}
-          <div className="relative">
-            <Search className={`absolute left-2.5 top-2.5 w-3.5 h-3.5 ${textSec} pointer-events-none`} />
-            <input
-              type="text"
-              placeholder="Buscar evento…"
-              value={searchEventos}
-              onChange={e => setSearchEventos(e.target.value)}
-              className={`pl-8 pr-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                dark ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
-              }`}
-              style={{ width: 160 }}
-            />
           </div>
 
           <button
