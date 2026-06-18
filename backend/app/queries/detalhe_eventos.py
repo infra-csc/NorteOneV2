@@ -141,9 +141,16 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     """
     Retorna (sql, params) para query Magento.
     Quando ids é fornecido, gera cláusula IN parametrizada com bind params nomeados.
+
+    Otimização de performance: o filtro de event-ID é empurrado para DENTRO dos
+    subqueries cpev1/cpev2/cped para que o MySQL materialize apenas as linhas dos
+    eventos solicitados antes de qualquer JOIN com sales_order_item.
     """
     params: Dict = {}
-    ids_clause = ""
+    # Filtro nos subqueries internos (empurrado para reduzir rows antes dos JOINs)
+    inner_ids_filter = ""
+    # Filtro final no WHERE externo (redundante, mas garante correção)
+    outer_ids_clause = ""
 
     if ids:
         _validate_ids(ids)
@@ -151,10 +158,16 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
         placeholders = ", ".join(f":{n}" for n in param_names)
         for name, val in zip(param_names, ids):
             params[name] = val
-        ids_clause = f"  AND cpev1.value IN ({placeholders})\n"
+        # Usado dentro de cpev1 (tabela tem alias "cpev")
+        inner_ids_filter = f"      AND cpev.value IN ({placeholders})\n"
+        # Usado dentro de subqueries sem alias (cpev2/cped nested SELECTs)
+        inner_ids_filter_plain = f"                        AND value IN ({placeholders})\n"
+        outer_ids_clause = f"  AND cpev1.value IN ({placeholders})\n"
+    else:
+        inner_ids_filter_plain = ""
 
     sql = f"""
-SELECT /*+ MAX_EXECUTION_TIME(90000) */
+SELECT /*+ MAX_EXECUTION_TIME(60000) */
     'Magento'                                                                           AS banco,
     cpev1.value                                                                         AS id_evento,
     cpev2.value                                                                         AS evento,
@@ -265,6 +278,7 @@ JOIN sales_order_item soi_child
       )
 
 JOIN (
+    -- Filtro antecipado: apenas os bundles pertencentes aos eventos solicitados
     SELECT cpev.entity_id, cpev.value
     FROM catalog_product_entity_varchar cpev
     JOIN catalog_product_entity cpe
@@ -272,20 +286,28 @@ JOIN (
          AND cpe.type_id   = 'bundle'
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
-) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+{inner_ids_filter}) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 
 JOIN (
+    -- Restrito às entidades dos eventos solicitados
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 73
       AND store_id     = 0
+      AND entity_id IN (SELECT value FROM catalog_product_entity_varchar
+                        WHERE attribute_id = 321 AND store_id = 0
+{inner_ids_filter_plain}                       )
     GROUP BY entity_id
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
 
 JOIN (
+    -- Restrito às entidades dos eventos solicitados
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
     WHERE attribute_id = 195
+      AND entity_id IN (SELECT value FROM catalog_product_entity_varchar
+                        WHERE attribute_id = 321 AND store_id = 0
+{inner_ids_filter_plain}                       )
     GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
 
@@ -321,7 +343,7 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
   AND so.increment_id   NOT REGEXP '-[0-9]'
   AND cped.value        >= MAKEDATE(YEAR(CURDATE()), 1)
   AND cped.value        <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
-{ids_clause}
+{outer_ids_clause}
 GROUP BY
     cpev1.value,
     cpev2.value,
