@@ -26,6 +26,7 @@ class UserUpdate(BaseModel):
     ativo: Optional[bool] = None
     password: Optional[str] = None
     recebe_alertas_corte: Optional[bool] = None
+    recebe_insights_nori: Optional[bool] = None
 
 class UserResponse(BaseModel):
     id: int
@@ -37,6 +38,7 @@ class UserResponse(BaseModel):
     centro_custo_id: Optional[int] = None
     ativo: bool
     recebe_alertas_corte: bool = False
+    recebe_insights_nori: bool = False
     foto_perfil: Optional[str] = None
 
     class Config:

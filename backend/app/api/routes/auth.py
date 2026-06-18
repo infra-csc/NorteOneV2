@@ -99,5 +99,6 @@ def get_me(current_user: Usuario = Depends(get_current_user)):
         "centro_custo_id": current_user.centro_custo_id,
         "ativo": current_user.ativo,
         "recebe_alertas_corte": current_user.recebe_alertas_corte or False,
+        "recebe_insights_nori": current_user.recebe_insights_nori or False,
         "foto_perfil": current_user.foto_perfil,
     }

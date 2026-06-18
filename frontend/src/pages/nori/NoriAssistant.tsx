@@ -68,6 +68,7 @@ const NoriAssistant: React.FC = () => {
   const [cutoffAlerts, setCutoffAlerts] = useState<CutoffAlert[]>([]);
 
   const showCutoffAlerts = !!user?.recebe_alertas_corte;
+  const showInsightsProativos = !!user?.recebe_insights_nori;
 
   useEffect(() => {
     if (!showCutoffAlerts) return;
@@ -423,17 +424,19 @@ const NoriAssistant: React.FC = () => {
             <ListTodo className="w-4 h-4" />
             Tarefas
           </button>
-          <button
-            onClick={() => setMainTab('insights')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              mainTab === 'insights'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 border border-gray-200/50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/50'
-            }`}
-          >
-            <Brain className="w-4 h-4" />
-            Insights Proativos
-          </button>
+          {showInsightsProativos && (
+            <button
+              onClick={() => setMainTab('insights')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                mainTab === 'insights'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 border border-gray-200/50 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+              }`}
+            >
+              <Brain className="w-4 h-4" />
+              Insights Proativos
+            </button>
+          )}
         </div>
 
         {mainTab === 'insights' && (

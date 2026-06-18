@@ -27,6 +27,7 @@ interface Usuario {
   centro_custo_id: number | null;
   ativo: boolean;
   recebe_alertas_corte: boolean;
+  recebe_insights_nori: boolean;
 }
 
 interface UsuarioForm {
@@ -37,6 +38,7 @@ interface UsuarioForm {
   centro_custo_id: number | null;
   ativo: boolean;
   recebe_alertas_corte: boolean;
+  recebe_insights_nori: boolean;
 }
 
 const Usuarios: React.FC = () => {
@@ -122,7 +124,8 @@ const Usuarios: React.FC = () => {
       perfil_acesso_id: null,
       centro_custo_id: null,
       ativo: true,
-      recebe_alertas_corte: false
+      recebe_alertas_corte: false,
+      recebe_insights_nori: false
     });
     setFormError(null);
     setShowModal(true);
@@ -137,7 +140,8 @@ const Usuarios: React.FC = () => {
       perfil_acesso_id: user.perfil_acesso_id,
       centro_custo_id: user.centro_custo_id,
       ativo: user.ativo,
-      recebe_alertas_corte: user.recebe_alertas_corte
+      recebe_alertas_corte: user.recebe_alertas_corte,
+      recebe_insights_nori: user.recebe_insights_nori
     });
     setFormError(null);
     setShowModal(true);
@@ -155,7 +159,8 @@ const Usuarios: React.FC = () => {
           perfil_acesso_id: formData.perfil_acesso_id,
           centro_custo_id: formData.centro_custo_id,
           ativo: formData.ativo,
-          recebe_alertas_corte: formData.recebe_alertas_corte
+          recebe_alertas_corte: formData.recebe_alertas_corte,
+          recebe_insights_nori: formData.recebe_insights_nori
         };
         if (formData.password) {
           updateData.password = formData.password;
@@ -634,6 +639,32 @@ const Usuarios: React.FC = () => {
                     <span
                       className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
                         formData.recebe_alertas_corte ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              <div className={`p-4 rounded-lg border ${isDark ? 'bg-indigo-950/20 border-indigo-800/40' : 'bg-indigo-50 border-indigo-200'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className={`block text-sm font-medium ${isDark ? 'text-indigo-300' : 'text-indigo-900'}`}>
+                      Insights Proativos (Nori)
+                    </label>
+                    <p className={`text-xs mt-0.5 ${isDark ? 'text-indigo-400/70' : 'text-indigo-700'}`}>
+                      Exibe a aba de insights gerados por IA no Nori
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({ ...formData, recebe_insights_nori: !formData.recebe_insights_nori })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      formData.recebe_insights_nori ? 'bg-indigo-500' : 'bg-gray-400'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        formData.recebe_insights_nori ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
                   </button>

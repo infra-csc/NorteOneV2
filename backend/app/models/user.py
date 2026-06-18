@@ -14,6 +14,7 @@ class Usuario(Base):
     centro_custo_id = Column(Integer, ForeignKey("dim_centro_custo.id"), index=True)
     ativo = Column(Boolean, default=True, index=True)
     recebe_alertas_corte = Column(Boolean, default=False)
+    recebe_insights_nori = Column(Boolean, default=False)
     foto_perfil = Column(String(500), nullable=True)
     foto_perfil_data = Column(LargeBinary, nullable=True)
     foto_perfil_mime = Column(String(50), nullable=True)

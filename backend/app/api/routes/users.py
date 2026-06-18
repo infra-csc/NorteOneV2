@@ -20,6 +20,7 @@ def _user_to_response(user: Usuario) -> dict:
         "centro_custo_id": user.centro_custo_id,
         "ativo": user.ativo,
         "recebe_alertas_corte": user.recebe_alertas_corte or False,
+        "recebe_insights_nori": user.recebe_insights_nori or False,
     }
 
 
