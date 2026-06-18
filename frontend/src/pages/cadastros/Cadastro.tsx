@@ -277,14 +277,12 @@ const tabs = [
 
 const CADASTROS_RENDER_BATCH = 60;
 
-const CAD_CACHE_TTL = 30 * 60 * 1000;
 const cadReadCache = (key: string): any => {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
-    const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > CAD_CACHE_TTL) return null;
-    return data;
+    const parsed = JSON.parse(raw);
+    return parsed?.data ?? parsed;
   } catch { return null; }
 };
 const cadWriteCache = (key: string, data: any) => {

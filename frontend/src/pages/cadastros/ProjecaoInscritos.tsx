@@ -420,14 +420,12 @@ const ClientesTooltip: React.FC<{
   </div>
 );
 
-const PROJ_CACHE_TTL = 20 * 60 * 1000;
 const projReadCache = (key: string): any => {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
-    const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > PROJ_CACHE_TTL) return null;
-    return data;
+    const parsed = JSON.parse(raw);
+    return parsed?.data ?? parsed;
   } catch { return null; }
 };
 const projWriteCache = (key: string, data: any) => {
