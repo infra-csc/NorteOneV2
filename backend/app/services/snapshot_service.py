@@ -2801,3 +2801,164 @@ def congelar_cortes_projecao_batch(db: Session) -> dict:
         f"{descongelados} descongelado(s)"
     )
     return {k: v for k, v in res.items() if k != "snaps"}
+
+
+# ---------------------------------------------------------------------------
+# Batch noturno: Detalhamento de Eventos
+# ---------------------------------------------------------------------------
+
+def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
+    """Job noturno (~03h BRT): pré-computa payload de Detalhamento para todos
+    os evento_grupos ativos e persiste em detalhe_eventos_snapshot.
+
+    - Itera evento_grupos com pelo menos 1 mapeamento ativo em sku_mappings.
+    - Respeita freeze logic: pula eventos cujo data_evento + EVENTO_FREEZE_AFTER_DAYS
+      está no passado (mesma regra do sincronizar_margem_bundle_rev_batch).
+    - Erros por evento são logados sem parar o batch.
+    - Retorna dict {status, total, ok, falha, pulado, skipped_frozen}.
+    """
+    import json as _json
+    from datetime import date as _date
+    from app.services.detalhe_eventos_service import (
+        list_eventos_disponiveis,
+        get_evento_ids,
+        _fetch_ativo,
+        _fetch_magento,
+        _build_canonical_map,
+        _tag_canonical_grupo,
+        _consolidar,
+        _check_divergencias,
+        _calc_totais,
+        save_snapshot,
+        CACHE_TTL_SECONDS,
+    )
+    from app.models.dimensoes import SkuMapping
+    from app.models.cadastro_evento import CadastroEvento
+
+    logger.info("[DetalheEventosBatch] Iniciando sincronização de snapshots de Detalhamento...")
+    freeze_days = _freeze_after_days()
+    today = _date.today()
+    canonical_map = _build_canonical_map(db)
+
+    # Resolve freeze dates via CadastroEvento (by evento_grupo → nome_evento lookup)
+    # Conservador: sem cadastro = não congela.
+    try:
+        from sqlalchemy import or_ as _or
+        cads = db.query(CadastroEvento).filter(
+            CadastroEvento.data_evento != None
+        ).all()
+        cad_nome_to_date: dict = {}
+        for c in cads:
+            nm = (c.nome or "").strip().lower()
+            if nm:
+                cad_nome_to_date[nm] = c.data_evento
+    except Exception as _e_cad:
+        logger.warning(f"[DetalheEventosBatch] Erro ao carregar cadastros para freeze: {_e_cad}")
+        cad_nome_to_date = {}
+
+    # Also build grupo → data_evento map from sku_mappings.data_evento
+    try:
+        grupo_dates: dict = {}
+        rows_date = db.query(SkuMapping.evento_grupo, SkuMapping.data_evento).filter(
+            SkuMapping.ativo == True,
+            SkuMapping.evento_grupo != None,
+            SkuMapping.data_evento != None,
+        ).all()
+        for eg, dt in rows_date:
+            if eg and dt:
+                if eg not in grupo_dates or dt > grupo_dates[eg]:
+                    grupo_dates[eg] = dt
+    except Exception as _e_dt:
+        logger.warning(f"[DetalheEventosBatch] Erro ao carregar datas de sku_mappings: {_e_dt}")
+        grupo_dates = {}
+
+    eventos = list_eventos_disponiveis(db)
+    total = len(eventos)
+    ok = 0
+    falha = 0
+    pulado = 0
+    skipped_frozen = 0
+
+    for ev in eventos:
+        eg = ev.get("evento_grupo")
+        if not eg:
+            pulado += 1
+            continue
+
+        # Freeze check
+        ev_date = grupo_dates.get(eg)
+        if ev_date is None:
+            nm_lower = (ev.get("nome_evento") or "").strip().lower()
+            ev_date = cad_nome_to_date.get(nm_lower)
+        if ev_date is not None and is_event_frozen(ev_date, freeze_days):
+            skipped_frozen += 1
+            logger.debug(f"[DetalheEventosBatch] '{eg}' frozen (data={ev_date}) — pulando")
+            continue
+
+        try:
+            ativo_ids, magento_ids = get_evento_ids(db, eg)
+            if len(ativo_ids) == 0 and len(magento_ids) == 0:
+                pulado += 1
+                continue
+
+            from concurrent.futures import ThreadPoolExecutor as _TPE
+            with _TPE(max_workers=2) as ex:
+                f_a = ex.submit(_fetch_ativo, ativo_ids)
+                f_m = ex.submit(_fetch_magento, magento_ids)
+                rows_ativo, err_ativo = f_a.result()
+                rows_magento, err_magento = f_m.result()
+
+            _tag_canonical_grupo(rows_ativo or [], canonical_map, eg)
+            _tag_canonical_grupo(rows_magento or [], canonical_map, eg)
+            consolidado = _consolidar(rows_ativo or [], rows_magento or [])
+            divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
+
+            # Resolve nome_evento + skus
+            mapping = db.query(SkuMapping).filter(
+                SkuMapping.evento_grupo == eg, SkuMapping.ativo == True
+            ).first()
+            evento_nome = mapping.nome_evento if mapping else None
+            skus_q = db.query(SkuMapping.sku).filter(
+                SkuMapping.evento_grupo == eg, SkuMapping.ativo == True
+            ).all()
+            skus = [s[0] for s in skus_q if s[0]]
+
+            payload = {
+                "evento_grupo": eg,
+                "nome_evento": evento_nome,
+                "skus": skus,
+                "consolidado": consolidado,
+                "por_banco": {
+                    "Ativo": rows_ativo or [],
+                    "Magento": rows_magento or [],
+                },
+                "divergencias": divergencias,
+                "erros": {
+                    k: v for k, v in [("Ativo", err_ativo), ("Magento", err_magento)] if v
+                },
+                "totais": _calc_totais(consolidado),
+                "source": "snapshot",
+                "snapshot_updated_at": None,
+            }
+
+            saved = save_snapshot(db, eg, payload)
+            if saved:
+                ok += 1
+            else:
+                falha += 1
+        except Exception as _e:
+            logger.error(f"[DetalheEventosBatch] Erro ao processar '{eg}': {_e}")
+            falha += 1
+
+    logger.info(
+        f"[DetalheEventosBatch] Concluído: {total} total, {ok} ok, "
+        f"{falha} falha, {pulado} pulado, {skipped_frozen} frozen"
+    )
+    return {
+        "status": "ok" if falha == 0 else ("parcial" if ok > 0 else "falha"),
+        "total": total,
+        "ok": ok,
+        "falha": falha,
+        "pulado": pulado,
+        "skipped_frozen": skipped_frozen,
+    }

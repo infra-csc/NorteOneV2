@@ -58,3 +58,20 @@ class MargemBundleRevSnapshot(Base):
     receita_liquida = Column(Numeric(14, 2), nullable=False, default=0)
     qtd_inscricoes = Column(Integer, nullable=True, default=0)
     calculado_em = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class DetalheEventosSnapshot(Base):
+    """Snapshot do payload completo de Detalhamento de Eventos por evento_grupo.
+
+    Pré-computado pelo job noturno (~03h BRT), eliminando timeouts de Ativo/Magento
+    em acessos do usuário. Leitura serve em <1s; fallback ao vivo quando ausente.
+
+    payload: JSON com {consolidado, por_banco, divergencias, erros, totais, skus}
+    """
+    __tablename__ = "detalhe_eventos_snapshot"
+
+    id = Column(Integer, primary_key=True, index=True)
+    evento_grupo = Column(String(200), nullable=False, unique=True, index=True)
+    payload = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

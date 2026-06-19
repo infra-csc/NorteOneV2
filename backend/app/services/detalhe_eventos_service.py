@@ -8,6 +8,11 @@ Fluxo:
 4. Recalcula ticket_medio = SUM(receita_liquida) / SUM(inscritos).
 5. Mantém os result sets brutos por banco para auditoria/cross-validation.
 
+Snapshot noturno:
+- get_detalhe() lê do snapshot PostgreSQL (< 1s) se atualizado há < 26h.
+- force_refresh=True ou snapshot ausente disparam query ao vivo e regravação.
+- save_snapshot() persiste o payload após query ao vivo.
+
 Chave canônica de consolidação:
 - Cada linha raw é enriquecida com `canonical_grupo` = evento_grupo resolvido via
   mapa reverso sku_mappings: (fonte.upper(), id_externo) → evento_grupo.
@@ -20,11 +25,13 @@ Cache: dict em memória por chave (evento_grupo or "__all__"), TTL 15 min.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 import threading
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Any
 
 from sqlalchemy import text
@@ -37,6 +44,7 @@ from app.queries.detalhe_eventos import build_ativo_detalhe, build_magento_detal
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SECONDS = 900  # 15 minutos
+SNAPSHOT_MAX_AGE_HOURS = 26  # snapshot válido por 26h
 
 _cache: Dict[str, Tuple[float, Any]] = {}
 _cache_lock = threading.Lock()
@@ -351,6 +359,77 @@ def _check_divergencias(
 
 
 # ---------------------------------------------------------------------------
+# Snapshot PostgreSQL (leitura / escrita)
+# ---------------------------------------------------------------------------
+
+def _read_snapshot(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datetime]]:
+    """
+    Lê o snapshot do PostgreSQL para o evento_grupo.
+    Retorna (payload_dict, updated_at) se válido (< SNAPSHOT_MAX_AGE_HOURS), None caso contrário.
+    """
+    try:
+        from app.models.vendas_snapshot import DetalheEventosSnapshot
+        row = (
+            db.query(DetalheEventosSnapshot)
+            .filter(DetalheEventosSnapshot.evento_grupo == evento_grupo)
+            .first()
+        )
+        if row is None:
+            return None
+        # Verifica idade
+        now_utc = datetime.now(timezone.utc)
+        updated = row.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        age_h = (now_utc - updated).total_seconds() / 3600
+        if age_h > SNAPSHOT_MAX_AGE_HOURS:
+            logger.debug(f"[DetalheSnap] snapshot de '{evento_grupo}' tem {age_h:.1f}h — ignorando (>{SNAPSHOT_MAX_AGE_HOURS}h)")
+            return None
+        payload_dict = json.loads(row.payload)
+        return payload_dict, updated
+    except Exception as e:
+        logger.warning(f"[DetalheSnap] Erro ao ler snapshot de '{evento_grupo}': {e}")
+        return None
+
+
+def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
+    """
+    Persiste o payload no snapshot PostgreSQL via UPSERT.
+    Retorna True em sucesso, False em falha (não lança).
+    """
+    try:
+        from app.models.vendas_snapshot import DetalheEventosSnapshot
+        payload_json = json.dumps(payload, ensure_ascii=False, default=str)
+        now_utc = datetime.now(timezone.utc)
+
+        existing = (
+            db.query(DetalheEventosSnapshot)
+            .filter(DetalheEventosSnapshot.evento_grupo == evento_grupo)
+            .first()
+        )
+        if existing:
+            existing.payload = payload_json
+            existing.updated_at = now_utc
+        else:
+            db.add(DetalheEventosSnapshot(
+                evento_grupo=evento_grupo,
+                payload=payload_json,
+                created_at=now_utc,
+                updated_at=now_utc,
+            ))
+        db.commit()
+        logger.info(f"[DetalheSnap] Snapshot salvo para '{evento_grupo}'")
+        return True
+    except Exception as e:
+        logger.error(f"[DetalheSnap] Erro ao salvar snapshot de '{evento_grupo}': {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+
+
+# ---------------------------------------------------------------------------
 # API pública do serviço
 # ---------------------------------------------------------------------------
 
@@ -361,11 +440,20 @@ def get_detalhe(
 ) -> Dict:
     """
     Retorna o payload completo de detalhamento para o evento_grupo.
-    Usa cache em memória por 15 min.
+
+    Ordem de leitura:
+    1. Cache em memória (TTL 15min) — bypass se force_refresh.
+    2. Snapshot PostgreSQL (< SNAPSHOT_MAX_AGE_HOURS) — bypass se force_refresh.
+    3. Query ao vivo (Ativo + Magento) — salva no snapshot e no cache.
+
+    Campos adicionais no retorno:
+    - source: "cache" | "snapshot" | "live"
+    - snapshot_updated_at: ISO string com data/hora do snapshot (None se ao vivo sem snapshot prévio)
     """
     cache_key = evento_grupo or "__all__"
 
     if not force_refresh:
+        # 1. Cache em memória
         with _cache_lock:
             entry = _cache.get(cache_key)
         if entry:
@@ -373,6 +461,18 @@ def get_detalhe(
             if time.time() - ts < CACHE_TTL_SECONDS:
                 logger.debug(f"[DetalheEventos] cache HIT key={cache_key}")
                 return data
+
+        # 2. Snapshot PostgreSQL (apenas para evento único — não faz sentido para "__all__")
+        if evento_grupo:
+            snap = _read_snapshot(db, evento_grupo)
+            if snap is not None:
+                payload_dict, updated_at = snap
+                payload_dict["source"] = "snapshot"
+                payload_dict["snapshot_updated_at"] = updated_at.isoformat()
+                with _cache_lock:
+                    _cache[cache_key] = (time.time(), payload_dict)
+                logger.info(f"[DetalheSnap] Servindo snapshot de '{evento_grupo}' (atualizado {updated_at.isoformat()})")
+                return payload_dict
 
     ativo_ids: Optional[List[int]] = None
     magento_ids: Optional[List[int]] = None
@@ -449,7 +549,15 @@ def get_detalhe(
             k: v for k, v in [("Ativo", error_ativo), ("Magento", error_magento)] if v
         },
         "totais": _calc_totais(consolidado),
+        "source": "live",
+        "snapshot_updated_at": None,
     }
+
+    # Salva no snapshot PostgreSQL (apenas evento único, sem erros graves)
+    if evento_grupo and not (error_ativo and error_magento):
+        snap_saved = save_snapshot(db, evento_grupo, payload)
+        if snap_saved:
+            payload["snapshot_updated_at"] = datetime.now(timezone.utc).isoformat()
 
     with _cache_lock:
         _cache[cache_key] = (time.time(), payload)

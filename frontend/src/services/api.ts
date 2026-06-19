@@ -1852,6 +1852,8 @@ export interface DetalheEventoPayload {
   divergencias: DetalheDivergencia[];
   erros: Record<string, string>;
   totais: DetalheTotais;
+  source?: 'cache' | 'snapshot' | 'live';
+  snapshot_updated_at?: string | null;
 }
 
 export const detalheEventosService = {

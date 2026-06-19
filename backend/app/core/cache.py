@@ -1356,7 +1356,7 @@ class CacheRefreshScheduler:
             _final_detalhes = None
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch, congelar_cortes_projecao_batch
+                from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch, congelar_cortes_projecao_batch, sincronizar_detalhe_eventos_batch
                 db = SessionLocal()
                 try:
                     def _auto_concluir():
@@ -1388,6 +1388,10 @@ class CacheRefreshScheduler:
 
                     _run_step("congelar_cortes_projecao_batch",
                               lambda: congelar_cortes_projecao_batch(db),
+                              optional=True)
+
+                    _run_step("sincronizar_detalhe_eventos_batch",
+                              lambda: sincronizar_detalhe_eventos_batch(db),
                               optional=True)
 
                     def _cleanup():

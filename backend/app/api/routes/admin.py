@@ -322,6 +322,7 @@ def trigger_scheduled_daily_consolidation(
         sincronizar_hoje_batch as _shb_sd,
         sincronizar_margem_bundle_rev_batch as _smbrb_sd,
         congelar_cortes_projecao_batch as _ccpb_sd,
+        sincronizar_detalhe_eventos_batch as _sde_sd,
     )
     from app.services.sync_log_service import (
         log_evento as _le_sd,
@@ -465,6 +466,7 @@ def trigger_scheduled_daily_consolidation(
             _run_and_classify("sincronizar_hoje_batch", lambda: _shb_sd(_db_sd))
             _run_and_classify("sincronizar_margem_bundle_rev_batch", lambda: _smbrb_sd(_db_sd))
             _run_and_classify("congelar_cortes_projecao_batch", lambda: _ccpb_sd(_db_sd))
+            _run_and_classify("sincronizar_detalhe_eventos_batch", lambda: _sde_sd(_db_sd))
         finally:
             _db_sd.close()
 
@@ -538,7 +540,7 @@ def trigger_snapshot_consolidation(
 
     def _run():
         from app.core.database import SessionLocal
-        from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, congelar_cortes_projecao_batch
+        from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, congelar_cortes_projecao_batch, sincronizar_detalhe_eventos_batch
         local_db = SessionLocal()
         try:
             try:
@@ -560,6 +562,11 @@ def trigger_snapshot_consolidation(
             except Exception as ce:
                 logger.error(f"Manual snapshot consolidation: congelar_cortes_projecao_batch falhou: {ce}")
                 cortes = {"status": "erro"}
+            try:
+                detalhe = sincronizar_detalhe_eventos_batch(local_db)
+                logger.info(f"Manual snapshot consolidation: detalhe_eventos={detalhe}")
+            except Exception as de:
+                logger.error(f"Manual snapshot consolidation: sincronizar_detalhe_eventos_batch falhou: {de}")
             logger.info(f"Manual snapshot consolidation: {grupos} grupos, {curvas} curvas, {hoje} hoje, cortes={cortes}")
         except Exception as e:
             logger.error(f"Manual snapshot consolidation failed: {e}")
@@ -573,6 +580,53 @@ def trigger_snapshot_consolidation(
         "status": "started",
         "message": "Consolidação de snapshots iniciada em background"
     }
+
+
+@router.post("/detalhe-eventos/sincronizar")
+def trigger_detalhe_eventos_sync(
+    evento_grupo: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(require_permission("admin_dados_consolidados")),
+):
+    """Dispara a sincronização manual do snapshot de Detalhamento de Eventos.
+
+    Se `evento_grupo` for fornecido, sincroniza apenas esse evento (ao vivo).
+    Caso contrário, dispara o batch completo em background.
+    """
+    import threading as _thr
+    import logging as _log
+    _logger_de = _log.getLogger(__name__)
+
+    if evento_grupo:
+        # Sincronização ao vivo de um evento específico
+        try:
+            from app.services.detalhe_eventos_service import get_detalhe
+            payload = get_detalhe(db, evento_grupo, force_refresh=True)
+            return {
+                "status": "ok",
+                "evento_grupo": evento_grupo,
+                "source": payload.get("source"),
+                "snapshot_updated_at": payload.get("snapshot_updated_at"),
+            }
+        except Exception as e:
+            _logger_de.error(f"[DetalheSync] Erro ao sincronizar '{evento_grupo}': {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        # Batch completo em background
+        def _run_batch():
+            from app.core.database import SessionLocal as _SL_de
+            from app.services.snapshot_service import sincronizar_detalhe_eventos_batch as _sde
+            _db_de = _SL_de()
+            try:
+                result = _sde(_db_de)
+                _logger_de.info(f"[DetalheSync] Batch concluído: {result}")
+            except Exception as _e_de:
+                _logger_de.error(f"[DetalheSync] Batch falhou: {_e_de}")
+            finally:
+                _db_de.close()
+
+        _thr.Thread(target=_run_batch, daemon=True).start()
+        return {"status": "started", "message": "Sincronização de Detalhamento de Eventos iniciada em background"}
 
 
 def _find_resumable_checkpoint(db: Session) -> Optional[dict]:

@@ -130,6 +130,48 @@ const BancoBadge: React.FC<{ banco: string }> = ({ banco }) => {
   );
 };
 
+const SnapshotBadge: React.FC<{
+  source?: string | null;
+  snapshotUpdatedAt?: string | null;
+  dark: boolean;
+}> = ({ source, snapshotUpdatedAt, dark }) => {
+  if (!source) return null;
+
+  if (source === 'snapshot' && snapshotUpdatedAt) {
+    const diff = Date.now() - new Date(snapshotUpdatedAt).getTime();
+    const hours = Math.floor(diff / 3600000);
+    const mins = Math.floor((diff % 3600000) / 60000);
+    const label = hours > 0 ? `há ${hours}h${mins > 0 ? `${mins}m` : ''}` : `há ${mins}m`;
+    return (
+      <span
+        title={`Dados do snapshot noturno. Atualizado ${label}. Clique em "Atualizar" para buscar ao vivo.`}
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+          dark ? 'bg-blue-900/50 text-blue-300 border border-blue-700/50' : 'bg-blue-50 text-blue-600 border border-blue-200'
+        }`}
+      >
+        <Database className="w-2.5 h-2.5" />
+        Snapshot · {label}
+      </span>
+    );
+  }
+
+  if (source === 'live') {
+    return (
+      <span
+        title="Dados buscados ao vivo de Ativo e Magento agora."
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+          dark ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700/50' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+        }`}
+      >
+        <TrendingUp className="w-2.5 h-2.5" />
+        Ao vivo
+      </span>
+    );
+  }
+
+  return null;
+};
+
 // ---------------------------------------------------------------------------
 // Tree node types
 // ---------------------------------------------------------------------------
@@ -841,6 +883,9 @@ const DetalheEventos: React.FC = () => {
                 {selectedEvento.magento_ids.join(', ')}
               </span>
             )}
+            {payload && !loading && (
+              <SnapshotBadge source={payload.source} snapshotUpdatedAt={payload.snapshot_updated_at} dark={dark} />
+            )}
           </div>
         )}
       </div>
@@ -858,10 +903,10 @@ const DetalheEventos: React.FC = () => {
             <RefreshCw className="w-5 h-5 text-indigo-500 animate-spin flex-shrink-0" />
             <div className="min-w-0">
               <p className={`text-sm font-semibold ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>
-                Buscando dados dos bancos Ativo e Magento…
+                Buscando dados ao vivo de Ativo e Magento…
               </p>
               <p className={`text-xs mt-0.5 ${dark ? 'text-indigo-400' : 'text-indigo-500'}`}>
-                A consulta envolve bancos externos (Ativo via SSH, Magento direto) e pode levar até 2 minutos.
+                Consulta direta aos bancos externos (Ativo via SSH, Magento direto) — pode levar até 2 minutos.
                 {loadingSecs > 0 && <span className="ml-2 font-mono">{loadingSecs}s</span>}
               </p>
             </div>

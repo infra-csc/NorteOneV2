@@ -1849,6 +1849,7 @@ async def lifespan(app: FastAPI):
             from app.models import job_run_health as _jrh_models  # noqa: F401 — ensure job_run_health table is registered
             from app.models import evento_detail_snapshot as _eds_models  # noqa: F401 — ensure detail snapshot table is registered
             from app.models import user_session as _us_models  # noqa: F401 — ensure user_sessions table is registered
+            from app.models import vendas_snapshot as _vs_models  # noqa: F401 — ensure DetalheEventosSnapshot table is registered
             if engine:
                 Base.metadata.create_all(bind=engine)
             _run_column_migrations()
@@ -2165,7 +2166,7 @@ async def lifespan(app: FastAPI):
                     return
             try:
                 from app.core.database import SessionLocal
-                from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch
+                from app.services.snapshot_service import snapshot_diario_batch, rebuild_rolling_grupos_batch, consolidar_curvas_historicas_batch, sincronizar_hoje_batch, sincronizar_margem_bundle_rev_batch, sincronizar_detalhe_eventos_batch
                 logger.info(f"Starting snapshot consolidation (parallel, step_ciclo={_step_ciclo_id})...")
                 # Classifica dict.status como _run_step (cache.py): batches que retornam
                 # dict com status='falha_persistencia'/'parcial' NÃO lançam exception.
@@ -2238,6 +2239,7 @@ async def lifespan(app: FastAPI):
                     _run_step_startup("consolidar_curvas_historicas_batch", lambda: consolidar_curvas_historicas_batch(db))
                     _run_step_startup("sincronizar_hoje_batch", lambda: sincronizar_hoje_batch(db))
                     _run_step_startup("sincronizar_margem_bundle_rev_batch", lambda: sincronizar_margem_bundle_rev_batch(db))
+                    _run_step_startup("sincronizar_detalhe_eventos_batch", lambda: sincronizar_detalhe_eventos_batch(db))
                     logger.info("Startup snapshot consolidation completed")
                 finally:
                     db.close()
