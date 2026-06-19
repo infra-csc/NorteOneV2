@@ -289,7 +289,9 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
     END), 0)                                                                            AS ticket_medio
 
 FROM (
-    -- Âncora: apenas os bundles pertencentes aos eventos solicitados (conjunto pequeno).
+    -- Âncora: bundles dos eventos solicitados, restritos ao ano-competência corrente.
+    -- O JOIN em cped (data do evento) filtra IDs cujo evento cai no ano atual,
+    -- evitando que edições de anos anteriores com os mesmos IDs Magento sejam somadas.
     -- STRAIGHT_JOIN garante que o MySQL parte daqui e desce por índice.
     SELECT cpev.entity_id AS product_id,
            cpev.value     AS id_evento
@@ -297,6 +299,11 @@ FROM (
     JOIN catalog_product_entity cpe
           ON cpe.entity_id = cpev.entity_id
          AND cpe.type_id   = 'bundle'
+    JOIN catalog_product_entity_datetime cped
+          ON cped.entity_id    = cpev.value
+         AND cped.attribute_id = 195
+         AND cped.value >= MAKEDATE(YEAR(CURDATE()), 1)
+         AND cped.value <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
 {inner_ids_filter}) AS cpev1
