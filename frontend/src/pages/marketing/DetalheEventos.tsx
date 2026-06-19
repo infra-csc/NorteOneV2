@@ -605,8 +605,11 @@ const DetalheEventos: React.FC = () => {
       setPayload(data);
     } catch (e: any) {
       const isAbort = e?.name === 'AbortError' || e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED';
+      const is429 = e?.response?.status === 429;
       if (isAbort) {
         setError('A consulta demorou mais de 2 minutos e meio e foi cancelada. O servidor pode estar sobrecarregado — tente novamente em alguns instantes.');
+      } else if (is429) {
+        setError('Outro usuário está atualizando este evento — tente em alguns instantes.');
       } else {
         setError(e?.response?.data?.detail || e.message || 'Erro ao carregar dados');
       }

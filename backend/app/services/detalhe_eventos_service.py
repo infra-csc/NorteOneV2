@@ -49,6 +49,12 @@ SNAPSHOT_MAX_AGE_HOURS = 26  # snapshot válido por 26h
 _cache: Dict[str, Tuple[float, Any]] = {}
 _cache_lock = threading.Lock()
 
+# Single-flight guard para force_refresh ao vivo.
+# Impede que dois usuários simultâneos disparem queries pesadas ao Ativo/Magento
+# para o mesmo evento_grupo ao mesmo tempo. O segundo recebe HTTP 429.
+_inflight: set = set()
+_inflight_lock = threading.Lock()
+
 # ---------------------------------------------------------------------------
 # Contrato de colunas
 # ---------------------------------------------------------------------------
@@ -474,95 +480,123 @@ def get_detalhe(
                 logger.info(f"[DetalheSnap] Servindo snapshot de '{evento_grupo}' (atualizado {updated_at.isoformat()})")
                 return payload_dict
 
-    ativo_ids: Optional[List[int]] = None
-    magento_ids: Optional[List[int]] = None
-    evento_nome: Optional[str] = None
-    skus: List[str] = []
+    # 3. Query ao vivo — single-flight guard.
+    # Quando force_refresh=True e outro request já está executando as queries
+    # pesadas para o mesmo evento_grupo, retorna 429 para evitar sobrecarga
+    # simultânea no túnel SSH e no pool PostgreSQL local.
+    if force_refresh and evento_grupo:
+        from fastapi import HTTPException
+        with _inflight_lock:
+            if cache_key in _inflight:
+                logger.info(
+                    f"[DetalheEventos] force_refresh bloqueado para '{evento_grupo}' — "
+                    "já há uma consulta ao vivo em andamento (single-flight)"
+                )
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        "Outro usuário está atualizando este evento — "
+                        "tente em alguns instantes."
+                    ),
+                )
+            _inflight.add(cache_key)
 
-    if evento_grupo:
-        ativo_ids_list, magento_ids_list = get_evento_ids(db, evento_grupo)
+    try:
+        ativo_ids: Optional[List[int]] = None
+        magento_ids: Optional[List[int]] = None
+        evento_nome: Optional[str] = None
+        skus: List[str] = []
 
-        # IMPORTANT: keep empty list as [] — do NOT convert to None.
-        # _fetch_ativo/magento(ids=[]) → returns empty rows immediately.
-        # _fetch_ativo/magento(ids=None) → unfiltered full-year query (global mode only).
-        # Converting [] to None would silently run full-year queries for an event
-        # that simply has no IDs registered for one bank.
-        ativo_ids = ativo_ids_list      # [] or [id, ...]
-        magento_ids = magento_ids_list  # [] or [id, ...]
+        if evento_grupo:
+            ativo_ids_list, magento_ids_list = get_evento_ids(db, evento_grupo)
 
-        # Reject unknown evento_grupo: if BOTH banks have zero IDs, the group
-        # doesn't exist (or has no active mappings). Raise explicitly.
-        if len(ativo_ids) == 0 and len(magento_ids) == 0:
-            from fastapi import HTTPException
-            raise HTTPException(
-                status_code=404,
-                detail=f"evento_grupo '{evento_grupo}' não encontrado ou sem mapeamentos ativos em sku_mappings.",
-            )
+            # IMPORTANT: keep empty list as [] — do NOT convert to None.
+            # _fetch_ativo/magento(ids=[]) → returns empty rows immediately.
+            # _fetch_ativo/magento(ids=None) → unfiltered full-year query (global mode only).
+            # Converting [] to None would silently run full-year queries for an event
+            # that simply has no IDs registered for one bank.
+            ativo_ids = ativo_ids_list      # [] or [id, ...]
+            magento_ids = magento_ids_list  # [] or [id, ...]
 
-        mapping = (
-            db.query(SkuMapping)
-            .filter(SkuMapping.evento_grupo == evento_grupo, SkuMapping.ativo == True)
-            .first()
-        )
-        if mapping:
-            evento_nome = mapping.nome_evento
-            skus_q = (
-                db.query(SkuMapping.sku)
+            # Reject unknown evento_grupo: if BOTH banks have zero IDs, the group
+            # doesn't exist (or has no active mappings). Raise explicitly.
+            if len(ativo_ids) == 0 and len(magento_ids) == 0:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"evento_grupo '{evento_grupo}' não encontrado ou sem mapeamentos ativos em sku_mappings.",
+                )
+
+            mapping = (
+                db.query(SkuMapping)
                 .filter(SkuMapping.evento_grupo == evento_grupo, SkuMapping.ativo == True)
-                .all()
+                .first()
             )
-            skus = [s[0] for s in skus_q if s[0]]
+            if mapping:
+                evento_nome = mapping.nome_evento
+                skus_q = (
+                    db.query(SkuMapping.sku)
+                    .filter(SkuMapping.evento_grupo == evento_grupo, SkuMapping.ativo == True)
+                    .all()
+                )
+                skus = [s[0] for s in skus_q if s[0]]
 
-    rows_ativo: Optional[List[Dict]] = None
-    rows_magento: Optional[List[Dict]] = None
-    error_ativo: Optional[str] = None
-    error_magento: Optional[str] = None
+        rows_ativo: Optional[List[Dict]] = None
+        rows_magento: Optional[List[Dict]] = None
+        error_ativo: Optional[str] = None
+        error_magento: Optional[str] = None
 
-    # Build canonical map BEFORE fetching (lightweight PG query)
-    canonical_map = _build_canonical_map(db)
+        # Build canonical map BEFORE fetching (lightweight PG query)
+        canonical_map = _build_canonical_map(db)
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        fut_ativo = executor.submit(_fetch_ativo, ativo_ids)
-        fut_magento = executor.submit(_fetch_magento, magento_ids)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            fut_ativo = executor.submit(_fetch_ativo, ativo_ids)
+            fut_magento = executor.submit(_fetch_magento, magento_ids)
 
-        rows_ativo, error_ativo = fut_ativo.result()
-        rows_magento, error_magento = fut_magento.result()
+            rows_ativo, error_ativo = fut_ativo.result()
+            rows_magento, error_magento = fut_magento.result()
 
-    # Tag each row with its canonical_grupo before consolidating
-    _tag_canonical_grupo(rows_ativo or [], canonical_map, evento_grupo)
-    _tag_canonical_grupo(rows_magento or [], canonical_map, evento_grupo)
+        # Tag each row with its canonical_grupo before consolidating
+        _tag_canonical_grupo(rows_ativo or [], canonical_map, evento_grupo)
+        _tag_canonical_grupo(rows_magento or [], canonical_map, evento_grupo)
 
-    consolidado = _consolidar(rows_ativo or [], rows_magento or [])
-    divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
+        consolidado = _consolidar(rows_ativo or [], rows_magento or [])
+        divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
 
-    payload = {
-        "evento_grupo": evento_grupo,
-        "nome_evento": evento_nome,
-        "skus": skus,
-        "consolidado": consolidado,
-        "por_banco": {
-            "Ativo": rows_ativo or [],
-            "Magento": rows_magento or [],
-        },
-        "divergencias": divergencias,
-        "erros": {
-            k: v for k, v in [("Ativo", error_ativo), ("Magento", error_magento)] if v
-        },
-        "totais": _calc_totais(consolidado),
-        "source": "live",
-        "snapshot_updated_at": None,
-    }
+        payload = {
+            "evento_grupo": evento_grupo,
+            "nome_evento": evento_nome,
+            "skus": skus,
+            "consolidado": consolidado,
+            "por_banco": {
+                "Ativo": rows_ativo or [],
+                "Magento": rows_magento or [],
+            },
+            "divergencias": divergencias,
+            "erros": {
+                k: v for k, v in [("Ativo", error_ativo), ("Magento", error_magento)] if v
+            },
+            "totais": _calc_totais(consolidado),
+            "source": "live",
+            "snapshot_updated_at": None,
+        }
 
-    # Salva no snapshot PostgreSQL (apenas evento único, sem erros graves)
-    if evento_grupo and not (error_ativo and error_magento):
-        snap_saved = save_snapshot(db, evento_grupo, payload)
-        if snap_saved:
-            payload["snapshot_updated_at"] = datetime.now(timezone.utc).isoformat()
+        # Salva no snapshot PostgreSQL (apenas evento único, sem erros graves)
+        if evento_grupo and not (error_ativo and error_magento):
+            snap_saved = save_snapshot(db, evento_grupo, payload)
+            if snap_saved:
+                payload["snapshot_updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    with _cache_lock:
-        _cache[cache_key] = (time.time(), payload)
+        with _cache_lock:
+            _cache[cache_key] = (time.time(), payload)
 
-    return payload
+        return payload
+
+    finally:
+        # Libera o slot de single-flight (se foi adquirido) independente de sucesso ou erro.
+        if force_refresh and evento_grupo:
+            with _inflight_lock:
+                _inflight.discard(cache_key)
 
 
 def _calc_totais(consolidado: List[Dict]) -> Dict:
