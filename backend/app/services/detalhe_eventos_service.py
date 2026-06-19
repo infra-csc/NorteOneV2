@@ -123,6 +123,9 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
         .all()
     )
 
+    from datetime import date as _date
+    _current_year = _date.today().year
+
     grupos: Dict[str, Dict] = {}
     for m in mappings:
         eg = m.evento_grupo
@@ -140,9 +143,12 @@ def list_eventos_disponiveis(db: Session) -> List[Dict]:
         g = grupos[eg]
         if m.nome_evento and len(m.nome_evento) > len(g["nome_evento"]):
             g["nome_evento"] = m.nome_evento
-        if m.fonte == "ATIVO" and m.id_externo and m.id_externo not in g["ativo_ids"]:
+        # Exibe apenas IDs do ano corrente (ou sem ano cadastrado) no header.
+        # O campo "anos" acumula todos os anos para o label do dropdown.
+        _is_current = (m.ano is None or m.ano == _current_year)
+        if _is_current and m.fonte == "ATIVO" and m.id_externo and m.id_externo not in g["ativo_ids"]:
             g["ativo_ids"].append(m.id_externo)
-        elif m.fonte == "MAGENTO" and m.id_externo and m.id_externo not in g["magento_ids"]:
+        elif _is_current and m.fonte == "MAGENTO" and m.id_externo and m.id_externo not in g["magento_ids"]:
             g["magento_ids"].append(m.id_externo)
         if m.sku and m.sku not in g["skus"]:
             g["skus"].append(m.sku)
