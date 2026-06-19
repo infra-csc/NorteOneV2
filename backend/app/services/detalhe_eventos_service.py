@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import threading
 from collections import defaultdict
@@ -39,6 +40,7 @@ from sqlalchemy.orm import Session
 
 import app.core.database as db_module
 from app.models.dimensoes import SkuMapping
+from app.models.kit_config import KitConfig
 from app.queries.detalhe_eventos import build_ativo_detalhe, build_magento_detalhe
 
 logger = logging.getLogger(__name__)
@@ -350,6 +352,91 @@ def _consolidar(
         -(r.get("inscritos") or 0),
     ))
     return consolidated
+
+
+# ---------------------------------------------------------------------------
+# Canonicalização de nomes de kit via KitConfig.tipo_kit
+# ---------------------------------------------------------------------------
+
+def _normalize_kit_raw(name: Optional[str]) -> str:
+    """Trim + colapso de espaços internos. Fallback leve para nomes sem tipo_kit."""
+    if not name:
+        return ""
+    return re.sub(r"\s+", " ", name.strip())
+
+
+def _build_kit_canonical_maps(
+    db: Session,
+    magento_event_ids: List[int],
+) -> Tuple[Dict[Tuple, str], Dict[str, str]]:
+    """
+    Retorna dois dicionários de resolução canônica a partir de KitConfig:
+
+    magento_map: {(id_evento_magento: int, kit_nome_raw: str) → tipo_kit}
+        Chave baseia-se em KitConfig.id_evento (== Magento event ID) e
+        KitConfig.kit_nome (== soi_parent.name nas linhas Magento).
+
+    ativo_map: {ativo_categoria_raw: str → tipo_kit}
+        Global (sem escopo de evento) porque linhas Ativo usam IDs do Ativo
+        que não coincidem com KitConfig.id_evento (Magento).
+        ativo_categoria pode conter múltiplas categorias separadas por vírgula.
+
+    Entradas com tipo_kit NULL ou vazio são ignoradas.
+    """
+    magento_map: Dict[Tuple, str] = {}
+    ativo_map: Dict[str, str] = {}
+
+    query = db.query(KitConfig).filter(
+        KitConfig.tipo_kit.isnot(None),
+        KitConfig.tipo_kit != "",
+    )
+    if magento_event_ids:
+        query = query.filter(KitConfig.id_evento.in_(magento_event_ids))
+
+    for cfg in query.all():
+        tipo = cfg.tipo_kit.strip()
+        if not tipo:
+            continue
+        # Mapa Magento: (id_evento, kit_nome) → tipo_kit
+        if cfg.id_evento is not None and cfg.kit_nome:
+            magento_map[(int(cfg.id_evento), cfg.kit_nome.strip())] = tipo
+        # Mapa Ativo: ativo_categoria → tipo_kit (pode ter múltiplos separados por vírgula)
+        if cfg.ativo_categoria:
+            for cat in cfg.ativo_categoria.replace("\n", ",").split(","):
+                cat = cat.strip()
+                if cat and cat not in ativo_map:
+                    ativo_map[cat] = tipo
+
+    return magento_map, ativo_map
+
+
+def _apply_canonical_kit(
+    rows: List[Dict],
+    magento_map: Dict[Tuple, str],
+    ativo_map: Dict[str, str],
+) -> None:
+    """
+    Resolve o nome canônico de kit para cada linha, *in-place*.
+
+    Linhas Magento: lookup via (id_evento, kit.strip()) no magento_map.
+    Linhas Ativo:   lookup via kit.strip() no ativo_map.
+    Fallback: _normalize_kit_raw (trim + colapso de espaços).
+    """
+    for row in rows:
+        raw = row.get("kit") or ""
+        banco = row.get("banco") or ""
+        canonical: Optional[str] = None
+
+        if banco == "Magento" and magento_map:
+            try:
+                ev_id = int(row.get("id_evento") or 0)
+            except (ValueError, TypeError):
+                ev_id = 0
+            canonical = magento_map.get((ev_id, raw.strip()))
+        elif banco == "Ativo" and ativo_map:
+            canonical = ativo_map.get(raw.strip())
+
+        row["kit"] = canonical if canonical else _normalize_kit_raw(raw)
 
 
 def _check_divergencias(
@@ -700,6 +787,13 @@ def get_detalhe(
         # Tag each row with its canonical_grupo before consolidating
         _tag_canonical_grupo(rows_ativo or [], canonical_map, evento_grupo)
         _tag_canonical_grupo(rows_magento or [], canonical_map, evento_grupo)
+
+        # Resolve canonical kit names via KitConfig.tipo_kit (lightweight PG query).
+        # Magento rows look up by (id_evento, kit_nome); Ativo rows by ativo_categoria.
+        # Falls back to normalized raw name when tipo_kit is not configured.
+        kit_mapa_magento, kit_mapa_ativo = _build_kit_canonical_maps(db, magento_ids)
+        _apply_canonical_kit(rows_ativo or [], kit_mapa_magento, kit_mapa_ativo)
+        _apply_canonical_kit(rows_magento or [], kit_mapa_magento, kit_mapa_ativo)
 
         consolidado = _consolidar(rows_ativo or [], rows_magento or [])
         divergencias = _check_divergencias(consolidado, rows_ativo or [], rows_magento or [])
