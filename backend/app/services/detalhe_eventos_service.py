@@ -391,10 +391,11 @@ def _check_divergencias(
 # Snapshot PostgreSQL (leitura / escrita)
 # ---------------------------------------------------------------------------
 
-def _read_snapshot(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datetime]]:
+def _read_snapshot_raw(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datetime, float]]:
     """
-    Lê o snapshot do PostgreSQL para o evento_grupo.
-    Retorna (payload_dict, updated_at) se válido (< SNAPSHOT_MAX_AGE_HOURS), None caso contrário.
+    Lê o snapshot do PostgreSQL independente da idade.
+    Retorna (payload_dict, updated_at, age_hours) se existir, None se não existir.
+    O chamador decide se o snapshot é fresco ou stale.
     """
     try:
         from app.models.vendas_snapshot import DetalheEventosSnapshot
@@ -405,20 +406,71 @@ def _read_snapshot(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datet
         )
         if row is None:
             return None
-        # Verifica idade
         now_utc = datetime.now(timezone.utc)
         updated = row.updated_at
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=timezone.utc)
         age_h = (now_utc - updated).total_seconds() / 3600
-        if age_h > SNAPSHOT_MAX_AGE_HOURS:
-            logger.debug(f"[DetalheSnap] snapshot de '{evento_grupo}' tem {age_h:.1f}h — ignorando (>{SNAPSHOT_MAX_AGE_HOURS}h)")
-            return None
         payload_dict = json.loads(row.payload)
-        return payload_dict, updated
+        return payload_dict, updated, age_h
     except Exception as e:
         logger.warning(f"[DetalheSnap] Erro ao ler snapshot de '{evento_grupo}': {e}")
         return None
+
+
+def _read_snapshot(db: Session, evento_grupo: str) -> Optional[Tuple[Dict, datetime]]:
+    """
+    Lê o snapshot do PostgreSQL para o evento_grupo.
+    Retorna (payload_dict, updated_at) se válido (< SNAPSHOT_MAX_AGE_HOURS), None caso contrário.
+    """
+    result = _read_snapshot_raw(db, evento_grupo)
+    if result is None:
+        return None
+    payload_dict, updated, age_h = result
+    if age_h > SNAPSHOT_MAX_AGE_HOURS:
+        logger.debug(f"[DetalheSnap] snapshot de '{evento_grupo}' tem {age_h:.1f}h — ignorando (>{SNAPSHOT_MAX_AGE_HOURS}h)")
+        return None
+    return payload_dict, updated
+
+
+def _trigger_background_refresh(evento_grupo: str) -> None:
+    """
+    Dispara um refresh ao vivo para evento_grupo em background (thread daemon).
+    Não faz nada se já houver um refresh em andamento para o mesmo evento.
+    Cria sua própria sessão de banco — não bloqueia o request atual.
+    """
+    cache_key = evento_grupo
+    with _inflight_lock:
+        if cache_key in _inflight:
+            logger.debug(
+                f"[DetalheSnap SWR] Refresh background ignorado para '{evento_grupo}' "
+                "— outro já está em andamento"
+            )
+            return
+
+    def _bg() -> None:
+        from app.core.database import SessionLocal
+        db_bg = SessionLocal()
+        try:
+            logger.info(f"[DetalheSnap SWR] Iniciando refresh background para '{evento_grupo}'")
+            get_detalhe(db_bg, evento_grupo, force_refresh=True)
+            logger.info(f"[DetalheSnap SWR] Refresh background concluído para '{evento_grupo}'")
+        except Exception as _e:
+            logger.warning(
+                f"[DetalheSnap SWR] Refresh background falhou para '{evento_grupo}': {_e}"
+            )
+        finally:
+            try:
+                db_bg.close()
+            except Exception:
+                pass
+
+    t = threading.Thread(
+        target=_bg,
+        name=f"detalhe-swr-{evento_grupo}",
+        daemon=True,
+    )
+    t.start()
 
 
 def save_snapshot(db: Session, evento_grupo: str, payload: Dict) -> bool:
@@ -470,14 +522,24 @@ def get_detalhe(
     """
     Retorna o payload completo de detalhamento para o evento_grupo.
 
-    Ordem de leitura:
+    Ordem de leitura (padrão SWR — stale-while-revalidate):
     1. Cache em memória (TTL 15min) — bypass se force_refresh.
-    2. Snapshot PostgreSQL (< SNAPSHOT_MAX_AGE_HOURS) — bypass se force_refresh.
+    2. Snapshot PostgreSQL (qualquer idade):
+       - Fresco (< SNAPSHOT_MAX_AGE_HOURS): retorna imediatamente.
+       - Stale (>= SNAPSHOT_MAX_AGE_HOURS): retorna imediatamente com
+         snapshot_stale=True e dispara refresh em background (sem bloquear
+         o usuário). O cache em memória é populado com o dado stale por 15min;
+         após esse tempo, a próxima leitura pega o snapshot já atualizado.
+       - Ausente: cai na query ao vivo.
+       - Bypass completo se force_refresh=True.
     3. Query ao vivo (Ativo + Magento) — salva no snapshot e no cache.
+       Single-flight guard via _inflight: segundo force_refresh simultâneo
+       para o mesmo evento recebe HTTP 429.
 
     Campos adicionais no retorno:
     - source: "cache" | "snapshot" | "live"
-    - snapshot_updated_at: ISO string com data/hora do snapshot (None se ao vivo sem snapshot prévio)
+    - snapshot_updated_at: ISO string com data/hora do snapshot
+    - snapshot_stale: True se o snapshot estava expirado ao ser servido
     """
     cache_key = evento_grupo or "__all__"
 
@@ -491,17 +553,38 @@ def get_detalhe(
                 logger.debug(f"[DetalheEventos] cache HIT key={cache_key}")
                 return data
 
-        # 2. Snapshot PostgreSQL (apenas para evento único — não faz sentido para "__all__")
+        # 2. Snapshot PostgreSQL com padrão SWR (stale-while-revalidate).
+        #    Apenas para evento único — "__all__" não tem snapshot por chave.
         if evento_grupo:
-            snap = _read_snapshot(db, evento_grupo)
-            if snap is not None:
-                payload_dict, updated_at = snap
+            snap_raw = _read_snapshot_raw(db, evento_grupo)
+            if snap_raw is not None:
+                payload_dict, updated_at, age_h = snap_raw
                 payload_dict["source"] = "snapshot"
                 payload_dict["snapshot_updated_at"] = updated_at.isoformat()
-                with _cache_lock:
-                    _cache[cache_key] = (time.time(), payload_dict)
-                logger.info(f"[DetalheSnap] Servindo snapshot de '{evento_grupo}' (atualizado {updated_at.isoformat()})")
-                return payload_dict
+
+                if age_h <= SNAPSHOT_MAX_AGE_HOURS:
+                    # Snapshot fresco: retorna imediatamente
+                    payload_dict["snapshot_stale"] = False
+                    with _cache_lock:
+                        _cache[cache_key] = (time.time(), payload_dict)
+                    logger.info(
+                        f"[DetalheSnap] Fresh snapshot para '{evento_grupo}' "
+                        f"({age_h:.1f}h, atualizado {updated_at.isoformat()})"
+                    )
+                    return payload_dict
+                else:
+                    # Snapshot stale: retorna imediatamente + dispara refresh em background.
+                    # O usuário vê o dado anterior sem esperar; o refresh atualiza o cache.
+                    payload_dict["snapshot_stale"] = True
+                    with _cache_lock:
+                        _cache[cache_key] = (time.time(), payload_dict)
+                    logger.info(
+                        f"[DetalheSnap SWR] Stale snapshot para '{evento_grupo}' "
+                        f"({age_h:.1f}h > {SNAPSHOT_MAX_AGE_HOURS}h) — "
+                        "servindo dado anterior + refresh em background"
+                    )
+                    _trigger_background_refresh(evento_grupo)
+                    return payload_dict
 
     # 3. Query ao vivo — single-flight guard.
     # Quando force_refresh=True e outro request já está executando as queries

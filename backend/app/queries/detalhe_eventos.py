@@ -114,8 +114,7 @@ WHERE
                     AND MAKEDATE(YEAR(CURDATE()) + 1, 1) - INTERVAL 1 DAY
     AND (b.id_campanha_salesforce IS NULL
          OR b.id_campanha_salesforce NOT LIKE '701d0000000%')
-{ids_clause}
-GROUP BY
+{ids_clause}GROUP BY
     b.id_evento,
     b.ds_evento,
     CASE
@@ -137,70 +136,11 @@ ORDER BY b.id_evento, canal, inscritos DESC
     return sql, params
 
 
-def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
-    """
-    Retorna (sql, params) para query Magento.
-    Quando ids é fornecido, gera cláusula IN parametrizada com bind params nomeados.
-
-    Otimização de performance:
-    1. O filtro de event-ID é empurrado para DENTRO dos subqueries cpev1/cpev2/cped
-       para que o MySQL materialize apenas as linhas dos eventos solicitados antes
-       de qualquer JOIN com sales_order_item.
-    2. Os subqueries laterais `shirt` e `prod` recebem um filtro de parent_item_id
-       restrito aos bundles dos eventos solicitados, eliminando o scan total de
-       sales_order_item que causava MAX_EXECUTION_TIME em produção.
-    """
-    params: Dict = {}
-    # Filtro nos subqueries internos (empurrado para reduzir rows antes dos JOINs)
-    inner_ids_filter = ""
-    # Filtro final no WHERE externo (redundante, mas garante correção)
-    outer_ids_clause = ""
-    # Filtro de parent_item_id para shirt/prod — limita scan a itens do evento
-    inner_parent_filter = ""
-
-    if ids:
-        _validate_ids(ids)
-        param_names = [f"mag_id_{i}" for i in range(len(ids))]
-        placeholders = ", ".join(f":{n}" for n in param_names)
-        for name, val in zip(param_names, ids):
-            params[name] = val
-        # Usado dentro de cpev1 (tabela tem alias "cpev")
-        inner_ids_filter = f"      AND cpev.value IN ({placeholders})\n"
-        # Usado dentro de subqueries sem alias (cpev2/cped nested SELECTs)
-        inner_ids_filter_plain = f"                        AND value IN ({placeholders})\n"
-        outer_ids_clause = f"  AND cpev1.value IN ({placeholders})\n"
-        # Usado nos subqueries shirt/prod para limitar o scan de sales_order_item
-        # ao conjunto de item_ids dos bundles dos eventos solicitados.
-        inner_parent_filter = f"""      AND si.parent_item_id IN (
-          SELECT soi_f.item_id
-          FROM sales_order_item soi_f
-          JOIN catalog_product_entity_varchar cpev_f
-                ON cpev_f.entity_id    = soi_f.product_id
-               AND cpev_f.attribute_id = 321
-               AND cpev_f.store_id     = 0
-               AND cpev_f.value IN ({placeholders})
-          WHERE soi_f.product_type = 'bundle'
-      )\n"""
-    else:
-        inner_ids_filter_plain = ""
-
-    sql = f"""
-SELECT /*+ MAX_EXECUTION_TIME(90000) */
-    'Magento'                                                                           AS banco,
-    cpev1.value                                                                         AS id_evento,
-    cpev2.value                                                                         AS evento,
-
-    CASE
-        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
-        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%GRUPOS%'                    THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Grupos/B2B'
-        ELSE                                                                 'Site'
-    END                                                                                 AS canal,
-
-    soi_parent.name                                                                     AS kit,
-
-    CASE
+# ---------------------------------------------------------------------------
+# CASE block para modalidade/distância — idêntico no SELECT e GROUP BY.
+# Extraído como constante para evitar divergência entre os dois pontos.
+# ---------------------------------------------------------------------------
+_DISTANCIA_CASE = """
         WHEN soi_child.name LIKE '%Corrida e Caminhada Infantil%'        THEN 'Corrida e Caminhada Infantil'
         WHEN soi_child.name LIKE '%corridinha + skate + bravinhos + bike%' THEN 'corridinha + skate + bravinhos + bike'
         WHEN soi_child.name LIKE '%Obstáculo + Corrida%'                 THEN 'Obstáculo + Corrida'
@@ -246,7 +186,225 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
         WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '3K%'    THEN '3Km'
         WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '2K%'    THEN '2Km'
         WHEN TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name)+1)) LIKE '1K%'    THEN '1Km'
-        ELSE TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name) + 1))
+        ELSE TRIM(SUBSTRING(soi_child.name, LOCATE('-', soi_child.name) + 1))"""
+
+_CANAL_CASE = """
+        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
+        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
+        WHEN so.discount_description LIKE '%GRUPOS%'                    THEN 'Grupos/B2B'
+        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Grupos/B2B'
+        ELSE                                                                 'Site'"""
+
+_SOI_CHILD_NAME_FILTER = """(
+            soi_child.name LIKE '%Distância%'
+         OR soi_child.name LIKE '%Distancia%'
+         OR soi_child.name LIKE '%Distâncias%'
+         OR soi_child.name LIKE '%Modalidade%'
+         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
+         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
+         OR soi_child.name LIKE 'Kit Participação%'
+         OR soi_child.name LIKE 'Olímpico%'
+         OR soi_child.name LIKE 'Yoga%'
+      )"""
+
+
+def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
+    """
+    Retorna (sql, params) para query Magento.
+
+    Quando ids é fornecido (modo drill-down, caso normal):
+      - STRAIGHT_JOIN forçado com cpev1 (conjunto pequeno de produtos do evento)
+        como tabela âncora, garantindo plano de execução estável no MySQL 5.7.
+      - Os subqueries shirt/prod ancoram diretamente no id_evento via
+        catalog_product_entity_varchar (evb.value IN ids), eliminando o
+        inner_parent_filter com subquery de item_id que era mais custoso.
+      - O join cped (catalog_product_entity_datetime) é removido: ele era
+        necessário apenas para o filtro de ano quando ids=None (modo global).
+        Com ids explícitos, o filtro de evento já garante o escopo correto.
+      - Os joins redundantes por order_id nos subqueries shirt/prod são
+        PRESERVADOS: destravam o índice SALES_ORDER_ITEM_ORDER_ID e evitam
+        full scan da tabela de 5,4M linhas. NÃO remover.
+
+    Quando ids é None (modo global sem filtro, uso legado):
+      - Estrutura original preservada com join cped para filtro de ano corrente.
+      - STRAIGHT_JOIN não aplicado (cpev1 sem filtro seria muito grande).
+    """
+    params: Dict = {}
+
+    if not ids:
+        # ids=None → modo global. ids=[] nunca chega aqui (_fetch_magento retorna
+        # [] antes de chamar esta função). Usa estrutura original com cped.
+        return _build_magento_detalhe_global(), params
+
+    _validate_ids(ids)
+    param_names = [f"mag_id_{i}" for i in range(len(ids))]
+    placeholders = ", ".join(f":{n}" for n in param_names)
+    for name, val in zip(param_names, ids):
+        params[name] = val
+
+    # Filtro de cpev1 (produtos pertencentes aos eventos solicitados)
+    inner_ids_filter = f"      AND cpev.value IN ({placeholders})\n"
+    # Filtro de cpev2 (entity_id = os próprios IDs de evento)
+    cpev2_ids_filter = f"      AND entity_id IN ({placeholders})\n"
+    # Filtro de shirt/prod (anchor por id_evento via catalog_product_entity_varchar)
+    shirt_prod_ids_filter = f"      AND evb.value IN ({placeholders})\n"
+
+    sql = f"""
+SELECT STRAIGHT_JOIN /*+ MAX_EXECUTION_TIME(90000) */
+    'Magento'                                                                           AS banco,
+    cpev1.id_evento                                                                     AS id_evento,
+    cpev2.value                                                                         AS evento,
+
+    CASE{_CANAL_CASE}
+    END                                                                                 AS canal,
+
+    soi_parent.name                                                                     AS kit,
+
+    CASE{_DISTANCIA_CASE}
+    END                                                                                 AS distancia,
+
+    NULL                                                                                AS modalidade,
+    soi_parent.ext_order_item_id                                                        AS pelotao,
+    prod.produtos                                                                       AS produtos,
+    shirt.tamanho_camiseta                                                              AS tamanho_camiseta,
+
+    COUNT(DISTINCT soi_parent.item_id)                                                  AS inscritos,
+
+    SUM(CASE
+        WHEN so.base_grand_total = 0 THEN 0
+        ELSE soi_child.price
+    END)                                                                                AS receita_bruta,
+
+    SUM(CASE
+        WHEN so.base_grand_total = 0 THEN 0
+        ELSE soi_child.price - soi_child.discount_amount
+    END)                                                                                AS receita_liquida,
+
+    SUM(CASE
+        WHEN so.base_grand_total = 0 THEN 0
+        ELSE soi_child.price - soi_child.discount_amount
+    END) / NULLIF(COUNT(DISTINCT CASE
+        WHEN so.base_grand_total = 0 THEN NULL
+        ELSE soi_parent.item_id
+    END), 0)                                                                            AS ticket_medio
+
+FROM (
+    -- Âncora: apenas os bundles pertencentes aos eventos solicitados (conjunto pequeno).
+    -- STRAIGHT_JOIN garante que o MySQL parte daqui e desce por índice.
+    SELECT cpev.entity_id AS product_id,
+           cpev.value     AS id_evento
+    FROM catalog_product_entity_varchar cpev
+    JOIN catalog_product_entity cpe
+          ON cpe.entity_id = cpev.entity_id
+         AND cpe.type_id   = 'bundle'
+    WHERE cpev.attribute_id = 321
+      AND cpev.store_id     = 0
+{inner_ids_filter}) AS cpev1
+
+JOIN sales_order_item soi_parent
+       ON soi_parent.product_id   = cpev1.product_id
+      AND soi_parent.product_type = 'bundle'
+
+JOIN sales_order_item soi_child
+       ON soi_child.order_id       = soi_parent.order_id     -- destrava índice SALES_ORDER_ITEM_ORDER_ID (NÃO remover)
+      AND soi_child.parent_item_id = soi_parent.item_id
+      AND soi_child.product_type   = 'simple'
+      AND {_SOI_CHILD_NAME_FILTER}
+
+JOIN sales_order so
+       ON so.entity_id = soi_parent.order_id
+      AND so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+      AND so.state NOT IN ('canceled')
+      AND so.increment_id NOT REGEXP '-[0-9]'
+
+JOIN (
+    -- Nome canônico do evento, filtrado pelos IDs de evento solicitados
+    SELECT entity_id, MIN(value) AS value
+    FROM catalog_product_entity_varchar
+    WHERE attribute_id = 73
+      AND store_id     = 0
+{cpev2_ids_filter}    GROUP BY entity_id
+) AS cpev2 ON cpev2.entity_id = cpev1.id_evento
+
+LEFT JOIN (
+    -- Tamanho de camiseta: anchor por id_evento via evb, descendo por order_id (índice)
+    SELECT
+        si.parent_item_id,
+        MAX(eaov.value) AS tamanho_camiseta
+    FROM catalog_product_entity_varchar evb
+    JOIN sales_order_item sp
+          ON sp.product_id   = evb.entity_id
+         AND sp.product_type = 'bundle'
+    JOIN sales_order_item si
+          ON si.order_id       = sp.order_id             -- destrava índice SALES_ORDER_ITEM_ORDER_ID (NÃO remover)
+         AND si.parent_item_id = sp.item_id
+    JOIN catalog_product_entity cpe_shirt
+          ON cpe_shirt.entity_id        = si.product_id
+         AND cpe_shirt.attribute_set_id = 27
+    JOIN catalog_product_entity_int cpei_s
+          ON cpei_s.entity_id    = si.product_id
+         AND cpei_s.attribute_id = 207
+    JOIN eav_attribute_option_value eaov
+          ON eaov.option_id = cpei_s.value
+    WHERE evb.attribute_id = 321
+      AND evb.store_id     = 0
+{shirt_prod_ids_filter}    GROUP BY si.parent_item_id
+) AS shirt ON shirt.parent_item_id = soi_parent.item_id
+
+LEFT JOIN (
+    -- Produtos adicionais: anchor por id_evento via evb, descendo por order_id (índice)
+    SELECT
+        si.parent_item_id,
+        GROUP_CONCAT(DISTINCT si.name ORDER BY si.name SEPARATOR ', ') AS produtos
+    FROM catalog_product_entity_varchar evb
+    JOIN sales_order_item sp
+          ON sp.product_id   = evb.entity_id
+         AND sp.product_type = 'bundle'
+    JOIN sales_order_item si
+          ON si.order_id       = sp.order_id             -- destrava índice SALES_ORDER_ITEM_ORDER_ID (NÃO remover)
+         AND si.parent_item_id = sp.item_id
+    JOIN catalog_product_entity cpe_p
+          ON cpe_p.entity_id = si.product_id
+    WHERE cpe_p.attribute_set_id NOT IN (30, 28, 27, 31)
+      AND evb.attribute_id = 321
+      AND evb.store_id     = 0
+{shirt_prod_ids_filter}    GROUP BY si.parent_item_id
+) AS prod ON prod.parent_item_id = soi_parent.item_id
+
+GROUP BY
+    cpev1.id_evento,
+    cpev2.value,
+    CASE{_CANAL_CASE}
+    END,
+    soi_parent.name,
+    distancia,
+    soi_parent.ext_order_item_id,
+    prod.produtos,
+    shirt.tamanho_camiseta
+
+ORDER BY cpev1.id_evento, canal, soi_parent.name
+"""
+    return sql, params
+
+
+def _build_magento_detalhe_global() -> str:
+    """
+    Query Magento sem filtro de evento (modo global/legado, ids=None).
+    Preserva a estrutura original com join cped para filtro de ano corrente.
+    NÃO usa STRAIGHT_JOIN pois cpev1 sem filtro abrange todos os eventos.
+    """
+    return f"""
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
+    'Magento'                                                                           AS banco,
+    cpev1.value                                                                         AS id_evento,
+    cpev2.value                                                                         AS evento,
+
+    CASE{_CANAL_CASE}
+    END                                                                                 AS canal,
+
+    soi_parent.name                                                                     AS kit,
+
+    CASE{_DISTANCIA_CASE}
     END                                                                                 AS distancia,
 
     NULL                                                                                AS modalidade,
@@ -283,20 +441,9 @@ JOIN sales_order_item soi_parent
 JOIN sales_order_item soi_child
        ON soi_child.parent_item_id = soi_parent.item_id
       AND soi_child.product_type   = 'simple'
-      AND (
-            soi_child.name LIKE '%Distância%'
-         OR soi_child.name LIKE '%Distancia%'
-         OR soi_child.name LIKE '%Distâncias%'
-         OR soi_child.name LIKE '%Modalidade%'
-         OR soi_child.name REGEXP '-[0-9]+[Kk]m$'
-         OR soi_child.name REGEXP '^[0-9]+[Kk]m?$'
-         OR soi_child.name LIKE 'Kit Participação%'
-         OR soi_child.name LIKE 'Olímpico%'
-         OR soi_child.name LIKE 'Yoga%'
-      )
+      AND {_SOI_CHILD_NAME_FILTER}
 
 JOIN (
-    -- Filtro antecipado: apenas os bundles pertencentes aos eventos solicitados
     SELECT cpev.entity_id, cpev.value
     FROM catalog_product_entity_varchar cpev
     JOIN catalog_product_entity cpe
@@ -304,28 +451,24 @@ JOIN (
          AND cpe.type_id   = 'bundle'
     WHERE cpev.attribute_id = 321
       AND cpev.store_id     = 0
-{inner_ids_filter}) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
+) AS cpev1 ON cpev1.entity_id = soi_parent.product_id
 
 JOIN (
-    -- Restrito às entidades dos eventos solicitados
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_varchar
     WHERE attribute_id = 73
       AND store_id     = 0
       AND entity_id IN (SELECT value FROM catalog_product_entity_varchar
-                        WHERE attribute_id = 321 AND store_id = 0
-{inner_ids_filter_plain}                       )
+                        WHERE attribute_id = 321 AND store_id = 0)
     GROUP BY entity_id
 ) AS cpev2 ON cpev2.entity_id = cpev1.value
 
 JOIN (
-    -- Restrito às entidades dos eventos solicitados
     SELECT entity_id, MIN(value) AS value
     FROM catalog_product_entity_datetime
     WHERE attribute_id = 195
       AND entity_id IN (SELECT value FROM catalog_product_entity_varchar
-                        WHERE attribute_id = 321 AND store_id = 0
-{inner_ids_filter_plain}                       )
+                        WHERE attribute_id = 321 AND store_id = 0)
     GROUP BY entity_id
 ) AS cped ON cped.entity_id = cpev1.value
 
@@ -342,8 +485,7 @@ LEFT JOIN (
          AND cpei_s.attribute_id = 207
     JOIN eav_attribute_option_value eaov
           ON eaov.option_id = cpei_s.value
-    WHERE 1=1
-{inner_parent_filter}    GROUP BY si.parent_item_id
+    GROUP BY si.parent_item_id
 ) AS shirt ON shirt.parent_item_id = soi_parent.item_id
 
 LEFT JOIN (
@@ -354,7 +496,7 @@ LEFT JOIN (
     JOIN catalog_product_entity cpe_p
           ON cpe_p.entity_id = si.product_id
     WHERE cpe_p.attribute_set_id NOT IN (30, 28, 27, 31)
-{inner_parent_filter}    GROUP BY si.parent_item_id
+    GROUP BY si.parent_item_id
 ) AS prod ON prod.parent_item_id = soi_parent.item_id
 
 WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
@@ -362,16 +504,11 @@ WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reem
   AND so.increment_id   NOT REGEXP '-[0-9]'
   AND cped.value        >= MAKEDATE(YEAR(CURDATE()), 1)
   AND cped.value        <  MAKEDATE(YEAR(CURDATE()) + 1, 1)
-{outer_ids_clause}
+
 GROUP BY
     cpev1.value,
     cpev2.value,
-    CASE
-        WHEN so.base_grand_total = 0                                    THEN 'Cortesia'
-        WHEN soi_child.price - soi_child.discount_amount = 0           THEN 'Cortesia'
-        WHEN so.discount_description LIKE '%GRUPOS%'                    THEN 'Grupos/B2B'
-        WHEN so.coupon_code LIKE 'GRUP%'                               THEN 'Grupos/B2B'
-        ELSE                                                                 'Site'
+    CASE{_CANAL_CASE}
     END,
     soi_parent.name,
     distancia,
@@ -381,4 +518,3 @@ GROUP BY
 
 ORDER BY cpev1.value, canal, soi_parent.name
 """
-    return sql, params
