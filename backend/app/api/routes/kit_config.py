@@ -1770,6 +1770,52 @@ def _invalidate_persisted_snapshot_for_grupos(
     return total
 
 
+def _invalidate_detalhe_snapshot_for_grupos(
+    db: Session,
+    grupos: list[str],
+) -> int:
+    """Apaga DetalheEventosSnapshot persistido e invalida cache em memória do Detalhamento.
+
+    O endpoint de Detalhamento serve do snapshot PostgreSQL como fast path.
+    Sem esta invalidação, uma renomeação de tipo_kit em KitConfig continuaria
+    exibindo o nome antigo até o snapshot expirar (26 h).
+    """
+    from ...models.vendas_snapshot import DetalheEventosSnapshot
+    from ...services.detalhe_eventos_service import invalidate_cache as _invalidate_detalhe_cache
+
+    if not grupos:
+        return 0
+
+    total = 0
+    try:
+        for grupo in grupos:
+            deleted = (
+                db.query(DetalheEventosSnapshot)
+                .filter(DetalheEventosSnapshot.evento_grupo == grupo)
+                .delete(synchronize_session=False)
+            )
+            total += deleted or 0
+        if total:
+            db.commit()
+            logger.info(
+                f"[KitConfig] DetalheEventosSnapshot removido para {grupos} ({total} linha(s))"
+            )
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        logger.warning(f"[KitConfig] Falha ao apagar DetalheEventosSnapshot: {e}")
+
+    for grupo in grupos:
+        try:
+            _invalidate_detalhe_cache(grupo)
+        except Exception as e:
+            logger.warning(f"[KitConfig] Falha ao invalidar detalhe_cache para '{grupo}': {e}")
+
+    return total
+
+
 def _invalidate_event_detail_for_bundle(
     db: Session,
     bundle_entity_id: int,
@@ -1782,13 +1828,14 @@ def _invalidate_event_detail_for_bundle(
     2. Invalida event_detail_cache em memória para cada chave.
     3. Apaga EventoDetailSnapshot persistido dos mesmos grupos (snapshot é o
        fast path do endpoint, sem isso o usuário continua vendo dados antigos).
-    4. Fallback por DimProjeto quando id_evento bate com um projeto (cobre
+    4. Apaga DetalheEventosSnapshot persistido e invalida cache em memória do Detalhamento.
+    5. Fallback por DimProjeto quando id_evento bate com um projeto (cobre
        eventos standalone numéricos).
-    5. Último recurso: invalidação total do cache em memória (snapshots
+    6. Último recurso: invalidação total do cache em memória (snapshots
        persistidos são deixados intactos para o scheduler atualizar; evita
        apagar tudo por uma operação isolada).
 
-    Retorna True quando a invalidação direcionada (passos 1–3 ou 4) ocorreu.
+    Retorna True quando a invalidação direcionada (passos 1–4 ou 5) ocorreu.
     """
     from ...core.cache import event_detail_cache
     from datetime import datetime
@@ -1802,6 +1849,8 @@ def _invalidate_event_detail_for_bundle(
 
     if invalidated_keys:
         _invalidate_persisted_snapshot_for_grupos(db, grupo_anos)
+        grupos_uniq = list({g for g, _ in grupo_anos})
+        _invalidate_detalhe_snapshot_for_grupos(db, grupos_uniq)
         logger.info(
             f"[KitConfig] Targeted event_detail invalidation for bundle {bundle_entity_id}: {invalidated_keys}"
         )
@@ -1840,7 +1889,9 @@ def _invalidate_event_detail_for_bundle(
             )
             return True
 
+    from ...services.detalhe_eventos_service import invalidate_cache as _invalidate_detalhe_cache
     event_detail_cache.invalidate()
+    _invalidate_detalhe_cache()
     logger.info(
         f"[KitConfig] Full event_detail invalidation for bundle {bundle_entity_id} (no SKU mapping found)"
     )
@@ -2025,7 +2076,9 @@ def upsert_kit_config_bulk(
     clear_ticket_atual_cache()
 
     if full_invalidation_needed:
+        from ...services.detalhe_eventos_service import invalidate_cache as _invalidate_detalhe_cache
         event_detail_cache.invalidate()
+        _invalidate_detalhe_cache()
         logger.info(f"[KitConfig] Bulk save: full event_detail invalidation ({len(bundle_ids)} bundles, some had no SKU mapping)")
     else:
         for key in invalidated_keys:
@@ -2034,6 +2087,8 @@ def upsert_kit_config_bulk(
 
     if affected_grupo_anos:
         _invalidate_persisted_snapshot_for_grupos(db, sorted(affected_grupo_anos))
+        grupos_uniq = list({g for g, _ in affected_grupo_anos})
+        _invalidate_detalhe_snapshot_for_grupos(db, grupos_uniq)
 
     logger.info(f"[KitConfig] Bulk upsert complete: {saved} saved, {errors} errors out of {len(body.items)} items")
     return KitConfigBulkResult(saved=saved, errors=errors)
