@@ -250,7 +250,7 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     shirt_prod_ids_filter = f"      AND evb.value IN ({placeholders})\n"
 
     sql = f"""
-SELECT STRAIGHT_JOIN /*+ MAX_EXECUTION_TIME(90000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
     'Magento'                                                                           AS banco,
     cpev1.id_evento                                                                     AS id_evento,
     cpev2.value                                                                         AS evento,
@@ -327,7 +327,8 @@ JOIN (
 ) AS cpev2 ON cpev2.entity_id = cpev1.id_evento
 
 LEFT JOIN (
-    -- Tamanho de camiseta: anchor por id_evento via evb, descendo por order_id (índice)
+    -- Tamanho de camiseta: anchor por id_evento via evb, descendo por order_id (índice).
+    -- JOIN a sales_order filtra apenas pedidos válidos — evita varrer cancelados/estornados.
     SELECT
         si.parent_item_id,
         MAX(eaov.value) AS tamanho_camiseta
@@ -335,6 +336,11 @@ LEFT JOIN (
     JOIN sales_order_item sp
           ON sp.product_id   = evb.entity_id
          AND sp.product_type = 'bundle'
+    JOIN sales_order so_s
+          ON so_s.entity_id = sp.order_id
+         AND so_s.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+         AND so_s.state NOT IN ('canceled')
+         AND so_s.increment_id NOT REGEXP '-[0-9]'
     JOIN sales_order_item si
           ON si.order_id       = sp.order_id             -- destrava índice SALES_ORDER_ITEM_ORDER_ID (NÃO remover)
          AND si.parent_item_id = sp.item_id
@@ -352,7 +358,8 @@ LEFT JOIN (
 ) AS shirt ON shirt.parent_item_id = soi_parent.item_id
 
 LEFT JOIN (
-    -- Produtos adicionais: anchor por id_evento via evb, descendo por order_id (índice)
+    -- Produtos adicionais: anchor por id_evento via evb, descendo por order_id (índice).
+    -- JOIN a sales_order filtra apenas pedidos válidos — evita varrer cancelados/estornados.
     SELECT
         si.parent_item_id,
         GROUP_CONCAT(DISTINCT si.name ORDER BY si.name SEPARATOR ', ') AS produtos
@@ -360,6 +367,11 @@ LEFT JOIN (
     JOIN sales_order_item sp
           ON sp.product_id   = evb.entity_id
          AND sp.product_type = 'bundle'
+    JOIN sales_order so_p
+          ON so_p.entity_id = sp.order_id
+         AND so_p.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
+         AND so_p.state NOT IN ('canceled')
+         AND so_p.increment_id NOT REGEXP '-[0-9]'
     JOIN sales_order_item si
           ON si.order_id       = sp.order_id             -- destrava índice SALES_ORDER_ITEM_ORDER_ID (NÃO remover)
          AND si.parent_item_id = sp.item_id
