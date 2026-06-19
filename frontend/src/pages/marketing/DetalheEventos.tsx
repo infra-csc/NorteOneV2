@@ -548,6 +548,28 @@ const DetalheEventos: React.FC = () => {
   const comboboxRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [loadingSecs, setLoadingSecs] = useState(0);
+  const [isLiveLoad, setIsLiveLoad] = useState(false);
+  const [refreshCooldown, setRefreshCooldown] = useState(0);
+  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+  }, []);
+
+  const startRefreshCooldown = useCallback(() => {
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    setRefreshCooldown(30);
+    cooldownRef.current = setInterval(() => {
+      setRefreshCooldown(s => {
+        if (s <= 1) {
+          clearInterval(cooldownRef.current!);
+          cooldownRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+  }, []);
 
   useEffect(() => {
     if (!loading) { setLoadingSecs(0); return; }
@@ -567,19 +589,33 @@ const DetalheEventos: React.FC = () => {
   const loadDetalhe = useCallback(async (grupo: string, force = false) => {
     if (!grupo) return;
     setLoading(true);
+    setIsLiveLoad(force);
     setError(null);
     setExpanded(new Set());
     setBankExpanded(new Set());
     setFilters(EMPTY_FILTERS);
+
+    if (force) startRefreshCooldown();
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 150_000);
+
     try {
-      const data = await detalheEventosService.getDetalhe(grupo, force);
+      const data = await detalheEventosService.getDetalhe(grupo, force, controller.signal);
       setPayload(data);
     } catch (e: any) {
-      setError(e?.response?.data?.detail || e.message || 'Erro ao carregar dados');
+      const isAbort = e?.name === 'AbortError' || e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED';
+      if (isAbort) {
+        setError('A consulta demorou mais de 2 minutos e meio e foi cancelada. O servidor pode estar sobrecarregado — tente novamente em alguns instantes.');
+      } else {
+        setError(e?.response?.data?.detail || e.message || 'Erro ao carregar dados');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
+      setIsLiveLoad(false);
     }
-  }, []);
+  }, [startRefreshCooldown]);
 
   useEffect(() => {
     if (eventoGrupo) loadDetalhe(eventoGrupo);
@@ -851,14 +887,18 @@ const DetalheEventos: React.FC = () => {
 
           <button
             onClick={() => eventoGrupo && loadDetalhe(eventoGrupo, true)}
-            disabled={!eventoGrupo || loading}
-            title="Recarregar sem cache"
+            disabled={!eventoGrupo || loading || refreshCooldown > 0}
+            title={
+              refreshCooldown > 0
+                ? `Aguarde ${refreshCooldown}s antes de atualizar novamente`
+                : 'Recarregar sem cache'
+            }
             className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               dark ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-40' : 'bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40'
             }`}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Atualizar
+            {refreshCooldown > 0 ? `Atualizar (${refreshCooldown}s)` : 'Atualizar'}
           </button>
         </div>
 
@@ -899,15 +939,30 @@ const DetalheEventos: React.FC = () => {
 
       {loading && (
         <div className="space-y-4">
-          <div className={`rounded-xl border ${dark ? 'border-indigo-700 bg-indigo-900/30' : 'border-indigo-200 bg-indigo-50'} px-5 py-4 flex items-center gap-4`}>
-            <RefreshCw className="w-5 h-5 text-indigo-500 animate-spin flex-shrink-0" />
+          <div className={`rounded-xl border ${
+            isLiveLoad
+              ? dark ? 'border-amber-700 bg-amber-900/30' : 'border-amber-200 bg-amber-50'
+              : dark ? 'border-indigo-700 bg-indigo-900/30' : 'border-indigo-200 bg-indigo-50'
+          } px-5 py-4 flex items-center gap-4`}>
+            <RefreshCw className={`w-5 h-5 animate-spin flex-shrink-0 ${isLiveLoad ? 'text-amber-500' : 'text-indigo-500'}`} />
             <div className="min-w-0">
-              <p className={`text-sm font-semibold ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>
-                Buscando dados ao vivo de Ativo e Magento…
+              <p className={`text-sm font-semibold ${
+                isLiveLoad
+                  ? dark ? 'text-amber-300' : 'text-amber-700'
+                  : dark ? 'text-indigo-300' : 'text-indigo-700'
+              }`}>
+                {isLiveLoad
+                  ? 'Buscando dados ao vivo… (pode levar ~2 min)'
+                  : 'Carregando dados do snapshot…'}
               </p>
-              <p className={`text-xs mt-0.5 ${dark ? 'text-indigo-400' : 'text-indigo-500'}`}>
-                Consulta direta aos bancos externos (Ativo via SSH, Magento direto) — pode levar até 2 minutos.
-                {loadingSecs > 0 && <span className="ml-2 font-mono">{loadingSecs}s</span>}
+              <p className={`text-xs mt-0.5 ${
+                isLiveLoad
+                  ? dark ? 'text-amber-400' : 'text-amber-600'
+                  : dark ? 'text-indigo-400' : 'text-indigo-500'
+              }`}>
+                {isLiveLoad
+                  ? <>Consulta direta aos bancos externos (Ativo via SSH, Magento direto).{loadingSecs > 0 && <span className="ml-2 font-mono">{loadingSecs}s / 150s</span>}</>
+                  : 'Lendo snapshot consolidado — geralmente rápido.'}
               </p>
             </div>
           </div>

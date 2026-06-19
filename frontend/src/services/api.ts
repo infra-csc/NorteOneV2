@@ -1865,9 +1865,11 @@ export const detalheEventosService = {
   getDetalhe: async (
     eventoGrupo: string,
     forceRefresh = false,
+    signal?: AbortSignal,
   ): Promise<DetalheEventoPayload> => {
     const response = await api.get('/marketing/detalhe-eventos', {
       params: { evento_grupo: eventoGrupo, force_refresh: forceRefresh },
+      signal,
     });
     return response.data;
   },
