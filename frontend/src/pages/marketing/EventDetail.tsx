@@ -471,6 +471,8 @@ const EventDetail: React.FC = () => {
   // após re-fetches subsequentes, sem precisar recriar a função.
   const hasEventDataRef = useRef<boolean>(!!_detailCacheFresh || !!previewEvent);
   const [magentoRefreshing, setMagentoRefreshing] = useState(false);
+  const [magentoRefreshDebounce, setMagentoRefreshDebounce] = useState(0);
+  const [magentoRefreshLiveError, setMagentoRefreshLiveError] = useState<string | null>(null);
   const preparingStartedAtRef = useRef<number | null>(null);
   const PREPARING_GIVE_UP_MS = 3 * 60 * 1000;
 
@@ -1031,6 +1033,15 @@ const EventDetail: React.FC = () => {
     }, 1000);
     return () => clearInterval(t);
   }, [reconsolidarCooldown.locked, reconsolidarCooldown.remainingSec > 0]);
+
+  // Debounce countdown para o botão "Atualizar do Magento" da tabela Margem por Kit.
+  useEffect(() => {
+    if (magentoRefreshDebounce <= 0) return;
+    const t = setInterval(() => {
+      setMagentoRefreshDebounce(prev => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [magentoRefreshDebounce > 0]);
 
   // Reconsolidar (admin/diretoria): roda o pipeline completo Magento + Ativo +
   // recálculos e persiste o snapshot. Pode demorar ~30-90s. Após sucesso,
@@ -4646,11 +4657,23 @@ const EventDetail: React.FC = () => {
                       </h3>
                       <button
                         type="button"
-                        disabled={magentoRefreshing}
+                        disabled={magentoRefreshing || magentoRefreshDebounce > 0}
                         onClick={async () => {
                           if (!fetchEventRef.current) return;
+                          setMagentoRefreshLiveError(null);
                           setMagentoRefreshing(true);
-                          try {
+                          const TIMEOUT_MS = 150_000;
+                          // Promise that rejects after TIMEOUT_MS, regardless of where the async
+                          // work is stuck (first fetch, retry delays, etc.).
+                          let _timeoutId: ReturnType<typeof setTimeout>;
+                          const timeoutPromise = new Promise<never>((_, reject) => {
+                            _timeoutId = setTimeout(
+                              () => reject(new Error('MARGEM_KIT_TIMEOUT')),
+                              TIMEOUT_MS,
+                            );
+                          });
+                          const refreshWork = (async () => {
+                            if (!fetchEventRef.current) return;
                             // Primeira chamada: dispara o recompute (pode voltar stale + bg refresh).
                             await Promise.resolve(fetchEventRef.current(true, false, true));
                             // Como o backend usa SWR (snapshot + recompute em background),
@@ -4665,16 +4688,45 @@ const EventDetail: React.FC = () => {
                               // Nota: o componente é remontado a cada fetch, então usamos um
                               // pequeno delay e confiamos no limite máximo de retries.
                             }
+                          })();
+                          try {
+                            await Promise.race([refreshWork, timeoutPromise]);
+                          } catch (err) {
+                            if (err instanceof Error && err.message === 'MARGEM_KIT_TIMEOUT') {
+                              setMagentoRefreshLiveError('A consulta ao Magento demorou mais de 150s. Tente novamente em instantes.');
+                            } else {
+                              setMagentoRefreshLiveError('Erro ao consultar o Magento. Verifique a conexão e tente novamente.');
+                            }
                           } finally {
+                            clearTimeout(_timeoutId!);
                             setMagentoRefreshing(false);
+                            setMagentoRefreshDebounce(30);
                           }
                         }}
                         title="Ignora o snapshot e consulta o Magento agora (útil em eventos finalizados onde o snapshot é a fonte padrão)."
                         className="text-[11px] px-2 py-1 rounded border border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-900/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
-                        {magentoRefreshing ? 'Atualizando…' : '⟳ Atualizar do Magento'}
+                        {magentoRefreshing
+                          ? 'Atualizando…'
+                          : magentoRefreshDebounce > 0
+                            ? `Aguarde ${magentoRefreshDebounce}s`
+                            : '⟳ Atualizar do Magento'}
                       </button>
                     </div>
+                    {magentoRefreshing && (
+                      <div className="mb-3 flex items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 dark:border-blue-700 dark:bg-blue-900/30">
+                        <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />
+                        <span className="text-xs text-blue-700 dark:text-blue-300">
+                          Buscando dados ao vivo do Magento — isso pode levar até 2,5 minutos…
+                        </span>
+                      </div>
+                    )}
+                    {!magentoRefreshing && magentoRefreshLiveError && (
+                      <div className="mb-3 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 dark:border-red-700 dark:bg-red-900/30">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                        <span className="text-xs text-red-700 dark:text-red-300">{magentoRefreshLiveError}</span>
+                      </div>
+                    )}
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-3 italic">
                       Baseado em vendas Magento (bundle) + Ativo (por categoria), somadas por tipo de kit. Requer configuração de "Tipo Kit" e "Cat. Ativo" no painel de kits.
                     </p>
