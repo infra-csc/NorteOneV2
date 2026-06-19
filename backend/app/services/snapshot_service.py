@@ -2904,7 +2904,7 @@ def sincronizar_detalhe_eventos_batch(db: Session) -> dict:
             from concurrent.futures import ThreadPoolExecutor as _TPE
             with _TPE(max_workers=2) as ex:
                 f_a = ex.submit(_fetch_ativo, ativo_ids)
-                f_m = ex.submit(_fetch_magento, magento_ids)
+                f_m = ex.submit(_fetch_magento, magento_ids, "background")
                 rows_ativo, err_ativo = f_a.result()
                 rows_magento, err_magento = f_m.result()
 

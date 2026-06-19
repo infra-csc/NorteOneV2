@@ -171,11 +171,17 @@ def _fetch_ativo(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Option
         return None, str(e)
 
 
-def _fetch_magento(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Optional[str]]:
+def _fetch_magento(
+    ids: Optional[List[int]],
+    profile: str = "request",
+) -> Tuple[Optional[List[Dict]], Optional[str]]:
     """
     ids=None  → query sem filtro (modo global sem evento_grupo selecionado)
     ids=[]    → evento selecionado mas sem IDs Magento → retorna vazio, NÃO executa query
     ids=[...] → filtra pelos IDs fornecidos
+
+    profile: "request" (padrão, para clicks de usuário — 2 tentativas, backoff curto)
+             "background" (para batch noturno — 3 tentativas, backoff maior)
     """
     if isinstance(ids, list) and len(ids) == 0:
         logger.info("[DetalheEventos] Magento: nenhum ID para este evento_grupo, retornando vazio")
@@ -185,12 +191,12 @@ def _fetch_magento(ids: Optional[List[int]]) -> Tuple[Optional[List[Dict]], Opti
     try:
         from app.core.db_retry import magento_run
         sql, params = build_magento_detalhe(ids)
-        logger.info(f"[DetalheEventos] Magento query ids={ids}")
+        logger.info(f"[DetalheEventos] Magento query ids={ids} profile={profile}")
 
         def _work(conn):
             return conn.execute(text(sql), params).fetchall()
 
-        rows = magento_run(_work, label="detalhe-eventos:fetch-magento", profile="request")
+        rows = magento_run(_work, label="detalhe-eventos:fetch-magento", profile=profile)
         logger.info(f"[DetalheEventos] Magento: {len(rows)} linhas")
         return [_row_to_dict(r) for r in rows], None
     except Exception as e:

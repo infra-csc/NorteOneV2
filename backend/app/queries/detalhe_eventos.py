@@ -142,15 +142,21 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
     Retorna (sql, params) para query Magento.
     Quando ids é fornecido, gera cláusula IN parametrizada com bind params nomeados.
 
-    Otimização de performance: o filtro de event-ID é empurrado para DENTRO dos
-    subqueries cpev1/cpev2/cped para que o MySQL materialize apenas as linhas dos
-    eventos solicitados antes de qualquer JOIN com sales_order_item.
+    Otimização de performance:
+    1. O filtro de event-ID é empurrado para DENTRO dos subqueries cpev1/cpev2/cped
+       para que o MySQL materialize apenas as linhas dos eventos solicitados antes
+       de qualquer JOIN com sales_order_item.
+    2. Os subqueries laterais `shirt` e `prod` recebem um filtro de parent_item_id
+       restrito aos bundles dos eventos solicitados, eliminando o scan total de
+       sales_order_item que causava MAX_EXECUTION_TIME em produção.
     """
     params: Dict = {}
     # Filtro nos subqueries internos (empurrado para reduzir rows antes dos JOINs)
     inner_ids_filter = ""
     # Filtro final no WHERE externo (redundante, mas garante correção)
     outer_ids_clause = ""
+    # Filtro de parent_item_id para shirt/prod — limita scan a itens do evento
+    inner_parent_filter = ""
 
     if ids:
         _validate_ids(ids)
@@ -163,11 +169,23 @@ def build_magento_detalhe(ids: Optional[List[int]] = None) -> Tuple[str, Dict]:
         # Usado dentro de subqueries sem alias (cpev2/cped nested SELECTs)
         inner_ids_filter_plain = f"                        AND value IN ({placeholders})\n"
         outer_ids_clause = f"  AND cpev1.value IN ({placeholders})\n"
+        # Usado nos subqueries shirt/prod para limitar o scan de sales_order_item
+        # ao conjunto de item_ids dos bundles dos eventos solicitados.
+        inner_parent_filter = f"""      AND si.parent_item_id IN (
+          SELECT soi_f.item_id
+          FROM sales_order_item soi_f
+          JOIN catalog_product_entity_varchar cpev_f
+                ON cpev_f.entity_id    = soi_f.product_id
+               AND cpev_f.attribute_id = 321
+               AND cpev_f.store_id     = 0
+               AND cpev_f.value IN ({placeholders})
+          WHERE soi_f.product_type = 'bundle'
+      )\n"""
     else:
         inner_ids_filter_plain = ""
 
     sql = f"""
-SELECT /*+ MAX_EXECUTION_TIME(60000) */
+SELECT /*+ MAX_EXECUTION_TIME(90000) */
     'Magento'                                                                           AS banco,
     cpev1.value                                                                         AS id_evento,
     cpev2.value                                                                         AS evento,
@@ -324,7 +342,8 @@ LEFT JOIN (
          AND cpei_s.attribute_id = 207
     JOIN eav_attribute_option_value eaov
           ON eaov.option_id = cpei_s.value
-    GROUP BY si.parent_item_id
+    WHERE 1=1
+{inner_parent_filter}    GROUP BY si.parent_item_id
 ) AS shirt ON shirt.parent_item_id = soi_parent.item_id
 
 LEFT JOIN (
@@ -335,7 +354,7 @@ LEFT JOIN (
     JOIN catalog_product_entity cpe_p
           ON cpe_p.entity_id = si.product_id
     WHERE cpe_p.attribute_set_id NOT IN (30, 28, 27, 31)
-    GROUP BY si.parent_item_id
+{inner_parent_filter}    GROUP BY si.parent_item_id
 ) AS prod ON prod.parent_item_id = soi_parent.item_id
 
 WHERE so.status IN ('processing', 'complete', 'approved', 'aprovado_link', 'reembolso_parcial', 'closed', 'retirado')
