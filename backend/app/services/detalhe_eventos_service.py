@@ -193,12 +193,29 @@ def _fetch_magento(
         sql, params = build_magento_detalhe(ids)
         logger.info(f"[DetalheEventos] Magento query ids={ids} profile={profile}")
 
+        t0 = time.time()
+
         def _work(conn):
             return conn.execute(text(sql), params).fetchall()
 
         rows = magento_run(_work, label="detalhe-eventos:fetch-magento", profile=profile)
-        logger.info(f"[DetalheEventos] Magento: {len(rows)} linhas")
-        return [_row_to_dict(r) for r in rows], None
+        elapsed_ms = int((time.time() - t0) * 1000)
+        dicts = [_row_to_dict(r) for r in rows]
+        logger.info(
+            f"[DetalheEventos] Magento: {len(dicts)} linhas em {elapsed_ms}ms "
+            f"(limit=90000ms ids={ids})"
+        )
+        # Validation helper: log presence of shirt/produto columns in first row
+        if dicts:
+            first = dicts[0]
+            shirt_val = first.get("tamanho_camiseta")
+            prod_val = first.get("produtos")
+            logger.info(
+                f"[DetalheEventos] Magento colunas spot-check — "
+                f"tamanho_camiseta={'presente' if shirt_val is not None else 'null/ausente'} "
+                f"produtos={'presente' if prod_val is not None else 'null/ausente'}"
+            )
+        return dicts, None
     except Exception as e:
         logger.error(f"[DetalheEventos] Magento error: {e}")
         return None, str(e)
@@ -588,10 +605,24 @@ def get_detalhe(
         }
 
         # Salva no snapshot PostgreSQL (apenas evento único, sem erros graves)
+        snap_saved = False
         if evento_grupo and not (error_ativo and error_magento):
             snap_saved = save_snapshot(db, evento_grupo, payload)
             if snap_saved:
                 payload["snapshot_updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Validation summary log — searchable in production to confirm all criteria:
+        # • rows from Magento (confirms query ran and returned data)
+        # • elapsed visible in the per-bank log above (< 90000ms)
+        # • snapshot created (confirms badge will show "Snapshot" on next load)
+        magento_rows = len(rows_magento) if rows_magento else 0
+        logger.info(
+            f"[DetalheEventos] live query concluída — evento_grupo={evento_grupo!r} "
+            f"consolidado={len(consolidado)} linhas "
+            f"magento_rows={magento_rows} "
+            f"erros={list(payload['erros'].keys()) or 'nenhum'} "
+            f"snapshot={'salvo' if snap_saved else 'não salvo'}"
+        )
 
         with _cache_lock:
             _cache[cache_key] = (time.time(), payload)
