@@ -601,21 +601,37 @@ def get_detalhe(
 
     # 3. Query ao vivo — single-flight guard.
     # Quando force_refresh=True e outro request já está executando as queries
-    # pesadas para o mesmo evento_grupo, retorna 429 para evitar sobrecarga
-    # simultânea no túnel SSH e no pool PostgreSQL local.
+    # pesadas para o mesmo evento_grupo, serve o dado em cache/snapshot com
+    # refresh_in_progress=True (sem levantar 429), para que o frontend possa
+    # mostrar dados e re-poll automático quando o refresh terminar.
     if force_refresh and evento_grupo:
-        from fastapi import HTTPException
         with _inflight_lock:
             if cache_key in _inflight:
                 logger.info(
                     f"[DetalheEventos] force_refresh bloqueado para '{evento_grupo}' — "
-                    "já há uma consulta ao vivo em andamento (single-flight)"
+                    "já há uma consulta ao vivo em andamento; servindo dado em cache (single-flight)"
                 )
+                # Tenta cache em memória primeiro
+                with _cache_lock:
+                    entry = _cache.get(cache_key)
+                if entry:
+                    _, cached_data = entry
+                    return {**cached_data, "refresh_in_progress": True}
+                # Tenta snapshot PostgreSQL como fallback
+                snap_raw = _read_snapshot_raw(db, evento_grupo)
+                if snap_raw is not None:
+                    payload_dict, updated_at, age_h = snap_raw
+                    payload_dict["source"] = "snapshot"
+                    payload_dict["snapshot_updated_at"] = updated_at.isoformat()
+                    payload_dict["snapshot_stale"] = True
+                    payload_dict["refresh_in_progress"] = True
+                    return payload_dict
+                # Último recurso: sem dado nenhum disponível, informa ao cliente
+                from fastapi import HTTPException
                 raise HTTPException(
                     status_code=429,
                     detail=(
-                        "Outro usuário está atualizando este evento — "
-                        "tente em alguns instantes."
+                        "Atualização em andamento — aguarde alguns instantes e tente novamente."
                     ),
                 )
             _inflight.add(cache_key)

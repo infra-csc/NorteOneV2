@@ -551,9 +551,14 @@ const DetalheEventos: React.FC = () => {
   const [isLiveLoad, setIsLiveLoad] = useState(false);
   const [refreshCooldown, setRefreshCooldown] = useState(0);
   const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [refreshInProgress, setRefreshInProgress] = useState(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+    return () => {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
   }, []);
 
   const startRefreshCooldown = useCallback(() => {
@@ -603,13 +608,19 @@ const DetalheEventos: React.FC = () => {
     try {
       const data = await detalheEventosService.getDetalhe(grupo, force, controller.signal);
       setPayload(data);
+      const inProgress = !!(data as any)?.refresh_in_progress;
+      setRefreshInProgress(inProgress);
+      if (inProgress) {
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, false), 6000);
+      }
     } catch (e: any) {
       const isAbort = e?.name === 'AbortError' || e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED';
       const is429 = e?.response?.status === 429;
       if (isAbort) {
         setError('A consulta demorou mais de 2 minutos e meio e foi cancelada. O servidor pode estar sobrecarregado — tente novamente em alguns instantes.');
       } else if (is429) {
-        setError('Outro usuário está atualizando este evento — tente em alguns instantes.');
+        setError('Atualização em andamento — aguarde alguns instantes e tente novamente.');
       } else {
         setError(e?.response?.data?.detail || e.message || 'Erro ao carregar dados');
       }
@@ -937,6 +948,15 @@ const DetalheEventos: React.FC = () => {
         <div className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-red-700">
           <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {refreshInProgress && !loading && (
+        <div className={`mb-4 flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm border ${
+          dark ? 'bg-amber-900/30 border-amber-700 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-700'
+        }`}>
+          <RefreshCw className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+          <span>Atualização em andamento — dados mais recentes chegarão em instantes.</span>
         </div>
       )}
 
