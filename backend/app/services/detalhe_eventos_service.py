@@ -87,10 +87,23 @@ def _row_to_dict(row) -> Dict:
 # ---------------------------------------------------------------------------
 
 def get_evento_ids(db: Session, evento_grupo: str) -> Tuple[List[int], List[int]]:
-    """Retorna (ativo_ids, magento_ids) para o evento_grupo."""
+    """
+    Retorna (ativo_ids, magento_ids) para o evento_grupo, filtrando pelo ano-competência corrente.
+
+    O campo SkuMapping.ano representa o ano da edição do evento.
+    Filtrar por YEAR(CURDATE()) evita somar pedidos de edições anteriores que
+    compartilham o mesmo evento_grupo (ex.: Troféu Brasil 2025 + 2026).
+    Mapeamentos sem ano (nullable historicamente) são conservados via OR IS NULL.
+    """
+    from datetime import date as _date
+    current_year = _date.today().year
     mappings = (
         db.query(SkuMapping)
-        .filter(SkuMapping.evento_grupo == evento_grupo, SkuMapping.ativo == True)
+        .filter(
+            SkuMapping.evento_grupo == evento_grupo,
+            SkuMapping.ativo == True,
+            (SkuMapping.ano == current_year) | (SkuMapping.ano == None),
+        )
         .all()
     )
     ativo_ids = [m.id_externo for m in mappings if m.fonte == "ATIVO" and m.id_externo]
