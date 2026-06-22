@@ -614,11 +614,16 @@ const DetalheEventos: React.FC = () => {
       }
     } catch (e: any) {
       const isAbort = e?.name === 'AbortError' || e?.name === 'CanceledError' || e?.code === 'ERR_CANCELED';
-      const is429 = e?.response?.status === 429;
+      const is429 = e?.response?.status === 429 || e?.response?.status === 202;
       if (isAbort) {
         setError('A consulta demorou mais de 2 minutos e meio e foi cancelada. O servidor pode estar sobrecarregado — tente novamente em alguns instantes.');
       } else if (is429) {
-        setError('Atualização em andamento — aguarde alguns instantes e tente novamente.');
+        // Outra consulta ao vivo já está em andamento para este evento.
+        // Trata igual ao refresh_in_progress: mostra banner amber e faz
+        // re-poll automático sem substituir os dados já exibidos.
+        setRefreshInProgress(true);
+        if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = setTimeout(() => loadDetalhe(grupo, false), 8000);
       } else {
         setError(e?.response?.data?.detail || e.message || 'Erro ao carregar dados');
       }
@@ -795,7 +800,7 @@ const DetalheEventos: React.FC = () => {
           <h1 className={`text-xl font-bold ${textPrimary}`}>Detalhamento de Eventos</h1>
         </div>
         <p className={`text-sm ${textSec}`}>
-          Visão granular de inscrições e receita — hierarquia: Kit → Distância → Modalidade → Pelotão → Produtos → Tamanho
+          Visão granular de inscrições e receita — hierarquia: Kit → Modalidade → Pelotão → Produtos → Tamanho
         </p>
       </div>
 

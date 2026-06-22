@@ -710,8 +710,16 @@ def get_detalhe(
                 if entry:
                     _, cached_data = entry
                     return {**cached_data, "refresh_in_progress": True}
-                # Tenta snapshot PostgreSQL como fallback
-                snap_raw = _read_snapshot_raw(db, evento_grupo)
+                # Tenta snapshot PostgreSQL usando sessão independente —
+                # a `db` do request pode estar em estado inválido quando há
+                # stress no pool, e uma sessão limpa garante que o snapshot
+                # seja encontrado mesmo nesse cenário.
+                from app.core.database import SessionLocal
+                db_snap = SessionLocal()
+                try:
+                    snap_raw = _read_snapshot_raw(db_snap, evento_grupo)
+                finally:
+                    db_snap.close()
                 if snap_raw is not None:
                     payload_dict, updated_at, age_h = snap_raw
                     payload_dict["source"] = "snapshot"
@@ -719,12 +727,13 @@ def get_detalhe(
                     payload_dict["snapshot_stale"] = True
                     payload_dict["refresh_in_progress"] = True
                     return payload_dict
-                # Último recurso: sem dado nenhum disponível, informa ao cliente
+                # Último recurso: sem dado nenhum disponível — retorna 202
+                # para que o frontend faça re-poll automático.
                 from fastapi import HTTPException
                 raise HTTPException(
-                    status_code=429,
+                    status_code=202,
                     detail=(
-                        "Atualização em andamento — aguarde alguns instantes e tente novamente."
+                        "Atualização em andamento — aguarde alguns instantes."
                     ),
                 )
             _inflight.add(cache_key)
