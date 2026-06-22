@@ -731,6 +731,11 @@ const DetalheEventos: React.FC = () => {
     };
   }, [payload]);
 
+  const hasProdutos = useMemo(
+    () => (payload?.consolidado ?? []).some(r => r.produtos != null && r.produtos !== ''),
+    [payload]
+  );
+
   const tree = useMemo(
     () => buildTree(filteredRows, allBancoRows, DEFAULT_HIERARCHY, divergenciaKeys),
     [filteredRows, allBancoRows, divergenciaKeys]
@@ -836,7 +841,7 @@ const DetalheEventos: React.FC = () => {
           <h1 className={`text-xl font-bold ${textPrimary}`}>Detalhamento de Eventos</h1>
         </div>
         <p className={`text-sm ${textSec}`}>
-          Visão granular de inscrições e receita — hierarquia: Kit → Modalidade → Pelotão → Produtos → Tamanho
+          Visão granular de inscrições e receita — hierarquia: Kit → Modalidade → Pelotão → Tamanho{hasProdutos ? ' (+ Produtos)' : ''}
         </p>
       </div>
 
@@ -1271,7 +1276,9 @@ const DetalheEventos: React.FC = () => {
                 />
               </div>
               {/* Dimension dropdowns (sans canal — já tem pills acima) */}
-              {(['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const).map(dim => (
+              {(['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const)
+                .filter(dim => dim !== 'produtos' || hasProdutos)
+                .map(dim => (
                 <select
                   key={dim}
                   value={(filters as any)[dim]}
@@ -1424,7 +1431,7 @@ const DetalheEventos: React.FC = () => {
                       <th className="py-2 px-3">Kit</th>
                       <th className="py-2 px-3">Modalidade</th>
                       <th className="py-2 px-3">Pelotão</th>
-                      <th className="py-2 px-3">Produtos</th>
+                      {hasProdutos && <th className="py-2 px-3">Produtos</th>}
                       <th className="py-2 px-3">Tamanho</th>
                       <th className="py-2 px-3 text-right">Inscritos</th>
                       <th className="py-2 px-3 text-right">Rec. Liq.</th>
@@ -1438,7 +1445,7 @@ const DetalheEventos: React.FC = () => {
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-300' : 'text-gray-700'} max-w-[160px] truncate`} title={row.kit || ''}>{val(row.kit)}</td>
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{val(row.modalidade)}</td>
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{val(row.pelotao)}</td>
-                        <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'} max-w-[120px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>
+                        {hasProdutos && <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'} max-w-[120px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>}
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-300' : 'text-gray-700'}`}>{val(row.tamanho_camiseta)}</td>
                         <td className={`py-1.5 px-3 text-xs text-right font-medium ${dark ? 'text-gray-200' : 'text-gray-800'}`}>{fmt(row.inscritos)}</td>
                         <td className={`py-1.5 px-3 text-xs text-right ${dark ? 'text-emerald-400' : 'text-emerald-700'}`}>{fmtR(row.receita_liquida)}</td>
