@@ -7,9 +7,14 @@ Os IDs passados são sempre inteiros provenientes de sku_mappings (banco própri
 validados como int antes de chamada; usamos bind params nomeados para conformidade.
 
 CONTRATO de colunas (ordem fixa):
-  banco, id_evento, evento, canal, kit, distancia, modalidade,
+  banco, id_evento, evento, canal, kit, modalidade,
   pelotao, produtos, tamanho_camiseta,
   inscritos, receita_bruta, receita_liquida, ticket_medio
+
+Nota: a coluna 'distancia' foi removida em Jun/2026. A granularidade de
+distância passou a ser mapeada como 'modalidade' em ambos os bancos.
+No Ativo, a coluna era 'ds_modalidade' via join sa_evento_modalidade (id_evento);
+no Magento, era o CASE block de soi_child.name — ambos agora chamados 'modalidade'.
 """
 from typing import Optional, List, Tuple, Dict
 
@@ -50,7 +55,6 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
     END                                                                                 AS canal,
 
     h.ds_categoria                                                                      AS kit,
-    m.ds_modalidade                                                                     AS distancia,
     q.nm_modalidade                                                                     AS modalidade,
 
     COALESCE(IF(c.fl_local_inscricao = 1, g.pelotao, w.pelotao), 'Branco')              AS pelotao,
@@ -88,9 +92,6 @@ INNER JOIN sa_pedido AS c
     AND c.id_pedido_status IN (2)
 LEFT JOIN sa_modalidade_categoria AS h
     ON h.id_categoria = a.id_categoria
-LEFT JOIN sa_evento_modalidade AS m
-    ON m.id_modalidade = a.id_modalidade
-    AND m.id_evento = b.id_evento
 LEFT JOIN sa_evento_modalidade AS q
     ON q.id_modalidade = h.id_modalidade
 LEFT JOIN sa_usuario AS g
@@ -125,8 +126,6 @@ WHERE
     END,
     h.id_categoria,
     h.ds_categoria,
-    m.id_modalidade,
-    m.ds_modalidade,
     q.nm_modalidade,
     COALESCE(IF(c.fl_local_inscricao = 1, g.pelotao, w.pelotao), 'Branco'),
     IF(x.id_tamanho_camiseta = 2, 'BL', x.ds_tamanho)
@@ -137,10 +136,12 @@ ORDER BY b.id_evento, canal, inscritos DESC
 
 
 # ---------------------------------------------------------------------------
-# CASE block para modalidade/distância — idêntico no SELECT e GROUP BY.
-# Extraído como constante para evitar divergência entre os dois pontos.
+# CASE block para modalidade (distância/modalidade do produto filho).
+# Idêntico no SELECT e GROUP BY — extraído como constante para evitar divergência.
+# Antes chamado _DISTANCIA_CASE; renomeado em Jun/2026 quando a coluna passou
+# a ser 'modalidade' em vez de 'distancia' em ambos Ativo e Magento.
 # ---------------------------------------------------------------------------
-_DISTANCIA_CASE = """
+_MODALIDADE_CASE = """
         WHEN soi_child.name LIKE '%Corrida e Caminhada Infantil%'        THEN 'Corrida e Caminhada Infantil'
         WHEN soi_child.name LIKE '%corridinha + skate + bravinhos + bike%' THEN 'corridinha + skate + bravinhos + bike'
         WHEN soi_child.name LIKE '%Obstáculo + Corrida%'                 THEN 'Obstáculo + Corrida'
@@ -260,10 +261,9 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */ STRAIGHT_JOIN
 
     soi_parent.name                                                                     AS kit,
 
-    CASE{_DISTANCIA_CASE}
-    END                                                                                 AS distancia,
+    CASE{_MODALIDADE_CASE}
+    END                                                                                 AS modalidade,
 
-    NULL                                                                                AS modalidade,
     soi_parent.ext_order_item_id                                                        AS pelotao,
     prod.produtos                                                                       AS produtos,
     shirt.tamanho_camiseta                                                              AS tamanho_camiseta,
@@ -396,7 +396,8 @@ GROUP BY
     CASE{_CANAL_CASE}
     END,
     soi_parent.name,
-    distancia,
+    CASE{_MODALIDADE_CASE}
+    END,
     soi_parent.ext_order_item_id,
     prod.produtos,
     shirt.tamanho_camiseta
@@ -423,10 +424,9 @@ SELECT /*+ MAX_EXECUTION_TIME(90000) */
 
     soi_parent.name                                                                     AS kit,
 
-    CASE{_DISTANCIA_CASE}
-    END                                                                                 AS distancia,
+    CASE{_MODALIDADE_CASE}
+    END                                                                                 AS modalidade,
 
-    NULL                                                                                AS modalidade,
     soi_parent.ext_order_item_id                                                        AS pelotao,
     prod.produtos                                                                       AS produtos,
     shirt.tamanho_camiseta                                                              AS tamanho_camiseta,
@@ -530,7 +530,8 @@ GROUP BY
     CASE{_CANAL_CASE}
     END,
     soi_parent.name,
-    distancia,
+    CASE{_MODALIDADE_CASE}
+    END,
     soi_parent.ext_order_item_id,
     prod.produtos,
     shirt.tamanho_camiseta

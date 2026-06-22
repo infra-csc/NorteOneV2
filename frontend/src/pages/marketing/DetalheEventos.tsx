@@ -63,18 +63,17 @@ const CHART_COLORS = [
 const DIM_LABELS: Record<string, string> = {
   kit: 'Kit',
   canal: 'Canal',
-  distancia: 'Distância',
   modalidade: 'Modalidade',
   pelotao: 'Pelotão',
   produtos: 'Produtos',
   tamanho_camiseta: 'Tamanho Camiseta',
 };
 
-type DimKey = 'canal' | 'kit' | 'distancia' | 'modalidade' | 'pelotao' | 'produtos' | 'tamanho_camiseta';
+type DimKey = 'canal' | 'kit' | 'modalidade' | 'pelotao' | 'produtos' | 'tamanho_camiseta';
 
-// Hierarquia canônica: kit → distancia → modalidade → pelotao → produtos → tamanho_camiseta
+// Hierarquia canônica: kit → modalidade → pelotao → produtos → tamanho_camiseta
 // Canal é um filtro de primeira camada (pills), não faz parte da árvore de drill-down.
-const DEFAULT_HIERARCHY: DimKey[] = ['kit', 'distancia', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
+const DEFAULT_HIERARCHY: DimKey[] = ['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
 
 // ---------------------------------------------------------------------------
 // KPI Card
@@ -214,7 +213,7 @@ function findBancoRows(
   row: DetalheRow,
   allBancoRows: DetalheBancoRow[],
 ): DetalheBancoRow[] {
-  const DIM_KEYS: (keyof DetalheRow)[] = ['canal', 'kit', 'distancia', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
+  const DIM_KEYS: (keyof DetalheRow)[] = ['canal', 'kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'];
   return allBancoRows.filter(br =>
     DIM_KEYS.every(k => (br[k] ?? null) === (row[k] ?? null))
   );
@@ -286,7 +285,7 @@ function buildTree(
 
       // Detect divergências for this subtree
       const hasDivergencia = groupRows.some(r => {
-        const dk = `${r.canal}|${r.kit}|${r.distancia}|${r.modalidade}|${r.pelotao}|${r.produtos}|${r.tamanho_camiseta}`;
+        const dk = `${r.canal}|${r.kit}|${r.modalidade}|${r.pelotao}|${r.produtos}|${r.tamanho_camiseta}`;
         return divergencias.has(dk);
       });
 
@@ -314,7 +313,7 @@ function buildTree(
         // Deduplicate by banco+id_evento combination
         const seen = new Set<string>();
         const deduped = matching.filter(r => {
-          const id = `${r.banco}|${r.id_evento}|${r.canal}|${r.kit}|${r.distancia}`;
+          const id = `${r.banco}|${r.id_evento}|${r.canal}|${r.kit}|${r.modalidade}`;
           if (seen.has(id)) return false;
           seen.add(id);
           return true;
@@ -511,7 +510,6 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
 interface FilterState {
   canal: string;
   kit: string;
-  distancia: string;
   modalidade: string;
   pelotao: string;
   produtos: string;
@@ -520,7 +518,7 @@ interface FilterState {
 }
 
 const EMPTY_FILTERS: FilterState = {
-  canal: '', kit: '', distancia: '', modalidade: '',
+  canal: '', kit: '', modalidade: '',
   pelotao: '', produtos: '', tamanho_camiseta: '', search: '',
 };
 
@@ -680,7 +678,6 @@ const DetalheEventos: React.FC = () => {
 
     if (filters.canal) rows = rows.filter(r => r.canal === filters.canal);
     if (filters.kit) rows = rows.filter(r => (r.kit || NULL_LABEL) === filters.kit);
-    if (filters.distancia) rows = rows.filter(r => (r.distancia || NULL_LABEL) === filters.distancia);
     if (filters.modalidade) rows = rows.filter(r => (r.modalidade || NULL_LABEL) === filters.modalidade);
     if (filters.pelotao) rows = rows.filter(r => (r.pelotao || NULL_LABEL) === filters.pelotao);
     if (filters.produtos) rows = rows.filter(r => (r.produtos || NULL_LABEL) === filters.produtos);
@@ -688,7 +685,7 @@ const DetalheEventos: React.FC = () => {
     if (filters.search) {
       const q = filters.search.toLowerCase();
       rows = rows.filter(r =>
-        [r.kit, r.distancia, r.modalidade, r.canal, r.pelotao, r.produtos, r.tamanho_camiseta]
+        [r.kit, r.modalidade, r.canal, r.pelotao, r.produtos, r.tamanho_camiseta]
           .some(v => v?.toLowerCase().includes(q))
       );
     }
@@ -708,7 +705,7 @@ const DetalheEventos: React.FC = () => {
     if (!payload) return new Set<string>();
     return new Set(
       payload.divergencias.map(d =>
-        `${d.dimensoes.canal}|${d.dimensoes.kit}|${d.dimensoes.distancia}|${d.dimensoes.modalidade}|${d.dimensoes.pelotao}|${d.dimensoes.produtos}|${d.dimensoes.tamanho_camiseta}`
+        `${d.dimensoes.canal}|${d.dimensoes.kit}|${d.dimensoes.modalidade}|${d.dimensoes.pelotao}|${d.dimensoes.produtos}|${d.dimensoes.tamanho_camiseta}`
       )
     );
   }, [payload]);
@@ -721,7 +718,6 @@ const DetalheEventos: React.FC = () => {
     return {
       canal: uniq('canal'),
       kit: uniq('kit'),
-      distancia: uniq('distancia'),
       modalidade: uniq('modalidade'),
       pelotao: uniq('pelotao'),
       produtos: uniq('produtos'),
@@ -741,11 +737,11 @@ const DetalheEventos: React.FC = () => {
       .sort((a, b) => b.inscritos - a.inscritos);
   }, [payload]);
 
-  const distanciaChartData = useMemo(() => {
+  const modalidadeChartData = useMemo(() => {
     if (!payload) return [];
     const map = new Map<string, number>();
     payload.consolidado.forEach(r => {
-      const k = r.distancia || NULL_LABEL;
+      const k = r.modalidade || NULL_LABEL;
       map.set(k, (map.get(k) || 0) + r.inscritos);
     });
     return [...map.entries()].map(([name, value]) => ({ name, value }))
@@ -1077,14 +1073,14 @@ const DetalheEventos: React.FC = () => {
               </ResponsiveContainer>
             </div>
             <div className={`rounded-xl border ${cardBg} p-4 shadow-sm`}>
-              <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${textSec}`}>Top Distâncias</p>
+              <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${textSec}`}>Top Modalidades</p>
               <ResponsiveContainer width="100%" height={140}>
-                <BarChart data={distanciaChartData.slice(0, 8)} layout="vertical" barSize={12}>
+                <BarChart data={modalidadeChartData.slice(0, 8)} layout="vertical" barSize={12}>
                   <XAxis type="number" hide />
                   <YAxis type="category" dataKey="name" width={80} tick={{ fontSize: 10, fill: dark ? '#9ca3af' : '#6b7280' }} axisLine={false} tickLine={false} />
                   <Tooltip formatter={(v: number) => [fmt(v), 'Inscritos']} contentStyle={{ background: dark ? '#1f2937' : '#fff', border: 'none', borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {distanciaChartData.slice(0, 8).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    {modalidadeChartData.slice(0, 8).map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -1131,7 +1127,7 @@ const DetalheEventos: React.FC = () => {
                 />
               </div>
               {/* Dimension dropdowns (sans canal — já tem pills acima) */}
-              {(['kit', 'distancia', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const).map(dim => (
+              {(['kit', 'modalidade', 'pelotao', 'produtos', 'tamanho_camiseta'] as const).map(dim => (
                 <select
                   key={dim}
                   value={(filters as any)[dim]}
@@ -1282,7 +1278,6 @@ const DetalheEventos: React.FC = () => {
                     <tr className={`text-left text-xs font-semibold uppercase tracking-wide ${dark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
                       <th className="py-2 px-3">Canal</th>
                       <th className="py-2 px-3">Kit</th>
-                      <th className="py-2 px-3">Distância</th>
                       <th className="py-2 px-3">Modalidade</th>
                       <th className="py-2 px-3">Pelotão</th>
                       <th className="py-2 px-3">Produtos</th>
@@ -1297,7 +1292,6 @@ const DetalheEventos: React.FC = () => {
                       <tr key={i} className={`border-b ${dark ? 'border-gray-700 odd:bg-gray-800/40 even:bg-gray-800/20' : 'border-gray-100 odd:bg-white even:bg-gray-50/50'}`}>
                         <td className="py-1.5 px-3"><CanalBadge canal={row.canal} /></td>
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-300' : 'text-gray-700'} max-w-[160px] truncate`} title={row.kit || ''}>{val(row.kit)}</td>
-                        <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-300' : 'text-gray-700'}`}>{val(row.distancia)}</td>
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{val(row.modalidade)}</td>
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'}`}>{val(row.pelotao)}</td>
                         <td className={`py-1.5 px-3 text-xs ${dark ? 'text-gray-400' : 'text-gray-500'} max-w-[120px] truncate`} title={row.produtos || ''}>{val(row.produtos)}</td>

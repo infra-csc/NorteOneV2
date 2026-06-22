@@ -1805,7 +1805,6 @@ export interface DetalheEventoDisponivel {
 export interface DetalheRow {
   canal: string | null;
   kit: string | null;
-  distancia: string | null;
   modalidade: string | null;
   pelotao: string | null;
   produtos: string | null;

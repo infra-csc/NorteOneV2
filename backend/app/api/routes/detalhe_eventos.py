@@ -44,7 +44,7 @@ def get_detalhe_evento(
     Retorna o detalhamento consolidado de inscrições para um evento.
 
     Resposta:
-    - consolidado: linhas agregadas por [canal, kit, distancia, modalidade, pelotao, produtos, tamanho_camiseta]
+    - consolidado: linhas agregadas por [canal, kit, modalidade, pelotao, produtos, tamanho_camiseta]
     - por_banco: { Ativo: [...], Magento: [...] } — raw rows para auditoria
     - divergencias: combinações onde a soma por banco diverge do total consolidado
     - erros: erros por banco (se alguma query falhou)

@@ -62,12 +62,12 @@ _inflight_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 
 COLUMNS = [
-    "banco", "id_evento", "evento", "canal", "kit", "distancia",
-    "modalidade", "pelotao", "produtos", "tamanho_camiseta",
+    "banco", "id_evento", "evento", "canal", "kit", "modalidade",
+    "pelotao", "produtos", "tamanho_camiseta",
     "inscritos", "receita_bruta", "receita_liquida", "ticket_medio",
 ]
 
-DIM_KEYS = ["canal", "kit", "distancia", "modalidade", "pelotao", "produtos", "tamanho_camiseta"]
+DIM_KEYS = ["canal", "kit", "modalidade", "pelotao", "produtos", "tamanho_camiseta"]
 
 
 def _row_to_dict(row) -> Dict:
@@ -348,7 +348,7 @@ def _consolidar(
     consolidated.sort(key=lambda r: (
         r.get("canal") or "",
         r.get("kit") or "",
-        r.get("distancia") or "",
+        r.get("modalidade") or "",
         -(r.get("inscritos") or 0),
     ))
     return consolidated
