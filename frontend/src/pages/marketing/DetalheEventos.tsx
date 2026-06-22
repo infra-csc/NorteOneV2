@@ -404,12 +404,6 @@ const TreeRow: React.FC<TreeRowProps> = ({ node, dark, expanded, bankExpanded, o
             {node.hasDivergencia && (
               <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" title="Divergência detectada" />
             )}
-            {/* Show bank badges at deep levels or leaf */}
-            {(node.depth >= 2 || hasBankSplit) && node.bancos.length > 0 && (
-              <span className="flex gap-0.5 ml-1">
-                {node.bancos.map(b => <BancoBadge key={b} banco={b} />)}
-              </span>
-            )}
           </div>
         </td>
         <td className={`py-2 px-3 text-right text-sm ${dark ? 'text-gray-300' : 'text-gray-700'}`}>
@@ -1373,11 +1367,6 @@ const DetalheEventos: React.FC = () => {
                     <tr className={`text-left text-xs font-semibold uppercase tracking-wide ${dark ? 'bg-gray-700/80 text-gray-400' : 'bg-gray-50 text-gray-500'}`}>
                       <th className="py-2 px-3">
                         Dimensão
-                        {activeTab === 'consolidado' && (
-                          <span className={`ml-1.5 text-[10px] normal-case font-normal ${textSec}`}>
-                            (clique na folha para ver split Ativo/Magento)
-                          </span>
-                        )}
                       </th>
                       <th className="py-2 px-3 text-right">Inscritos</th>
                       <th className="py-2 px-2 text-right">%</th>
